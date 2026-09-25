@@ -5,7 +5,7 @@ import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startServer } from "../wrangler.ts";
-import { type Check, httpCall } from "./mcp.ts";
+import { type Check, httpCall, type Setup } from "./mcp.ts";
 
 const PORT = 8790;
 const MCP = `http://127.0.0.1:${PORT}/mcp`;
@@ -109,6 +109,11 @@ try {
       .split("## Assertions")[0]
       ?.replace("## Prompt", "")
       .replaceAll("{{name}}", name);
+    const { default: check, setup } = (await import(`./${task}.ts`)) as {
+      default: Check;
+      setup?: Setup;
+    };
+    await setup?.(call, name);
     const run = await agent(task, prompt?.trim() ?? "");
     let error = run.error;
     if (!error) {
@@ -118,7 +123,6 @@ try {
         };
         const docs = documents.filter((d) => d.name === name);
         if (docs.length !== 1) throw new Error(`${docs.length} Documents named ${name}, want 1`);
-        const check = (await import(`./${task}.ts`)).default as Check;
         await check(call, docs[0]?.docId ?? "", run.tools);
       } catch (e) {
         error = (e as Error).message;

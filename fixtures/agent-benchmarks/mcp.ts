@@ -51,3 +51,6 @@ export function assert(ok: unknown, message: string): asserts ok {
 
 /** A number as the assertions compare it: the 3 decimals the Document stores. */
 export const n3 = (x: number) => Math.round(x * 1000) / 1000;
+
+/** Builds what a task's prompt says already exists, in a Document named `name`; returns its docId. */
+export type Setup = (call: Call, name: string) => Promise<string>;

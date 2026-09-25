@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import grid from "../../../fixtures/agent-benchmarks/grid.ts";
 import labels from "../../../fixtures/agent-benchmarks/labels.ts";
 import type { Call } from "../../../fixtures/agent-benchmarks/mcp.ts";
+import placeTask from "../../../fixtures/agent-benchmarks/place.md?raw";
+import place, { setup as placeSetup } from "../../../fixtures/agent-benchmarks/place.ts";
 import transaction from "../../../fixtures/agent-benchmarks/transaction.ts";
 import { call as rpcCall } from "./rpc.ts";
 
@@ -81,6 +83,35 @@ describe("labels", () => {
 
   it("rejects a label overlapping its shape", async () => {
     await expect(labels(call, await draw(40), [])).rejects.toThrow('"Circle" overlaps the ellipse');
+  });
+});
+
+describe("place", () => {
+  const svg = placeTask.match(/```svg\n([\s\S]*?)```/)?.[1] ?? "";
+  const logoLayer = async (docId: string) =>
+    (await call("zibel_doc_outline", { docId, depth: 1 })).structuredContent.nodes.find(
+      (l: { name: string }) => l.name === "Logo",
+    ).id as string;
+
+  it("accepts the SVG placed into Logo at (560, 150)", async () => {
+    const docId = await placeSetup(call, "Bench");
+    const parentId = await logoLayer(docId);
+    await call("zibel_svg_import", { docId, svg, parentId, position: { x: 560, y: 150 } });
+    await expect(place(call, docId, ["zibel_svg_import"])).resolves.toBeUndefined();
+  });
+
+  it("rejects the SVG placed at the Artboard's centre", async () => {
+    const docId = await placeSetup(call, "Bench");
+    await call("zibel_svg_import", { docId, svg, parentId: await logoLayer(docId) });
+    await expect(place(call, docId, ["zibel_svg_import"])).rejects.toThrow("centre (400, 300)");
+  });
+
+  it("rejects an Agent that also calls node_create", async () => {
+    const docId = await placeSetup(call, "Bench");
+    const parentId = await logoLayer(docId);
+    await call("zibel_svg_import", { docId, svg, parentId, position: { x: 560, y: 150 } });
+    const tools = ["zibel_svg_import", "zibel_node_create"];
+    await expect(place(call, docId, tools)).rejects.toThrow("zibel_node_create");
   });
 });
 
