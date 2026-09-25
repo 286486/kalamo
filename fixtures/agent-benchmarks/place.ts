@@ -1,9 +1,11 @@
-import { assert, type Bounds, type Check, type Setup } from "./mcp.ts";
+import { assert, type Bounds, type Check, n3, type Setup } from "./mcp.ts";
 
 // place.md's SVG: its artwork spans (10, 10)–(230, 110).
 const WIDTH = 220;
 const HEIGHT = 100;
 const CENTRE = { x: 560, y: 150 };
+// setup's doc_create and node_create.
+const SETUP_REV = 2;
 
 /** The Document the prompt calls existing: a background rect in Layer 1, and an empty Logo Layer. */
 export const setup: Setup = async (call, name) => {
@@ -28,46 +30,62 @@ export const setup: Setup = async (call, name) => {
   return docId;
 };
 
-interface Outline {
+interface OutlineNode {
   id: string;
   type: string;
   name: string;
   childCount: number;
-  children?: Outline[];
+  children?: OutlineNode[];
+}
+
+interface Change {
+  summary: string;
+  createdIds: string[];
+  updatedIds: string[];
+  deletedIds: string[];
 }
 
 const check: Check = async (call, docId, tools) => {
   assert(tools.includes("zibel_svg_import"), "the Agent never called zibel_svg_import");
   assert(!tools.includes("zibel_node_create"), "the Agent called zibel_node_create");
-  // setup commits rev 2.
-  const { changes } = (await call("zibel_doc_changes", { docId, sinceRev: 2 })).structuredContent;
-  assert(changes.length === 1, `${changes.length} changes after the setup, want 1`);
 
   const { nodes: layers } = (await call("zibel_doc_outline", { docId, depth: 1 }))
-    .structuredContent as { nodes: Outline[] };
+    .structuredContent as { nodes: OutlineNode[] };
   const logo = layers.find((l) => l.name === "Logo");
   assert(logo, `no top-level Layer named "Logo" (found ${layers.map((l) => l.name)})`);
   const { nodes: placed } = (await call("zibel_doc_outline", { docId, rootId: logo.id, depth: 2 }))
-    .structuredContent as { nodes: Outline[] };
+    .structuredContent as { nodes: OutlineNode[] };
   const group = placed[0];
   assert(
     placed.length === 1 && group?.type === "group",
     `Logo holds ${placed.map((n) => n.type)}, want one group`,
   );
-  const layersOf = (group.children ?? []).map((c) => `${c.type} ${c.name} ${c.childCount}`);
+  const children = (group.children ?? []).map((c) => `${c.type} ${c.name} ${c.childCount}`);
   assert(
-    layersOf.join() === "group Mark 2,group Wordmark 1",
-    `the Group holds ${layersOf}, want group Mark 2, group Wordmark 1`,
+    children.join() === "group Mark 2,group Wordmark 1",
+    `the Group holds ${children}, want group Mark 2, group Wordmark 1`,
   );
+
+  // Placing, then moving what was placed, is fine; a rebuild or any other edit is not.
+  const { changes } = (await call("zibel_doc_changes", { docId, sinceRev: SETUP_REV }))
+    .structuredContent as { changes: Change[] };
+  const place = changes.find((c) => c.createdIds[0] === group.id);
+  assert(place, "no change after the setup created the Group");
+  assert(place.summary.startsWith("Place"), `the Group came from "${place.summary}", not Place`);
+  const ours = new Set(place.createdIds);
+  for (const c of changes)
+    assert(
+      c.deletedIds.length === 0 && [...c.createdIds, ...c.updatedIds].every((id) => ours.has(id)),
+      `"${c.summary}" changes more than the placed Group`,
+    );
 
   const b = (await call("zibel_node_get", { docId, nodeIds: [group.id] })).structuredContent
     .nodes[0].geometricBounds as Bounds;
-  const near = (a: number, want: number) => Math.abs(a - want) < 0.01;
-  assert(near(b.width, WIDTH) && near(b.height, HEIGHT), `the Group is ${b.width}×${b.height}`);
-  const cx = b.x + b.width / 2;
-  const cy = b.y + b.height / 2;
+  assert(n3(b.width) === WIDTH && n3(b.height) === HEIGHT, `the Group is ${b.width}×${b.height}`);
+  const cx = n3(b.x + b.width / 2);
+  const cy = n3(b.y + b.height / 2);
   assert(
-    near(cx, CENTRE.x) && near(cy, CENTRE.y),
+    cx === CENTRE.x && cy === CENTRE.y,
     `the Group's centre (${cx}, ${cy}), want (${CENTRE.x}, ${CENTRE.y})`,
   );
 };

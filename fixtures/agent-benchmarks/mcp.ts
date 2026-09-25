@@ -12,6 +12,9 @@ export type Call = (name: string, args: unknown) => Promise<ToolResult>;
 /** A task's assertions: throw an Error naming what is wrong. `tools` are the Agent's calls, in order. */
 export type Check = (call: Call, docId: string, tools: string[]) => Promise<void>;
 
+/** Builds what a task's prompt says already exists, in a Document named `name`; returns its docId. */
+export type Setup = (call: Call, name: string) => Promise<string>;
+
 let nextId = 1;
 
 /** Stateless JSON-RPC over Streamable HTTP with JSON responses (ADR-0006). */
@@ -51,6 +54,3 @@ export function assert(ok: unknown, message: string): asserts ok {
 
 /** A number as the assertions compare it: the 3 decimals the Document stores. */
 export const n3 = (x: number) => Math.round(x * 1000) / 1000;
-
-/** Builds what a task's prompt says already exists, in a Document named `name`; returns its docId. */
-export type Setup = (call: Call, name: string) => Promise<string>;
