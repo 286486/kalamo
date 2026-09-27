@@ -50,4 +50,4 @@ Undo and Redo stay enabled: the browser does not know the server's stacks (ADR-0
 
 - `Viewer.tsx`'s `keydown` switch loses every case that becomes a Menu Item. The button row goes. The e2e tests that click "Download SVG", "Select All" and the others switch to the menu items.
 - CONTEXT.md needs no new term: "Menu Item" is plain English, and a Menu Item that edits the Document sends a Command (ADR-0010).
-- New requirement F-VIEW-10. Implemented in its own issue; not started yet.
+- New requirement F-VIEW-10. Implemented in #72; not started yet.
