@@ -65,6 +65,28 @@ const strokedPair = (contents: number, rgb: { at23: RGB; at80: RGB }): Compositi
   ],
 });
 
+/**
+ * Area Type in heavy stems, 50% red with the second word yellow: "II II " then "III" wrap in its
+ * frame and a last "II" overflows. Line 1's stems span y 6..30, line 2's y 38..62, the overflow
+ * would sit at y 70..94. The first stem spans x 12.5..18.2 and the yellow word's first 64.5..70.3.
+ */
+const areaType = {
+  type: "text",
+  kind: "area",
+  name: "type",
+  x: 10,
+  y: 5,
+  width: 120,
+  height: 64,
+  content: "II II III\nII",
+  fontSize: 36,
+  fontStyle: "Black",
+  leading: 32,
+  tracking: 200,
+  ranges: [{ start: 3, end: 5, fill: hex(YELLOW) }],
+  appearance: { fills: [{ color: `${hex(RED)}80` }], strokes: [] },
+};
+
 export interface CompositingCase {
   name: string;
   /** Created in the default Layer, bottom to top, by `node_create`. */
@@ -182,6 +204,31 @@ export const COMPOSITING: CompositingCase[] = [
       { x: 35, y: 50, rgb: over(BLUE, 0.5, WHITE) },
       { x: 45, y: 50, rgb: over(BLUE, 0.5, WHITE) },
       { x: 100, y: 50, rgb: half },
+    ],
+  },
+  {
+    name: "a Group Fill below Area Type and a Stroke above it paint only the lines in the frame",
+    nodes: [{ type: "group", name: "g", children: [areaType] }],
+    patches: { g: { appearance: appearance([CYAN], [[BLUE, 2]], 1) } },
+    probes: [
+      { x: 15, y: 18, rgb: over(RED, 128 / 255, CYAN) },
+      { x: 67, y: 18, rgb: YELLOW },
+      { x: 12, y: 18, rgb: BLUE },
+      { x: 12, y: 50, rgb: BLUE },
+      { x: 15, y: 34, rgb: WHITE },
+      { x: 15, y: 82, rgb: WHITE },
+    ],
+  },
+  {
+    name: "a Group Fill above Area Type paints every shown glyph, range fills too",
+    nodes: [{ type: "group", name: "g", children: [areaType] }],
+    patches: { g: { appearance: appearance([MAGENTA], [], 0) } },
+    probes: [
+      { x: 15, y: 18, rgb: MAGENTA },
+      { x: 67, y: 18, rgb: MAGENTA },
+      { x: 15, y: 50, rgb: MAGENTA },
+      { x: 25, y: 18, rgb: WHITE },
+      { x: 15, y: 82, rgb: WHITE },
     ],
   },
   {

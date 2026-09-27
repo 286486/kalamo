@@ -1414,6 +1414,32 @@ describe("container Appearance (ADR-0043)", () => {
     expect(visibleBounds(doc, group)).toEqual({ x: 25, y: 0, width: 10, height: 10 });
   });
 
+  it("grows visibleBounds around an Area Type child's frame by half the container Stroke (#112)", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const [group] = createNodes(doc, [
+      {
+        type: "group",
+        parentId: defaultLayerId,
+        appearance: { strokes: [stroke(10)] },
+        children: [
+          {
+            type: "text",
+            kind: "area",
+            x: 10,
+            y: 20,
+            width: 60,
+            height: 15,
+            content: "one\ntwo\nthree",
+            appearance: {},
+          },
+        ],
+      },
+    ]).nodes;
+    if (!group) throw new Error("setup");
+    // The overflowing lines are not drawn, so the frame bounds the text however long it runs.
+    expect(visibleBounds(doc, group)).toEqual({ x: 5, y: 15, width: 70, height: 25 });
+  });
+
   it("grows visibleBounds around a text child by half the container Stroke", () => {
     const { doc, defaultLayerId } = newDoc();
     const [group, text] = createNodes(doc, [
