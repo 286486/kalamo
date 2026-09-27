@@ -765,11 +765,14 @@ const json = (result: object): CallToolResult => ({
   content: [{ type: "text", text: JSON.stringify(result) }],
 });
 
-/** A txWrite tool's arguments as the service takes them: docId, the operation input as given, then the write options. */
+/** A txWrite tool's arguments as the service takes them: docId, the operation input as given, then the write options given. */
 const splitTxWrite = <T extends { docId: string; intent?: string; txId?: string; ifRev?: number }>({
   docId,
   intent,
   txId,
   ifRev,
   ...input
-}: T) => [docId, input, { intent, txId, ifRev }] as const;
+}: T) => {
+  const write = Object.entries({ intent, txId, ifRev }).filter(([, v]) => v !== undefined);
+  return [docId, input, Object.fromEntries(write) as Pick<T, "intent" | "txId" | "ifRev">] as const;
+};
