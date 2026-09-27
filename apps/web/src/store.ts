@@ -1,6 +1,7 @@
 import { newId } from "@zibel/core";
 import type { ClientMessage, Command, ServerMessage } from "@zibel/sync";
 import { create } from "zustand";
+import { parseKey } from "./direct.ts";
 import type { ImageCache } from "./images.ts";
 import { receive, type ViewState } from "./receive.ts";
 import type { FillStroke, Tool } from "./tools.ts";
@@ -36,6 +37,8 @@ export const useStore = create<State>(() => ({
   selection: [],
   drag: null,
   pen: null,
+  edit: null,
+  anchors: [],
   notice: null,
   size: { width: 0, height: 0 },
   images: null,
@@ -43,6 +46,13 @@ export const useStore = create<State>(() => ({
   tool: "selection",
   fillStroke: DEFAULT_FILL_STROKE,
 }));
+
+// Selected Anchors live only on selected Nodes, whatever changed the Selection.
+useStore.subscribe((s, prev) => {
+  if (s.selection === prev.selection) return;
+  const anchors = s.anchors.filter((k) => s.selection.includes(parseKey(k).nodeId));
+  if (anchors.length < s.anchors.length) useStore.setState({ anchors });
+});
 
 let socket: WebSocket | null = null;
 
@@ -70,6 +80,8 @@ export function connect(docId: string): () => void {
     live: false,
     drag: null,
     pen: null,
+    edit: null,
+    anchors: [],
     notice: null,
     viewport: null,
     selection: [],

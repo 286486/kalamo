@@ -2,13 +2,16 @@ import { memo } from "react";
 import { useStore } from "./store.ts";
 import { type FillStroke, fillStrokeKey, setTool, type Tool } from "./tools.ts";
 
-const glyph = (d: string) => (
+const glyph = (d: string, fill = "none") => (
   <svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true">
-    <path d={d} fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+    <path d={d} fill={fill} stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
   </svg>
 );
+const ARROW = "M4 2 L4 13 L7 10 L9 14 L11 13 L9 9 L13 9 Z";
+/** Illustrator's black and white arrows. */
 const TOOLS: [Tool, string, React.ReactNode][] = [
-  ["selection", "Selection Tool (V)", glyph("M4 2 L4 13 L7 10 L9 14 L11 13 L9 9 L13 9 Z")],
+  ["selection", "Selection Tool (V)", glyph(ARROW, "currentColor")],
+  ["direct", "Direct Selection Tool (A)", glyph(ARROW)],
   ["zoom", "Zoom Tool (Z)", glyph("M2 7 A5 5 0 1 0 12 7 A5 5 0 1 0 2 7 M10.5 10.5 L14.5 14.5")],
   ["pen", "Pen Tool (P)", glyph("M8 1 L12 8 L10 14 H6 L4 8 Z M8 1 V8 M7 8 A1 1 0 1 0 9 8")],
 ];

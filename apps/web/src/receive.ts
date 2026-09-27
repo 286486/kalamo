@@ -1,5 +1,6 @@
-import { type Document, transformNodes } from "@zibel/core";
+import { type Document, editPath, type PathEditInput, transformNodes } from "@zibel/core";
 import { applyBroadcast, type ServerMessage } from "@zibel/sync";
+import { inRange, parseKey } from "./direct.ts";
 
 /** The Selection being dragged by (dx, dy) pt. `commandId` is set once its move has been sent. */
 export interface Drag {
@@ -19,6 +20,15 @@ export interface PenPath {
   commandId: string | null;
 }
 
+/**
+ * A Direct Selection drag: one `path_edit` per path. `commandIds`, one per input, is set once they
+ * are sent; each answer or rejection takes its path out, and the preview lasts until the last one.
+ */
+export interface PathDrag {
+  inputs: PathEditInput[];
+  commandIds: string[] | null;
+}
+
 export interface ViewState {
   doc: Document | null;
   /** UI state only, never sent as a Document property (CONTEXT.md). */
@@ -26,6 +36,9 @@ export interface ViewState {
   /** Drawn until the answer to its command arrives, so a committed move does not flicker. */
   drag: Drag | null;
   pen: PenPath | null;
+  edit: PathDrag | null;
+  /** Direct Selection's selected Anchors (direct.ts's keys): UI state, like the Selection. */
+  anchors: string[];
   /** Why the last command was rejected. */
   notice: string | null;
 }
@@ -44,6 +57,7 @@ export function receive(
     return {
       ...(s.drag?.commandId === msg.id && { drag: null }),
       ...(s.pen?.commandId === msg.id && { pen: null }),
+      ...settle(s.edit, msg.id),
       notice: gone
         ? "Someone else deleted that object first; it stays deleted."
         : msg.error.message,
@@ -71,6 +85,16 @@ export function receive(
   const answered =
     msg.type === "document" || (!!msg.commandId && msg.commandId === s.drag?.commandId);
   const drawn = msg.type === "tx" && !!msg.commandId && msg.commandId === s.pen?.commandId;
+  // Someone else's change to a path renumbers its Anchors, so its selected ones go; after our own
+  // command, and on a reconnect, those it still has stay.
+  const ours = [...(s.edit?.commandIds ?? []), s.drag?.commandId];
+  const own = msg.type === "tx" && !!msg.commandId && ours.includes(msg.commandId);
+  const touched =
+    msg.type === "tx" ? new Set([...msg.updated.map((n) => n.id), ...msg.deletedIds]) : null;
+  const anchors = s.anchors.filter((key) => {
+    const changed = !touched || touched.has(parseKey(key).nodeId);
+    return !changed || ((own || !touched) && inRange(doc, key));
+  });
   const skipped = msg.type === "tx" ? (msg.skippedIds?.length ?? 0) : 0;
   // A selected Node that a browser's command moved into a new Group selects that Group, as Make
   // Clipping Mask does; an Agent's edit leaves the person's Selection alone.
@@ -85,6 +109,8 @@ export function receive(
     // The path the Pen drew becomes the Selection, as in Illustrator.
     selection: drawn ? [...made] : [...new Set(selection)],
     ...(answered && { drag: null }),
+    anchors,
+    ...(msg.type === "document" ? { edit: null } : settle(s.edit, msg.commandId)),
     ...((drawn || (msg.type === "document" && s.pen?.commandId)) && { pen: null }),
     ...(skipped > 0 && { notice: `Skipped ${skipped} deleted object(s); they stay deleted.` }),
   };
@@ -99,4 +125,30 @@ export function preview(doc: Document, { nodeIds, dx, dy }: Drag): Document {
   const present = nodeIds.filter((id) => doc.nodes.has(id));
   if (present.length > 0) transformNodes(shown, { nodeIds: present, translate: { x: dx, y: dy } });
   return shown;
+}
+
+/**
+ * `doc` with a Direct Selection drag applied by core. Its ops are absolute, so one already
+ * committed applies again unchanged; one core refuses, such as on a Node deleted meanwhile, is left
+ * out here and rejected by the DO.
+ */
+export function previewEdit(doc: Document, { inputs }: PathDrag): Document {
+  const shown = { ...doc, nodes: new Map(doc.nodes) };
+  for (const input of inputs) {
+    try {
+      editPath(shown, input);
+    } catch (e) {
+      console.warn("A Direct Selection preview skipped a path core refuses to edit.", e);
+    }
+  }
+  return shown;
+}
+
+/** The drag without the path whose command `id` was answered or rejected; null once none is left. */
+function settle(edit: PathDrag | null, id: string | undefined): { edit?: PathDrag | null } {
+  const k = id && edit?.commandIds ? edit.commandIds.indexOf(id) : -1;
+  if (!edit?.commandIds || k < 0) return {};
+  const inputs = edit.inputs.filter((_, i) => i !== k);
+  const commandIds = edit.commandIds.filter((_, i) => i !== k);
+  return { edit: inputs.length > 0 ? { inputs, commandIds } : null };
 }

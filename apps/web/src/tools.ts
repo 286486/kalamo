@@ -4,8 +4,8 @@ import { editable, placeParent } from "./selection.ts";
 import { DEFAULT_FILL_STROKE, type State, send, useStore } from "./store.ts";
 
 /** The Tools panel's tools. Their keys stay here, not in the menu table (ADR-0031). */
-export type Tool = "selection" | "zoom" | "pen";
-export const TOOL_KEYS: Record<string, Tool> = { V: "selection", Z: "zoom", P: "pen" };
+export type Tool = "selection" | "direct" | "zoom" | "pen";
+export const TOOL_KEYS: Record<string, Tool> = { V: "selection", A: "direct", Z: "zoom", P: "pen" };
 
 /** The Fill and Stroke boxes (F-DRAW-12): what new art is painted with; null is None. */
 export interface FillStroke {
@@ -103,8 +103,8 @@ export function undoAnchor(): boolean {
   return true;
 }
 
-/** Switching tools finishes the path the Pen is drawing, as in Illustrator. */
+/** Switching tools finishes the path the Pen is drawing, as in Illustrator, and drops selected Anchors. */
 export function setTool(tool: Tool) {
   finishPen();
-  useStore.setState({ tool });
+  useStore.setState({ tool, anchors: [] });
 }
