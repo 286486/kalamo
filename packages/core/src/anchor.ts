@@ -242,12 +242,14 @@ export const PathOpInput = z.object({
     .max(180)
     .default(90)
     .describe(
-      "simplify: Illustrator's Corner Point Angle Threshold in degrees. Where the path turns so that the angle between its two sides is at most this (180 is straight on), a Corner Anchor stays; higher keeps more corners.",
+      "simplify: Illustrator's Corner Point Angle Threshold in degrees. Where the path turns so that the angle between its two sides is at most this (180 is straight on), a Corner Anchor stays one; higher keeps more. A Smooth Anchor never becomes a corner.",
     ),
   toLines: z
     .boolean()
     .default(false)
-    .describe("simplify: Convert to Straight Lines, fitting straight segments only."),
+    .describe(
+      "simplify: Convert to Straight Lines: straight segments between original Anchors, keeping those the path needs to stay within tolerance.",
+    ),
   axis: z
     .enum(["horizontal", "vertical", "both"])
     .default("both")

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { BareAnchor } from "./anchor.ts";
+import type { Anchor } from "./anchor.ts";
 import { ZibelError } from "./errors.ts";
 import { formatPath, type Segment } from "./path.ts";
 import { AppearanceInput } from "./schema.ts";
@@ -30,6 +30,8 @@ export interface FitOptions {
   corner?: number;
   /** Closed or open whatever the ends; a closed Ink may end on its first point. */
   closed?: boolean;
+  /** Only Ink points here may be corners. */
+  corners?: Point[];
 }
 
 const bezier = ([p0, c1, c2, p3]: Cubic, t: number): Point => {
@@ -71,9 +73,12 @@ export function fitInk(ink: Point[], tolerance: number, opts: FitOptions = {}): 
     const ahead = toward(i, 1, closed ? i + n - 1 : n - 1);
     return back && ahead ? Math.acos(Math.max(-1, Math.min(1, -dot(back, ahead)))) : 0;
   };
-  const turns = pts.map((_, i) => (closed || (i > 0 && i < n - 1) ? turn(i) : 0));
+  const may = opts.corners && new Set(opts.corners.map((p) => p.join(" ")));
+  const turns = pts.map((p, i) =>
+    (closed || (i > 0 && i < n - 1)) && (!may || may.has(p.join(" "))) ? turn(i) : 0,
+  );
   const corners = turns.flatMap((t, i) => {
-    if (t <= corner) return [];
+    if (t <= Math.max(0, corner)) return [];
     const run = (dir: 1 | -1) => {
       for (let j = i + dir; closed || (j >= 0 && j < n); j += dir) {
         const k = (j + n) % n;
@@ -184,19 +189,19 @@ export function fitInk(ink: Point[], tolerance: number, opts: FitOptions = {}): 
 }
 
 /**
- * Object > Path > Simplify (research §5, ADR-0035): the subpath traced as Ink and refitted within
- * `tolerance`, keeping as corners the turns whose angle is at most `cornerAngle` degrees (180° is
+ * Object > Path > Simplify (research 06 §5, ADR-0035): the subpath traced as Ink and refitted within
+ * `tolerance`, keeping as corners the Corner Anchors whose angle is at most `cornerAngle` degrees (180° is
  * straight on); `toLines` fits straight segments only. Null for a subpath with no length.
  */
 export function simplifySubpath(
-  { closed, anchors }: { closed: boolean; anchors: BareAnchor[] },
+  { closed, anchors }: { closed: boolean; anchors: Anchor[] },
   tolerance: number,
   cornerAngle: number,
   toLines: boolean,
 ): Segment[] | null {
   const n = anchors.length;
   const cubics = Array.from({ length: closed ? n : n - 1 }, (_, i): Cubic => {
-    const [a, b] = [anchors[i] as BareAnchor, anchors[(i + 1) % n] as BareAnchor];
+    const [a, b] = [anchors[i] as Anchor, anchors[(i + 1) % n] as Anchor];
     return [a.anchor, a.handleOut, b.handleIn, b.anchor];
   });
   // The control polygon's length bounds the curve's.
@@ -208,15 +213,21 @@ export function simplifySubpath(
   if (total <= 1e-9) return null;
   // Points half the tolerance apart, at least 16 and at most 10,000 along the subpath.
   const step = Math.min(Math.max(tolerance / 2, total / 10000), total / 16);
-  const ink: Point[] = [(anchors[0] as BareAnchor).anchor];
+  const ink: Point[] = [(anchors[0] as Anchor).anchor];
+  /** Where each Anchor, and a closed subpath's return to its first, falls in the Ink. */
+  const stops = [0];
   cubics.forEach((cubic, i) => {
     const k = Math.max(1, Math.ceil((lengths[i] as number) / step));
     for (let j = 1; j <= k; j++) ink.push(bezier(cubic, j / k));
+    stops.push(ink.length - 1);
   });
   if (!toLines) {
-    return fitInk(ink, tolerance, { closed, corner: Math.PI * (1 - cornerAngle / 180) - 1e-9 });
+    // Only a Corner Anchor can stay a corner: Smooth ones never become one.
+    const corner = Math.PI * (1 - cornerAngle / 180) - 1e-9;
+    const corners = anchors.filter((a) => a.type === "corner").map((a) => a.anchor);
+    return fitInk(ink, tolerance, { closed, corner, corners });
   }
-  const kept = straighten(ink, tolerance);
+  const kept = straighten(ink, stops, tolerance);
   if (closed) kept.pop();
   return [
     { cmd: "M", args: [...(kept[0] as Point)] },
@@ -225,27 +236,38 @@ export function simplifySubpath(
   ];
 }
 
-/** Douglas–Peucker: the fewest of the points, ends kept, whose polyline passes within `tolerance` of every one. */
-function straighten(pts: Point[], tolerance: number): Point[] {
+/**
+ * Douglas–Peucker over the Anchors at `stops`, as Convert to Straight Lines keeps only original
+ * Anchors: the fewest of them, ends kept, whose polyline passes within `tolerance` of every point,
+ * as far as the Anchors allow.
+ */
+function straighten(pts: Point[], stops: number[], tolerance: number): Point[] {
   const toChord = (p: Point, a: Point, b: Point) => {
     const ab = sub(b, a);
     const t = dot(ab, ab) ? Math.max(0, Math.min(1, dot(sub(p, a), ab) / dot(ab, ab))) : 0;
     return dist(p, add(a, scale(ab, t)));
   };
-  const keep = [0, pts.length - 1];
-  const todo: [number, number][] = [[0, pts.length - 1]];
+  // Ranges over `stops`: a line from Anchor a to Anchor b, split at the Anchor between that strays
+  // farthest while any point strays beyond the tolerance.
+  const keep = [0, stops.length - 1];
+  const todo: [number, number][] = [[0, stops.length - 1]];
   for (let range = todo.pop(); range; range = todo.pop()) {
     const [a, b] = range;
-    let [far, worst] = [tolerance, -1];
-    for (let i = a + 1; i < b; i++) {
-      const d = toChord(pts[i] as Point, pts[a] as Point, pts[b] as Point);
-      if (d > far) [far, worst] = [d, i];
+    if (b - a < 2) continue;
+    const [pa, pb] = [pts[stops[a] as number] as Point, pts[stops[b] as number] as Point];
+    const off = (i: number) => toChord(pts[i] as Point, pa, pb);
+    let strays = false;
+    for (let i = (stops[a] as number) + 1; i < (stops[b] as number) && !strays; i++) {
+      strays = off(i) > tolerance;
     }
-    if (worst < 0) continue;
+    if (!strays) continue;
+    let worst = a + 1;
+    for (let k = a + 2; k < b; k++)
+      if (off(stops[k] as number) > off(stops[worst] as number)) worst = k;
     keep.push(worst);
     todo.push([a, worst], [worst, b]);
   }
-  return keep.sort((x, y) => x - y).map((i) => pts[i] as Point);
+  return keep.sort((x, y) => x - y).map((k) => pts[stops[k] as number] as Point);
 }
 
 /** Each point's parameter by the distance along the polyline. */

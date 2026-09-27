@@ -1,4 +1,4 @@
-import { bounds, type Document, fidelityTolerance, type Rect } from "@zibel/core";
+import { bounds, type Document, fidelityTolerance, union } from "@zibel/core";
 import { hasAnchors, localAnchors } from "./direct.ts";
 import { previewOp } from "./receive.ts";
 import { pathTargets } from "./selection.ts";
@@ -25,8 +25,8 @@ interface Settings {
   showOriginal: boolean;
 }
 
-/** The bar or dialog on screen, and how to take it down. */
-let open: { close: () => void } | null = null;
+/** The bar or dialog on screen: how to take it down, and to redo the preview at a new zoom. */
+let open: { close: () => void; update: () => void } | null = null;
 
 /** Closes the bar or dialog without touching the preview. */
 function takeDown() {
@@ -50,21 +50,13 @@ function cancel() {
 }
 
 // A tab switch drops the preview, so its bar goes; a new Selection applies it, as a click
-// elsewhere does in Illustrator.
+// elsewhere does in Illustrator. The slider is in screen px, so a zoom refits.
 useStore.subscribe((s, prev) => {
   if (!open) return;
   if (!s.simplify) takeDown();
   else if (s.selection.join(" ") !== prev.selection.join(" ")) commit();
+  else if (s.viewport?.scale !== prev.viewport?.scale) open.update();
 });
-
-const union = (rects: Rect[]): Rect | null =>
-  rects.reduce<Rect | null>((a, b) => {
-    if (!a) return b;
-    const [x, y] = [Math.min(a.x, b.x), Math.min(a.y, b.y)];
-    const right = Math.max(a.x + a.width, b.x + b.width);
-    const bottom = Math.max(a.y + a.height, b.y + b.height);
-    return { x, y, width: right - x, height: bottom - y };
-  }, null);
 
 const button = (label: string, onclick: () => void, ariaLabel = label) =>
   Object.assign(document.createElement("button"), {
@@ -86,7 +78,8 @@ export function startSimplify() {
   const settings: Settings = { curve: AUTO, cornerAngle: 90, toLines: false, showOriginal: false };
   const update = () => {
     const { curve, cornerAngle, toLines, showOriginal } = settings;
-    const tolerance = sliderTolerance(curve, viewport.scale);
+    const scale = useStore.getState().viewport?.scale ?? viewport.scale;
+    const tolerance = sliderTolerance(curve, scale);
     const input = { nodeIds, op: "simplify" as const, tolerance, cornerAngle, toLines };
     useStore.setState({ simplify: { input, showOriginal, commandId: null } });
   };
@@ -128,9 +121,9 @@ export function startSimplify() {
   // Under the paths, as Illustrator shows it.
   const canvas = document.querySelector("canvas")?.getBoundingClientRect();
   const box = union(
-    nodeIds.flatMap((id) => {
+    nodeIds.map((id) => {
       const n = doc.nodes.get(id);
-      return (n && bounds(doc, n)) ?? [];
+      return n ? bounds(doc, n) : null;
     }),
   );
   const left = (canvas?.left ?? 0) + (box ? box.x * viewport.scale + viewport.x : 0);
@@ -149,9 +142,10 @@ export function startSimplify() {
     font: "12px system-ui, sans-serif",
     zIndex: "10",
   });
-  // Enter is OK and Esc is Cancel, before the tools see them.
+  // Enter is OK and Esc is Cancel, before the tools see them; Enter on a button presses it.
   const onKey = (e: KeyboardEvent) => {
     if (e.key !== "Enter" && e.key !== "Escape") return;
+    if (e.key === "Enter" && e.target instanceof HTMLButtonElement) return;
     e.preventDefault();
     e.stopPropagation();
     if (e.key === "Enter") commit();
@@ -164,6 +158,7 @@ export function startSimplify() {
       removeEventListener("keydown", onKey, true);
       bar.remove();
     },
+    update,
   };
 }
 
@@ -216,5 +211,5 @@ function moreOptions(doc: Document, nodeIds: string[], settings: Settings, updat
   document.body.append(dialog);
   refresh();
   dialog.showModal();
-  open = { close: () => dialog.open && dialog.close() };
+  open = { close: () => dialog.open && dialog.close(), update: onInput };
 }

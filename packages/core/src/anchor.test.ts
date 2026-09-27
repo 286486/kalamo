@@ -602,6 +602,26 @@ describe("pathOp simplify", () => {
     expect(tip(150)).toBeDefined();
   });
 
+  it("makes Corners of original Anchors only: at 180, Smooth ones stay Smooth", () => {
+    const { doc, node } = setup(pencil);
+    pathOp(doc, { nodeIds: [node.id], op: "simplify" });
+    pathOp(doc, { nodeIds: [node.id], op: "add_anchors" });
+    const before = subpathsOf(doc, node.id)[0]?.anchors ?? [];
+    expect(before.slice(1, -1).every((a) => a.type === "smooth")).toBe(true);
+    pathOp(doc, { nodeIds: [node.id], op: "simplify", cornerAngle: 180 });
+    const after = subpathsOf(doc, node.id)[0]?.anchors ?? [];
+    expect(after.length).toBeLessThanOrEqual(before.length);
+    expect(after.slice(1, -1).every((a) => a.type === "smooth")).toBe(true);
+  });
+
+  it("toLines keeps only original Anchors", () => {
+    const { doc, node } = setup(pencil);
+    pathOp(doc, { nodeIds: [node.id], op: "simplify", toLines: true });
+    const kept = subpathsOf(doc, node.id)[0]?.anchors.map((a) => a.anchor) ?? [];
+    const rounded = shaky.map((p) => p.map((v) => Math.round(v * 1e3) / 1e3).join(" "));
+    expect(kept.every((p) => rounded.includes(p.join(" ")))).toBe(true);
+  });
+
   it("measures the tolerance in document units", () => {
     const { doc, node } = setup(pencil);
     doc.nodes.set(node.id, { ...node, transform: [10, 0, 0, 10, 0, 0] });
