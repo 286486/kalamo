@@ -96,6 +96,11 @@ const container = {
       message: "contents is at most the number of fills and strokes.",
       path: ["contents"],
     })
+    // ponytail: container gradients arrive with #107.
+    .refine((a) => [...a.fills, ...a.strokes].every((p) => p.type !== "gradient"), {
+      message: "A Layer's or Group's Appearance takes solid colours only for now.",
+      path: ["fills"],
+    })
     .optional(),
 };
 /** A Node exactly as stored; unknown keys are refused so nothing in a file is dropped silently. */

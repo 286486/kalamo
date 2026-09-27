@@ -596,7 +596,7 @@ export const BlendMode = z.enum([
   "luminosity",
 ]);
 
-/** What `node_update` may write on every Node; a leaf adds its parameters, and every Node but an Image `appearance`. */
+/** What `node_update` may write on every Node; each type adds its parameters and `appearance`. */
 export const Writable = z.object({
   name: z.string(),
   visible: z.boolean(),

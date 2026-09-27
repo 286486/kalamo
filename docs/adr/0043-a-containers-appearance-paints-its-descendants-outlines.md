@@ -11,7 +11,7 @@ CONTEXT.md and F-DOC-04 say a Layer or Group can carry an Appearance, but only l
 
 - `LayerNode` and `GroupNode` gain an optional `appearance {fills, strokes, contents}`. `fills` and `strokes` are the leaf's `Fill` and `Stroke`. `contents` is an integer from 0 to `fills.length + strokes.length`: how many paints, counted from the first Fill up through the Strokes, draw below the children. 0, the default, puts every paint above, as Illustrator does with a new paint.
 - Missing means empty, so files saved before this open unchanged and `version` stays 1. `node_get` `full` reports `{fills: [], strokes: [], contents: 0}` for a container without one. An omitted `appearance` on `node_create` stores nothing: Illustrator has no default paint for a container.
-- `node_update` merges it by RFC 7396 like a leaf's, and `appearance: null` removes it. `contents` outside its range, after the merge too, is the new error code `INVALID_INPUT` with `path` `…appearance.contents`. A leaf's patch with `contents` is `INVALID_PATCH` with a hint. A Fill cannot sit above a Stroke, the limit a leaf has too.
+- `node_update` merges it by RFC 7396 like a leaf's, and `appearance: null` removes it. `contents` outside its range, after the merge too, is the new error code `INVALID_INPUT` with `path` `…appearance.contents`, and so is a gradient paint until #107. A leaf's patch with `contents` is `INVALID_PATCH` with a hint; `node_create` drops it, as it drops any key a type does not have. A Fill cannot sit above a Stroke, the limit a leaf has too.
 
 ## What it paints
 
@@ -35,7 +35,7 @@ This amends ADR-0017's mapping table with a row:
 |---|---|
 | Container Appearance | inside the container's `<g>`, each Fill then each Stroke is a `<g zibel:paint="true" sodipodi:insensitive="true" inkscape:label="Fill"\|"Stroke">` carrying the paint (`fill`, or `fill="none"` and the `stroke` attributes) and one bare `<path>` per painted leaf: its world outline, `fill-rule="evenodd"` where set, no id. The groups below Contents come before the children and the rest after, so document order is paint order |
 
-Why one copy per leaf and not one combined `d`: under nonzero, one path of every outline leaves holes where outlines of opposite winding overlap, and Illustrator paints each object on its own. The copies are locked and labelled so a designer in Inkscape sees what they are and cannot move them. They are derived, so import (#104) reads the paint from each group and ignores the copies. Until then, a file with paint groups opens with them as Groups.
+Why one copy per leaf and not one combined `d`: under nonzero, one path of every outline leaves holes where outlines of opposite winding overlap, and Illustrator paints each object on its own. The copies are locked and labelled so a designer in Inkscape sees what they are and cannot move them. They are derived, so import (#104) reads the paint from each group and ignores the copies. Until then, import drops the paint groups without a warning, so a file exported with a container Appearance opens without it.
 
 ## Considered Options
 

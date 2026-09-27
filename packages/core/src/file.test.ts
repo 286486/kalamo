@@ -657,3 +657,25 @@ describe("resolveImages", () => {
     });
   });
 });
+
+it("refuses a container gradient in a file as INVALID_DOCUMENT until #107", () => {
+  const doc = scene();
+  const file = JSON.parse(serializeDocument(doc));
+  const gradient = {
+    type: "linear",
+    stops: [
+      { offset: 0, color: "#000000" },
+      { offset: 1, color: "#FFFFFF" },
+    ],
+    start: { x: 0, y: 0 },
+    end: { x: 1, y: 0 },
+  };
+  file.nodes.find((n: Node) => n.type === "group").appearance = {
+    fills: [{ type: "gradient", gradient }],
+    strokes: [],
+    contents: 0,
+  };
+  expect(errorOf(() => parseDocument(JSON.stringify(file)))).toMatchObject({
+    code: "INVALID_DOCUMENT",
+  });
+});

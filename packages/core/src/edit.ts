@@ -78,7 +78,8 @@ function pivotOf(pivot: z.output<typeof TransformInput>["pivot"], b: Rect | null
 
 /**
  * Composes the transform into every leaf beneath the targets; Layers and Groups stay identity
- * (ADR-0007). Returns the changed leaves, depth first in target order.
+ * (ADR-0007), whose Strokes scale instead (ADR-0043). Returns the changed containers, then the
+ * changed leaves depth first in target order.
  */
 export function transformNodes(
   doc: Document,
@@ -101,12 +102,12 @@ export function transformNodes(
     const pivot = pivotOf(input.pivot, union(group.map((n) => bounds(doc, n))));
     if (!pivot) continue;
     const m = compose(input, pivot);
-    const s = input.scaleStrokes ? 1 : scaleOf(m);
+    const k = scaleOf(m);
+    const s = input.scaleStrokes ? 1 : k;
     const all = group.flatMap((n) => subtree(doc, n));
     // A container has no matrix to scale its Strokes, so their widths scale instead (ADR-0043).
     for (const c of input.scaleStrokes ? all : []) {
       if (!isContainer(c) || !c.appearance?.strokes.length) continue;
-      const k = scaleOf(m);
       const next = {
         ...c,
         appearance: {
