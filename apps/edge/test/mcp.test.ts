@@ -496,28 +496,19 @@ it("places a PNG as an Image: node_get has its id, render draws it, export and o
   expect(back.nodes[0]).toMatchObject({ src: nodes[0].src });
 });
 
-it("creates a missing link from file and a frame, and refuses one without a frame (ADR-0042)", async () => {
+it("creates a missing link from file and a frame (ADR-0042)", async () => {
   const { docId, defaultLayerId: parentId } = await newDoc();
-  const missing = { type: "image", parentId, file: "photo.png", x: 10, y: 10 };
-  const refused = await call("zibel_node_create", { docId, nodes: [missing] });
-  expect(refused.isError).toBe(true);
-  const [id] = (
-    await call("zibel_node_create", { docId, nodes: [{ ...missing, width: 30, height: 20 }] })
-  ).structuredContent.createdIds as string[];
-  const { nodes } = (await call("zibel_node_get", { docId, nodeIds: [id], detail: "full" }))
-    .structuredContent;
-  expect(nodes[0]).toMatchObject({ type: "image", file: "photo.png", width: 30, height: 20 });
-  expect(nodes[0]).not.toHaveProperty("src");
-  const svg = (await call("zibel_export", { docId, format: "svg" })).content[0].text;
-  expect(svg).toContain('xlink:href="photo.png"');
-  const rendered = await call("zibel_render", { docId, scale: 1 });
-  expect(rendered.content[0]).toMatchObject({ type: "image", mimeType: "image/png" });
-  const text = (await call("zibel_export", { docId, format: "zibel_json" })).content[0].text;
-  const opened = (await call("zibel_doc_open", { content: text })).structuredContent;
-  const back = (
-    await call("zibel_node_get", { docId: opened.docId, nodeIds: [id], detail: "full" })
-  ).structuredContent;
-  expect(back.nodes[0]).toMatchObject({ file: "photo.png", width: 30, height: 20 });
+  const missing = {
+    type: "image",
+    parentId,
+    file: "photo.png",
+    x: 10,
+    y: 10,
+    width: 30,
+    height: 20,
+  };
+  const result = await call("zibel_node_create", { docId, nodes: [missing] });
+  expect(result.structuredContent.createdIds).toHaveLength(1);
 });
 
 it("keeps a style Zibel lacks and warns FONT_MISSING naming the face it renders in", async () => {

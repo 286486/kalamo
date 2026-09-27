@@ -15,7 +15,7 @@ Placed images (F-IO-02, F-DOC-03 `image`, #32) are one of the Zibel gaps ADR-001
 - **Formats.** PNG, JPEG and GIF, recognized by their magic bytes, never by the data URL's declared type; a GIF draws its first frame. Anything else fails `INVALID_IMAGE`, a new error code. **WebP is refused too**, with a hint to convert it to PNG: neither resvg-wasm (2.6.2 and 2.7.0-alpha.2, VP8, VP8L and VP8X all measured) nor Inkscape 1.2.2 draws it, so a stored WebP would be invisible in `render` and in the editor. It joins once a renderer draws it.
 - **Size.** A file over 5 MB (5 × 1024 × 1024 bytes, F-MCP-06c's bitmap quota) fails `LIMIT_EXCEEDED`.
 - **Crop is a Clipping Mask** (ADR-0021), as Illustrator's non-destructive crop and Inkscape's Object > Clip > Set both are. There is no `crop` field. Illustrator's Crop Image, which discards pixels, is raster editing (§1.4).
-- **Embedded only.** Every Image carries its bytes; F-DOC-03's `embedded` flag and linked files wait for a Links issue, since the Worker cannot read a designer's disk and an Inkscape link names a path on it. *Superseded by ADR-0042: an Image may be linked.*
+- **Embedded only.** Every Image carries its bytes; F-DOC-03's `embedded` flag and linked files wait for a Links issue, since the Worker cannot read a designer's disk and an Inkscape link names a path on it. (Superseded by ADR-0042: an Image may be linked.)
 
 ## Storage
 
@@ -26,7 +26,7 @@ This supersedes, for now, F-MCP-06b's "bitmaps always in R2". R2 is not bound un
 ## MCP and the browser
 
 - `node_create` takes `type: "image"` with `src`, either a `data:` URL of the file (base64, or percent-encoded) or the id of an image already in the Document, which copies an Image without resending its bytes; `x`, `y`; `width` and `height`, both or neither, defaulting to the file's pixel size at one pt per pixel, the unit rule of ADR-0017; and `preserveAspectRatio`.
-- `node_update` writes `x`, `y`, `width`, `height` and `preserveAspectRatio`. `src` is read-only: Illustrator's Relink waits for Links. *Superseded by ADR-0042.*
+- `node_update` writes `x`, `y`, `width`, `height` and `preserveAspectRatio`. `src` is read-only: Illustrator's Relink waits for Links. (Superseded by ADR-0042: `src` and `file` become writable.)
 - `node_get` returns `src` as the id, never the bytes. `render` shows the pixels.
 - `image_place` (§6.4.3), which fetches a URL, stays for its own issue, with its SSRF rules (§7.5).
 - The Worker serves `GET /api/docs/<docId>/images/<src>` with the stored MIME type and an immutable cache header, since an id always names the same bytes. The canvas fetches each `src` once, decodes it with `createImageBitmap`, which yields a GIF's first frame, draws nothing until it arrives, and applies `preserveAspectRatio` itself. The Layers panel's Auto-name is `<Image>`, as Illustrator names an embedded image.

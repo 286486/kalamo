@@ -348,8 +348,8 @@ function node(doc: Document, n: Node, walk: Walk): string {
   if (!inside) return "";
   if (n.type === "image") {
     const { x, y, width, height, preserveAspectRatio, src, file } = n;
-    const link = file !== undefined && (walk.linked === "link" || src === undefined);
-    if (link && walk.linked === "draw") {
+    const link = file !== undefined && walk.linked === "link";
+    if (file !== undefined && src === undefined && walk.linked === "draw") {
       // A missing link, as Illustrator draws an unresolved placed file: its frame and both
       // diagonals, moved into place so the stroke stays a hairline however the Image is scaled.
       const [l, t, r, b] = [x, y, x + width, y + height];
