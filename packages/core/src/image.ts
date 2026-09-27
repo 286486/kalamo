@@ -1,5 +1,7 @@
 /// <reference path="./base64.d.ts" />
 import { ZibelError } from "./errors.ts";
+import type { Segment } from "./path.ts";
+import type { Rect } from "./schema.ts";
 
 /** F-MCP-06c's bitmap quota (ADR-0023). */
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -16,6 +18,28 @@ export interface ImageFile extends ImageInfo {
 }
 /** The most characters a linked Image's `file` holds. */
 export const MAX_FILE_LENGTH = 2048;
+
+/** The grey a missing link's crossed frame is stroked in (ADR-0042). */
+export const MISSING_LINK_STROKE = "#999999";
+
+/**
+ * A missing link's outline, as Illustrator draws an unresolved placed file: its frame and both
+ * diagonals, in the Image's own coordinates (ADR-0042).
+ */
+export function crossedFrame({ x, y, width, height }: Rect): Segment[] {
+  const [l, t, r, b] = [x, y, x + width, y + height];
+  return [
+    { cmd: "M", args: [l, t] },
+    { cmd: "L", args: [r, t] },
+    { cmd: "L", args: [r, b] },
+    { cmd: "L", args: [l, b] },
+    { cmd: "Z", args: [] },
+    { cmd: "M", args: [l, t] },
+    { cmd: "L", args: [r, b] },
+    { cmd: "M", args: [r, t] },
+    { cmd: "L", args: [l, b] },
+  ];
+}
 
 /** Why `file` cannot name a linked Image's file, or undefined when it can (ADR-0042). */
 export function fileProblem(file: string): string | undefined {

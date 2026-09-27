@@ -107,7 +107,7 @@ _Avoid_: Run、Span、Character style（Character Style 是具名样式，F-TEXT
 
 - **嵌入（embedded）**：没有 `file`，像素就是 `src`。
 - **链接（linked）**：有 `file`，即 SVG 引用该文件所写的路径或 URL，对应 Illustrator PlacedItem 的 `file`；可以同时有 `src`，即 Document 存下的一份像素。导出 SVG 写 `xlink:href="<file>"`，不写像素。
-- **缺失链接（missing link）**：有 `file` 而没有 `src` 的链接 Image。`render` 把它画成框加两条对角线，如 Illustrator 画找不到的置入文件。
+- **缺失链接（missing link）**：有 `file` 而没有 `src` 的链接 Image。`render` 和画布把它画成框加两条对角线，如 Illustrator 画找不到的置入文件。
 _Avoid_: Bitmap、Picture、Raster、Photo、Placed item 作为类型名
 
 ## 实时对象

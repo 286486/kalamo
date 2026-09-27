@@ -4,6 +4,7 @@ import {
   bundledStyle,
   childrenOf,
   clippingPath,
+  crossedFrame,
   type Document,
   ellipseMatrix,
   type Fill,
@@ -13,6 +14,7 @@ import {
   type LeafNode,
   layoutText,
   type Matrix,
+  MISSING_LINK_STROKE,
   type Node,
   type Rect,
   type Segment,
@@ -40,6 +42,7 @@ export interface Canvas2D {
   save(): void;
   restore(): void;
   transform(a: number, b: number, c: number, d: number, e: number, f: number): void;
+  setTransform(a: number, b: number, c: number, d: number, e: number, f: number): void;
   setLineDash(segments: number[]): void;
   fillRect(x: number, y: number, w: number, h: number): void;
   beginPath(): void;
@@ -161,9 +164,17 @@ function draw(
     }
     for (const c of childrenOf(doc, n.id)) if (c !== clip) draw(ctx, doc, c, images);
   } else if (n.type === "image") {
-    // ponytail: a missing link draws nothing here until the canvas draws its crossed frame (#100).
     const file = n.src === undefined ? undefined : images?.(n.src);
-    if (file) {
+    if (n.src === undefined) {
+      // A missing link, as `toSvg` draws it (ADR-0042): traced in place, then stroked in device
+      // space so it stays one device pixel at any zoom.
+      trace(ctx, crossedFrame(n));
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.strokeStyle = MISSING_LINK_STROKE;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([]);
+      ctx.stroke();
+    } else if (file) {
       if (n.preserveAspectRatio.endsWith("slice")) {
         ctx.beginPath();
         ctx.rect(n.x, n.y, n.width, n.height);

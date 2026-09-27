@@ -49,7 +49,7 @@ An Image may carry `file`, and may omit `src` when it does. `images` still holds
 
 ## Consequences
 
-- `ImageNode.src` is optional in core. Every reader of `src` handles a missing link, and the canvas draws nothing for one until #100 draws its crossed frame.
+- `ImageNode.src` is optional in core. Every reader of `src` handles a missing link; the canvas draws its crossed frame in a one-pixel stroke, and the Layers panel names a linked Image `<Linked File>`, as Illustrator does.
 - No new error codes. `INVALID_IMAGE` also covers an invalid `file`.
 - A Links panel, Unembed that writes the file to disk, fetching linked `http(s)` files, `sodipodi:absref`, and resolving relative paths against the SVG's location are out of scope (#97).
 - F-DOC-03's `image` row, F-IO-02, the `node_create` row and §10.2 change to match (REQUIREMENTS).

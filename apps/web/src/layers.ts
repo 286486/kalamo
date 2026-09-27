@@ -15,7 +15,8 @@ const AUTO_NAMES: Record<Exclude<Node["type"], "text">, string> = {
 
 /**
  * What the Layers panel shows for a Node whose `name` is empty, a text's content; never stored
- * (ADR-0012). A Clipping Mask and its Clipping Path take Illustrator's names (ADR-0021).
+ * (ADR-0012). A Clipping Mask, its Clipping Path and a linked Image take Illustrator's names
+ * (ADR-0021, ADR-0042).
  */
 export const autoName = (doc: Document, node: Node) =>
   node.type === "text"
@@ -24,7 +25,9 @@ export const autoName = (doc: Document, node: Node) =>
       ? "<Clip Group>"
       : "clipping" in node && node.clipping
         ? "<Clipping Path>"
-        : AUTO_NAMES[node.type];
+        : node.type === "image" && node.file !== undefined
+          ? "<Linked File>"
+          : AUTO_NAMES[node.type];
 
 /** One line of the Layers panel. */
 export interface Row {
