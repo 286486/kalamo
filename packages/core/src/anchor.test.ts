@@ -530,3 +530,102 @@ describe("pathOp average", () => {
     expect((doc.nodes.get(node.id) as PathNode).d).toBe("M 5 16.667 L 5 16.667");
   });
 });
+
+describe("pathOp simplify", () => {
+  const subpathsOf = (doc: ReturnType<typeof setup>["doc"], id: string) =>
+    toAnchors(parsePath((doc.nodes.get(id) as PathNode).d, "d"));
+  /** The farthest a point lies from the drawn outline of `d`. */
+  const strays = (points: number[][], d: string) => {
+    const curve = pieces(d).flatMap((p) => Array.from({ length: 201 }, (_, k) => at(p, k / 200)));
+    return Math.max(
+      ...points.map((p) =>
+        Math.min(
+          ...curve.map((q) => Math.hypot((p[0] ?? 0) - (q[0] ?? 0), (p[1] ?? 0) - (q[1] ?? 0))),
+        ),
+      ),
+    );
+  };
+  // A 200-Anchor Pencil path at Accurate over a slightly shaky sine.
+  const shaky = Array.from({ length: 200 }, (_, i) => [
+    i * 2,
+    50 + 30 * Math.sin(i / 15) + 0.2 * Math.sin(i * 2.3),
+  ]);
+  const pencil = `M ${shaky.map((p) => p.join(" ")).join(" L ")}`;
+
+  it("refits a 200-Anchor path with far fewer Anchors, within the default 1 pt", () => {
+    const { doc, node } = setup(pencil);
+    pathOp(doc, { nodeIds: [node.id], op: "simplify" });
+    const [s] = subpathsOf(doc, node.id);
+    expect(s?.closed).toBe(false);
+    expect(s?.anchors.length).toBeLessThan(20);
+    expect(s?.anchors[0]?.anchor).toEqual(shaky[0]);
+    expect(strays(shaky, (doc.nodes.get(node.id) as PathNode).d)).toBeLessThanOrEqual(1.01);
+  });
+
+  it("toLines gives only straight segments, within the tolerance", () => {
+    const { doc, node } = setup(pencil);
+    pathOp(doc, { nodeIds: [node.id], op: "simplify", tolerance: 0.5, toLines: true });
+    const d = (doc.nodes.get(node.id) as PathNode).d;
+    expect(new Set(parsePath(d, "d").map((s) => s.cmd))).toEqual(new Set(["M", "L"]));
+    expect(parsePath(d, "d").length).toBeLessThan(60);
+    expect(strays(shaky, d)).toBeLessThanOrEqual(0.51);
+  });
+
+  it("keeps a closed subpath closed, its corners as Corner Anchors", () => {
+    const { doc, node } = setup("M 0 0 L 40 0 L 40 40 L 0 40 Z");
+    for (let k = 0; k < 3; k++) pathOp(doc, { nodeIds: [node.id], op: "add_anchors" });
+    expect(subpathsOf(doc, node.id)[0]?.anchors.length).toBe(32);
+    pathOp(doc, { nodeIds: [node.id], op: "simplify" });
+    const [s] = subpathsOf(doc, node.id);
+    expect(s?.closed).toBe(true);
+    expect(s?.anchors.map((a) => a.anchor).sort()).toEqual(
+      [
+        [0, 0],
+        [0, 40],
+        [40, 0],
+        [40, 40],
+      ].sort(),
+    );
+  });
+
+  it("keeps a turn as a Corner only when its angle is at most cornerAngle", () => {
+    // Two lines meeting at 120°, each with Anchors along it.
+    const d = "M 0 0 L 25 0 L 50 0 L 62.5 21.651 L 75 43.301";
+    const tip = (cornerAngle?: number) => {
+      const { doc, node } = setup(d);
+      pathOp(doc, { nodeIds: [node.id], op: "simplify", cornerAngle });
+      return subpathsOf(doc, node.id)[0]?.anchors.find(
+        (a) => Math.hypot(a.anchor[0] - 50, a.anchor[1]) < 1e-9 && a.type === "corner",
+      );
+    };
+    expect(tip()).toBeUndefined();
+    expect(tip(150)).toBeDefined();
+  });
+
+  it("makes Corners of original Anchors only: at 180, Smooth ones stay Smooth", () => {
+    const { doc, node } = setup(pencil);
+    pathOp(doc, { nodeIds: [node.id], op: "simplify" });
+    pathOp(doc, { nodeIds: [node.id], op: "add_anchors" });
+    const before = subpathsOf(doc, node.id)[0]?.anchors ?? [];
+    expect(before.slice(1, -1).every((a) => a.type === "smooth")).toBe(true);
+    pathOp(doc, { nodeIds: [node.id], op: "simplify", cornerAngle: 180 });
+    const after = subpathsOf(doc, node.id)[0]?.anchors ?? [];
+    expect(after.length).toBeLessThanOrEqual(before.length);
+    expect(after.slice(1, -1).every((a) => a.type === "smooth")).toBe(true);
+  });
+
+  it("toLines keeps only original Anchors", () => {
+    const { doc, node } = setup(pencil);
+    pathOp(doc, { nodeIds: [node.id], op: "simplify", toLines: true });
+    const kept = subpathsOf(doc, node.id)[0]?.anchors.map((a) => a.anchor) ?? [];
+    const rounded = shaky.map((p) => p.map((v) => Math.round(v * 1e3) / 1e3).join(" "));
+    expect(kept.every((p) => rounded.includes(p.join(" ")))).toBe(true);
+  });
+
+  it("measures the tolerance in document units", () => {
+    const { doc, node } = setup(pencil);
+    doc.nodes.set(node.id, { ...node, transform: [10, 0, 0, 10, 0, 0] });
+    pathOp(doc, { nodeIds: [node.id], op: "simplify", tolerance: 10, toLines: true });
+    expect(strays(shaky, (doc.nodes.get(node.id) as PathNode).d)).toBeLessThanOrEqual(1.01);
+  });
+});

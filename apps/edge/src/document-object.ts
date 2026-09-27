@@ -545,6 +545,7 @@ export class DocumentObject extends DurableObject<Env> {
       add_anchors: "Add Anchor Points",
       join: "Join",
       average: "Average",
+      simplify: "Simplify",
     }[input.op];
     return this.write(actor, opts, summary, (doc) => ({
       ...pathOp(doc, input),

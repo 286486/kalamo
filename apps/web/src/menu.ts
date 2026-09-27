@@ -12,6 +12,7 @@ import {
   pathTargets,
   releasable,
 } from "./selection.ts";
+import { startSimplify } from "./simplify.ts";
 import { type State, send, useStore } from "./store.ts";
 import { OPENABLE } from "./tabs.ts";
 import { drawing, undoAnchor } from "./tools.ts";
@@ -81,10 +82,13 @@ function sendAnchorEdits({ edits, deleteIds }: ReturnType<typeof clearInputs>) {
   useStore.setState({ anchors: [] });
 }
 
+const hasPathTargets = ({ doc, selection }: State) =>
+  doc !== null && pathTargets(doc, selection).length > 0;
+
 /** An Object > Path item that runs `op` on the Selection's paths and Live Shapes (pathTargets). */
 const pathOp = (label: string, op: Exclude<PathOpInput["op"], "convert_to_path">): MenuItem => ({
   label,
-  enabled: ({ doc, selection }) => doc !== null && pathTargets(doc, selection).length > 0,
+  enabled: hasPathTargets,
   run: () => {
     const { doc, selection } = useStore.getState();
     const nodeIds = doc ? pathTargets(doc, selection) : [];
@@ -274,7 +278,7 @@ export function documentMenus(tabs: { open: (file: File) => void; close: () => v
       label: "Object",
       items: [
         {
-          // Illustrator's order; Outline Stroke, Offset Path, Simplify and Smooth take their
+          // Illustrator's order; Outline Stroke, Offset Path and Smooth take their
           // places as they arrive.
           label: "Path",
           items: [
@@ -301,6 +305,7 @@ export function documentMenus(tabs: { open: (file: File) => void; close: () => v
               },
             },
             pathOp("Reverse Path Direction", "reverse"),
+            { label: "Simplify…", enabled: hasPathTargets, run: startSimplify },
             pathOp("Add Anchor Points", "add_anchors"),
             {
               label: "Remove Anchor Points",

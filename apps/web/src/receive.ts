@@ -3,6 +3,8 @@ import {
   type Document,
   editPath,
   type PathEditInput,
+  type PathOpInput,
+  pathOp,
   transformNodes,
 } from "@zibel/core";
 import { applyBroadcast, type ServerMessage } from "@zibel/sync";
@@ -38,6 +40,17 @@ export interface PathDrag {
   commandIds: string[] | null;
 }
 
+/**
+ * Object > Path > Simplify while its bar or dialog is open: previewed in the browser, then sent as
+ * one `path_op` on OK (ADR-0035); `commandId` is set then, and it is drawn until the answer.
+ */
+export interface SimplifyPreview {
+  input: PathOpInput;
+  /** The dialog's Show Original Path. */
+  showOriginal: boolean;
+  commandId: string | null;
+}
+
 export interface ViewState {
   doc: Document | null;
   /** UI state only, never sent as a Document property (CONTEXT.md). */
@@ -46,6 +59,7 @@ export interface ViewState {
   drag: Drag | null;
   pen: PenPath | null;
   edit: PathDrag | null;
+  simplify: SimplifyPreview | null;
   /** Direct Selection's selected Anchors (direct.ts's keys): UI state, like the Selection. */
   anchors: string[];
   /** Why the last command was rejected. */
@@ -66,6 +80,7 @@ export function receive(
     return {
       ...(s.drag?.commandId === msg.id && { drag: null }),
       ...(s.pen?.commandId === msg.id && { pen: null }),
+      ...(s.simplify?.commandId === msg.id && { simplify: null }),
       ...settle(s.edit, msg.id),
       notice: gone
         ? "Someone else deleted that object first; it stays deleted."
@@ -121,6 +136,8 @@ export function receive(
     anchors,
     ...(msg.type === "document" ? { edit: null } : settle(s.edit, msg.commandId)),
     ...((drawn || (msg.type === "document" && s.pen?.commandId)) && { pen: null }),
+    ...(s.simplify?.commandId &&
+      (msg.type === "document" || msg.commandId === s.simplify.commandId) && { simplify: null }),
     ...(skipped > 0 && { notice: `Skipped ${skipped} deleted object(s); they stay deleted.` }),
   };
 }
@@ -151,6 +168,18 @@ export function previewEdit(doc: Document, { inputs }: PathDrag): Document {
     }
   }
   return shown;
+}
+
+/** `doc` with a `path_op` applied by core, or as it is when core refuses it. */
+export function previewOp(doc: Document, input: PathOpInput): Document {
+  const shown = { ...doc, nodes: new Map(doc.nodes) };
+  try {
+    pathOp(shown, input);
+    return shown;
+  } catch (e) {
+    console.warn("A path_op preview skipped what core refuses.", e);
+    return doc;
+  }
 }
 
 /** The drag without the path whose command `id` was answered or rejected; null once none is left. */

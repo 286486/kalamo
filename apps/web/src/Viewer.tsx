@@ -1,4 +1,4 @@
-import { bounds } from "@zibel/core";
+import { bounds, formatPath, fromAnchors } from "@zibel/core";
 import { toSvg } from "@zibel/io/write";
 import { drawDocument } from "@zibel/render/canvas";
 import blackUrl from "@zibel/render/fonts/SourceSans3-Black.ttf?url";
@@ -9,12 +9,13 @@ import italicUrl from "@zibel/render/fonts/SourceSans3-It.ttf?url";
 import regularUrl from "@zibel/render/fonts/SourceSans3-Regular.ttf?url";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { SELECTION } from "./canvas.ts";
+import { anchorsOf, hasAnchors } from "./direct.ts";
 import { imageCache } from "./images.ts";
 import { Layers } from "./Layers.tsx";
 import { keysTaken } from "./MenuBar.tsx";
 import { keysOf } from "./menu.ts";
 import { pastedArt, place, placeable } from "./place.ts";
-import { preview, previewEdit } from "./receive.ts";
+import { preview, previewEdit, previewOp } from "./receive.ts";
 import { editable } from "./selection.ts";
 import { connect, send, useStore } from "./store.ts";
 import { Tools } from "./Tools.tsx";
@@ -23,6 +24,8 @@ import { fillStrokeKey, finishPen, setTool } from "./tools.ts";
 import { artboardsRect, fit, toDoc, zoomAt } from "./viewport.ts";
 
 const PASTEBOARD = "#E6E6E6";
+/** Simplify's original path, drawn under the preview's Selection colour. */
+const ORIGINAL = "#E8413C";
 /** Pinch sends small deltas and passes through; a mouse-wheel notch (about 100) is capped to x1.65. */
 const wheelZoom = (deltaY: number) => Math.exp(-Math.max(-50, Math.min(50, deltaY)) * 0.01);
 
@@ -56,6 +59,7 @@ export function Viewer({ docId }: { docId: string }) {
     anchors,
     drag,
     edit,
+    simplify,
     pen,
     notice,
     size,
@@ -131,13 +135,19 @@ export function Viewer({ docId }: { docId: string }) {
     }
   }, [doc, viewport, size]);
 
+  // Simplify's preview refits every path, so it runs once per change, not once per frame.
+  const simplified = useMemo(
+    () => (doc && simplify ? previewOp(doc, simplify.input) : doc),
+    [doc, simplify],
+  );
+
   // ponytail: redraws everything on every change; add viewport culling and dirty rects for 5k+ Nodes (F-VIEW-08).
   // biome-ignore lint/correctness/useExhaustiveDependencies: fontReady and imagesLoaded redraw text and Images once their font or files are in; anchors, pen, fillStroke and overlay redraw the tools' overlays
   useEffect(() => {
     const el = canvas.current;
     const ctx = el?.getContext("2d");
     // On a tab switch the store holds the last tab's Document until connect clears it.
-    if (!el || !ctx || doc?.id !== docId || !viewport) return;
+    if (!el || !ctx || !doc || !simplified || doc.id !== docId || !viewport) return;
     const dpr = devicePixelRatio;
     el.width = Math.round(size.width * dpr);
     el.height = Math.round(size.height * dpr);
@@ -154,7 +164,7 @@ export function Viewer({ docId }: { docId: string }) {
       ctx.strokeRect(frame.x, frame.y, frame.width, frame.height);
     }
     // Hit tests use `doc`; only the drawing shows the drag.
-    const moved = drag ? preview(doc, drag) : doc;
+    const moved = drag ? preview(simplified, drag) : simplified;
     const shown = edit ? previewEdit(moved, edit) : moved;
     images.want(shown);
     drawDocument(ctx, shown, images.get);
@@ -168,8 +178,18 @@ export function Viewer({ docId }: { docId: string }) {
       if (b) ctx.strokeRect(b.x, b.y, b.width, b.height);
     }
     for (const t of Object.values(TOOLS)) t.draw?.(ctx, shown, scale);
+    // Simplify's Show Original Path.
+    if (simplify?.showOriginal) {
+      ctx.strokeStyle = ORIGINAL;
+      for (const id of simplify.input.nodeIds) {
+        const node = doc.nodes.get(id);
+        if (hasAnchors(node)) ctx.stroke(new Path2D(formatPath(fromAnchors(anchorsOf(doc, node)))));
+      }
+    }
   }, [
     doc,
+    simplified,
+    simplify,
     docId,
     viewport,
     size,

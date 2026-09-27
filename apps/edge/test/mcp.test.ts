@@ -218,6 +218,31 @@ it("joins two open paths with path_op into the topmost in one Transaction, and a
   expect(await dOf()).toBe("M 20 0 L 20 0 L 20 0 L 0 0 Z");
 });
 
+it("simplifies a dense path with path_op in one Transaction, and to straight lines", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const points = Array.from({ length: 200 }, (_, i) => `${i} ${50 + 30 * Math.sin(i / 15)}`);
+  const [id] = (
+    await call("zibel_node_create", {
+      docId,
+      nodes: [{ type: "path", parentId: defaultLayerId, d: `M ${points.join(" L ")}` }],
+    })
+  ).structuredContent.createdIds as string[];
+  const dOf = async () =>
+    (await call("zibel_node_get", { docId, nodeIds: [id], detail: "full" })).structuredContent
+      .nodes[0].d as string;
+  const simplified = (await call("zibel_path_op", { docId, nodeIds: [id], op: "simplify" }))
+    .structuredContent;
+  expect(simplified).toMatchObject({ updatedIds: [id] });
+  const { changes } = (await call("zibel_doc_changes", { docId, sinceRev: simplified.rev - 1 }))
+    .structuredContent;
+  expect(changes).toEqual([expect.objectContaining({ rev: simplified.rev, summary: "Simplify" })]);
+  const d = await dOf();
+  expect(d.startsWith("M 0 50 C")).toBe(true);
+  expect(d.match(/[LC]/g)?.length).toBeLessThan(15);
+  await call("zibel_path_op", { docId, nodeIds: [id], op: "simplify", toLines: true });
+  expect(await dOf()).toMatch(/^M [\d. ]+( L [\d. ]+)+$/);
+});
+
 it("draws a freehand_stroke as one smooth closed path", async () => {
   const { docId, defaultLayerId } = await newDoc();
   const points = Array.from({ length: 61 }, (_, k) => ({
