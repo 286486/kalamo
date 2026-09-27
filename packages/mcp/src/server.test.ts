@@ -742,7 +742,10 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
     expect(JSON.stringify(byName.zibel_node_update?.inputSchema)).toContain(`"${word}"`);
   }
   expect(described("zibel_node_update")).toContain("gradient");
-  expect(described("zibel_doc_open")).toContain("LINKED_IMAGE_DROPPED");
+  for (const tool of ["zibel_doc_open", "zibel_svg_import"]) {
+    expect(described(tool)).toContain("IMAGE_LINK_MISSING");
+    expect(described(tool)).not.toContain("LINKED_IMAGE_DROPPED");
+  }
   expect(described("zibel_doc_open")).not.toMatch(/\(gradients/);
   for (const t of tools) {
     expect(t.annotations, t.name).toEqual({

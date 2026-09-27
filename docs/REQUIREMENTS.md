@@ -407,7 +407,7 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 
 **导入**
 - **F-IO-01** SVG 1.1 导入（P0）：`path / rect / circle / ellipse / line / polyline / polygon / text / tspan / textPath / g / use / symbol / defs / linearGradient / radialGradient / pattern / clipPath / mask / image`，`transform`、`style` 与 presentation attributes、`viewBox`；Inkscape 约定：`inkscape:groupmode="layer"` → Layer、`inkscape:label` → 名称、`sodipodi:insensitive` → 锁定、`display:none` → 隐藏、`<inkscape:page>` → Artboard、`sodipodi:type="star"/"arc"` → Live Shape、`z-<ULID>` id 对回原 Node。祖先 `transform` 合入叶子（ADR-0007），路径归一化为绝对 `M L C Q Z`，单位换算为 pt（px 按 1 pt 计，与 Illustrator 一致）。Zibel 路线图内但尚未实现的内容先降级并提示，实现后原样映射；Zibel 不建模的（Inkscape 路径效果、`flowRoot`、3D box、Effects 之前的 filter）取可见几何并提示；不保留原始 XML 片段（ADR-0017）。SVG `<text>` 映射到文本对象，字体名原样保存（F-TEXT-11）。两种入口：打开（`doc_open`，新 Document，浏览器中新开一个标签页）、置入（`svg_import`，一个 Group）。编辑过的文件经打开回到 Zibel，需要的图稿再复制粘贴回原 Document；三方合并的替换已删除（ADR-0030）。
-- **F-IO-02** 位图置入 PNG / JPG / WebP / GIF（首帧）；链接或嵌入；裁切。（P0）现状（ADR-0023）：PNG / JPEG / GIF 嵌入；WebP 在 resvg 与 Inkscape 1.2 能绘制之前拒绝并提示转 PNG；裁切用 Clipping Mask；`image_place` 可从 http(s) URL 置入（ADR-0027）；链接（ADR-0042）：Image 可带 `file`，`node_create` 可建链接 Image 与缺失链接，`export` SVG 写 `xlink:href="<file>"`，`render` 画存下的像素或带对角线的框；导入链接的 `<image>` 见 #99，经 `node_update` 的 Relink 与 Embed 见 #101，浏览器菜单见 #102。
+- **F-IO-02** 位图置入 PNG / JPG / WebP / GIF（首帧）；链接或嵌入；裁切。（P0）现状（ADR-0023）：PNG / JPEG / GIF 嵌入；WebP 在 resvg 与 Inkscape 1.2 能绘制之前拒绝并提示转 PNG；裁切用 Clipping Mask；`image_place` 可从 http(s) URL 置入（ADR-0027）；链接（ADR-0042）：Image 可带 `file`，`node_create` 可建链接 Image 与缺失链接，`export` SVG 写 `xlink:href="<file>"`，`render` 画存下的像素或带对角线的框；`doc_open` 与 `svg_import` 把链接的 `<image>` 读成链接 Image，`zibel:src` 仅当目标 Document 有该图像时保留为 `src`，其余为缺失链接并警告 `IMAGE_LINK_MISSING`，不拉取任何文件（#99）；经 `node_update` 的 Relink 与 Embed 见 #101，浏览器菜单见 #102。
 - **F-IO-03** PDF 导入（第一页或指定页；矢量路径与文字尽力提取，不保证图层）；`.ai`（PDF 兼容模式保存的文件）按 PDF 处理。（P2）在此之前 `.ai` 经 Inkscape 另存 SVG 进入（ADR-0017）。
 - **F-IO-04** 粘贴：剪贴板 SVG 文本、Figma / Illustrator / Inkscape 复制出来的 SVG、位图。SVG 粘贴与拖放 `.svg` 到画布都按置入处理，放在视口中心；粘贴 Zibel 自己复制出的 SVG（根上 `zibel:scope="nodes:…"`）时，被复制的 Node 直接进入目标 Layer、分配新 id，不包 Group；Ctrl+Shift+V 原位粘贴，保留文档坐标（ADR-0030）。（P0 SVG 与位图）现状（ADR-0023）：粘贴或拖入 PNG / JPEG / GIF 置入为原像素尺寸的 Image。
 - **F-IO-05** 原生 `.zibel.json` 与 `.svg` 打开为新 Document，在新标签页中显示（文档列表页与标签栏的"打开文件…"，或把文件拖到标签栏）。（P0）PNG / JPEG / GIF 打开为一个与图像同尺寸的画板加该 Image（Illustrator 的 File > Open，P1，#71）。
@@ -765,7 +765,7 @@ flowchart LR
 - Cloudflare 托管：WAF 与速率限制（按用户与按文档）；R2 对象仅经预签名 URL 访问；D1 中密钥字段加密；DO 只接受来自 Worker 的内部调用与已鉴权的 WebSocket 升级。
 - 脚本沙箱：无网络、无文件系统、CPU / 内存 / 时间配额；宿主 API 白名单。
 - `image_place` 拉取 URL：Worker 拉取，读取上限 20 MB、10 秒；SSRF 防护：只允许 http / https，拒绝 localhost 与回环、私网、链路本地等 IP 字面量，重定向手动跟随至多 5 次且逐跳检查；解析到私网的域名由平台网络拦截（Cloudflare 边缘、workerd 缺省 `allow = ["public"]`）。用户确认需要 elicitation（ADR-0006 禁止），改由 `openWorldHint` 交给客户端；白名单待 M1 用户设置（ADR-0027）。
-- SVG 导入：剥离 `<script>`、事件属性、外部实体、`foreignObject`；位图 data URL 每个 ≤ 5 MB（解码后字节），SVG 的 5 MB 上限只计 data URL 之外的文本；链接的外部图像不拉取，丢弃并警告（ADR-0023）。
+- SVG 导入：剥离 `<script>`、事件属性、外部实体、`foreignObject`；位图 data URL 每个 ≤ 5 MB（解码后字节），SVG 的 5 MB 上限只计 data URL 之外的文本；链接的外部图像不拉取，读成缺失链接并警告 `IMAGE_LINK_MISSING`（ADR-0042）。
 - 文件存储：本地优先；托管模式数据加密静置；审计日志记录 Agent 的每个事务（who / what / when）。
 
 ### 7.6 可靠性与数据安全
@@ -980,7 +980,7 @@ zibel/
 | 44 | 从 URL 置入图像（2026-09-25） | `image_place` 由 Worker 拉取 http(s) URL（20 MB、10 秒、SSRF 防护、手动重定向逐跳检查），`FETCH_FAILED` 新错误码，`openWorldHint: true`；`embed` 与本地路径去掉；`asTemplate` 在父级 Layer 下方建锁定的 Template Layer，Image 不透明度 50%，不打印待 `template` 标志 | ADR-0027、#61 |
 | 45 | 多文档标签页，删除替换（2026-09-26） | 三方合并的替换（`doc_replace`）复杂度过高，删除：编辑过的文件经打开成为新 Document，在新标签页中显示；一个标签页就是一个 Document（不设 Sheet 容器）；图稿经系统剪贴板以 Node 范围的 Inkscape 方言 SVG 剪切 / 复制 / 粘贴，Zibel 的拷贝粘贴时不包 Group；30 天 Delta Log 与 `zibel:doc` / `zibel:rev` 一并删除 | ADR-0030、#68、#69、#70 |
 | 46 | 菜单栏（2026-09-27） | 顶部 Illustrator 式菜单栏，在文档标签页之上；菜单项是一张数据表，菜单与快捷键都从中读取；只列已实现的项；浏览器保留快捷键不标；原生 `popover` 实现，不引入菜单库 | ADR-0031、F-VIEW-10 |
-| 47 | 链接图像（2026-09-27） | Image 可链接：可选 `file` 是 SVG 所写的路径或 URL（非 data URL，至多 2048 字符），`embedded` 由 `file` 缺省派生；`src` 变为可选，链接 Image 无 `src` 即缺失链接；`export` SVG 写 `xlink:href="<file>"`，有像素时加 `zibel:src`，从不写像素；`render` 与 PNG 画存下的像素，缺失链接画成灰色细线框加两条对角线；`.zibel.json` 的 `version` 仍为 1 | ADR-0042、#97、#98 |
+| 47 | 链接图像（2026-09-27） | Image 可链接：可选 `file` 是 SVG 所写的路径或 URL（非 data URL，至多 2048 字符），`embedded` 由 `file` 缺省派生；`src` 变为可选，链接 Image 无 `src` 即缺失链接；`export` SVG 写 `xlink:href="<file>"`，有像素时加 `zibel:src`，从不写像素；`render` 与 PNG 画存下的像素，缺失链接画成灰色细线框加两条对角线；`.zibel.json` 的 `version` 仍为 1；导入链接的 `<image>` 得链接 Image，同一 Document 内粘贴经 `zibel:src` 保留像素，别的 Document 中为缺失链接，警告 `IMAGE_LINK_MISSING` 取代 `LINKED_IMAGE_DROPPED` | ADR-0042、#97、#98、#99 |
 
 **剩余开放问题**
 

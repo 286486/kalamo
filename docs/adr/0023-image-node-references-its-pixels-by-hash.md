@@ -48,7 +48,7 @@ Inkscape 1.2.2 draws an `<image>` only through `xlink:href`: given SVG 2's plain
 Import:
 
 - An `<image>` whose `xlink:href` or `href` is a `data:` URL becomes an Image. Its bytes go through the create checks, and its `src` is their SHA-256, so a file exported from the Document maps back to the images it already holds. Missing `width` or `height` take the file's pixel size. A missing `preserveAspectRatio` is SVG's default, `xMidYMid meet`, not Zibel's `none`; a leading `defer` is dropped. The frame bakes a move and uniform scale as a `rect`'s parameters do, and keeps any other matrix (ADR-0017).
-- An `<image>` that links a file or URL is dropped with the warning `LINKED_IMAGE_DROPPED`: the Worker fetches nothing. One that fails the create checks, a WebP or a file over 5 MB among them, is dropped with the warning `INVALID_IMAGE`.
+- An `<image>` that links a file or URL is dropped with the warning `LINKED_IMAGE_DROPPED`: the Worker fetches nothing. (Superseded by ADR-0042: it becomes a linked Image.) One that fails the create checks, a WebP or a file over 5 MB among them, is dropped with the warning `INVALID_IMAGE`.
 - A `clip-path` on an `<image>`, as Inkscape's Set Clip writes a crop, imports as a Clipping Mask of its own, like any clipped leaf (ADR-0021).
 - **Size.** ADR-0017's 5 MB cap on an SVG now counts only the text outside its `data:` URLs, and each embedded file is capped as above. Otherwise a Document holding one image of 4 MB would export an SVG that Replace refuses.
 

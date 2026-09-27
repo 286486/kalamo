@@ -54,7 +54,7 @@ import {
   ZibelError,
 } from "@zibel/core";
 import { loadGeometry } from "@zibel/geometry";
-import { type OpenedFile, scopeRect, svgRect, toSvg } from "@zibel/io";
+import { type OpenedFile, resolveLinks, scopeRect, svgRect, toSvg } from "@zibel/io";
 import { fit, renderSvg } from "@zibel/render";
 import {
   type ChangeEntry,
@@ -850,6 +850,8 @@ export class DocumentObject extends DurableObject<Env> {
     let nodes: OutlineNode[] = [];
     this.storeImages(file.images);
     const receipt = this.write(actor, opts, "Place", (doc) => {
+      // A Zibel copy's linked Images keep their pixels only in the Document that holds them.
+      file = resolveLinks(file, (id) => doc.images.get(id));
       const { placedIds, created } = placeNodes(doc, file, opts);
       const placed = new Set(placedIds);
       nodes = outline(doc, { rootId: opts.parentId, depth: 2 }).filter((n) => placed.has(n.id));

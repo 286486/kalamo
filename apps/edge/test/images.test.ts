@@ -1,6 +1,7 @@
 import { runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { imageId, readImage } from "@zibel/core";
+import { parseFile } from "@zibel/io";
 import { describe, expect, it } from "vitest";
 import { RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
 
@@ -18,7 +19,7 @@ async function setup(docId: string) {
   );
   const image = (src: string, extra: object = {}) =>
     ({ type: "image", parentId, src, x: 0, y: 0, ...extra }) as const;
-  return { s, image };
+  return { s, image, parentId };
 }
 
 const redId = () => imageId(readImage(RED_2x2_PNG, "src").bytes);
@@ -124,6 +125,31 @@ describe("linked Images (ADR-0042)", () => {
     expect(file.version).toBe(1);
     expect(file.images).toEqual({ [id]: RED_2x2_PNG });
     expect(file.nodes.find((n: { id: string }) => n.id === missing)).not.toHaveProperty("src");
+  });
+
+  it("pastes a copied linked Image with its pixels in the same Document, as a missing link in another", async () => {
+    const { s, image, parentId } = await setup("images-paste-linked");
+    const id = await redId();
+    const { createdIds } = ok(
+      await s.createNodes([image(RED_2x2_PNG, { file: "photos/red.png" })], "agent"),
+    );
+    const { svg } = ok(await s.svg("agent", { scope: { nodeIds: createdIds } }));
+    const pasted = async ({ s: target, parentId }: Awaited<ReturnType<typeof setup>>) => {
+      const receipt = ok(await target.place(parseFile(svg), "user", { parentId, inPlace: true }));
+      const { nodes } = ok(await target.get(receipt.createdIds, "full", "user"));
+      return { receipt, image: nodes.find((n) => n.type === "image") };
+    };
+
+    const same = await pasted({ s, image, parentId });
+    expect(same.image).toMatchObject({ src: id, file: "photos/red.png", width: 2, height: 2 });
+    expect(same.receipt.warnings).toEqual([]);
+
+    const other = await pasted(await setup("images-paste-linked-other"));
+    expect(other.image).toMatchObject({ file: "photos/red.png", width: 2, height: 2 });
+    expect(other.image).not.toHaveProperty("src");
+    expect(other.receipt.warnings).toEqual([
+      expect.objectContaining({ code: "IMAGE_LINK_MISSING" }),
+    ]);
   });
 
   it.each([

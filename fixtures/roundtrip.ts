@@ -178,7 +178,7 @@ async function main() {
       (await call("zibel_doc_open", { content })).structuredContent as {
         docId: string;
         name: string;
-        warnings: unknown[];
+        warnings: { code: string }[];
       };
     const text = async (args: object) => (await call("zibel_export", args)).content[0]?.text ?? "";
     for (const file of readdirSync(FIXTURES).filter((f) => f.endsWith(".zibel.json"))) {
@@ -190,18 +190,22 @@ async function main() {
         const original = await open(readFileSync(join(FIXTURES, file), "utf8"));
         const { docId } = original;
         // Inkscape names the Document after the file it reads, and Open reads the name back from it.
-        const exported = join(dir, `${original.name}.svg`);
-        writeFileSync(exported, await text({ docId, format: "svg" }));
+        const exported = await text({ docId, format: "svg" });
+        writeFileSync(join(dir, `${original.name}.svg`), exported);
+        // Saved over its input: Inkscape rewrites a relative link against the folder it saves to.
         const saved = join(dir, "inkscape", `${original.name}.svg`);
-        inkscape("--export-type=svg", `--export-filename=${saved}`, exported);
+        writeFileSync(saved, exported);
+        inkscape("--export-type=svg", `--export-filename=${saved}`, saved);
         const reopened = await open(readFileSync(saved, "utf8"));
         const [want, got] = await Promise.all(
           [original, reopened].map(
             async (d) => JSON.parse(await text({ docId: d.docId, format: "zibel_json" })) as Doc,
           ),
         );
-        const structure = reopened.warnings.length
-          ? `warnings: ${JSON.stringify(reopened.warnings)}`
+        // A missing link warns on every Open; firstDifference still catches a lost src or file.
+        const warnings = reopened.warnings.filter((w) => w.code !== "IMAGE_LINK_MISSING");
+        const structure = warnings.length
+          ? `warnings: ${JSON.stringify(warnings)}`
           : firstDifference(want, got);
 
         // resvg's PNG of the whole Document, and Inkscape's of an export framed to the same rect:

@@ -1,5 +1,5 @@
 import { type ErrorData, newId, resolveImages, ZibelError } from "@zibel/core";
-import { parseFile } from "@zibel/io";
+import { parseFile, resolveLinks } from "@zibel/io";
 import { svgToPng } from "@zibel/render";
 import type { DocumentService, PathEditReceipt } from "@zibel/sync";
 import { fetchImage } from "./fetch-image.ts";
@@ -25,7 +25,9 @@ export function documentService(env: Env, actor: string): DocumentService {
     },
     open: async ({ content, name, intent }) => {
       // Parsed here, before any Durable Object or D1 row exists, so a bad file creates nothing.
-      const { warnings, ...file } = await read(content, { name });
+      // A new Document holds only the file's own images.
+      const parsed = await read(content, { name });
+      const { warnings, ...file } = resolveLinks(parsed, (id) => parsed.images.get(id));
       const docId = newId();
       const opened = unwrap(await doc(docId).open({ ...file, docId, actor, intent }));
       await index(docId, file.name);
