@@ -129,6 +129,16 @@ describe("fitInk", () => {
     expect(counts[0]).toBeGreaterThan(counts.at(-1) ?? 0);
   });
 
+  it("fits each cubic as far as it reaches: two periods of a sine in 9 at 1 pt", () => {
+    const points = Array.from(
+      { length: 61 },
+      (_, k): Point => [50 + 5 * k, 200 - 50 * Math.sin((Math.PI * k) / 15)],
+    );
+    const segments = fitInk(points, 1);
+    expect(curves(segments).length).toBeLessThanOrEqual(9);
+    expect(maxError(points, segments)).toBeLessThanOrEqual(1);
+  });
+
   it("keeps a small closed loop a loop at Smooth", () => {
     const points = Array.from(
       { length: 41 },

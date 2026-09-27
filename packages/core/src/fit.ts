@@ -125,14 +125,13 @@ export function fitInk(ink: Point[], tolerance: number): Segment[] {
   if (closed) out.push({ cmd: "Z", args: [] });
   return out;
 
-  /** Schneider's FitCubic: fit, else reparameterize, else split at the worst point. */
-  function fitCubic(run: Point[], t1: Point, t2: Point, into: Cubic[]): void {
+  /** One cubic within the tolerance, reparameterized up to 4 times, else the worst point. */
+  function fitOne(run: Point[], t1: Point, t2: Point): Cubic | number {
     const tol2 = tolerance * tolerance;
     const [p0, p3] = [run[0] as Point, run.at(-1) as Point];
     if (run.length === 2) {
       const d = dist(p0, p3) / 3;
-      into.push([p0, add(p0, scale(t1, d)), add(p3, scale(t2, d)), p3]);
-      return;
+      return [p0, add(p0, scale(t1, d)), add(p3, scale(t2, d)), p3];
     }
     let u = chordLengths(run);
     let cubic = generate(run, u, t1, t2);
@@ -142,13 +141,34 @@ export function fitInk(ink: Point[], tolerance: number): Segment[] {
       cubic = generate(run, u, t1, t2);
       [error, split] = maxError(run, cubic, u);
     }
-    if (error <= tol2) {
-      into.push(cubic);
-      return;
+    return error <= tol2 ? cubic : split;
+  }
+
+  /**
+   * Each cubic as long as one fits, found by bisection. Schneider splits at the worst point
+   * instead, which is rarely where the Anchors belong and gives about half again as many.
+   */
+  function fitCubic(run: Point[], t1: Point, t2: Point, into: Cubic[]): void {
+    const back = (k: number) =>
+      k === run.length - 1 ? t2 : unit(sub(run[k - 1] as Point, run[k + 1] as Point));
+    let [i, ti] = [0, t1];
+    while (i < run.length - 1) {
+      const fit = (j: number) => fitOne(run.slice(i, j + 1), ti, back(j));
+      let [lo, hi] = [i + 1, run.length - 1];
+      let best = fit(hi);
+      if (typeof best === "number") {
+        best = fit(lo) as Cubic;
+        while (hi - lo > 1) {
+          const mid = (lo + hi) >> 1;
+          const cubic = fit(mid);
+          if (typeof cubic === "number") hi = mid;
+          else [lo, best] = [mid, cubic];
+        }
+        hi = lo;
+      }
+      into.push(best);
+      [i, ti] = [hi, scale(back(hi), -1)];
     }
-    const center = unit(sub(run[split - 1] as Point, run[split + 1] as Point));
-    fitCubic(run.slice(0, split + 1), t1, center, into);
-    fitCubic(run.slice(split), scale(center, -1), t2, into);
   }
 }
 
@@ -186,9 +206,12 @@ function generate(run: Point[], u: number[], t1: Point, t2: Point): Cubic {
   const det = c[0][0] * c[1][1] - c[1][0] * c[0][1];
   let a = det ? ((x[0] as number) * c[1][1] - c[0][1] * (x[1] as number)) / det : 0;
   let b = det ? (c[0][0] * (x[1] as number) - c[1][0] * (x[0] as number)) / det : 0;
-  // Schneider's fallback when the solve is degenerate or points a Handle backwards.
+  // Schneider's fallback when the solve is degenerate or points a Handle backwards; also when a
+  // Handle outreaches the chord, a loop that meets each point at its parameter but nowhere near.
   const length = dist(p0, p3);
-  if (a < 1e-6 * length || b < 1e-6 * length) a = b = length / 3;
+  if (!(a >= 1e-6 * length && b >= 1e-6 * length && a <= length && b <= length)) {
+    a = b = length / 3;
+  }
   return [p0, add(p0, scale(t1, a)), add(p3, scale(t2, b)), p3];
 }
 
@@ -212,7 +235,8 @@ function newton(cubic: Cubic, p: Point, t: number): number {
   const d2 = scale(add(scale(sub(b, a), 1 - t), scale(sub(c, b), t)), 6);
   const diff = sub(bezier(cubic, t), p);
   const den = dot(d1, d1) + dot(diff, d2);
-  return den ? t - dot(diff, d1) / den : t;
+  // Clamped: past an end, the error would be measured on the curve extended.
+  return den ? Math.min(1, Math.max(0, t - dot(diff, d1) / den)) : t;
 }
 
 const coordinate = z.number().min(-1e6).max(1e6).describe("In pt, within ±1,000,000.");

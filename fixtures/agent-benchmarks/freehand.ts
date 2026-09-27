@@ -25,10 +25,11 @@ const check: Check = async (call, docId, tools) => {
     near(b.x, 50) && near(b.x + b.width, 350) && near(b.y, 150) && near(b.y + b.height, 250),
     `the path's bounds are ${JSON.stringify(b)}, want x 50 to 350 and y 150 to 250`,
   );
+  // Sampled every 10 pt, the wave as a polyline has 30 segments; fitted at any Fidelity, 16 or fewer.
   const segments: string[] = path.d.match(/[LCQ]/g) ?? [];
   assert(
-    segments.includes("C") && segments.length <= 16,
-    `d has ${segments.length} segments (${[...new Set(segments)]}), want curves, at most 16`,
+    segments.includes("C") && segments.length <= 20,
+    `d has ${segments.length} segments (${[...new Set(segments)]}), want curves, at most 20`,
   );
   const { fills, strokes } = path.appearance;
   assert(

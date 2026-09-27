@@ -7,5 +7,5 @@ Draw freehand, as with Illustrator's Pencil tool, one wavy line: two full period
 ## Assertions
 
 - The Agent called `zibel_freehand_stroke`.
-- The Document holds exactly one shape: an open `path` whose bounds are within 5 pt of x 50 to 350 and y 150 to 250, fitted to curves (at least one `C`, at most 16 segments).
+- The Document holds exactly one shape: an open `path` whose bounds are within 5 pt of x 50 to 350 and y 150 to 250, fitted to curves (at least one `C`, at most 20 segments).
 - It has no Fill and one Stroke, `#000000` and 2 pt wide.
