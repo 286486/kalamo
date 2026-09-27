@@ -409,8 +409,15 @@ export const ImageShape = z.object({
   type: z.literal("image"),
   src: z
     .string()
+    .optional()
     .describe(
-      "A data: URL of a PNG, JPEG or GIF file (WebP is refused: convert it to PNG), or the id of an image already in the Document, which reuses its bytes.",
+      "A data: URL of a PNG, JPEG or GIF file (WebP is refused: convert it to PNG), or the id of an image already in the Document, which reuses its bytes. Optional with file.",
+    ),
+  file: z
+    .string()
+    .optional()
+    .describe(
+      "Links the Image to this file: its path or URL as an SVG names it, which export SVG writes. Without src it is a missing link, drawn as a crossed frame; nothing is fetched.",
     ),
   x: z.number().describe("The frame's left."),
   y: z.number().describe("The frame's top."),
@@ -439,6 +446,23 @@ export function imageFrame(t: { width?: number; height?: number }, ctx: z.Refine
     path: [t.width === undefined ? "width" : "height"],
     message: "Give both width and height, or neither for the file's pixel size.",
   });
+}
+
+/** An Image has pixels, a linked file or both; a missing link has no pixel size (ADR-0042). */
+export function imagePixels(
+  t: { src?: string; file?: string; width?: number; height?: number },
+  ctx: z.RefinementCtx,
+) {
+  if (t.src !== undefined) return;
+  if (t.file === undefined) {
+    ctx.addIssue({ code: "custom", path: ["src"], message: "Give src, file or both." });
+  } else if (t.width === undefined && t.height === undefined) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["width"],
+      message: "An Image with file and no src has no pixel size; give width and height.",
+    });
+  }
 }
 
 const clientKey = z
@@ -471,7 +495,7 @@ const TextItem = TextShape.extend({
     "Omit for Illustrator's default type Appearance, a black Fill and no Stroke; {} paints nothing.",
   ),
 }).superRefine(textFrame);
-const ImageItem = ImageShape.extend(item).superRefine(imageFrame);
+const ImageItem = ImageShape.extend(item).superRefine(imageFrame).superRefine(imagePixels);
 const LEAF_ITEMS = [
   RectItem,
   EllipseItem,
@@ -709,8 +733,13 @@ export type LeafNode = ShapeNode | TextNode;
 
 export interface ImageNode extends NodeBase {
   type: "image";
-  /** The SHA-256 of the file, stored once in the Document (ADR-0023). */
-  src: string;
+  /**
+   * The SHA-256 of the pixels, stored once in the Document (ADR-0023). Absent only on a missing
+   * link (ADR-0042).
+   */
+  src?: string;
+  /** The linked file's path or URL, as an SVG names it; absent on an embedded Image (ADR-0042). */
+  file?: string;
   x: number;
   y: number;
   width: number;

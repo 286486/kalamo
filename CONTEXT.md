@@ -103,7 +103,11 @@ _Avoid_: Run、Span、Character style（Character Style 是具名样式，F-TEXT
 ## 图像
 
 **Image（图像）**：
-置入的位图 Node，`type: "image"`：一个框 `x, y, width, height`、`preserveAspectRatio`（缺省 `none`，即拉伸到框），以及 `src`，即图像文件字节的 SHA-256。同一文件在 Document 中按 `src` 只存一份，Node 里只有这个 id。支持 PNG、JPEG、GIF（首帧）。裁切就是以它为内容的 Clipping Mask；目前只嵌入、不链接（ADR-0023）。
+置入的位图 Node，`type: "image"`：一个框 `x, y, width, height`、`preserveAspectRatio`（缺省 `none`，即拉伸到框），以及 `src`，即图像文件字节的 SHA-256。同一文件在 Document 中按 `src` 只存一份，Node 里只有这个 id。支持 PNG、JPEG、GIF（首帧）。裁切就是以它为内容的 Clipping Mask（ADR-0023）。Image 分嵌入与链接两种（ADR-0042）：
+
+- **嵌入（embedded）**：没有 `file`，像素就是 `src`。
+- **链接（linked）**：有 `file`，即 SVG 引用该文件所写的路径或 URL，对应 Illustrator PlacedItem 的 `file`；可以同时有 `src`，即 Document 存下的一份像素。导出 SVG 写 `xlink:href="<file>"`，不写像素。
+- **缺失链接（missing link）**：有 `file` 而没有 `src` 的链接 Image。`render` 与画布把它画成框加两条对角线，如 Illustrator 画找不到的置入文件。
 _Avoid_: Bitmap、Picture、Raster、Photo、Placed item 作为类型名
 
 ## 实时对象

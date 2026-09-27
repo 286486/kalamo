@@ -16,6 +16,7 @@ import {
   layoutText,
   lookup,
   type Node,
+  parsePath,
   type Rect,
   type RenderScope,
   round,
@@ -24,6 +25,7 @@ import {
   shapeSegments,
   type TextNode,
   textBox,
+  transformSegments,
   union,
   visibleBounds,
   ZibelError,
@@ -113,6 +115,14 @@ export interface SvgOptions {
   trailer?: (drawn: Node[]) => string;
   /** The file of each Image by id; the Document holds only the ids (ADR-0023). */
   images?: ImageSource;
+  /**
+   * How a linked Image is written (ADR-0042): `link` (default) names its file, as `export` SVG and
+   * Download SVG do, for Inkscape; `draw` shows its pixels, or a missing link's crossed frame, as
+   * `render` and PNG do.
+   */
+  linked?: "link" | "draw";
+  /** The stroke width in pt of a missing link drawn by `draw`: one pixel at the render's scale. */
+  hairline?: number;
 }
 
 /** Which Nodes a walk draws: all of them, or those inside `scope`. */
@@ -124,6 +134,8 @@ interface Walk {
   /** Collects the Nodes drawn, but Layers, for the trailer. */
   drawn: Node[];
   images: ImageSource | undefined;
+  linked: "link" | "draw";
+  hairline: number;
 }
 
 /**
@@ -163,7 +175,16 @@ export function toSvg(doc: Document, rect?: Rect, opts: SvgOptions = {}): string
   ].join("");
   const drawn: Node[] = [];
   const body = childrenOf(doc, null)
-    .map((n) => node(doc, n, { scope: nodeIds, inside: !nodeIds, drawn, images: opts.images }))
+    .map((n) =>
+      node(doc, n, {
+        scope: nodeIds,
+        inside: !nodeIds,
+        drawn,
+        images: opts.images,
+        linked: opts.linked ?? "link",
+        hairline: opts.hairline ?? 1,
+      }),
+    )
     .join("");
   const trailer = opts.trailer?.(drawn) ?? "";
   const root = attrs({
@@ -326,21 +347,39 @@ function node(doc: Document, n: Node, walk: Walk): string {
   }
   if (!inside) return "";
   if (n.type === "image") {
-    const href = walk.images?.(n.src);
+    const { x, y, width, height, preserveAspectRatio, src, file } = n;
+    const link = file !== undefined && (walk.linked === "link" || src === undefined);
+    if (link && walk.linked === "draw") {
+      // A missing link, as Illustrator draws an unresolved placed file: its frame and both
+      // diagonals, moved into place so the stroke stays a hairline however the Image is scaled.
+      const [l, t, r, b] = [x, y, x + width, y + height];
+      const d = `M${l} ${t}L${r} ${t}L${r} ${b}L${l} ${b}ZM${l} ${t}L${r} ${b}M${r} ${t}L${l} ${b}`;
+      const { transform: _, ...rest } = own;
+      return `<path${attrs({
+        d: formatPath(transformSegments(parsePath(d, "d"), n.transform)),
+        ...rest,
+        style: style(
+          `fill:none;stroke:#999999;stroke-width:${formatNumber(walk.hairline)}`,
+          ...looks,
+        ),
+      })}/>`;
+    }
+    const href = link ? file : src === undefined ? undefined : walk.images?.(src);
     if (href === undefined) {
       throw new ZibelError({
         code: "INVALID_IMAGE",
-        message: `The file of image ${n.src} was not given to the SVG writer.`,
+        message: `The file of image ${src} was not given to the SVG writer.`,
         hint: "Pass every Image's file through toSvg's images option.",
         path: "src",
       });
     }
-    const { x, y, width, height, preserveAspectRatio } = n;
     return `<image${attrs({
       ...num({ x, y, width, height }),
       // Always written: Zibel's default, none, is not SVG's.
       preserveAspectRatio,
       "xlink:href": href,
+      // So a paste into the same Document finds the pixels it holds (ADR-0042).
+      [zibel("src")]: link ? src : undefined,
       ...own,
       style: style(...looks),
     })}/>`;

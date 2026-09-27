@@ -216,7 +216,7 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 | `path` | 贝塞尔路径，`d`（SVG 语法）、`closed`、`fillRule`（nonzero / evenodd）。`d` 含多个子路径即 Compound Path（挖洞），不另设 `compound_path` 类型（ADR-0018） | PathItem / CompoundPathItem |
 | `rect` / `ellipse` / `polygon` / `star` / `line` / `arc` / `spiral` | **Live Shape**：保留参数（圆角半径、边数、内外半径、起止角等），随时可"转为路径" | Live Shapes |
 | `text` | 文本框，`kind`：point / area / on_path；`content` 富文本 runs | TextFrameItem |
-| `image` | 置入位图：框 `x/y/width/height`、`preserveAspectRatio`、`src`（文件字节的 SHA-256，字节按 id 在 Document 中只存一份）。裁切即 Clipping Mask，不设 `crop`；目前只嵌入，链接待 Links（ADR-0023） | RasterItem / PlacedItem |
+| `image` | 置入位图：框 `x/y/width/height`、`preserveAspectRatio`、`src`（文件字节的 SHA-256，字节按 id 在 Document 中只存一份）。裁切即 Clipping Mask，不设 `crop`（ADR-0023）。`file` 可选，是链接文件的路径或 URL；有 `file` 即链接，`embedded` 由它派生、不存储；链接 Image 可无 `src`，即缺失链接，画成带对角线的框（ADR-0042） | RasterItem / PlacedItem |
 | `symbol_instance` | 指向 `assets.symbols[*]`，含实例覆盖 | SymbolItem |
 | `compound_shape` | 非破坏性布尔容器（Compound Shape）：`op` + 子节点。术语见 `CONTEXT.md`，不叫 boolean | Compound Shape |
 | `mask_group` | 不透明度蒙版组 | Opacity mask |
@@ -407,7 +407,7 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 
 **导入**
 - **F-IO-01** SVG 1.1 导入（P0）：`path / rect / circle / ellipse / line / polyline / polygon / text / tspan / textPath / g / use / symbol / defs / linearGradient / radialGradient / pattern / clipPath / mask / image`，`transform`、`style` 与 presentation attributes、`viewBox`；Inkscape 约定：`inkscape:groupmode="layer"` → Layer、`inkscape:label` → 名称、`sodipodi:insensitive` → 锁定、`display:none` → 隐藏、`<inkscape:page>` → Artboard、`sodipodi:type="star"/"arc"` → Live Shape、`z-<ULID>` id 对回原 Node。祖先 `transform` 合入叶子（ADR-0007），路径归一化为绝对 `M L C Q Z`，单位换算为 pt（px 按 1 pt 计，与 Illustrator 一致）。Zibel 路线图内但尚未实现的内容先降级并提示，实现后原样映射；Zibel 不建模的（Inkscape 路径效果、`flowRoot`、3D box、Effects 之前的 filter）取可见几何并提示；不保留原始 XML 片段（ADR-0017）。SVG `<text>` 映射到文本对象，字体名原样保存（F-TEXT-11）。两种入口：打开（`doc_open`，新 Document，浏览器中新开一个标签页）、置入（`svg_import`，一个 Group）。编辑过的文件经打开回到 Zibel，需要的图稿再复制粘贴回原 Document；三方合并的替换已删除（ADR-0030）。
-- **F-IO-02** 位图置入 PNG / JPG / WebP / GIF（首帧）；链接或嵌入；裁切。（P0）现状（ADR-0023）：PNG / JPEG / GIF 嵌入；WebP 在 resvg 与 Inkscape 1.2 能绘制之前拒绝并提示转 PNG；裁切用 Clipping Mask；`image_place` 可从 http(s) URL 置入（ADR-0027）；链接另立 issue。
+- **F-IO-02** 位图置入 PNG / JPG / WebP / GIF（首帧）；链接或嵌入；裁切。（P0）现状（ADR-0023）：PNG / JPEG / GIF 嵌入；WebP 在 resvg 与 Inkscape 1.2 能绘制之前拒绝并提示转 PNG；裁切用 Clipping Mask；`image_place` 可从 http(s) URL 置入（ADR-0027）；链接（ADR-0042）：Image 可带 `file`，`node_create` 可建链接 Image 与缺失链接，`export` SVG 写 `xlink:href="<file>"`，`render` 画存下的像素或带对角线的框；导入链接的 `<image>`、Relink 与 Embed 分别见 #99、#101、#102。
 - **F-IO-03** PDF 导入（第一页或指定页；矢量路径与文字尽力提取，不保证图层）；`.ai`（PDF 兼容模式保存的文件）按 PDF 处理。（P2）在此之前 `.ai` 经 Inkscape 另存 SVG 进入（ADR-0017）。
 - **F-IO-04** 粘贴：剪贴板 SVG 文本、Figma / Illustrator / Inkscape 复制出来的 SVG、位图。SVG 粘贴与拖放 `.svg` 到画布都按置入处理，放在视口中心；粘贴 Zibel 自己复制出的 SVG（根上 `zibel:scope="nodes:…"`）时，被复制的 Node 直接进入目标 Layer、分配新 id，不包 Group；Ctrl+Shift+V 原位粘贴，保留文档坐标（ADR-0030）。（P0 SVG 与位图）现状（ADR-0023）：粘贴或拖入 PNG / JPEG / GIF 置入为原像素尺寸的 Image。
 - **F-IO-05** 原生 `.zibel.json` 与 `.svg` 打开为新 Document，在新标签页中显示（文档列表页与标签栏的"打开文件…"，或把文件拖到标签栏）。（P0）PNG / JPEG / GIF 打开为一个与图像同尺寸的画板加该 Image（Illustrator 的 File > Open，P1，#71）。
@@ -580,7 +580,7 @@ flowchart LR
 
 | 工具 | 输入要点 | 输出 | 注 |
 |---|---|---|---|
-| `node_create` | `docId`, `nodes[]`：每项含 `type`、`parentId`（**必填**，某个 `layer` 或 `group` 的 id；`doc_create` 的回执含默认图层 id，Agent 永远有可用父级；不接受 artboardId）、`index?`、类型专属几何（rect: x/y/w/h/radius；ellipse；polygon；star；line；path: `d`；text: content/kind/box；image: src（data URL 或已有图像 id）/x/y/width?/height?/preserveAspectRatio；group: children[] 内联嵌套）、`appearance`、`name`、`tags`、`meta` | `WriteReceipt`（含每个输入项对应的新 id，顺序一致） | 批量，一次可建数百节点 |
+| `node_create` | `docId`, `nodes[]`：每项含 `type`、`parentId`（**必填**，某个 `layer` 或 `group` 的 id；`doc_create` 的回执含默认图层 id，Agent 永远有可用父级；不接受 artboardId）、`index?`、类型专属几何（rect: x/y/w/h/radius；ellipse；polygon；star；line；path: `d`；text: content/kind/box；image: src?（data URL 或已有图像 id）/file?（链接文件的路径或 URL；无 src 时须给 width、height）/x/y/width?/height?/preserveAspectRatio；group: children[] 内联嵌套）、`appearance`、`name`、`tags`、`meta` | `WriteReceipt`（含每个输入项对应的新 id，顺序一致） | 批量，一次可建数百节点 |
 | `svg_import` | `docId`, `svg`（文本）, `parentId`, `position?`, `fit?` | 生成节点树的回执与大纲 | 置入：整体一个 Group，SVG 图层变 Group，页面忽略，全部新 id；`position` 为 Group 几何边界中心的文档坐标，默认父级所在画板的中心；`fit: true` 等比缩放（含描边）以放进该画板（ADR-0017） |
 | `image_place` | `docId`, `src`（http(s) URL 或 data URL；本地路径拒绝）, `parentId`, `frame?`（`x, y, width?, height?`，缺省居中于父级所在画板）, `asTemplate?` | 回执 | openWorldHint；Worker 拉取，SSRF 防护；恒为嵌入，`embed` 待 Links；`asTemplate` 建 Template Layer（ADR-0027） |
 | `freehand_stroke` | `docId`, `parentId`, `points[]`（x, y, pressure?）, `tool`（pencil / brush / blob）, `fidelity`, `width`, `appearance` | 生成路径回执 | |
@@ -980,6 +980,7 @@ zibel/
 | 44 | 从 URL 置入图像（2026-09-25） | `image_place` 由 Worker 拉取 http(s) URL（20 MB、10 秒、SSRF 防护、手动重定向逐跳检查），`FETCH_FAILED` 新错误码，`openWorldHint: true`；`embed` 与本地路径去掉；`asTemplate` 在父级 Layer 下方建锁定的 Template Layer，Image 不透明度 50%，不打印待 `template` 标志 | ADR-0027、#61 |
 | 45 | 多文档标签页，删除替换（2026-09-26） | 三方合并的替换（`doc_replace`）复杂度过高，删除：编辑过的文件经打开成为新 Document，在新标签页中显示；一个标签页就是一个 Document（不设 Sheet 容器）；图稿经系统剪贴板以 Node 范围的 Inkscape 方言 SVG 剪切 / 复制 / 粘贴，Zibel 的拷贝粘贴时不包 Group；30 天 Delta Log 与 `zibel:doc` / `zibel:rev` 一并删除 | ADR-0030、#68、#69、#70 |
 | 46 | 菜单栏（2026-09-27） | 顶部 Illustrator 式菜单栏，在文档标签页之上；菜单项是一张数据表，菜单与快捷键都从中读取；只列已实现的项；浏览器保留快捷键不标；原生 `popover` 实现，不引入菜单库 | ADR-0031、F-VIEW-10 |
+| 47 | 链接图像（2026-09-27） | Image 可链接：可选 `file` 是 SVG 所写的路径或 URL（非 data URL，至多 2048 字符），`embedded` 由 `file` 缺省派生；`src` 变为可选，链接 Image 无 `src` 即缺失链接；`export` SVG 写 `xlink:href="<file>"`，有像素时加 `zibel:src`，从不写像素；`render` 与 PNG 画存下的像素，缺失链接画成灰色细线框加两条对角线；`.zibel.json` 的 `version` 仍为 1 | ADR-0042、#97、#98 |
 
 **剩余开放问题**
 

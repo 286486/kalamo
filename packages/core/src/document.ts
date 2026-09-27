@@ -3,7 +3,7 @@ import { ulid } from "ulid";
 import type { z } from "zod";
 import { parseColor } from "./color.ts";
 import { collect, type Failed, ZibelError } from "./errors.ts";
-import { preserveAspectRatio } from "./image.ts";
+import { fileProblem, MAX_FILE_LENGTH, preserveAspectRatio } from "./image.ts";
 import { IDENTITY, multiply, scaleOf, transformSegments } from "./matrix.ts";
 import { formatPath, parsePath, pathBounds, shapeSegments } from "./path.ts";
 import {
@@ -18,6 +18,7 @@ import {
   type Gradient,
   ImageShape,
   imageFrame,
+  imagePixels,
   type LayerNode,
   type Matrix,
   type Node,
@@ -262,11 +263,22 @@ export function assertParent(
   }
 }
 
-/** An Image's parameters, its `src` an id the Document holds (ADR-0023). */
+/** An Image's parameters, its `src` an id the Document holds (ADR-0023, ADR-0042). */
 function imageOf(doc: Document, input: unknown, path: string) {
-  const { src, width, height, ...rest } = ImageShape.superRefine(imageFrame).parse(input);
-  const info = doc.images.get(src);
-  if (!info) {
+  const { src, file, width, height, ...rest } = ImageShape.superRefine(imageFrame)
+    .superRefine(imagePixels)
+    .parse(input);
+  const problem = file === undefined ? undefined : fileProblem(file);
+  if (problem) {
+    throw new ZibelError({
+      code: "INVALID_IMAGE",
+      message: problem,
+      hint: `file is the linked file's path or URL, at most ${MAX_FILE_LENGTH} characters; pass a data: URL as src.`,
+      path: `${path}.file`,
+    });
+  }
+  const info = src === undefined ? undefined : doc.images.get(src);
+  if (src !== undefined && !info) {
     throw new ZibelError({
       code: "INVALID_IMAGE",
       message: src.startsWith("data:")
@@ -278,9 +290,11 @@ function imageOf(doc: Document, input: unknown, path: string) {
   }
   return {
     ...rest,
-    src,
-    width: width ?? info.width,
-    height: height ?? info.height,
+    ...(src !== undefined && { src }),
+    ...(file !== undefined && { file }),
+    // imageFrame refused an Image with neither pixels nor a frame.
+    width: width ?? info?.width ?? 0,
+    height: height ?? info?.height ?? 0,
     // The schema refused anything this cannot spell.
     preserveAspectRatio: preserveAspectRatio(rest.preserveAspectRatio) ?? "none",
   };

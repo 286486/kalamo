@@ -1,7 +1,7 @@
 import { runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { imageId, readImage } from "@zibel/core";
-import { expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
 
 const stub = (docId: string) => env.DOCUMENT.get(env.DOCUMENT.idFromName(docId));
@@ -89,4 +89,52 @@ it("refuses an id the Document does not hold", async () => {
     error: { code: "INVALID_IMAGE", path: "nodes[0].src" },
   });
   expect(await s.image("b".repeat(64))).toMatchObject({ error: { code: "INVALID_IMAGE" } });
+});
+
+describe("linked Images (ADR-0042)", () => {
+  it("creates a linked Image and a missing link; export writes the link, render the pixels or a crossed frame", async () => {
+    const { s, image } = await setup("images-linked");
+    const id = await redId();
+    const receipt = ok(
+      await s.createNodes(
+        [
+          image(RED_2x2_PNG, { file: "photos/red.png" }),
+          { ...image("", { file: "gone.png", width: 40, height: 20 }), src: undefined },
+        ],
+        "agent",
+      ),
+    );
+    const [linked, missing] = receipt.createdIds;
+    const { nodes } = ok(await s.get(receipt.createdIds, "full", "agent"));
+    expect(nodes[0]).toMatchObject({ src: id, file: "photos/red.png", width: 2, height: 2 });
+    expect(nodes[1]).toMatchObject({ file: "gone.png", width: 40, height: 20 });
+    expect(nodes[1]).not.toHaveProperty("src");
+    expect(JSON.stringify(nodes)).not.toContain("data:");
+
+    const { svg } = ok(await s.svg("agent", {}));
+    expect(svg).toContain(`xlink:href="photos/red.png" zibel:src="${id}" id="z-${linked}"`);
+    expect(svg).toContain(`xlink:href="gone.png" id="z-${missing}"`);
+    expect(svg).not.toContain("data:");
+    const raster = ok(await s.raster("agent", { scale: 1 })).svg;
+    expect(raster).toContain(`xlink:href="${RED_2x2_PNG}"`);
+    expect(raster).toContain(`<path d="M 0 0 L 40 0 L 40 20 L 0 20 Z M 0 0 L 40 20`);
+    expect(raster).not.toContain("gone.png");
+
+    const file = JSON.parse(ok(await s.file("agent")).text);
+    expect(file.version).toBe(1);
+    expect(file.images).toEqual({ [id]: RED_2x2_PNG });
+    expect(file.nodes.find((n: { id: string }) => n.id === missing)).not.toHaveProperty("src");
+  });
+
+  it.each([
+    ["an empty file", ""],
+    ["a data: URL as file", RED_2x2_PNG],
+    ["a file over 2048 characters", "a".repeat(2049)],
+  ])("refuses %s with INVALID_IMAGE", async (label, file) => {
+    const { s, image } = await setup(`images-linked ${label}`);
+    const missing = { ...image("", { file, width: 4, height: 2 }), src: undefined };
+    expect(await s.createNodes([missing], "agent")).toMatchObject({
+      error: { code: "INVALID_IMAGE", path: "nodes[0].file" },
+    });
+  });
 });
