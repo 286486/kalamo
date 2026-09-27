@@ -603,6 +603,7 @@ describe("pathOp offset", () => {
       id: ca.id,
       index: ca.index,
       d: "M 10 0 L 110 0 L 110 100 Z",
+      fillRule: "evenodd",
     });
     expect(cb.d).toBe("M 20 10 L 30 10 L 30 20 Z");
     expect(doc.nodes.get(a.id)).toBe(a);

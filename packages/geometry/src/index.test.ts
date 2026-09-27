@@ -78,6 +78,21 @@ describe("offsetPath in workerd (ADR-0034)", () => {
     expect(await offsetPath(square, { distance: -60, join: "miter" })).toEqual([]);
   });
 
+  // Skia's result winds a hole as its outer contour, so only evenodd leaves it empty.
+  it("closes a C shape's gap into a hole that evenodd leaves empty", async () => {
+    const c =
+      "M 0 0 L 48 0 L 48 20 L 20 20 L 20 80 L 80 80 L 80 20 L 52 20 L 52 0 L 100 0 L 100 100 L 0 100 Z";
+    const d = formatPath(await offsetPath(parsePath(c, "d"), { distance: 5 }));
+    /** Alpha at (55, 55), the hole's middle, and (55, 100), inside the ring, filled by `rule`. */
+    const alphas = async (rule: string) => {
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="110" height="110"><path transform="translate(5 5)" d="${d}" fill-rule="${rule}"/></svg>`;
+      const { pixels, width } = await svgToPixels(svg, 1);
+      return [55 * width + 55, 100 * width + 55].map((i) => pixels[i * 4 + 3]);
+    };
+    expect(await alphas("evenodd")).toEqual([0, 255]);
+    expect(await alphas("nonzero")).toEqual([255, 255]);
+  });
+
   it("fails with BOOLEAN_FAILED instead of bad geometry", async () => {
     const bad: Segment[] = [...square.slice(0, 2), { cmd: "L", args: [Number.NaN, 1] }];
     await expect(offsetPath(bad, { distance: 5, join: "miter" })).rejects.toThrow(ZibelError);

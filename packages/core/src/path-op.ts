@@ -114,13 +114,11 @@ export const PATH_OP_TEXT: Record<PathOpInput["op"], { menu: string; summary: st
 export type StrokeStyle = Pick<Stroke, "width" | "cap" | "join" | "miterLimit" | "dash">;
 
 /** How Offset Path grows or shrinks a path's fill. */
-export interface OffsetStyle {
-  /** Negative shrinks. */
-  distance: number;
-  join: "miter" | "round" | "bevel";
-  miterLimit: number;
-  fillRule: "nonzero" | "evenodd";
-}
+export type OffsetStyle = Pick<Stroke, "join" | "miterLimit"> &
+  Pick<PathNode, "fillRule"> & {
+    /** Negative shrinks. */
+    distance: number;
+  };
 
 /**
  * The path geometry core needs but does not compute: Skia's, which `@zibel/geometry` loads
@@ -477,7 +475,7 @@ function outlineStrokes(doc: Document, nodeIds: string[], geometry: Geometry): P
 
 /**
  * `path_op offset` (research §5): a copy of each path offset by `distance` in document units,
- * directly below it as Inkscape's Linked Offset stacks it (ADR-0039). The original stays, a Live
+ * directly below it as Inkscape's Linked Offset stacks it, filled evenodd (ADR-0039). The original stays, a Live
  * Shape live; a Clipping Path, or a path that shrinks away, gets no copy.
  */
 function offset(
@@ -507,6 +505,8 @@ function offset(
       id: newId(),
       index: generateKeyBetween(below?.index ?? null, found.index),
       d: formatPath(transformSegments(grown, invert(world))),
+      // Skia's contours do not overlap, but a hole winds as its outline does.
+      fillRule: "evenodd",
     };
     doc.nodes.set(copy.id, copy);
     created.push(copy);
