@@ -171,7 +171,13 @@ describe("write tools pass the write and its options apart", () => {
   it("path_op", async () => {
     const { service, call } = await harness({ pathOp: async () => receipt });
     const { partial: _, ...write } = { ...opts, partial: false };
-    const input = { nodeIds: ["r"], op: "convert_to_path" };
+    const input = {
+      nodeIds: ["r"],
+      op: "join",
+      tolerance: 0.5,
+      axis: "vertical",
+      anchors: [{ nodeId: "r", subpath: 0, index: 1 }],
+    };
     await call("zibel_path_op", { docId: "d", ...input, ...write });
     expect(service.pathOp).toHaveBeenCalledWith("d", input, write);
   });

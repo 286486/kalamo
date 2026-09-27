@@ -11,9 +11,9 @@ const CSS = `
 [role=menubar] [aria-disabled=true] { color: #999; }
 `;
 
-/** True while a menu is open, when the canvas and the shortcuts leave the keys to it. */
+/** True while a menu or a dialog is open, when the canvas and the shortcuts leave the keys to it. */
 export const menuOpen = () =>
-  document.querySelector("[role=menubar] [popover]:popover-open") !== null;
+  document.querySelector("[role=menubar] [popover]:popover-open, dialog[open]") !== null;
 
 const itemsOf = (menu: Element) => [...menu.querySelectorAll<HTMLElement>(ITEMS)];
 /** The role=menu or role=menubar an item sits in. */

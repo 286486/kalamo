@@ -1,7 +1,7 @@
 import { type Document, type PathOpInput, serializeDocument } from "@zibel/core";
 import { toSvg } from "@zibel/io/write";
 import { curvatureClearInputs, removeCurveAnchor } from "./curvature.ts";
-import { clearInputs, inRange, removeAnchorInputs } from "./direct.ts";
+import { anchorOpTargets, clearInputs, inRange, removeAnchorInputs } from "./direct.ts";
 import { PLACEABLE, pasteClipboard, place } from "./place.ts";
 import {
   editable,
@@ -91,6 +91,40 @@ const pathOp = (label: string, op: Exclude<PathOpInput["op"], "convert_to_path">
     if (nodeIds.length > 0) send({ type: "path_op", input: { nodeIds, op } });
   },
 });
+
+/** Join or Average on the selected Anchors, else on the Selection's paths (anchorOpTargets). */
+const anchorOp = (op: "join" | "average") => ({
+  enabled: ({ doc, selection, anchors }: State) =>
+    doc !== null && anchorOpTargets(doc, selection, anchors, op) !== null,
+  targets: () => {
+    const { doc, selection, anchors } = useStore.getState();
+    return doc && anchorOpTargets(doc, selection, anchors, op);
+  },
+});
+const join = anchorOp("join");
+const average = anchorOp("average");
+
+type Axis = NonNullable<PathOpInput["axis"]>;
+const AXES: Axis[] = ["horizontal", "vertical", "both"];
+
+/** Object > Path > Average…'s dialog, Illustrator's Axis choice; `then` never runs on Cancel. */
+function averageDialog(then: (axis: Axis) => void) {
+  const dialog = Object.assign(document.createElement("dialog"), { ariaLabel: "Average" });
+  dialog.style.font = "13px system-ui, sans-serif";
+  const radios = AXES.map(
+    (a) =>
+      `<label style="display:block"><input type="radio" name="axis" value="${a}"${a === "both" ? " checked" : ""}> ${a[0]?.toUpperCase()}${a.slice(1)}</label>`,
+  );
+  // OK comes first: Enter submits with it.
+  dialog.innerHTML = `<form method="dialog"><fieldset><legend>Axis</legend>${radios.join("")}</fieldset><p style="text-align:right;margin-bottom:0"><button value="ok">OK</button> <button value="cancel">Cancel</button></p></form>`;
+  dialog.onclose = () => {
+    const form = dialog.querySelector("form") as HTMLFormElement;
+    if (dialog.returnValue === "ok") then(new FormData(form).get("axis") as Axis);
+    dialog.remove();
+  };
+  document.body.append(dialog);
+  dialog.showModal();
+}
 
 const select = (pick: (doc: Document, selection: string[]) => string[]) => () => {
   const { doc, selection } = useStore.getState();
@@ -240,10 +274,32 @@ export function documentMenus(tabs: { open: (file: File) => void; close: () => v
       label: "Object",
       items: [
         {
-          // Illustrator's order; Join, Average, Outline Stroke, Offset Path, Simplify and Smooth
-          // take their places as they arrive.
+          // Illustrator's order; Outline Stroke, Offset Path, Simplify and Smooth take their
+          // places as they arrive.
           label: "Path",
           items: [
+            {
+              label: "Join",
+              keys: "Ctrl+J",
+              enabled: join.enabled,
+              run: () => {
+                const input = join.targets();
+                if (input) send({ type: "path_op", input: { ...input, op: "join" } });
+              },
+            },
+            {
+              label: "Average…",
+              keys: "Alt+Ctrl+J",
+              enabled: average.enabled,
+              run: () => {
+                if (!average.targets()) return;
+                averageDialog((axis) => {
+                  // The Selection may have changed while the dialog was open.
+                  const input = average.targets();
+                  if (input) send({ type: "path_op", input: { ...input, op: "average", axis } });
+                });
+              },
+            },
             pathOp("Reverse Path Direction", "reverse"),
             pathOp("Add Anchor Points", "add_anchors"),
             {

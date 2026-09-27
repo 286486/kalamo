@@ -385,3 +385,136 @@ describe("pathOp", () => {
     expect(e).toMatchObject({ code: "INVALID_PATH", path: "nodeIds[0]" });
   });
 });
+
+describe("pathOp join", () => {
+  const paths = (...ds: string[]) => {
+    const { doc, defaultLayerId, node } = setup(ds[0] as string);
+    const rest = createNodes(
+      doc,
+      ds.slice(1).map((d) => ({ type: "path" as const, parentId: defaultLayerId, d })),
+    ).nodes;
+    return { doc, defaultLayerId, ids: [node.id, ...rest.map((n) => n.id)] };
+  };
+  const dOf = (doc: ReturnType<typeof setup>["doc"], id: string) =>
+    (doc.nodes.get(id) as PathNode).d;
+
+  it("joins two open paths by their closest Endpoints into the topmost, deleting the other", () => {
+    const { doc, ids } = paths("M 0 0 L 10 0", "M 30 0 L 20 0");
+    const [a, b] = ids as [string, string];
+    const { updated, deletedIds } = pathOp(doc, { nodeIds: [a, b], op: "join" });
+    expect(updated.map((n) => n.id)).toEqual([b]);
+    expect(deletedIds).toEqual([a]);
+    expect(doc.nodes.has(a)).toBe(false);
+    // Topmost b's d, its start joined to a's end by a straight segment.
+    expect(dOf(doc, b)).toBe("M 30 0 L 20 0 L 10 0 L 0 0");
+  });
+
+  it("merges coincident Endpoints into one Anchor, keeping both Handles", () => {
+    const { doc, ids } = paths("M 0 0 C 0 10 10 10 10 0", "M 10 0 C 10 -10 20 -10 20 0");
+    pathOp(doc, { nodeIds: ids, op: "join" });
+    expect(dOf(doc, ids[1] as string)).toBe("M 0 0 C 0 10 10 10 10 0 C 10 -10 20 -10 20 0");
+  });
+
+  it("maps the other path through both transforms", () => {
+    const { doc, ids } = paths("M 0 0 L 10 0", "M 0 0 L 10 0");
+    const [a, b] = ids as [string, string];
+    doc.nodes.set(b, { ...(doc.nodes.get(b) as PathNode), transform: [1, 0, 0, 1, 100, 0] });
+    pathOp(doc, { nodeIds: ids, op: "join" });
+    expect(dOf(doc, b)).toBe("M -100 0 L -90 0 L 0 0 L 10 0");
+    expect(doc.nodes.has(a)).toBe(false);
+  });
+
+  it("closes one open path alone, merging coincident ends", () => {
+    const open = paths("M 0 0 L 10 0 L 10 10");
+    pathOp(open.doc, { nodeIds: open.ids, op: "join" });
+    expect(dOf(open.doc, open.ids[0] as string)).toBe("M 0 0 L 10 0 L 10 10 Z");
+    const ends = paths("M 0 0 L 10 0 L 10 10 L 0 0.001");
+    pathOp(ends.doc, { nodeIds: ends.ids, op: "join", tolerance: 0.01 });
+    expect(dOf(ends.doc, ends.ids[0] as string)).toBe("M 0 0 L 10 0 L 10 10 Z");
+  });
+
+  it("joins three paths into one, closest first, leaving closed paths alone", () => {
+    const { doc, ids } = paths("M 0 0 L 10 0", "M 50 0 L 40 0", "M 11 0 L 20 0", "M 0 50 L 5 50 Z");
+    const { updated, deletedIds } = pathOp(doc, { nodeIds: ids, op: "join" });
+    expect(updated.map((n) => n.id)).toEqual([ids[2]]);
+    expect(deletedIds.sort()).toEqual([ids[0], ids[1]].sort());
+    expect(dOf(doc, ids[2] as string)).toBe("M 0 0 L 10 0 L 11 0 L 20 0 L 40 0 L 50 0");
+    expect(dOf(doc, ids[3] as string)).toBe("M 0 50 L 5 50 Z");
+  });
+
+  it("connects two selected Endpoints, and refuses anything else", () => {
+    const { doc, ids } = paths("M 0 0 L 10 0 L 10 10", "M 30 0 L 20 0");
+    const [a, b] = ids as [string, string];
+    pathOp(doc, {
+      nodeIds: ids,
+      op: "join",
+      anchors: [
+        { nodeId: a, subpath: 0, index: 0 },
+        { nodeId: b, subpath: 0, index: 1 },
+      ],
+    });
+    expect(doc.nodes.has(a)).toBe(false);
+    expect(dOf(doc, b)).toBe("M 30 0 L 20 0 L 0 0 L 10 0 L 10 10");
+    const bad = (anchors: { nodeId: string; subpath: number; index: number }[]) =>
+      errorOf(() => pathOp(doc, { nodeIds: [b], op: "join", anchors }));
+    expect(bad([{ nodeId: b, subpath: 0, index: 1 }])).toMatchObject({ code: "INVALID_PATH" });
+    expect(
+      bad([
+        { nodeId: b, subpath: 0, index: 0 },
+        { nodeId: b, subpath: 0, index: 2 },
+      ]),
+    ).toMatchObject({ code: "INVALID_PATH", message: expect.stringMatching(/two open Endpoints/) });
+  });
+
+  it("closes a subpath whose two Endpoints are selected", () => {
+    const { doc, ids } = paths("M 0 0 L 10 0 L 10 10");
+    const [a] = ids as [string];
+    pathOp(doc, {
+      nodeIds: ids,
+      op: "join",
+      anchors: [
+        { nodeId: a, subpath: 0, index: 2 },
+        { nodeId: a, subpath: 0, index: 0 },
+      ],
+    });
+    expect(dOf(doc, a)).toBe("M 0 0 L 10 0 L 10 10 Z");
+  });
+
+  it("refuses paths without an open subpath", () => {
+    const { doc, ids } = paths("M 0 0 L 10 0 L 10 10 Z");
+    expect(errorOf(() => pathOp(doc, { nodeIds: ids, op: "join" }))).toMatchObject({
+      code: "INVALID_PATH",
+    });
+  });
+});
+
+describe("pathOp average", () => {
+  it("stacks three Anchors at their centroid, Handles moving along", () => {
+    const { doc, node } = setup("M 0 0 L 30 0 C 30 10 60 10 60 30");
+    pathOp(doc, {
+      nodeIds: [node.id],
+      op: "average",
+      anchors: [
+        { nodeId: node.id, subpath: 0, index: 0 },
+        { nodeId: node.id, subpath: 0, index: 1 },
+        { nodeId: node.id, subpath: 0, index: 2 },
+      ],
+    });
+    expect((doc.nodes.get(node.id) as PathNode).d).toBe("M 30 10 L 30 10 C 30 20 30 -10 30 10");
+  });
+
+  it("averages one axis, across paths in document coordinates, all Anchors without a list", () => {
+    const { doc, defaultLayerId, node } = setup("M 0 0 L 10 10");
+    const [other] = createNodes(doc, [
+      { type: "path", parentId: defaultLayerId, d: "M 0 0" },
+    ]).nodes;
+    if (!other) throw new Error("setup");
+    doc.nodes.set(other.id, { ...other, transform: [1, 0, 0, 1, 0, 40] });
+    pathOp(doc, { nodeIds: [node.id, other.id], op: "average", axis: "horizontal" });
+    // Horizontal: every Anchor on one horizontal line, at the mean y of 0, 10 and 40.
+    expect((doc.nodes.get(node.id) as PathNode).d).toBe("M 0 16.667 L 10 16.667");
+    expect((doc.nodes.get(other.id) as PathNode).d).toBe("M 0 -23.333");
+    pathOp(doc, { nodeIds: [node.id], op: "average", axis: "vertical" });
+    expect((doc.nodes.get(node.id) as PathNode).d).toBe("M 5 16.667 L 5 16.667");
+  });
+});

@@ -1,8 +1,17 @@
 import { z } from "zod";
+import { childrenOf, worldTransform } from "./document.ts";
 import { lookup } from "./edit.ts";
 import { ZibelError } from "./errors.ts";
+import { applyTo, IDENTITY, invert, multiply, transformSegments } from "./matrix.ts";
 import { formatPath, parsePath, type Segment, shapeSegments } from "./path.ts";
-import { type Document, type Node, SHAPES, type ShapeNode, type WriteReceipt } from "./schema.ts";
+import {
+  type Document,
+  type Matrix,
+  type Node,
+  SHAPES,
+  type ShapeNode,
+  type WriteReceipt,
+} from "./schema.ts";
 
 type Point = [number, number];
 export type PathNode = Extract<ShapeNode, { type: "path" }>;
@@ -210,11 +219,31 @@ export type PathEditInput = z.input<typeof PathEditInput>;
 
 /**
  * `path_op` (REQUIREMENTS §6.4) so far: convert_to_path (Object > Shape > Expand Shape), reverse
- * (Reverse Path Direction) and add_anchors (Add Anchor Points).
+ * (Reverse Path Direction), add_anchors (Add Anchor Points), join (Join) and average (Average).
  */
 export const PathOpInput = z.object({
   nodeIds: z.array(z.string()).min(1).max(1000),
-  op: z.enum(["convert_to_path", "reverse", "add_anchors"]),
+  op: z.enum(["convert_to_path", "reverse", "add_anchors", "join", "average"]),
+  tolerance: z
+    .number()
+    .min(0)
+    .default(0.01)
+    .describe(
+      "join: Endpoints this close merge into one Anchor; farther ones get a straight segment.",
+    ),
+  axis: z
+    .enum(["horizontal", "vertical", "both"])
+    .default("both")
+    .describe(
+      "average: horizontal lines the Anchors up on one y, vertical on one x, both stacks them.",
+    ),
+  anchors: z
+    .array(z.object({ nodeId: z.string(), subpath, index }))
+    .max(10000)
+    .optional()
+    .describe(
+      "join and average: the Anchors to act on, each of a Node in nodeIds. join takes two open Endpoints; omitted, join takes the whole paths and average every Anchor of nodeIds.",
+    ),
 });
 export type PathOpInput = z.input<typeof PathOpInput>;
 
@@ -459,16 +488,242 @@ function addAnchors(subpaths: Subpath[]): Subpath[] {
   return subpaths;
 }
 
+type Ref = { nodeId: string; subpath: number; index: number };
+type PathOpResult = {
+  updated: PathNode[];
+  deletedIds: string[];
+  warnings: WriteReceipt["warnings"];
+};
+type WithAnchors = PathNode | LiveShape;
+
+/** The Node as a path, converted if it is a Live Shape, and its Anchors mapped by `m`. */
+function anchorsIn(node: WithAnchors, m: Matrix = IDENTITY) {
+  const path = isLiveShape(node) ? toPath(node) : node;
+  return { node, path, subpaths: toAnchors(transformSegments(parsePath(path.d, "d"), m)) };
+}
+
+/** Each Node's place in paint order, bottom first. */
+function paintOrder(doc: Document): Map<string, number> {
+  const order = new Map<string, number>();
+  const walk = (parentId: string | null) => {
+    for (const n of childrenOf(doc, parentId)) {
+      order.set(n.id, order.size);
+      walk(n.id);
+    }
+  };
+  walk(null);
+  return order;
+}
+
+/** `anchors`, each checked to be of a Node in `nodeIds`. */
+const checkRefs = (refs: Ref[] | undefined, nodeIds: string[]) =>
+  refs?.map((r, i) => {
+    if (nodeIds.includes(r.nodeId)) return r;
+    throw invalid(
+      `anchors[${i}].nodeId`,
+      "The Anchor's Node is not in nodeIds.",
+      "List its Node in nodeIds too.",
+    );
+  });
+
+const flip = (s: Subpath) => apply([structuredClone(s)], { op: "reverse" }, "")[0] as Subpath;
+
+const shift = (a: Anchor, [dx, dy]: Point): Anchor => {
+  const by = (p: Point | null): Point | null => p && [p[0] + dx, p[1] + dy];
+  return {
+    ...a,
+    anchor: [a.anchor[0] + dx, a.anchor[1] + dy],
+    handleIn: by(a.handleIn),
+    handleOut: by(a.handleOut),
+  };
+};
+
+const gap = (a: Anchor, b: Anchor): Point => [a.anchor[0] - b.anchor[0], a.anchor[1] - b.anchor[1]];
+
 /**
- * `path_op` (REQUIREMENTS §6.4) on each path or Live Shape; reverse and add_anchors convert a Live
- * Shape first (F-PATH-07), with a warning.
+ * Open subpaths `a` and `b` as one, joined at `a`'s end (else start) and `b`'s end (else start),
+ * keeping `a`'s direction. Endpoints within `tolerance` merge into `a`'s, `b` sliding onto it, each
+ * keeping its Handle; farther ones get a straight segment. Joins are Corner (research §5).
  */
-export function pathOp(
-  doc: Document,
-  raw: PathOpInput,
-): { updated: PathNode[]; warnings: WriteReceipt["warnings"] } {
-  const { nodeIds, op } = PathOpInput.parse(raw);
-  if (op === "convert_to_path") return { ...convertToPath(doc, nodeIds), warnings: [] };
+function connect(a: Subpath, aEnd: boolean, b: Subpath, bEnd: boolean, tolerance: number): Subpath {
+  const other = aEnd === bEnd ? flip(b) : b;
+  const [pa, pb] = aEnd
+    ? [a.anchors.at(-1), other.anchors[0]]
+    : [a.anchors[0], other.anchors.at(-1)];
+  const d = gap(pa as Anchor, pb as Anchor);
+  if (Math.hypot(...d) > tolerance) {
+    return {
+      closed: false,
+      anchors: aEnd ? [...a.anchors, ...other.anchors] : [...other.anchors, ...a.anchors],
+    };
+  }
+  const moved = other.anchors.map((x) => shift(x, d));
+  const anchors = aEnd
+    ? [
+        ...a.anchors.slice(0, -1),
+        { ...(pa as Anchor), handleOut: moved[0]?.handleOut ?? null },
+        ...moved.slice(1),
+      ]
+    : [
+        ...moved.slice(0, -1),
+        { ...(pa as Anchor), handleIn: moved.at(-1)?.handleIn ?? null },
+        ...a.anchors.slice(1),
+      ];
+  return { closed: false, anchors: anchors.map((x) => ({ ...x, type: typeOf(x) })) };
+}
+
+/** Closes an open subpath, merging its ends when within `tolerance`. */
+function closeWithin(s: Subpath, tolerance: number): Subpath {
+  const [first] = s.anchors as [Anchor];
+  const last = s.anchors.at(-1) as Anchor;
+  const d = gap(first, last);
+  if (s.anchors.length > 1 && Math.hypot(...d) <= tolerance) {
+    first.handleIn = shift(last, d).handleIn;
+    s.anchors.pop();
+  }
+  s.closed = true;
+  return s;
+}
+
+const JOIN_HINT = "Name two open Endpoints in anchors, or omit anchors to join whole open paths.";
+
+/**
+ * `path_op join` (research §5): two named Endpoints connect; whole paths join their open subpaths
+ * closest Endpoints first until one is left, and one open path alone closes. The topmost path takes
+ * the result with every subpath of the others, keeping its appearance; the others are deleted.
+ */
+function join(doc: Document, input: z.output<typeof PathOpInput>): PathOpResult {
+  const { tolerance } = input;
+  const refs = checkRefs(input.anchors, input.nodeIds);
+  const named = allWithAnchors(doc, input.nodeIds);
+  const order = paintOrder(doc);
+  // Everything in the topmost Node's coordinates.
+  const gather = (nodes: WithAnchors[]) => {
+    const top = nodes.reduce((a, b) => ((order.get(b.id) ?? 0) > (order.get(a.id) ?? 0) ? b : a));
+    const toTop = invert(worldTransform(doc, top));
+    const each = nodes.map((n) => anchorsIn(n, multiply(toTop, worldTransform(doc, n))));
+    return { top, each };
+  };
+  const done = (top: WithAnchors, subpaths: Subpath[], nodes: WithAnchors[]): PathOpResult => {
+    const next = { ...anchorsIn(top).path, d: formatPath(fromAnchors(subpaths)) };
+    const deletedIds = nodes.filter((n) => n !== top).map((n) => n.id);
+    for (const id of deletedIds) doc.nodes.delete(id);
+    doc.nodes.set(next.id, next);
+    return { updated: [next], deletedIds, warnings: isLiveShape(top) ? [converted(top)] : [] };
+  };
+
+  if (refs) {
+    const nodes = named.filter((n) => refs.some((r) => r.nodeId === n.id));
+    const { top, each } = gather(nodes);
+    const subpathOf = (r: Ref) => each.find((e) => e.node.id === r.nodeId)?.subpaths[r.subpath];
+    const isEndpoint = (r: Ref) => {
+      const s = subpathOf(r);
+      return !!s && !s.closed && (r.index === 0 || r.index === s.anchors.length - 1);
+    };
+    const [p, q] = refs as [Ref, Ref];
+    const twice =
+      refs.length === 2 && p.nodeId === q.nodeId && p.subpath === q.subpath && p.index === q.index;
+    if (refs.length !== 2 || twice || !refs.every(isEndpoint)) {
+      throw invalid("anchors", "Join connects two open Endpoints.", JOIN_HINT);
+    }
+    const [sp, sq] = [subpathOf(p), subpathOf(q)] as [Subpath, Subpath];
+    const rest = each.flatMap((e) => e.subpaths).filter((s) => s !== sp && s !== sq);
+    const joined =
+      sp === sq ? closeWithin(sp, tolerance) : connect(sp, p.index > 0, sq, q.index > 0, tolerance);
+    return done(top, [joined, ...rest], nodes);
+  }
+
+  const nodes = named.filter((n) => anchorsIn(n).subpaths.some((s) => !s.closed));
+  if (nodes.length === 0) {
+    throw invalid("nodeIds", "None of the paths has an open subpath to join.", JOIN_HINT);
+  }
+  const { top, each } = gather(nodes);
+  const closed = each.flatMap((e) => e.subpaths.filter((s) => s.closed));
+  // The topmost Node's open subpaths first, so the result keeps its direction.
+  const chains = [...each]
+    .sort((a, b) => Number(b.node === top) - Number(a.node === top))
+    .flatMap((e) => e.subpaths.filter((s) => !s.closed));
+  if (chains.length === 1)
+    return done(top, [closeWithin(chains[0] as Subpath, tolerance), ...closed], nodes);
+  while (chains.length > 1) {
+    let best = { i: 0, j: 1, aEnd: true, bEnd: false, dist: Infinity };
+    for (const [i, a] of chains.entries()) {
+      for (const [j, b] of chains.entries()) {
+        if (j <= i) continue;
+        for (const aEnd of [false, true]) {
+          for (const bEnd of [false, true]) {
+            const pa = (aEnd ? a.anchors.at(-1) : a.anchors[0]) as Anchor;
+            const pb = (bEnd ? b.anchors.at(-1) : b.anchors[0]) as Anchor;
+            const dist = Math.hypot(...gap(pa, pb));
+            if (dist < best.dist) best = { i, j, aEnd, bEnd, dist };
+          }
+        }
+      }
+    }
+    const { i, j, aEnd, bEnd } = best;
+    chains[i] = connect(chains[i] as Subpath, aEnd, chains[j] as Subpath, bEnd, tolerance);
+    chains.splice(j, 1);
+  }
+  return done(top, [...chains, ...closed], nodes);
+}
+
+/**
+ * `path_op average` (research §5): the Anchors move, Handles along, to their mean position in
+ * document coordinates, on one axis or both. A Live Shape with an Anchor to move is converted first.
+ */
+function average(doc: Document, input: z.output<typeof PathOpInput>): PathOpResult {
+  const named = allWithAnchors(doc, input.nodeIds);
+  const listed =
+    checkRefs(input.anchors, input.nodeIds) ??
+    named.flatMap((n) =>
+      anchorsIn(n).subpaths.flatMap((s, subpath) =>
+        s.anchors.map((_, index) => ({ nodeId: n.id, subpath, index })),
+      ),
+    );
+  const refs = [...new Map(listed.map((r) => [`${r.nodeId} ${r.subpath} ${r.index}`, r])).values()];
+  const nodes = named.filter((n) => refs.some((r) => r.nodeId === n.id));
+  const each = new Map(nodes.map((n) => [n.id, { ...anchorsIn(n), m: worldTransform(doc, n) }]));
+  const world = refs.map((r, i) => {
+    const e = each.get(r.nodeId);
+    const a = e?.subpaths[r.subpath]?.anchors[r.index];
+    if (!e || !a) {
+      throw invalid(
+        `anchors[${i}]`,
+        `The Node has no Anchor ${r.index} in subpath ${r.subpath}.`,
+        "zibel_path_edit returns each subpath's Anchors.",
+      );
+    }
+    return applyTo(e.m, ...a.anchor);
+  });
+  const mean = (k: 0 | 1) => world.reduce((sum, p) => sum + p[k], 0) / world.length;
+  const [mx, my] = [mean(0), mean(1)];
+  refs.forEach(({ nodeId, subpath, index }, i) => {
+    const { m, subpaths } = each.get(nodeId) as { m: Matrix; subpaths: Subpath[] };
+    const [wx, wy] = world[i] as Point;
+    const x = input.axis === "horizontal" ? wx : mx;
+    const y = input.axis === "vertical" ? wy : my;
+    apply(subpaths, { op: "move_anchor", subpath, index, to: applyTo(invert(m), x, y) }, "");
+  });
+  const updated = [...each.values()].map(({ path, subpaths }) => ({
+    ...path,
+    d: formatPath(fromAnchors(subpaths)),
+  }));
+  for (const node of updated) doc.nodes.set(node.id, node);
+  return { updated, deletedIds: [], warnings: nodes.filter(isLiveShape).map(converted) };
+}
+
+/**
+ * `path_op` (REQUIREMENTS §6.4) on each path or Live Shape; every op but convert_to_path converts a
+ * Live Shape first (F-PATH-07), with a warning.
+ */
+export function pathOp(doc: Document, raw: PathOpInput): PathOpResult {
+  const input = PathOpInput.parse(raw);
+  const { nodeIds, op } = input;
+  if (op === "convert_to_path") {
+    return { ...convertToPath(doc, nodeIds), deletedIds: [], warnings: [] };
+  }
+  if (op === "join") return join(doc, input);
+  if (op === "average") return average(doc, input);
   const unique = allWithAnchors(doc, nodeIds);
   const updated = unique.map((found) => {
     const node = isLiveShape(found) ? toPath(found) : found;
@@ -477,7 +732,7 @@ export function pathOp(
     return { ...node, d: formatPath(fromAnchors(next)) };
   });
   for (const node of updated) doc.nodes.set(node.id, node);
-  return { updated, warnings: unique.filter(isLiveShape).map(converted) };
+  return { updated, deletedIds: [], warnings: unique.filter(isLiveShape).map(converted) };
 }
 
 /**

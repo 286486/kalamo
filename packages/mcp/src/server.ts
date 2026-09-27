@@ -460,13 +460,17 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         "op convert_to_path turns each Live Shape (rect, ellipse, line, polygon, star) into a path with the same outline, as Illustrator's Object > Shape > Expand Shape: it keeps its id, parent, stacking order, name, transform and appearance, and its parameters give way to d and fillRule. A path is left as it is; any other Node fails the call. zibel_path_edit converts a Live Shape by itself, so convert first only to keep the shape as a path without editing it.",
         "op reverse reverses each subpath's Anchor order, as Object > Path > Reverse Path Direction: an open subpath's start and end swap, a closed one keeps its first Anchor. op add_anchors adds an Anchor at the middle (t = 0.5) of every segment without changing the outline, as Object > Path > Add Anchor Points. Both convert a Live Shape to a path first and say so in warnings (CONVERTED_TO_PATH); any Node other than a path or Live Shape fails the call.",
         "To remove chosen Anchors, as Remove Anchor Points does, use zibel_path_edit remove_anchor.",
+        "op join, as Object > Path > Join: with anchors naming two open Endpoints it connects them, closing the subpath when both are its ends; without anchors it joins the named paths' open subpaths, closest Endpoints first, until one path is left, and closes a single open path. Endpoints within tolerance merge into one Anchor, farther ones get a straight segment, and each join is a Corner. The topmost path keeps its id and appearance and takes every subpath of the others, which are deleted (deletedIds); paths without an open subpath are left as they are.",
+        "op average, as Object > Path > Average: moves the anchors listed, or every Anchor of nodeIds, to their mean position in document coordinates; axis horizontal puts them on one horizontal line (same y), vertical on one vertical line (same x), both on one point. Handles move with their Anchors.",
       ].join(" "),
       inputSchema: { docId, ...PathOpInput.shape, ...txWrite },
       outputSchema: WriteReceipt.shape,
       annotations: edit,
     },
-    ({ docId, nodeIds, op, ...opts }) =>
-      run("zibel_path_op", async () => json(await service.pathOp(docId, { nodeIds, op }, opts))),
+    ({ docId, nodeIds, op, tolerance, axis, anchors, ...opts }) =>
+      run("zibel_path_op", async () =>
+        json(await service.pathOp(docId, { nodeIds, op, tolerance, axis, anchors }, opts)),
+      ),
   );
 
   server.registerTool(
