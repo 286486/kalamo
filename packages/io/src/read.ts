@@ -253,7 +253,7 @@ interface Context {
 export const MAX_DEPTH = 256;
 
 const MISSING =
-  "Some linked images came in as missing links, drawn as crossed frames: Zibel fetches nothing, so it has no pixels for them. Relink each to its file.";
+  "Some linked images came in as missing links, drawn as crossed frames: Zibel fetches nothing, so it has no pixels for them. Place or embed the image files to see them.";
 const UNSIZED =
   "An <image> was dropped: a linked image without width and height has no size until its file is read.";
 
@@ -1080,21 +1080,19 @@ class Reader {
       const problem = fileProblem(href);
       if (problem) return drop(problem);
       // SVG draws nothing for an image with no area.
-      if (w === 0 || h === 0) return null;
+      if ((w ?? 1) <= 0 || (h ?? 1) <= 0) return null;
       const src = zibelAttr(e, "src") ?? "";
-      if (IMAGE_ID.test(src) && (w === undefined || h === undefined)) {
-        return {
-          shape: { ...frame(1, 1), file: href },
-          link: { src, size: { scale: k, width: w, height: h } },
-        };
-      }
-      if (w === undefined || h === undefined) {
+      const offered = IMAGE_ID.test(src);
+      const sized = w !== undefined && h !== undefined;
+      if (!sized && !offered) {
         this.warn("INVALID_IMAGE", "", UNSIZED);
         return null;
       }
-      if (IMAGE_ID.test(src)) return { shape: { ...frame(w, h), file: href }, link: { src } };
+      // Missing until resolveLinks finds its pixels, so a read that skips it still warns.
       this.warn("IMAGE_LINK_MISSING", "", MISSING);
-      return { shape: { ...frame(w, h), file: href } };
+      const shape = { ...frame(w ?? 1, h ?? 1), file: href };
+      if (!offered) return { shape };
+      return { shape, link: { src, ...(!sized && { size: { scale: k, width: w, height: h } }) } };
     }
     let file: ImageFile;
     try {
@@ -1328,30 +1326,24 @@ export function parseSvg(text: string, nameHint?: string): OpenedFile {
 }
 
 /**
- * `file` with each linked Image's `zibel:src` kept when `held` knows that image, the Document it
- * goes into holding it (ADR-0042). The rest are missing links; one without a size is dropped.
+ * `file` with each linked Image's `zibel:src` kept when `lookup` finds that image, the Document it
+ * goes into holding it (ADR-0042). The rest are missing links; one without a size is dropped, with
+ * the Clipping Mask made for it.
  */
 export function resolveLinks(
   file: OpenedFile,
-  held: (id: string) => ImageInfo | undefined,
+  lookup: (id: string) => ImageInfo | undefined,
 ): OpenedFile {
   const { links, ...rest } = file;
   if (!links) return file;
-  const warnings = [...file.warnings];
-  const warn = (code: string, message: string) => {
-    if (!warnings.some((w) => w.code === code)) warnings.push({ code, message });
-  };
-  const nodes = file.nodes.flatMap((n): Node[] => {
+  const dropped = new Set<string>();
+  const resolved = file.nodes.flatMap((n): Node[] => {
     const link = links.get(n.id);
     if (!link || n.type !== "image") return [n];
-    const info = held(link.src);
+    const info = lookup(link.src);
     if (!info) {
-      if (!link.size) {
-        warn("IMAGE_LINK_MISSING", MISSING);
-        return [n];
-      }
-      warn("INVALID_IMAGE", UNSIZED);
-      return [];
+      if (link.size) dropped.add(n.id);
+      return [n];
     }
     const { size } = link;
     return [
@@ -1365,5 +1357,21 @@ export function resolveLinks(
       },
     ];
   });
+  const kept = resolved.filter((n) => !dropped.has(n.id));
+  // A Group left with only its Clipping Path was the Clipping Mask of a dropped Image.
+  const clipOnly = (g: string) =>
+    kept.some((c) => c.parentId === g) &&
+    kept.every((c) => c.parentId !== g || ("clipping" in c && c.clipping));
+  const emptied = new Set(
+    resolved.flatMap((n) =>
+      dropped.has(n.id) && n.parentId && clipOnly(n.parentId) ? [n.parentId] : [],
+    ),
+  );
+  const nodes = kept.filter((n) => !emptied.has(n.id) && !emptied.has(n.parentId ?? ""));
+  const missing = nodes.some((n) => n.type === "image" && n.src === undefined);
+  const warnings = file.warnings.filter((w) => missing || w.code !== "IMAGE_LINK_MISSING");
+  if (dropped.size && !warnings.some((w) => w.code === "INVALID_IMAGE")) {
+    warnings.push({ code: "INVALID_IMAGE", message: UNSIZED });
+  }
   return { ...rest, nodes, warnings };
 }

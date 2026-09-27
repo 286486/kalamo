@@ -5,7 +5,7 @@ date: 2026-09-27
 
 # An Image is embedded or linked to a file, and a linked Image may hold a copy of its pixels
 
-Inkscape and Illustrator SVGs often link their photos (`xlink:href="photo.png"`) rather than embed them. ADR-0023 made every Image embedded, so import drops those `<image>`s with `LINKED_IMAGE_DROPPED`, and nothing in Zibel can hold the reference to write it back (F-IO-02 "link or embed", #60, spec #97). This ADR supersedes ADR-0023's "Embedded only" and "`src` is read-only" points. The rest of ADR-0023 stands: content-hash ids, the `images` table and its chunks, and "stored before the write that names it".
+Inkscape and Illustrator SVGs often link their photos (`xlink:href="photo.png"`) rather than embed them. ADR-0023 made every Image embedded, so import drops those `<image>`s with `LINKED_IMAGE_DROPPED`, and nothing in Zibel can hold the reference to write it back (F-IO-02 "link or embed", #60, spec #97). This ADR supersedes ADR-0023's "Embedded only" and "`src` is read-only" points, and its import rule that drops a linked `<image>` with `LINKED_IMAGE_DROPPED`. The rest of ADR-0023 stands: content-hash ids, the `images` table and its chunks, and "stored before the write that names it".
 
 ## The model
 
@@ -34,7 +34,7 @@ Import (#99):
 
 - An `<image>` whose `xlink:href` or `href` is not a `data:` URL becomes a linked Image with `file` set to the trimmed href. The frame, transform and `preserveAspectRatio` follow the embedded `<image>` rules (ADR-0023). An empty href, or one `file` refuses, is dropped with `INVALID_IMAGE`. Nothing is fetched, so `doc_open` and `svg_import` stay closed-world. `sodipodi:absref` is neither read nor written.
 - A `zibel:src` holding an image id is offered as the Image's `src`, and is kept only when the target Document holds that image. For Open that is the file's own embedded images; for Place, which Copy and Paste use, the Document's images once the file's are stored. So a linked Image pasted into its own Document keeps its pixels, and one pasted into another Document arrives as a missing link.
-- Every linked Image that comes in without pixels makes the warning `IMAGE_LINK_MISSING`. One without `width` or `height` takes the missing size from its resolved pixels, and is dropped with `INVALID_IMAGE` when there are none, since nothing else gives its size.
+- Every linked Image that comes in without pixels makes the warning `IMAGE_LINK_MISSING`. One without `width` or `height` takes the missing size from its resolved pixels, and is dropped with `INVALID_IMAGE` when there are none, since nothing else gives its size, together with the Clipping Mask a `clip-path` on it made. A negative or zero size draws nothing and is dropped silently, as for an embedded `<image>`. Every linked `<image>` warns when read, and the warning is taken back once all of them have pixels, so a read that skips resolving still warns.
 
 ## `.zibel.json`
 

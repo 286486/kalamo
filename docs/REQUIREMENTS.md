@@ -980,7 +980,7 @@ zibel/
 | 44 | 从 URL 置入图像（2026-09-25） | `image_place` 由 Worker 拉取 http(s) URL（20 MB、10 秒、SSRF 防护、手动重定向逐跳检查），`FETCH_FAILED` 新错误码，`openWorldHint: true`；`embed` 与本地路径去掉；`asTemplate` 在父级 Layer 下方建锁定的 Template Layer，Image 不透明度 50%，不打印待 `template` 标志 | ADR-0027、#61 |
 | 45 | 多文档标签页，删除替换（2026-09-26） | 三方合并的替换（`doc_replace`）复杂度过高，删除：编辑过的文件经打开成为新 Document，在新标签页中显示；一个标签页就是一个 Document（不设 Sheet 容器）；图稿经系统剪贴板以 Node 范围的 Inkscape 方言 SVG 剪切 / 复制 / 粘贴，Zibel 的拷贝粘贴时不包 Group；30 天 Delta Log 与 `zibel:doc` / `zibel:rev` 一并删除 | ADR-0030、#68、#69、#70 |
 | 46 | 菜单栏（2026-09-27） | 顶部 Illustrator 式菜单栏，在文档标签页之上；菜单项是一张数据表，菜单与快捷键都从中读取；只列已实现的项；浏览器保留快捷键不标；原生 `popover` 实现，不引入菜单库 | ADR-0031、F-VIEW-10 |
-| 47 | 链接图像（2026-09-27） | Image 可链接：可选 `file` 是 SVG 所写的路径或 URL（非 data URL，至多 2048 字符），`embedded` 由 `file` 缺省派生；`src` 变为可选，链接 Image 无 `src` 即缺失链接；`export` SVG 写 `xlink:href="<file>"`，有像素时加 `zibel:src`，从不写像素；`render` 与 PNG 画存下的像素，缺失链接画成灰色细线框加两条对角线；`.zibel.json` 的 `version` 仍为 1 ；导入链接的 `<image>` 得链接 Image，同一 Document 内粘贴经 `zibel:src` 保留像素，别的 Document 中为缺失链接，警告 `IMAGE_LINK_MISSING` 取代 `LINKED_IMAGE_DROPPED` | ADR-0042、#97、#98、#99 |
+| 47 | 链接图像（2026-09-27） | Image 可链接：可选 `file` 是 SVG 所写的路径或 URL（非 data URL，至多 2048 字符），`embedded` 由 `file` 缺省派生；`src` 变为可选，链接 Image 无 `src` 即缺失链接；`export` SVG 写 `xlink:href="<file>"`，有像素时加 `zibel:src`，从不写像素；`render` 与 PNG 画存下的像素，缺失链接画成灰色细线框加两条对角线；`.zibel.json` 的 `version` 仍为 1；导入链接的 `<image>` 得链接 Image，同一 Document 内粘贴经 `zibel:src` 保留像素，别的 Document 中为缺失链接，警告 `IMAGE_LINK_MISSING` 取代 `LINKED_IMAGE_DROPPED` | ADR-0042、#97、#98、#99 |
 
 **剩余开放问题**
 

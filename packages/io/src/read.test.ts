@@ -1201,7 +1201,8 @@ describe("<image>", () => {
     const body = `<image width="4" height="3" href="a.png" zibel:src="${ID}"/><image width="4" height="3" href="b.png" zibel:src="${"b".repeat(64)}"/>`;
     const file = open(body);
     expect(images(file).map((n) => n.src)).toEqual([undefined, undefined]);
-    expect(file.warnings).toEqual([]);
+    // Unresolved, both are missing links.
+    expect(file.warnings).toEqual([expect.objectContaining({ code: "IMAGE_LINK_MISSING" })]);
 
     const held = resolveLinks(file, (id) => (id === ID ? PIXELS : undefined));
     expect(images(held).map((n) => [n.file, n.src])).toEqual([
@@ -1223,6 +1224,20 @@ describe("<image>", () => {
     const missing = resolveLinks(open(body), () => undefined);
     expect(images(missing)).toEqual([]);
     expect(missing.warnings).toEqual([expect.objectContaining({ code: "INVALID_IMAGE" })]);
+
+    const clipped = resolveLinks(
+      open(
+        `<defs><clipPath id="c"><rect width="1" height="1"/></clipPath></defs><image clip-path="url(#c)" href="a.png" zibel:src="${ID}"/>`,
+      ),
+      () => undefined,
+    );
+    expect(clipped.nodes.map((n) => n.type)).toEqual(["layer"]);
+  });
+
+  it("drops a linked image with a negative or zero size silently, as SVG draws nothing", () => {
+    const file = open('<image href="a.png" width="-5" height="3"/><image href="b.png" width="0"/>');
+    expect(images(file)).toEqual([]);
+    expect(file.warnings).toEqual([]);
   });
 
   it.each([
