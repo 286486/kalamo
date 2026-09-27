@@ -15,6 +15,7 @@ import {
   type Failed,
   type FullView,
   fontWarnings,
+  type Geometry,
   type ImageFile,
   type ImageInfo,
   type ImageSource,
@@ -52,6 +53,7 @@ import {
   type WriteReceipt,
   ZibelError,
 } from "@zibel/core";
+import { loadGeometry } from "@zibel/geometry";
 import { type OpenedFile, scopeRect, svgRect, toSvg } from "@zibel/io";
 import { fit, renderSvg } from "@zibel/render";
 import {
@@ -74,7 +76,7 @@ import {
 type EditCommand = Exclude<Command, { type: "undo" | "redo" }>;
 type EditEntry<C> = {
   nodeIds: (command: C) => string[];
-  run: (command: C, commandId: string) => Result<WriteReceipt>;
+  run: (command: C, commandId: string) => Result<WriteReceipt> | Promise<Result<WriteReceipt>>;
 };
 
 /** RPC results carry errors as data: Workers RPC keeps only the message of a thrown error. */
@@ -120,6 +122,13 @@ interface Change {
  */
 export class DocumentObject extends DurableObject<Env> {
   private sql = this.ctx.storage.sql;
+  private pathKit?: Geometry;
+
+  /** PathKit, instantiated on the first op that needs it (ADR-0034); no other event runs meanwhile. */
+  private async geometry(): Promise<Geometry> {
+    this.pathKit ??= await this.ctx.blockConcurrencyWhile(loadGeometry);
+    return this.pathKit;
+  }
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -247,7 +256,7 @@ export class DocumentObject extends DurableObject<Env> {
    * One browser gesture: commits it as one Transaction of the User Actor, or answers that browser
    * alone with `rejected` (ADR-0010).
    */
-  override webSocketMessage(ws: WebSocket, data: string | ArrayBuffer) {
+  override async webSocketMessage(ws: WebSocket, data: string | ArrayBuffer) {
     let json: unknown;
     try {
       json = JSON.parse(data as string);
@@ -259,7 +268,7 @@ export class DocumentObject extends DurableObject<Env> {
     const result =
       command.type === "undo" || command.type === "redo"
         ? this[command.type](USER, { commandId: id })
-        : this.edit(command, id);
+        : await this.edit(command, id);
     if ("error" in result) {
       const msg: RejectedMessage = { type: "rejected", id, error: result.error };
       ws.send(JSON.stringify(msg));
@@ -332,7 +341,10 @@ export class DocumentObject extends DurableObject<Env> {
    * A browser edit Command. The browser only names Nodes it was sent, so a missing one was
    * deleted: delete beats edit (ADR-0010).
    */
-  private edit(command: EditCommand, commandId: string): Result<WriteReceipt> {
+  private edit(
+    command: EditCommand,
+    commandId: string,
+  ): Result<WriteReceipt> | Promise<Result<WriteReceipt>> {
     // The entry matches command.type, which TypeScript cannot correlate across the union.
     const entry = this.edits[command.type] as EditEntry<EditCommand>;
     const nodeIds = entry.nodeIds(command);
@@ -553,10 +565,15 @@ export class DocumentObject extends DurableObject<Env> {
     return { ...result, d: edited.node.d, subpaths: edited.subpaths };
   }
 
-  pathOp(input: PathOpInput, actor: string, opts: Options = {}): Result<WriteReceipt> {
+  async pathOp(
+    input: PathOpInput,
+    actor: string,
+    opts: Options = {},
+  ): Promise<Result<WriteReceipt>> {
+    const geometry = input.op === "outline_stroke" ? await this.geometry() : undefined;
     const { summary } = PATH_OP_TEXT[input.op];
     return this.write(actor, opts, summary, (doc) => ({
-      ...pathOp(doc, input),
+      ...pathOp(doc, input, geometry),
       failed: [],
       summary,
     }));

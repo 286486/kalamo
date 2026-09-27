@@ -9,5 +9,8 @@
   "dependencies": {
     "@zibel/core": "workspace:*",
     "pathkit-wasm": "1.0.0"
+  },
+  "devDependencies": {
+    "@zibel/render": "workspace:*"
   }
 }

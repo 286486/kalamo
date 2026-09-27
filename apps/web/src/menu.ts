@@ -272,8 +272,7 @@ export function documentMenus(tabs: { open: (file: File) => void; close: () => v
       label: "Object",
       items: [
         {
-          // Illustrator's order; Outline Stroke, Offset Path and Smooth take their
-          // places as they arrive.
+          // Illustrator's order; Offset Path and Smooth take their places as they arrive.
           label: "Path",
           items: [
             {
@@ -298,6 +297,7 @@ export function documentMenus(tabs: { open: (file: File) => void; close: () => v
                 });
               },
             },
+            pathOp("outline_stroke"),
             pathOp("reverse"),
             { label: PATH_OP_TEXT.simplify.menu, enabled: hasPathTargets, run: startSimplify },
             pathOp("add_anchors"),

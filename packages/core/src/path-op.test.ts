@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { PathNode } from "./anchor.ts";
 import { toAnchors } from "./anchor.ts";
-import { createDocument, createNodes } from "./document.ts";
+import { childrenOf, createDocument, createNodes } from "./document.ts";
 import { ZibelError } from "./errors.ts";
-import { parsePath, type Segment } from "./path.ts";
-import { closestEnds, convertToPath, pathOp } from "./path-op.ts";
+import { formatPath, parsePath, type Segment } from "./path.ts";
+import { closestEnds, convertToPath, type Geometry, pathOp, type StrokeStyle } from "./path-op.ts";
+import type { GroupNode, Node } from "./schema.ts";
 
 const errorOf = (fn: () => unknown) => {
   try {
@@ -410,5 +411,141 @@ describe("pathOp simplify", () => {
     doc.nodes.set(node.id, { ...node, transform: [10, 0, 0, 10, 0, 0] });
     pathOp(doc, { nodeIds: [node.id], op: "simplify", tolerance: 10, toLines: true });
     expect(strays(shaky, (doc.nodes.get(node.id) as PathNode).d)).toBeLessThanOrEqual(1.01);
+  });
+});
+
+describe("pathOp outline_stroke", () => {
+  /** Outlines every Stroke as a square of its width, recording what it was asked. */
+  const stub = () => {
+    const calls: { d: string; stroke: StrokeStyle }[] = [];
+    const geometry: Geometry = {
+      outlineStroke(segments, stroke) {
+        calls.push({ d: formatPath(segments), stroke });
+        const w = stroke.width;
+        return parsePath(`M 0 0 L ${w} 0 L ${w} ${w} Z`, "d");
+      },
+    };
+    return { calls, geometry };
+  };
+  const stroked = (appearance: object, extra: Partial<PathNode> = {}) => {
+    const { doc, defaultLayerId } = setup("M 0 0");
+    const [made] = createNodes(doc, [
+      { type: "path", parentId: defaultLayerId, d: "M 0 0 L 100 0", appearance },
+    ]).nodes as [PathNode];
+    const node = { ...made, ...extra };
+    doc.nodes.set(node.id, node);
+    return { doc, node, defaultLayerId };
+  };
+
+  it("turns a path with one Stroke and no Fill into the Stroke's outline, keeping its id", () => {
+    const { doc, node } = stroked({
+      strokes: [{ color: "#FF0000", width: 10, cap: "round", join: "bevel", dash: [4, 2] }],
+    });
+    const { calls, geometry } = stub();
+    const result = pathOp(doc, { nodeIds: [node.id], op: "outline_stroke" }, geometry);
+    expect(calls).toEqual([
+      {
+        d: "M 0 0 L 100 0",
+        stroke: { width: 10, cap: "round", join: "bevel", miterLimit: 10, dash: [4, 2] },
+      },
+    ]);
+    const outlined = { ...node, d: "M 0 0 L 10 0 L 10 10 Z", fillRule: "nonzero" };
+    expect(result).toEqual({
+      created: [],
+      updated: [
+        { ...outlined, appearance: { fills: [{ type: "solid", color: "#FF0000" }], strokes: [] } },
+      ],
+      deletedIds: [],
+      warnings: [],
+    });
+    expect(doc.nodes.get(node.id)).toEqual(result.updated[0]);
+  });
+
+  it("groups a filled path below its outlined Stroke; the Group takes its place and opacity", () => {
+    const { doc, node, defaultLayerId } = stroked(
+      { fills: [{ color: "#00FF00" }], strokes: [{ color: "#0000FF", width: 4 }] },
+      { opacity: 0.5, blendMode: "multiply", name: "Leaf" },
+    );
+    const result = pathOp(doc, { nodeIds: [node.id], op: "outline_stroke" }, stub().geometry);
+    const [group, outline] = result.created as [GroupNode, PathNode];
+    expect(group).toMatchObject({
+      type: "group",
+      parentId: defaultLayerId,
+      index: node.index,
+      opacity: 0.5,
+      blendMode: "multiply",
+    });
+    const [fill] = result.updated as [PathNode];
+    expect(fill).toMatchObject({
+      id: node.id,
+      name: "Leaf",
+      parentId: group.id,
+      opacity: 1,
+      blendMode: "normal",
+      d: node.d,
+      appearance: { fills: [{ type: "solid", color: "#00FF00" }], strokes: [] },
+    });
+    expect(outline).toMatchObject({
+      type: "path",
+      parentId: group.id,
+      opacity: 1,
+      d: "M 0 0 L 4 0 L 4 4 Z",
+      appearance: { fills: [{ type: "solid", color: "#0000FF" }], strokes: [] },
+    });
+    expect(outline.id).not.toBe(node.id);
+    expect(childrenOf(doc, group.id).map((n) => n.id)).toEqual([node.id, outline.id]);
+    const layer = childrenOf(doc, defaultLayerId).map((n) => n.id);
+    expect(layer).toContain(group.id);
+    expect(layer).not.toContain(node.id);
+  });
+
+  it("outlines each of several Strokes in its own path, bottom to top, and converts a Live Shape", () => {
+    const { doc, defaultLayerId } = setup("M 0 0");
+    const [rect] = createNodes(doc, [
+      {
+        type: "rect",
+        parentId: defaultLayerId,
+        x: 0,
+        y: 0,
+        width: 10,
+        height: 10,
+        appearance: {
+          strokes: [
+            { color: "#000000", width: 3 },
+            { color: "#FFFFFF", width: 1 },
+          ],
+        },
+      },
+    ]).nodes as [Node];
+    const { calls, geometry } = stub();
+    const result = pathOp(doc, { nodeIds: [rect.id], op: "outline_stroke" }, geometry);
+    expect(calls.map((c) => c.d)).toEqual([
+      "M 0 0 L 10 0 L 10 10 L 0 10 Z",
+      "M 0 0 L 10 0 L 10 10 L 0 10 Z",
+    ]);
+    const [group] = result.created as [GroupNode];
+    const children = childrenOf(doc, group.id) as PathNode[];
+    expect(children.map((n) => [n.id === rect.id, n.type, n.appearance.fills])).toEqual([
+      [true, "path", [{ type: "solid", color: "#000000" }]],
+      [false, "path", [{ type: "solid", color: "#FFFFFF" }]],
+    ]);
+    expect(result.warnings).toMatchObject([{ code: "CONVERTED_TO_PATH", nodeId: rect.id }]);
+  });
+
+  it("leaves a path without a Stroke as it is, and refuses when none has one", () => {
+    const { doc, node } = stroked({ strokes: [{ color: "#000000" }] });
+    const [bare] = createNodes(doc, [
+      { type: "path", parentId: node.parentId as string, d: "M 0 0 L 1 1", appearance: {} },
+    ]).nodes as [PathNode];
+    const result = pathOp(
+      doc,
+      { nodeIds: [bare.id, node.id], op: "outline_stroke" },
+      stub().geometry,
+    );
+    expect(result.updated.map((n) => n.id)).toEqual([node.id]);
+    expect(doc.nodes.get(bare.id)).toBe(bare);
+    expect(
+      errorOf(() => pathOp(doc, { nodeIds: [bare.id], op: "outline_stroke" }, stub().geometry)),
+    ).toMatchObject({ code: "INVALID_PATH", path: "nodeIds" });
   });
 });

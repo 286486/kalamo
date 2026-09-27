@@ -1,3 +1,4 @@
+import { generateKeyBetween } from "fractional-indexing";
 import { z } from "zod";
 import {
   type Anchor,
@@ -13,23 +14,31 @@ import {
   toPath,
   withAnchors,
 } from "./anchor.ts";
-import { childrenOf, worldTransform } from "./document.ts";
+import { childrenOf, createNodes, newId, worldTransform } from "./document.ts";
 import { ZibelError } from "./errors.ts";
 import { simplifySubpath } from "./fit.ts";
 import { applyTo, IDENTITY, invert, multiply, scaleOf, transformSegments } from "./matrix.ts";
-import { formatPath, parsePath } from "./path.ts";
-import type { Document, Matrix, WriteReceipt } from "./schema.ts";
+import { formatPath, parsePath, type Segment } from "./path.ts";
+import type { Document, Fill, GroupNode, Matrix, Node, Stroke, WriteReceipt } from "./schema.ts";
 
 type Point = [number, number];
 
 /**
  * `path_op` (REQUIREMENTS §6.4) so far: convert_to_path (Object > Shape > Expand Shape), reverse
- * (Reverse Path Direction), add_anchors (Add Anchor Points), join (Join), average (Average) and
- * simplify (Simplify).
+ * (Reverse Path Direction), add_anchors (Add Anchor Points), join (Join), average (Average),
+ * simplify (Simplify) and outline_stroke (Outline Stroke).
  */
 export const PathOpInput = z.object({
   nodeIds: z.array(z.string()).min(1).max(1000),
-  op: z.enum(["convert_to_path", "reverse", "add_anchors", "join", "average", "simplify"]),
+  op: z.enum([
+    "convert_to_path",
+    "reverse",
+    "add_anchors",
+    "join",
+    "average",
+    "simplify",
+    "outline_stroke",
+  ]),
   tolerance: z
     .number()
     .min(0)
@@ -78,7 +87,20 @@ export const PATH_OP_TEXT: Record<PathOpInput["op"], { menu: string; summary: st
   join: { menu: "Join", summary: "Join" },
   average: { menu: "Average…", summary: "Average" },
   simplify: { menu: "Simplify…", summary: "Simplify" },
+  outline_stroke: { menu: "Outline Stroke", summary: "Outline Stroke" },
 };
+
+/** How a Stroke is drawn along its path, without its paint. */
+export type StrokeStyle = Pick<Stroke, "width" | "cap" | "join" | "miterLimit" | "dash">;
+
+/**
+ * The path geometry core needs but does not compute: Skia's, which `@zibel/geometry` loads
+ * (ADR-0034). In and out in the path's own coordinates.
+ */
+export interface Geometry {
+  /** The area `stroke` paints along `segments`, dashes included, to fill under nonzero. */
+  outlineStroke(segments: Segment[], stroke: StrokeStyle): Segment[];
+}
 
 const invalid = (path: string, message: string, hint: string) =>
   new ZibelError({ code: "INVALID_PATH", message, hint, path });
@@ -108,7 +130,8 @@ function addAnchors(subpaths: Subpath[]): Subpath[] {
 
 type Ref = z.output<typeof AnchorRef>;
 type PathOpResult = {
-  updated: PathNode[];
+  created?: Node[];
+  updated: Node[];
   deletedIds: string[];
   warnings: WriteReceipt["warnings"];
 };
@@ -351,14 +374,86 @@ function average(doc: Document, input: z.output<typeof PathOpInput>): PathOpResu
 }
 
 /**
- * `path_op` (REQUIREMENTS §6.4) on each path or Live Shape; every op but convert_to_path converts a
- * Live Shape first (F-PATH-07), with a warning.
+ * `path_op outline_stroke` (research §5): each Stroke becomes a path filled with its paint, the
+ * Stroke's outline. A path with one Stroke and no Fill becomes that outline itself. Otherwise, as in
+ * Illustrator, a Group in its place holds it, keeping only its Fills, below each outlined Stroke,
+ * and takes its opacity and blend mode so they still composite as one. A path without a Stroke is
+ * left as it is.
  */
-export function pathOp(doc: Document, raw: PathOpInput): PathOpResult {
+function outlineStrokes(doc: Document, nodeIds: string[], geometry: Geometry): PathOpResult {
+  // A Clipping Path paints nothing (ADR-0021), and a Group cannot stand in for it.
+  const stroked = allWithAnchors(doc, nodeIds).filter(
+    (n) => n.appearance.strokes.length > 0 && !n.clipping,
+  );
+  if (stroked.length === 0) {
+    throw invalid("nodeIds", "None of the Nodes has a Stroke to outline.", "Name a stroked path.");
+  }
+  const created: Node[] = [];
+  const updated: Node[] = [];
+  for (const found of stroked) {
+    const path = isLiveShape(found) ? toPath(found) : found;
+    const segments = parsePath(path.d, "d");
+    const { fills, strokes } = path.appearance;
+    const outlines = strokes.map((stroke): PathNode => {
+      const { width, cap, join, miterLimit, dash } = stroke;
+      const d = formatPath(
+        geometry.outlineStroke(segments, { width, cap, join, miterLimit, dash }),
+      );
+      const paint: Fill =
+        stroke.type === "gradient"
+          ? { type: "gradient", gradient: stroke.gradient }
+          : { type: "solid", color: stroke.color };
+      return { ...path, d, fillRule: "nonzero", appearance: { fills: [paint], strokes: [] } };
+    });
+    const members: PathNode[] = [
+      ...(fills.length > 0 ? [{ ...path, appearance: { fills, strokes: [] } }] : []),
+      ...outlines,
+    ];
+    const [only, ...rest] = members;
+    if (only && rest.length === 0) {
+      updated.push(only);
+      continue;
+    }
+    const [made] = createNodes(doc, [{ type: "group", parentId: path.parentId as string }]).nodes;
+    const { index, opacity, blendMode } = path;
+    const group: GroupNode = { ...(made as GroupNode), index, opacity, blendMode };
+    created.push(group);
+    let key: string | null = null;
+    for (const [k, m] of members.entries()) {
+      key = generateKeyBetween(key, null);
+      const inside: PathNode = {
+        ...m,
+        parentId: group.id,
+        index: key,
+        opacity: 1,
+        blendMode: "normal",
+      };
+      if (k === 0) updated.push(inside);
+      else created.push({ ...inside, id: newId() });
+    }
+  }
+  for (const n of [...created, ...updated]) doc.nodes.set(n.id, n);
+  return {
+    created,
+    updated,
+    deletedIds: [],
+    warnings: stroked.filter(isLiveShape).map(convertedWarning),
+  };
+}
+
+/**
+ * `path_op` (REQUIREMENTS §6.4) on each path or Live Shape; every op but convert_to_path converts a
+ * Live Shape first (F-PATH-07), with a warning. outline_stroke needs `geometry`.
+ */
+export function pathOp(doc: Document, raw: PathOpInput, geometry?: Geometry): PathOpResult {
   const input = PathOpInput.parse(raw);
   const { nodeIds, op } = input;
   if (op === "convert_to_path") {
     return { ...convertToPath(doc, nodeIds), deletedIds: [], warnings: [] };
+  }
+  if (op === "outline_stroke") {
+    if (!geometry) throw new Error("outline_stroke needs the path geometry (ADR-0034).");
+    return outlineStrokes(doc, nodeIds, geometry);
   }
   if (op === "join") return join(doc, input);
   if (op === "average") return average(doc, input);

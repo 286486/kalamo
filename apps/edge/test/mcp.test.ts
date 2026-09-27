@@ -243,6 +243,72 @@ it("simplifies a dense path with path_op in one Transaction, and to straight lin
   expect(await dOf()).toMatch(/^M [\d. ]+( L [\d. ]+)+$/);
 });
 
+it("outlines Strokes with path_op: a Stroke alone in place, a filled path as a Group of two", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const [line, rect] = (
+    await call("zibel_node_create", {
+      docId,
+      nodes: [
+        {
+          type: "path",
+          parentId: defaultLayerId,
+          d: "M 20 50 L 180 50",
+          appearance: { strokes: [{ color: "#FF0000", width: 10 }] },
+        },
+        {
+          type: "rect",
+          parentId: defaultLayerId,
+          x: 10,
+          y: 10,
+          width: 40,
+          height: 30,
+          appearance: { fills: [{ color: "#00FF00" }], strokes: [{ color: "#0000FF", width: 4 }] },
+        },
+      ],
+    })
+  ).structuredContent.createdIds as string[];
+  const receipt = (
+    await call("zibel_path_op", { docId, nodeIds: [line, rect], op: "outline_stroke" })
+  ).structuredContent;
+  expect(receipt).toMatchObject({
+    updatedIds: [line, rect],
+    createdIds: [expect.any(String), expect.any(String)],
+    warnings: [{ code: "CONVERTED_TO_PATH", nodeId: rect }],
+  });
+  const { changes } = (await call("zibel_doc_changes", { docId, sinceRev: receipt.rev - 1 }))
+    .structuredContent;
+  expect(changes).toEqual([
+    expect.objectContaining({ rev: receipt.rev, summary: "Outline Stroke" }),
+  ]);
+  const [group, outline] = receipt.createdIds as [string, string];
+  const { nodes } = (
+    await call("zibel_node_get", { docId, nodeIds: [line, rect, group, outline], detail: "full" })
+  ).structuredContent;
+  expect(nodes).toMatchObject([
+    {
+      type: "path",
+      d: "M 20 45 L 180 45 L 180 55 L 20 55 L 20 45 Z",
+      appearance: { fills: [{ color: "#FF0000" }], strokes: [] },
+    },
+    {
+      type: "path",
+      parentId: group,
+      d: "M 10 10 L 50 10 L 50 40 L 10 40 Z",
+      appearance: { fills: [{ color: "#00FF00" }], strokes: [] },
+    },
+    { type: "group", parentId: defaultLayerId },
+    {
+      type: "path",
+      parentId: group,
+      fillRule: "nonzero",
+      appearance: { fills: [{ color: "#0000FF" }], strokes: [] },
+    },
+  ]);
+  // The ring the 4 pt Stroke paints, 2 pt each side of the rect's edge.
+  expect(nodes[3].d.match(/M /g)).toHaveLength(2);
+  expect(nodes[3].geometricBounds).toEqual({ x: 8, y: 8, width: 44, height: 34 });
+});
+
 it("draws a freehand_stroke as one smooth closed path", async () => {
   const { docId, defaultLayerId } = await newDoc();
   const points = Array.from({ length: 61 }, (_, k) => ({

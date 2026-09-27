@@ -357,6 +357,28 @@ it("converts a rect with a path_op command, and undo brings the rect back withou
   expect(back).not.toHaveProperty("fillRule");
 });
 
+it("outlines a Stroke with a path_op command, and one undo takes the Group away", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const [id] = (await call("zibel_node_create", { docId, nodes: [rect(defaultLayerId)] }))
+    .structuredContent.createdIds;
+  const { ws, received } = await subscribe(docId);
+  await received(1);
+  ws.send(command("o1", { type: "path_op", input: { nodeIds: [id], op: "outline_stroke" } }));
+  const [, outlined] = await received(2);
+  expect(outlined).toMatchObject({ type: "tx", actor: "user", commandId: "o1" });
+  const tx = outlined?.type === "tx" ? outlined : undefined;
+  const [group, stroke] = tx?.created ?? [];
+  expect(group).toMatchObject({ type: "group", parentId: defaultLayerId });
+  expect(stroke).toMatchObject({ type: "path", parentId: group?.id });
+  expect(tx?.updated).toMatchObject([{ id, type: "path", parentId: group?.id }]);
+  ws.send(command("u1", { type: "undo" }));
+  const [, , undone] = await received(3);
+  expect(undone?.type === "tx" && [...undone.deletedIds].sort()).toEqual(
+    [group?.id, stroke?.id].sort(),
+  );
+  expect(undone?.type === "tx" && undone.updated[0]).toMatchObject({ id, ...rect(defaultLayerId) });
+});
+
 it("rejects a mask_make naming a Node deleted meanwhile with NODE_GONE", async () => {
   const { docId, defaultLayerId } = await newDoc();
   const [art, clip] = (
