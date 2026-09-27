@@ -307,6 +307,52 @@ describe("Connected Agents", () => {
     expect((await agentRows(211)).filter((r) => r.name === "Claude Code (kim)")).toHaveLength(2);
   });
 
+  it("retires the old Actor when a DCR client reconnects on another loopback port", async () => {
+    const { cookie } = await signIn({ id: 214, login: "ned" });
+    const old = await authorizeMcp(cookie);
+    const cursor = await authorizeMcp(cookie, { name: "Cursor" });
+    const fresh = await authorizeMcp(cookie, {
+      clientId: old.clientId,
+      redirectUri: "http://127.0.0.1:40123/callback",
+    });
+
+    const rows = await agentRows(214);
+    const [retired, cursorRow, current] = rows;
+    expect(rows).toHaveLength(3);
+    expect(retired).toMatchObject({ name: "Claude Code (ned)", revoked_at: expect.any(String) });
+    expect(current).toMatchObject({ name: "Claude Code (ned)", revoked_at: null });
+    const list = await (await hosted("/api/agents", { headers: { cookie } })).json<{
+      agents: { actorId: string; name: string }[];
+    }>();
+    expect(list.agents.map((a) => a.actorId).sort()).toEqual([current?.id, cursorRow?.id].sort());
+
+    const refused = await hostedRpc(old.tokens.access_token, "ping");
+    expect(refused.res.status).toBe(401);
+    expect(refused.res.headers.get("www-authenticate")).toContain('error="invalid_token"');
+    expect((await hostedRpc(cursor.tokens.access_token, "ping")).res.status).toBe(200);
+
+    expect((await hostedRpc(fresh.tokens.access_token, "ping")).res.status).toBe(200);
+    const created = await hostedRpc(fresh.tokens.access_token, "tools/call", {
+      name: "zibel_doc_create",
+      arguments: { name: "Doc", artboards: [{ width: 10, height: 10 }] },
+    });
+    const { docId } = created.body.result.structuredContent;
+    const changes = await hostedRpc(fresh.tokens.access_token, "tools/call", {
+      name: "zibel_doc_changes",
+      arguments: { docId, sinceRev: 0 },
+    });
+    const actors = changes.body.result.structuredContent.changes.map(
+      (c: { actor: string }) => c.actor,
+    );
+    expect(new Set(actors)).toEqual(new Set([current?.id]));
+    const refreshed = await token({
+      grant_type: "refresh_token",
+      refresh_token: fresh.tokens.refresh_token,
+      client_id: old.clientId,
+    });
+    expect(refreshed.res.status).toBe(200);
+  });
+
   it("refuses the Agent routes without a session", async () => {
     expect((await hosted("/api/agents")).status).toBe(401);
     const res = await hosted("/api/agents/agent_x", {

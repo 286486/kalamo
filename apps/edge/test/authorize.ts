@@ -105,15 +105,21 @@ export interface Tokens {
 
 /**
  * A whole MCP authorization for a signed-in `cookie`: DCR, `/authorize`, consent, the code and
- * the PKCE token exchange. Returns the tokens and the client id.
+ * the PKCE token exchange, on `redirectUri` (by default the registered one). Returns the tokens and the client id.
  */
 export async function authorizeMcp(
   cookie: string,
-  { name = "Claude Code", readOnly = false, clientId = "", e = githubEnv } = {},
+  {
+    name = "Claude Code",
+    readOnly = false,
+    clientId = "",
+    redirectUri = REDIRECT_URI,
+    e = githubEnv,
+  } = {},
 ) {
   const client = clientId || (await register(name, REDIRECT_URI, e));
   const { verifier, challenge } = await pkce();
-  const consent = await openConsent(cookie, authorizeQuery(client, challenge, REDIRECT_URI, e), e);
+  const consent = await openConsent(cookie, authorizeQuery(client, challenge, redirectUri, e), e);
   if (!consent.handle) throw new Error(`no consent page: ${consent.res.status} ${consent.html}`);
   const approved = await submitConsent(
     consent.cookie,
@@ -126,7 +132,7 @@ export async function authorizeMcp(
     {
       grant_type: "authorization_code",
       code,
-      redirect_uri: REDIRECT_URI,
+      redirect_uri: redirectUri,
       client_id: client,
       code_verifier: verifier,
       resource: `${mcpOrigin(e)}/mcp`,
