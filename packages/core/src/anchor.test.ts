@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PathNode } from "./anchor.ts";
-import { convertToPath, editPath, fromAnchors, type PathOp, toAnchors } from "./anchor.ts";
+import { convertToPath, editPath, fromAnchors, type PathOp, pathOp, toAnchors } from "./anchor.ts";
 import { createDocument, createNodes } from "./document.ts";
 import { ZibelError } from "./errors.ts";
 import { formatPath, parsePath, type Segment } from "./path.ts";
@@ -330,6 +330,58 @@ describe("convertToPath", () => {
     expect(convertToPath(doc, [node.id]).updated).toEqual([]);
     expect(doc.nodes.get(node.id)).toBe(node);
     const e = errorOf(() => convertToPath(doc, [defaultLayerId]));
+    expect(e).toMatchObject({ code: "INVALID_PATH", path: "nodeIds[0]" });
+  });
+});
+
+describe("pathOp", () => {
+  const anchorCount = (d: string) =>
+    toAnchors(parsePath(d, "d")).reduce((n, s) => n + s.anchors.length, 0);
+  const d = "M 0 0 C 0 10 20 10 20 0 L 30 5 Z M 50 50 L 60 50 Q 70 60 80 50";
+
+  it("reverse twice returns the original d", () => {
+    const { doc, node } = setup(d);
+    pathOp(doc, { nodeIds: [node.id], op: "reverse" });
+    const once = doc.nodes.get(node.id) as PathNode;
+    expect(once.d).not.toBe(d);
+    expect(once.d.startsWith("M 0 0 L 30 5")).toBe(true);
+    pathOp(doc, { nodeIds: [node.id], op: "reverse" });
+    expect((doc.nodes.get(node.id) as PathNode).d).toBe(d);
+  });
+
+  it("add_anchors doubles the Anchors and keeps the outline", () => {
+    const { doc, node } = setup(d);
+    const { updated } = pathOp(doc, { nodeIds: [node.id], op: "add_anchors" });
+    const next = updated[0] as PathNode;
+    expect(anchorCount(next.d)).toBe(2 * anchorCount(d) - 1);
+    expect(next.d).toBe(
+      "M 0 0 C 0 5 5 7.5 10 7.5 C 15 7.5 20 5 20 0 L 25 2.5 L 30 5 L 15 2.5 Z " +
+        "M 50 50 L 55 50 L 60 50 Q 65 55 70 55 Q 75 55 80 50",
+    );
+  });
+
+  it("add_anchors doubles a closed subpath's Anchors, closing segment included", () => {
+    const { doc, node } = setup("M 0 0 L 10 0 L 10 10 L 0 10 Z");
+    pathOp(doc, { nodeIds: [node.id], op: "add_anchors" });
+    expect(anchorCount((doc.nodes.get(node.id) as PathNode).d)).toBe(8);
+  });
+
+  it("converts a Live Shape first, with a warning, and refuses a Node without Anchors", () => {
+    const { doc, defaultLayerId: layer } = setup("M 0 0");
+    const [rect] = createNodes(doc, [
+      { type: "rect", parentId: layer, x: 0, y: 0, width: 10, height: 10 },
+    ]).nodes;
+    if (!rect) throw new Error("no rect");
+    const { updated, warnings } = pathOp(doc, { nodeIds: [rect.id], op: "reverse" });
+    expect(updated[0]).toMatchObject({
+      id: rect.id,
+      type: "path",
+      d: "M 0 0 L 0 10 L 10 10 L 10 0 Z",
+    });
+    expect(warnings).toEqual([
+      expect.objectContaining({ code: "CONVERTED_TO_PATH", nodeId: rect.id }),
+    ]);
+    const e = errorOf(() => pathOp(doc, { nodeIds: [layer], op: "add_anchors" }));
     expect(e).toMatchObject({ code: "INVALID_PATH", path: "nodeIds[0]" });
   });
 });

@@ -16,6 +16,7 @@ import {
   moveHandle,
   moveSegment,
   pick,
+  removeAnchorInputs,
   splitWhole,
 } from "./direct.ts";
 
@@ -174,4 +175,44 @@ it("a path with every Anchor selected moves whole; a partly selected one by its 
     whole: [rect.id],
     partial: [anchorKey(curve.id, 0, 1)],
   });
+});
+
+it("Remove Anchor Points removes selected Anchors keeping the path joined, and a path left bare goes", () => {
+  const { doc, rect, curve } = fixture();
+  const keys = [anchorKey(rect.id, 0, 1), anchorKey(rect.id, 0, 3), anchorKey(rect.id, 0, 9)];
+  const all = [0, 1, 2].map((i) => anchorKey(curve.id, 0, i));
+  expect(removeAnchorInputs(doc, [...keys, ...all])).toEqual({
+    edits: [
+      {
+        nodeId: rect.id,
+        ops: [
+          { op: "remove_anchor", subpath: 0, index: 3 },
+          { op: "remove_anchor", subpath: 0, index: 1 },
+        ],
+      },
+    ],
+    deleteIds: [curve.id],
+  });
+});
+
+it("Remove Anchor Points drops a subpath it would leave as a Stray Point", () => {
+  const { doc, rect } = fixture();
+  const [two] = createNodes(doc, [
+    { type: "path", parentId: rect.parentId, d: "M 0 0 L 10 0 M 0 20 L 10 20 L 20 20" },
+  ] as never).nodes as [Node];
+  expect(removeAnchorInputs(doc, [anchorKey(two.id, 0, 1)])).toEqual({
+    edits: [
+      {
+        nodeId: two.id,
+        ops: [
+          { op: "remove_anchor", subpath: 0, index: 1 },
+          { op: "remove_anchor", subpath: 0, index: 0 },
+        ],
+      },
+    ],
+    deleteIds: [],
+  });
+  // Both subpaths left bare: the path goes.
+  const keys = [anchorKey(two.id, 0, 0), anchorKey(two.id, 1, 0), anchorKey(two.id, 1, 2)];
+  expect(removeAnchorInputs(doc, keys)).toEqual({ edits: [], deleteIds: [two.id] });
 });

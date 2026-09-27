@@ -199,3 +199,17 @@ export const expandable = (doc: Document, selection: string[]) =>
     const n = doc.nodes.get(id);
     return !!n && editable(doc, n) && isLiveShape(n);
   });
+
+/**
+ * Object > Path on the Selection: its editable paths and Live Shapes, and those inside its Groups,
+ * as Illustrator applies a path command to a Group's paths.
+ */
+export function pathTargets(doc: Document, selection: string[]): string[] {
+  const walk = (n: Node | undefined): string[] => {
+    if (!n || !n.visible || n.locked) return [];
+    if (n.type === "path" || isLiveShape(n)) return [n.id];
+    return childrenOf(doc, n.id).flatMap(walk);
+  };
+  const ids = selection.filter((id) => editable(doc, doc.nodes.get(id)));
+  return [...new Set(ids.flatMap((id) => walk(doc.nodes.get(id))))];
+}

@@ -5,7 +5,6 @@ import {
   bounds,
   type ConciseView,
   commitTransaction,
-  convertToPath,
   createDocument,
   createNodes,
   type Document,
@@ -34,6 +33,7 @@ import {
   overlay,
   type PathEditInput,
   type PathOpInput,
+  pathOp,
   placeImage,
   placeNodes,
   queryNodes,
@@ -539,10 +539,15 @@ export class DocumentObject extends DurableObject<Env> {
   }
 
   pathOp(input: PathOpInput, actor: string, opts: Options = {}): Result<WriteReceipt> {
-    return this.write(actor, opts, "Convert to Path", (doc) => ({
-      ...convertToPath(doc, input.nodeIds),
+    const summary = {
+      convert_to_path: "Convert to Path",
+      reverse: "Reverse Path Direction",
+      add_anchors: "Add Anchor Points",
+    }[input.op];
+    return this.write(actor, opts, summary, (doc) => ({
+      ...pathOp(doc, input),
       failed: [],
-      summary: "Convert to Path",
+      summary,
     }));
   }
 

@@ -458,6 +458,8 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       description: [
         "Run a path operation on Nodes, in one Transaction.",
         "op convert_to_path turns each Live Shape (rect, ellipse, line, polygon, star) into a path with the same outline, as Illustrator's Object > Shape > Expand Shape: it keeps its id, parent, stacking order, name, transform and appearance, and its parameters give way to d and fillRule. A path is left as it is; any other Node fails the call. zibel_path_edit converts a Live Shape by itself, so convert first only to keep the shape as a path without editing it.",
+        "op reverse reverses each subpath's Anchor order, as Object > Path > Reverse Path Direction: an open subpath's start and end swap, a closed one keeps its first Anchor. op add_anchors adds an Anchor at the middle (t = 0.5) of every segment without changing the outline, as Object > Path > Add Anchor Points. Both convert a Live Shape to a path first and say so in warnings (CONVERTED_TO_PATH); any Node other than a path or Live Shape fails the call.",
+        "To remove chosen Anchors, as Remove Anchor Points does, use zibel_path_edit remove_anchor.",
       ].join(" "),
       inputSchema: { docId, ...PathOpInput.shape, ...txWrite },
       outputSchema: WriteReceipt.shape,

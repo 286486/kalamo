@@ -164,6 +164,28 @@ it("converts a rect to a path with path_op, keeping its id", async () => {
   expect(nodes[0]).not.toHaveProperty("radius");
 });
 
+it("reverses a path with path_op and adds an Anchor at the middle of every segment", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const d = "M 0 0 L 10 0 L 10 10";
+  const [id] = (
+    await call("zibel_node_create", {
+      docId,
+      nodes: [{ type: "path", parentId: defaultLayerId, d }],
+    })
+  ).structuredContent.createdIds as string[];
+  const dOf = async () =>
+    (await call("zibel_node_get", { docId, nodeIds: [id], detail: "full" })).structuredContent
+      .nodes[0].d;
+  const reversed = (await call("zibel_path_op", { docId, nodeIds: [id], op: "reverse" }))
+    .structuredContent;
+  expect(reversed).toMatchObject({ updatedIds: [id] });
+  expect(await dOf()).toBe("M 10 10 L 10 0 L 0 0");
+  await call("zibel_path_op", { docId, nodeIds: [id], op: "reverse" });
+  expect(await dOf()).toBe(d);
+  await call("zibel_path_op", { docId, nodeIds: [id], op: "add_anchors" });
+  expect(await dOf()).toBe("M 0 0 L 5 0 L 10 0 L 10 5 L 10 10");
+});
+
 it("draws a freehand_stroke as one smooth closed path", async () => {
   const { docId, defaultLayerId } = await newDoc();
   const points = Array.from({ length: 61 }, (_, k) => ({

@@ -10,6 +10,7 @@ import {
   maskInput,
   objectOf,
   objects,
+  pathTargets,
   placeParent,
   releasable,
 } from "./selection.ts";
@@ -257,4 +258,13 @@ describe("placeParent", () => {
 it("expandable lists the selected editable Live Shapes only", () => {
   const { doc, id } = fixture();
   expect(expandable(doc, [id("c"), id("g"), id("h"), id("e")])).toEqual([id("c"), id("e")]);
+});
+
+it("pathTargets lists the selected editable paths and Live Shapes, and those in selected Groups", () => {
+  const { doc, id } = fixture();
+  expect(pathTargets(doc, [id("g"), id("a"), id("h"), id("lg"), id("l3")])).toEqual([
+    id("a"),
+    id("b"),
+    id("e"),
+  ]);
 });

@@ -330,6 +330,39 @@ export function clearInputs(doc: Document, selection: string[], anchors: string[
   return { edits, deleteIds };
 }
 
+/**
+ * Object > Path > Remove Anchor Points (research §5): a `remove_anchor` per selected Anchor, last
+ * first so the indices ahead stay put, joining its neighbours. A subpath left with one Anchor, a
+ * Stray Point, goes whole, and a path left with none is deleted. Keys out of range are ignored.
+ */
+export function removeAnchorInputs(doc: Document, anchors: string[]) {
+  const edits: PathEditInput[] = [];
+  const deleteIds: string[] = [];
+  for (const [nodeId, refs] of byNode(anchors)) {
+    const n = doc.nodes.get(nodeId);
+    const live = refs.filter((r) => inRange(doc, anchorKey(nodeId, r.subpath, r.index)));
+    if (!hasAnchors(n) || !editable(doc, n) || live.length === 0) continue;
+    const subpaths = localAnchors(n);
+    const gone = subpaths.map((s, k) => {
+      const picked = new Set(live.filter((r) => r.subpath === k).map((r) => r.index));
+      return s.anchors.length - picked.size < 2 ? new Set(s.anchors.keys()) : picked;
+    });
+    if (gone.every((picked, k) => picked.size === subpaths[k]?.anchors.length)) {
+      deleteIds.push(nodeId);
+      continue;
+    }
+    const ops = gone
+      .flatMap((picked, subpath) =>
+        [...picked]
+          .sort((x, y) => x - y)
+          .map((index): PathOp => ({ op: "remove_anchor", subpath, index })),
+      )
+      .reverse();
+    edits.push({ nodeId, ops });
+  }
+  return { edits, deleteIds };
+}
+
 /** The paths with every Anchor in `keys`, which move whole, and the keys of the rest. */
 export function splitWhole(doc: Document, keys: string[]) {
   const whole: string[] = [];
