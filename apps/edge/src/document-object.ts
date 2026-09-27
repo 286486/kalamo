@@ -31,6 +31,7 @@ import {
   outline,
   overflowWarnings,
   overlay,
+  PATH_OP_TEXT,
   type PathEditInput,
   type PathOpInput,
   pathOp,
@@ -314,14 +315,14 @@ export class DocumentObject extends DurableObject<Env> {
     path_join: {
       nodeIds: (c) => [c.edit.nodeId, ...c.join.nodeIds],
       run: (c, commandId) =>
-        this.write(USER, { commandId }, "Join", (doc) => {
+        this.write(USER, { commandId }, PATH_OP_TEXT.join.summary, (doc) => {
           const { warnings } = editPath(doc, c.edit);
           const joined = pathOp(doc, c.join);
           return {
             ...joined,
             warnings: [...warnings, ...joined.warnings],
             failed: [],
-            summary: "Join",
+            summary: PATH_OP_TEXT.join.summary,
           };
         }),
     },
@@ -553,14 +554,7 @@ export class DocumentObject extends DurableObject<Env> {
   }
 
   pathOp(input: PathOpInput, actor: string, opts: Options = {}): Result<WriteReceipt> {
-    const summary = {
-      convert_to_path: "Convert to Path",
-      reverse: "Reverse Path Direction",
-      add_anchors: "Add Anchor Points",
-      join: "Join",
-      average: "Average",
-      simplify: "Simplify",
-    }[input.op];
+    const { summary } = PATH_OP_TEXT[input.op];
     return this.write(actor, opts, summary, (doc) => ({
       ...pathOp(doc, input),
       failed: [],

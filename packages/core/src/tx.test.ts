@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { convertToPath } from "./anchor.ts";
 import { createDocument, createNodes } from "./document.ts";
 import { deleteNodes, transformNodes, updateNodes } from "./edit.ts";
 import { ZibelError } from "./errors.ts";
+import { convertToPath } from "./path-op.ts";
 import type { Document, Node, ShapeNode } from "./schema.ts";
 import { commitTransaction, type DeltaRow, overlay, revert, type TxRow } from "./tx.ts";
 
