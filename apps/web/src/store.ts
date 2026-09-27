@@ -41,6 +41,7 @@ export const useStore = create<State>(() => ({
   edit: null,
   opPreview: null,
   anchors: [],
+  segments: [],
   notice: null,
   size: { width: 0, height: 0 },
   images: null,
@@ -49,11 +50,15 @@ export const useStore = create<State>(() => ({
   fillStroke: DEFAULT_FILL_STROKE,
 }));
 
-// Selected Anchors live only on selected Nodes, whatever changed the Selection.
+// Selected Anchors and segments live only on selected Nodes, whatever changed the Selection.
 useStore.subscribe((s, prev) => {
   if (s.selection === prev.selection) return;
-  const anchors = s.anchors.filter((k) => s.selection.includes(parseKey(k).nodeId));
-  if (anchors.length < s.anchors.length) useStore.setState({ anchors });
+  const on = (k: string) => s.selection.includes(parseKey(k).nodeId);
+  const anchors = s.anchors.filter(on);
+  const segments = s.segments.filter(on);
+  if (anchors.length < s.anchors.length || segments.length < s.segments.length) {
+    useStore.setState({ anchors, segments });
+  }
 });
 
 let socket: WebSocket | null = null;
@@ -85,6 +90,7 @@ export function connect(docId: string): () => void {
     edit: null,
     opPreview: null,
     anchors: [],
+    segments: [],
     notice: null,
     viewport: null,
     selection: [],

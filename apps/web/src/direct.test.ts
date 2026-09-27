@@ -11,13 +11,15 @@ import {
   anchorKey,
   anchorOpTargets,
   clearInputs,
-  deleteAnchors,
+  deleteParts,
   marqueeAnchors,
   moveAnchors,
   moveHandle,
   moveSegment,
   pick,
   removeAnchorInputs,
+  segmentHandles,
+  segmentInRange,
   splitWhole,
 } from "./direct.ts";
 
@@ -132,21 +134,121 @@ it("a straight segment moves both its Anchors; a curved one bends through its Ha
 
 it("Delete removes Anchors and their segments, opening the path there", () => {
   const closed = toAnchors(parsePath("M 0 0 L 10 0 L 10 10 L 0 10 Z", "d"));
-  expect(deleteAnchors(closed, [{ subpath: 0, index: 1 }])).toMatchObject([
+  expect(deleteParts(closed, [{ subpath: 0, index: 1 }])).toMatchObject([
     { closed: false, anchors: [{ anchor: [10, 10] }, { anchor: [0, 10] }, { anchor: [0, 0] }] },
   ]);
   // An interior Anchor of an open path leaves two pieces; a piece of one Anchor goes.
   const open = toAnchors(parsePath("M 0 0 L 10 0 L 20 0 L 30 0 L 40 0", "d"));
-  expect(deleteAnchors(open, [{ subpath: 0, index: 2 }])).toMatchObject([
+  expect(deleteParts(open, [{ subpath: 0, index: 2 }])).toMatchObject([
     { anchors: [{ anchor: [0, 0] }, { anchor: [10, 0] }] },
     { anchors: [{ anchor: [30, 0] }, { anchor: [40, 0] }] },
   ]);
   expect(
-    deleteAnchors(open, [
+    deleteParts(open, [
       { subpath: 0, index: 1 },
       { subpath: 0, index: 3 },
     ]),
   ).toEqual([]);
+});
+
+it("Delete removes segments alone, keeping their Anchors, and mixes with Anchors", () => {
+  const seg = (index: number) => ({ subpath: 0, index });
+  const open = toAnchors(parsePath("M 0 0 C 0 5 10 5 10 0 L 20 0 L 30 0", "d"));
+  // A middle segment splits the subpath in two; the new ends lose the Handle into the gap.
+  expect(deleteParts(open, [], [seg(1)])).toEqual([
+    {
+      closed: false,
+      anchors: [
+        { anchor: [0, 0], handleIn: null, handleOut: [0, 5], type: "corner" },
+        { anchor: [10, 0], handleIn: [10, 5], handleOut: null, type: "corner" },
+      ],
+    },
+    {
+      closed: false,
+      anchors: [
+        { anchor: [20, 0], handleIn: null, handleOut: null, type: "corner" },
+        { anchor: [30, 0], handleIn: null, handleOut: null, type: "corner" },
+      ],
+    },
+  ]);
+  // An end segment leaves a one-Anchor piece, which goes.
+  expect(deleteParts(open, [], [seg(2)])).toMatchObject([
+    { anchors: [{ anchor: [0, 0] }, { anchor: [10, 0] }, { anchor: [20, 0] }] },
+  ]);
+  // A closed subpath opens at the cut, even at its closing segment.
+  const square = toAnchors(parsePath("M 0 0 L 10 0 L 10 10 L 0 10 Z", "d"));
+  expect(deleteParts(square, [], [seg(1)])).toMatchObject([
+    {
+      closed: false,
+      anchors: [{ anchor: [10, 10] }, { anchor: [0, 10] }, { anchor: [0, 0] }, { anchor: [10, 0] }],
+    },
+  ]);
+  expect(deleteParts(square, [], [seg(3)])).toMatchObject([
+    {
+      anchors: [{ anchor: [0, 0] }, { anchor: [10, 0] }, { anchor: [10, 10] }, { anchor: [0, 10] }],
+    },
+  ]);
+  // Two segments of the square leave two pieces; an Anchor takes its two segments with it.
+  expect(deleteParts(square, [], [seg(0), seg(2)])).toMatchObject([
+    { anchors: [{ anchor: [10, 0] }, { anchor: [10, 10] }] },
+    { anchors: [{ anchor: [0, 10] }, { anchor: [0, 0] }] },
+  ]);
+  expect(deleteParts(square, [seg(0)], [seg(2)])).toMatchObject([
+    { anchors: [{ anchor: [10, 0] }, { anchor: [10, 10] }] },
+  ]);
+  expect(deleteParts(square, [seg(0)], [seg(1)])).toMatchObject([
+    { anchors: [{ anchor: [10, 10] }, { anchor: [0, 10] }] },
+  ]);
+  // An open subpath's last Anchor starts no segment.
+  expect(deleteParts(open, [], [seg(3)])).toEqual(open);
+});
+
+it("Clear deletes selected segments, converting a Live Shape, and ignores out-of-range ones", () => {
+  const { doc, rect, curve } = fixture();
+  expect(segmentInRange(doc, anchorKey(rect.id, 0, 3))).toBe(true);
+  expect(segmentInRange(doc, anchorKey(rect.id, 0, 4))).toBe(false);
+  expect(segmentInRange(doc, anchorKey(curve.id, 0, 2))).toBe(false);
+  expect(clearInputs(doc, [rect.id], [], [anchorKey(rect.id, 0, 9)])).toEqual({
+    edits: [],
+    deleteIds: [],
+  });
+  expect(clearInputs(doc, [rect.id, curve.id], [], [anchorKey(rect.id, 0, 3)])).toEqual({
+    edits: [{ nodeId: rect.id, ops: [{ op: "set_d", d: "M 0 0 L 10 0 L 10 10 L 0 10" }] }],
+    deleteIds: [curve.id],
+  });
+  // An Anchor of the curve and a segment of the rect: one set_d each.
+  const mixed = clearInputs(
+    doc,
+    [rect.id, curve.id],
+    [anchorKey(curve.id, 0, 2)],
+    [anchorKey(rect.id, 0, 0)],
+  );
+  expect(mixed.deleteIds).toEqual([]);
+  expect(mixed.edits.map((e) => e.nodeId)).toEqual([curve.id, rect.id]);
+  // Both segments of a one-segment path leave nothing: it goes.
+  const line = createNodes(doc, [
+    { type: "path", parentId: rect.parentId, d: "M 0 0 L 5 5" },
+  ] as never).nodes[0] as Node;
+  expect(clearInputs(doc, [line.id], [], [anchorKey(line.id, 0, 0)])).toEqual({
+    edits: [],
+    deleteIds: [line.id],
+  });
+});
+
+it("a selected segment shows the Handles at its ends, and pick grabs them", () => {
+  const { doc, curve } = fixture();
+  const first = anchorKey(curve.id, 0, 0);
+  expect(segmentHandles(doc, first)).toEqual([
+    { key: first, which: "handleOut" },
+    { key: anchorKey(curve.id, 0, 1), which: "handleIn" },
+  ]);
+  // The middle Anchor's in Handle sits at (120, 10).
+  expect(pick(doc, [curve.id], [], 120, 9, 2, [first])).toEqual({
+    kind: "handle",
+    key: anchorKey(curve.id, 0, 1),
+    which: "handleIn",
+  });
+  expect(pick(doc, [curve.id], [], 120, 9, 2)).toBeNull();
 });
 
 it("Clear deletes selected Anchors, and whole the selected objects without any", () => {

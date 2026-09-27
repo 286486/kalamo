@@ -10,7 +10,7 @@ import {
 } from "@zibel/core";
 import { applyBroadcast, type ServerMessage } from "@zibel/sync";
 import type { CurveAnchor } from "./curvature.ts";
-import { inRange, parseKey } from "./direct.ts";
+import { inRange, parseKey, segmentInRange } from "./direct.ts";
 
 /** The Selection being dragged by (dx, dy) pt. `commandId` is set once its move has been sent. */
 export interface Drag {
@@ -81,6 +81,8 @@ export interface ViewState {
   opPreview: PathOpPreview | null;
   /** Direct Selection's selected Anchors (direct.ts's keys): UI state, like the Selection. */
   anchors: string[];
+  /** Its selected segments, keyed by the Anchor each starts at (ADR-0045). */
+  segments: string[];
   /** Why the last command was rejected. */
   notice: string | null;
 }
@@ -134,10 +136,12 @@ export function receive(
   const own = msg.type === "tx" && !!msg.commandId && ours.includes(msg.commandId);
   const touched =
     msg.type === "tx" ? new Set([...msg.updated.map((n) => n.id), ...msg.deletedIds]) : null;
-  const anchors = s.anchors.filter((key) => {
+  const kept = (inRangeOf: typeof inRange) => (key: string) => {
     const changed = !touched || touched.has(parseKey(key).nodeId);
-    return !changed || ((own || !touched) && inRange(doc, key));
-  });
+    return !changed || ((own || !touched) && inRangeOf(doc, key));
+  };
+  const anchors = s.anchors.filter(kept(inRange));
+  const segments = s.segments.filter(kept(segmentInRange));
   const skipped = msg.type === "tx" ? (msg.skippedIds?.length ?? 0) : 0;
   // A selected Node that a browser's command moved into a new Group selects that Group, as Make
   // Clipping Mask does; an Agent's edit leaves the person's Selection alone.
@@ -153,6 +157,7 @@ export function receive(
     selection: drawn ? (s.pen?.pencil?.keep === false ? [] : [...made]) : [...new Set(selection)],
     ...(answered && { drag: null }),
     anchors,
+    segments,
     ...(msg.type === "document" ? { edit: null } : settle(s.edit, msg.commandId)),
     ...((drawn || (msg.type === "document" && s.pen?.commandId)) && { pen: null }),
     ...(s.opPreview?.commandId &&

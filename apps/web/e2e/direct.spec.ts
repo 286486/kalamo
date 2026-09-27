@@ -77,3 +77,60 @@ test("Direct Selection moves an Anchor, converts a rect, breaks a Handle and del
   await expect.poll(async () => (await get(rect))?.d).toBe("M 70 60 L 20 50 L 20 10");
   await expect.poll(async () => (await get(line))?.d).toBe("M 190 80 L 150 80");
 });
+
+// #114: Direct Selection selects segments and Delete removes only them.
+test("Direct Selection deletes selected segments, then the path", async ({ page, request }) => {
+  const { docId, defaultLayerId: parentId } = (
+    await call(request, "zibel_doc_create", {
+      name: "Segments",
+      artboards: [{ width: 200, height: 100 }],
+    })
+  ).structuredContent;
+  const created = await call(request, "zibel_node_create", {
+    docId,
+    nodes: [
+      { type: "rect", parentId, x: 20, y: 60, width: 40, height: 30 },
+      { type: "path", parentId, d: "M 20 20 L 60 20 L 100 20 L 140 20" },
+    ],
+  });
+  const [rect, line] = created.structuredContent.createdIds as [string, string];
+  const get = async (id: string) => {
+    const result = await call(request, "zibel_node_get", { docId, nodeIds: [id], detail: "full" });
+    return result.isError
+      ? JSON.parse(result.content[0].text).code
+      : result.structuredContent.nodes[0];
+  };
+
+  await page.goto(`/docs/${docId}`);
+  await expect(page.getByTestId("status-bar")).toContainText(/\d+%/);
+  await page.keyboard.press("Control+1");
+  await expect(page.getByTestId("status-bar")).toContainText("100%");
+  const box = await page.getByTestId("canvas").boundingBox();
+  if (!box) throw new Error("no canvas");
+  const at = (x: number, y: number) =>
+    [box.x + box.width / 2 + x - 100, box.y + box.height / 2 + y - 50] as const;
+  await page.keyboard.press("a");
+
+  // The line's middle segment, then Shift for the rect's top one: the rect stays live meanwhile.
+  await page.mouse.click(...at(80, 20));
+  await page.keyboard.down("Shift");
+  await page.mouse.click(...at(40, 60));
+  await page.keyboard.up("Shift");
+  expect(await get(rect)).toMatchObject({ type: "rect" });
+
+  const { rev } = created.structuredContent;
+  await page.keyboard.press("Delete");
+  await expect.poll(async () => (await get(line))?.d).toBe("M 20 20 L 60 20 M 100 20 L 140 20");
+  await expect
+    .poll(async () => await get(rect))
+    .toMatchObject({ id: rect, type: "path", d: "M 60 60 L 60 90 L 20 90 L 20 60" });
+  // One Transaction per path.
+  const { changes } = (await call(request, "zibel_doc_changes", { docId, sinceRev: rev }))
+    .structuredContent;
+  expect(changes).toMatchObject([{ updatedIds: [line] }, { updatedIds: [rect] }]);
+
+  // Both paths stay selected with nothing in them: a second Delete removes them.
+  await page.keyboard.press("Delete");
+  await expect.poll(() => get(line)).toBe("NODE_NOT_FOUND");
+  await expect.poll(() => get(rect)).toBe("NODE_NOT_FOUND");
+});

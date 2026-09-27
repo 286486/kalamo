@@ -22,11 +22,11 @@ import type { CanvasTool, ToolEvent } from "./toolbox.ts";
 
 type Point = [number, number];
 
-/** One `path_edit` per path and one `delete`, for edits on Anchors, which drop the selected ones. */
+/** One `path_edit` per path and one `delete`, for edits on Anchors, which drop the selected Anchors and segments. */
 export function sendAnchorEdits({ edits, deleteIds }: ReturnType<typeof removeAnchorInputs>) {
   for (const input of edits) send({ type: "path_edit", input });
   if (deleteIds.length > 0) send({ type: "delete", nodeIds: deleteIds });
-  useStore.setState({ anchors: [] });
+  useStore.setState({ anchors: [], segments: [] });
 }
 
 /** The nearest segment of the paths `ids` within `tolerance`, as pick names one. */

@@ -24,7 +24,10 @@ import { editable, pathTargets } from "./selection.ts";
 type Point = [number, number];
 type Which = "handleIn" | "handleOut";
 
-/** One selected Anchor as UI state, like the Selection: its Node, subpath and index. */
+/**
+ * One selected Anchor as UI state, like the Selection: its Node, subpath and index. A selected
+ * segment's key names the Anchor it starts at (ADR-0045).
+ */
 export const anchorKey = (nodeId: string, subpath: number, index: number) =>
   `${nodeId} ${subpath} ${index}`;
 export function parseKey(key: string) {
@@ -117,9 +120,22 @@ export type Target =
   | { kind: "anchor"; key: string }
   | { kind: "segment"; nodeId: string; subpath: number; segment: number; t: number };
 
+/** The Handles a selected segment shows: its start's out and its end's in, as Anchor keys. */
+export function segmentHandles(doc: Document, key: string): { key: string; which: Which }[] {
+  const { nodeId, subpath, index } = parseKey(key);
+  const n = doc.nodes.get(nodeId);
+  const s = hasAnchors(n) ? localAnchors(n)[subpath] : undefined;
+  if (!s || index >= segmentCount(s)) return [];
+  const next = (index + 1) % s.anchors.length;
+  return [
+    { key: anchorKey(nodeId, subpath, index), which: "handleOut" },
+    { key: anchorKey(nodeId, subpath, next), which: "handleIn" },
+  ];
+}
+
 /**
- * What a Direct Selection press at (x, y) grabs within `tolerance`: a selected Anchor's Handle,
- * else an Anchor (a selected path's first), else the topmost segment. Null for none.
+ * What a Direct Selection press at (x, y) grabs within `tolerance`: a Handle a selected Anchor or
+ * segment shows, else an Anchor (a selected path's first), else the topmost segment. Null for none.
  */
 export function pick(
   doc: Document,
@@ -128,16 +144,21 @@ export function pick(
   x: number,
   y: number,
   tolerance: number,
+  segments: string[] = [],
 ): Target | null {
   const near = (p: Point | null) => !!p && Math.hypot(p[0] - x, p[1] - y) <= tolerance;
-  for (const key of anchors) {
+  const handles = [
+    ...anchors.flatMap((key) =>
+      (["handleIn", "handleOut"] as const).map((which) => ({ key, which })),
+    ),
+    ...segments.flatMap((key) => segmentHandles(doc, key)),
+  ];
+  for (const { key, which } of handles) {
     const { nodeId, subpath, index } = parseKey(key);
     const n = doc.nodes.get(nodeId);
     if (!hasAnchors(n) || !editable(doc, n)) continue;
     const a = anchorsOf(doc, n)[subpath]?.anchors[index];
-    for (const which of ["handleIn", "handleOut"] as const) {
-      if (a && near(a[which])) return { kind: "handle", key, which };
-    }
+    if (a && near(a[which])) return { kind: "handle", key, which };
   }
   const shapes = editableShapes(doc).reverse();
   const selected = (n: ShapeNode) => selection.includes(n.id);
@@ -275,23 +296,34 @@ export function moveSegment(
 }
 
 /**
- * Delete on Anchors: removes them and the segments on both sides, opening the path there, as
- * Illustrator does. A piece left with one Anchor would be a Stray Point and goes too.
+ * Delete on Anchors and segments, as Illustrator does: an Anchor goes with the segments on both
+ * sides, a segment alone, each opening the path there. A piece left with one Anchor would be a
+ * Stray Point and goes too.
  */
-export function deleteAnchors(
+export function deleteParts(
   subpaths: Subpath[],
-  refs: Pick<Ref, "subpath" | "index">[],
+  anchors: Pick<Ref, "subpath" | "index">[],
+  segments: Pick<Ref, "subpath" | "index">[] = [],
 ): Subpath[] {
   return subpaths.flatMap((s, k) => {
-    const cut = s.anchors.map((_, i) => refs.some((r) => r.subpath === k && r.index === i));
-    if (!cut.includes(true)) return [s];
-    // A closed subpath is walked from just after a deleted Anchor, so each piece is in order.
-    const start = s.closed ? cut.indexOf(true) + 1 : 0;
+    const has = (refs: typeof anchors, i: number) =>
+      refs.some((r) => r.subpath === k && r.index === i);
+    const cut = s.anchors.map((_, i) => has(anchors, i));
+    // Segment i starts at Anchor i; an open subpath's last Anchor starts none.
+    const gap = s.anchors.map((_, i) => has(segments, i) && i < segmentCount(s));
+    const first = s.anchors.findIndex((_, i) => cut[i] || gap[i]);
+    if (first < 0) return [s];
+    // A closed subpath is walked from just after a cut, so each piece is in order.
+    const start = s.closed ? first + 1 : 0;
     const pieces: Anchor[][] = [[]];
     for (let j = 0; j < s.anchors.length; j++) {
       const i = (start + j) % s.anchors.length;
-      if (cut[i]) pieces.push([]);
-      else pieces.at(-1)?.push({ ...(s.anchors[i] as Anchor) });
+      if (cut[i]) {
+        pieces.push([]);
+        continue;
+      }
+      pieces.at(-1)?.push({ ...(s.anchors[i] as Anchor) });
+      if (gap[i]) pieces.push([]);
     }
     return pieces
       .filter((p) => p.length >= 2)
@@ -310,20 +342,38 @@ export function inRange(doc: Document, key: string): boolean {
   return hasAnchors(n) && !!localAnchors(n)[subpath]?.anchors[index];
 }
 
+/** Whether `key` names a segment its Node has now. */
+export function segmentInRange(doc: Document, key: string): boolean {
+  const { nodeId, subpath, index } = parseKey(key);
+  const n = doc.nodes.get(nodeId);
+  const s = hasAnchors(n) ? localAnchors(n)[subpath] : undefined;
+  return !!s && Number.isInteger(index) && index >= 0 && index < segmentCount(s);
+}
+
 /**
- * Edit > Clear under Direct Selection: a `set_d` per path with selected Anchors, and the ids to
- * delete: paths left without a segment, and selected objects with no selected Anchor. Keys out of
- * range are ignored, never sent as a no-op that would convert a Live Shape.
+ * Edit > Clear under Direct Selection: a `set_d` per path with selected Anchors or segments, and
+ * the ids to delete: paths left without a segment, and selected objects with neither selected.
+ * Keys out of range are ignored, never sent as a no-op that would convert a Live Shape.
  */
-export function clearInputs(doc: Document, selection: string[], anchors: string[]) {
+export function clearInputs(
+  doc: Document,
+  selection: string[],
+  anchors: string[],
+  segments: string[] = [],
+) {
   const edits: PathEditInput[] = [];
   const grouped = byNode(anchors);
-  const deleteIds = selection.filter((id) => !grouped.has(id) && editable(doc, doc.nodes.get(id)));
-  for (const [nodeId, refs] of grouped) {
+  const cuts = byNode(segments);
+  const deleteIds = selection.filter(
+    (id) => !grouped.has(id) && !cuts.has(id) && editable(doc, doc.nodes.get(id)),
+  );
+  for (const nodeId of new Set([...grouped.keys(), ...cuts.keys()])) {
     const n = doc.nodes.get(nodeId);
-    const live = refs.filter((r) => inRange(doc, anchorKey(nodeId, r.subpath, r.index)));
-    if (!hasAnchors(n) || !editable(doc, n) || live.length === 0) continue;
-    const left = deleteAnchors(localAnchors(n), live);
+    const key = (r: Ref) => anchorKey(nodeId, r.subpath, r.index);
+    const live = (grouped.get(nodeId) ?? []).filter((r) => inRange(doc, key(r)));
+    const gaps = (cuts.get(nodeId) ?? []).filter((r) => segmentInRange(doc, key(r)));
+    if (!hasAnchors(n) || !editable(doc, n) || live.length + gaps.length === 0) continue;
+    const left = deleteParts(localAnchors(n), live, gaps);
     if (left.length === 0) deleteIds.push(nodeId);
     else edits.push({ nodeId, ops: [{ op: "set_d", d: formatPath(fromAnchors(left)) }] });
   }
