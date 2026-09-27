@@ -16,6 +16,7 @@ import {
   moveHandle,
   moveSegment,
   pick,
+  removeInputs,
   splitWhole,
 } from "./direct.ts";
 
@@ -173,5 +174,23 @@ it("a path with every Anchor selected moves whole; a partly selected one by its 
   expect(splitWhole(doc, [...keys, anchorKey(curve.id, 0, 1)])).toEqual({
     whole: [rect.id],
     partial: [anchorKey(curve.id, 0, 1)],
+  });
+});
+
+it("Remove Anchor Points removes selected Anchors keeping the path joined, and a path left bare goes", () => {
+  const { doc, rect, curve } = fixture();
+  const keys = [anchorKey(rect.id, 0, 1), anchorKey(rect.id, 0, 3), anchorKey(rect.id, 0, 9)];
+  const all = [0, 1, 2].map((i) => anchorKey(curve.id, 0, i));
+  expect(removeInputs(doc, [...keys, ...all])).toEqual({
+    edits: [
+      {
+        nodeId: rect.id,
+        ops: [
+          { op: "remove_anchor", subpath: 0, index: 3 },
+          { op: "remove_anchor", subpath: 0, index: 1 },
+        ],
+      },
+    ],
+    deleteIds: [curve.id],
   });
 });

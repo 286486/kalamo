@@ -6,6 +6,7 @@ import {
   imageSource,
   makeMask,
   parseDocument,
+  pathOp,
 } from "@zibel/core";
 import { docRect, scopeRect, toSvg } from "@zibel/io";
 import { expect, it } from "vitest";
@@ -462,4 +463,10 @@ it("paints Live Shapes the same after Convert to Path", async () => {
   // A path's antialiasing is not a <rect>'s or <ellipse>'s to the level: allow a few edge pixels.
   const differ = before.pixels.filter((v, i) => Math.abs(v - (after.pixels[i] ?? 0)) > 2).length;
   expect(differ).toBeLessThanOrEqual(4);
+  // Reverse Path Direction and Add Anchor Points keep the outline: the rasteriser's coverage of an
+  // edge pixel shifts with the segments' order and count, by at most 16 of 255 here.
+  pathOp(doc, { nodeIds: ids, op: "reverse" });
+  pathOp(doc, { nodeIds: ids, op: "add_anchors" });
+  const split = await svgToPixels(toSvg(doc, rect), 1);
+  expect(split.pixels.every((v, i) => Math.abs(v - (after.pixels[i] ?? 0)) <= 24)).toBe(true);
 });

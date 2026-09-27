@@ -1,8 +1,16 @@
 import { type Document, serializeDocument } from "@zibel/core";
 import { toSvg } from "@zibel/io/write";
-import { clearInputs } from "./direct.ts";
+import { clearInputs, removeInputs } from "./direct.ts";
 import { PLACEABLE, pasteClipboard, place } from "./place.ts";
-import { editable, expandable, inverse, maskInput, objects, releasable } from "./selection.ts";
+import {
+  editable,
+  expandable,
+  inverse,
+  maskInput,
+  objects,
+  paths,
+  releasable,
+} from "./selection.ts";
 import { type State, send, useStore } from "./store.ts";
 import { OPENABLE } from "./tabs.ts";
 import { undoAnchor } from "./tools.ts";
@@ -64,6 +72,17 @@ async function save(
 const hasDoc = (s: State) => s.doc !== null;
 const hasView = (s: State) => s.viewport !== null;
 const hasSelection = (s: State) => s.selection.length > 0;
+
+/** An Object > Path item that runs `op` on the Selection's paths and Live Shapes. */
+const pathOp = (label: string, op: "reverse" | "add_anchors"): MenuItem => ({
+  label,
+  enabled: ({ doc, selection }) => doc !== null && paths(doc, selection).length > 0,
+  run: () => {
+    const { doc, selection } = useStore.getState();
+    const nodeIds = doc ? paths(doc, selection) : [];
+    if (nodeIds.length > 0) send({ type: "path_op", input: { nodeIds, op } });
+  },
+});
 
 const select = (pick: (doc: Document, selection: string[]) => string[]) => () => {
   const { doc, selection } = useStore.getState();
@@ -206,6 +225,27 @@ export function documentMenus(tabs: { open: (file: File) => void; close: () => v
     {
       label: "Object",
       items: [
+        {
+          // Illustrator's order; Join, Average, Outline Stroke, Offset Path, Simplify and Smooth
+          // take their places as they arrive.
+          label: "Path",
+          items: [
+            pathOp("Reverse Path Direction", "reverse"),
+            pathOp("Add Anchor Points", "add_anchors"),
+            {
+              label: "Remove Anchor Points",
+              enabled: ({ anchors }) => anchors.length > 0,
+              run: () => {
+                const { doc, anchors } = useStore.getState();
+                if (!doc) return;
+                const { edits, deleteIds } = removeInputs(doc, anchors);
+                for (const input of edits) send({ type: "path_edit", input });
+                if (deleteIds.length > 0) send({ type: "delete", nodeIds: deleteIds });
+                useStore.setState({ anchors: [] });
+              },
+            },
+          ],
+        },
         {
           label: "Shape",
           items: [

@@ -330,6 +330,29 @@ export function clearInputs(doc: Document, selection: string[], anchors: string[
   return { edits, deleteIds };
 }
 
+/**
+ * Object > Path > Remove Anchor Points (research §5): a `remove_anchor` per selected Anchor, last
+ * first so the indices ahead stay put, joining its neighbours; a path with every Anchor selected
+ * goes. Keys out of range are ignored, as by Clear.
+ */
+export function removeInputs(doc: Document, anchors: string[]) {
+  const edits: PathEditInput[] = [];
+  const deleteIds: string[] = [];
+  for (const [nodeId, refs] of byNode(anchors)) {
+    const n = doc.nodes.get(nodeId);
+    const live = refs.filter((r) => inRange(doc, anchorKey(nodeId, r.subpath, r.index)));
+    if (!hasAnchors(n) || !editable(doc, n) || live.length === 0) continue;
+    if (allKeys(n).every((k) => anchors.includes(k))) {
+      deleteIds.push(nodeId);
+      continue;
+    }
+    live.sort((a, b) => b.subpath - a.subpath || b.index - a.index);
+    const ops = live.map(({ subpath, index }): PathOp => ({ op: "remove_anchor", subpath, index }));
+    edits.push({ nodeId, ops });
+  }
+  return { edits, deleteIds };
+}
+
 /** The paths with every Anchor in `keys`, which move whole, and the keys of the rest. */
 export function splitWhole(doc: Document, keys: string[]) {
   const whole: string[] = [];

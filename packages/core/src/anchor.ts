@@ -208,10 +208,13 @@ export const PathEditInput = z.object({
 });
 export type PathEditInput = z.input<typeof PathEditInput>;
 
-/** `path_op` (REQUIREMENTS §6.4): convert_to_path (Object > Shape > Expand Shape) so far. */
+/**
+ * `path_op` (REQUIREMENTS §6.4) so far: convert_to_path (Object > Shape > Expand Shape), reverse
+ * (Reverse Path Direction) and add_anchors (Add Anchor Points).
+ */
 export const PathOpInput = z.object({
   nodeIds: z.array(z.string()).min(1).max(1000),
-  op: z.literal("convert_to_path"),
+  op: z.enum(["convert_to_path", "reverse", "add_anchors"]),
 });
 export type PathOpInput = z.input<typeof PathOpInput>;
 
@@ -420,7 +423,6 @@ function toPath(node: LiveShape): PathNode {
   } as PathNode;
 }
 
-/** `path_op convert_to_path`: converts each Live Shape and leaves a path as it is. */
 /** The path or Live Shape `id` names, or INVALID_PATH for a Node without Anchors. */
 function withAnchors(doc: Document, id: string, at: string): PathNode | LiveShape {
   const node = lookup(doc, id, at);
@@ -428,12 +430,51 @@ function withAnchors(doc: Document, id: string, at: string): PathNode | LiveShap
   throw invalid(at, `A ${node.type} has no Anchors.`, "Name a path or a Live Shape.");
 }
 
+/** `path_op convert_to_path`: converts each Live Shape and leaves a path as it is. */
 export function convertToPath(doc: Document, nodeIds: string[]): { updated: PathNode[] } {
   const nodes = nodeIds.map((id, i) => withAnchors(doc, id, `nodeIds[${i}]`));
   const unique = [...new Map(nodes.map((n) => [n.id, n])).values()];
   const updated = unique.filter(isLiveShape).map(toPath);
   for (const node of updated) doc.nodes.set(node.id, node);
   return { updated };
+}
+
+const converted = (node: LiveShape) => ({
+  code: "CONVERTED_TO_PATH",
+  nodeId: node.id,
+  message: `The ${node.type} was converted to a path first: it keeps its id, and its parameters are gone.`,
+});
+
+/** Each subpath's segments split at t = 0.5, last first so the indices ahead stay put. */
+function addAnchors(subpaths: Subpath[]): Subpath[] {
+  for (const [k, s] of subpaths.entries()) {
+    for (let i = (s.closed ? s.anchors.length : s.anchors.length - 1) - 1; i >= 0; i--) {
+      apply(subpaths, { op: "add_anchor", subpath: k, segment: i, t: 0.5 }, "");
+    }
+  }
+  return subpaths;
+}
+
+/**
+ * `path_op` (REQUIREMENTS §6.4) on each path or Live Shape; reverse and add_anchors convert a Live
+ * Shape first (F-PATH-07), with a warning.
+ */
+export function pathOp(
+  doc: Document,
+  raw: PathOpInput,
+): { updated: PathNode[]; warnings: WriteReceipt["warnings"] } {
+  const { nodeIds, op } = PathOpInput.parse(raw);
+  if (op === "convert_to_path") return { ...convertToPath(doc, nodeIds), warnings: [] };
+  const nodes = nodeIds.map((id, i) => withAnchors(doc, id, `nodeIds[${i}]`));
+  const unique = [...new Map(nodes.map((n) => [n.id, n])).values()];
+  const updated = unique.map((found) => {
+    const node = isLiveShape(found) ? toPath(found) : found;
+    const subpaths = toAnchors(parsePath(node.d, "d"));
+    const next = op === "reverse" ? apply(subpaths, { op: "reverse" }, "") : addAnchors(subpaths);
+    return { ...node, d: formatPath(fromAnchors(next)) };
+  });
+  for (const node of updated) doc.nodes.set(node.id, node);
+  return { updated, warnings: unique.filter(isLiveShape).map(converted) };
 }
 
 /**
@@ -466,14 +507,6 @@ export function editPath(
       ...s,
       anchors: s.anchors.map((a, index) => ({ index, ...a })),
     })),
-    warnings: isLiveShape(found)
-      ? [
-          {
-            code: "CONVERTED_TO_PATH",
-            nodeId: found.id,
-            message: `The ${found.type} was converted to a path first: it keeps its id, and its parameters are gone.`,
-          },
-        ]
-      : [],
+    warnings: isLiveShape(found) ? [converted(found)] : [],
   };
 }

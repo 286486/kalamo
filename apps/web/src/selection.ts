@@ -199,3 +199,10 @@ export const expandable = (doc: Document, selection: string[]) =>
     const n = doc.nodes.get(id);
     return !!n && editable(doc, n) && isLiveShape(n);
   });
+
+/** Object > Path on the Selection: its editable paths and Live Shapes. */
+export const paths = (doc: Document, selection: string[]) =>
+  selection.filter((id) => {
+    const n = doc.nodes.get(id);
+    return !!n && editable(doc, n) && (n.type === "path" || isLiveShape(n));
+  });
