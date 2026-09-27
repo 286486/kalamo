@@ -66,7 +66,7 @@ test("dropping an .svg file on the canvas places it, named after the file", asyn
   request,
 }) => {
   const { docId, defaultLayerId } = await open(page, request);
-  await page.locator("canvas").evaluate((canvas, text) => {
+  await page.getByTestId("overlay").evaluate((canvas, text) => {
     const data = new DataTransfer();
     data.items.add(new File([text], "Logo.svg", { type: "image/svg+xml" }));
     canvas.dispatchEvent(new DragEvent("drop", { dataTransfer: data, bubbles: true }));
@@ -109,7 +109,7 @@ test("dropping a PNG places an Image; a WebP shows the Worker's hint and places 
 }) => {
   const { docId, defaultLayerId } = await open(page, request);
   const drop = (url: string, name: string, type: string) =>
-    page.locator("canvas").evaluate(
+    page.getByTestId("overlay").evaluate(
       (canvas, [url = "", name = "", type]) => {
         const bytes = Uint8Array.from(atob(url.split(",")[1] ?? ""), (c) => c.charCodeAt(0));
         const data = new DataTransfer();

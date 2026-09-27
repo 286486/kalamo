@@ -16,7 +16,7 @@ test("the Pencil draws a stroke, redraws part of it, and closes a loop with its 
   await expect(page.getByTestId("status-bar")).toContainText(/\d+%/);
   await page.keyboard.press("Control+1");
   await expect(page.getByTestId("status-bar")).toContainText("100%");
-  const box = await page.locator("canvas").boundingBox();
+  const box = await page.getByTestId("canvas").boundingBox();
   if (!box) throw new Error("no canvas");
   const at = (x: number, y: number) =>
     [box.x + box.width / 2 + x - 100, box.y + box.height / 2 + y - 50] as const;

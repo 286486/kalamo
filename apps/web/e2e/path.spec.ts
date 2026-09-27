@@ -27,7 +27,7 @@ test("Object > Path reverses a path, adds Anchors and removes the selected one",
   await expect(page.getByTestId("status-bar")).toContainText(/\d+%/);
   await page.keyboard.press("Control+1");
   await expect(page.getByTestId("status-bar")).toContainText("100%");
-  const box = await page.locator("canvas").boundingBox();
+  const box = await page.getByTestId("canvas").boundingBox();
   if (!box) throw new Error("no canvas");
   const at = (x: number, y: number) =>
     [box.x + box.width / 2 + x - 100, box.y + box.height / 2 + y - 50] as const;
@@ -191,7 +191,7 @@ test("Offset Path previews the copy, adds it below on OK, and one Undo takes it 
   await expect(page.getByTestId("status-bar")).toContainText("100%");
   // Red at 5 pt left of the rect, inside where a 10 pt offset reaches.
   const red = () =>
-    page.locator("canvas").evaluate((el: HTMLCanvasElement) => {
+    page.getByTestId("canvas").evaluate((el: HTMLCanvasElement) => {
       const k = el.width / el.getBoundingClientRect().width;
       const [x, y] = [(el.width / k / 2 - 55) * k, (el.height / k / 2) * k];
       return el.getContext("2d")?.getImageData(x, y, 1, 1).data[1] === 0;

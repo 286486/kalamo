@@ -21,7 +21,7 @@ import { connect, send, useStore } from "./store.ts";
 import { Tools } from "./Tools.tsx";
 import { type CanvasTool, TOOL_KEYS, TOOLS, type ToolEvent } from "./toolbox.ts";
 import { fillStrokeKey, finishPen, setTool } from "./tools.ts";
-import { artboardsRect, fit, toDoc, zoomAt } from "./viewport.ts";
+import { artboardsRect, fit, toDoc, type Viewport, zoomAt } from "./viewport.ts";
 
 const PASTEBOARD = "#E6E6E6";
 /** Simplify's original path, drawn under the preview's Selection colour. */
@@ -48,9 +48,26 @@ const fontLoaded = Promise.allSettled(
   }),
 );
 
+/** Sizes `el` to `size` in device pixels, cleared, and returns its context in Document coordinates. */
+function sized(
+  el: HTMLCanvasElement | null,
+  size: { width: number; height: number },
+  { x, y, scale }: Viewport,
+) {
+  const ctx = el?.getContext("2d");
+  if (!el || !ctx) return null;
+  const dpr = devicePixelRatio;
+  el.width = Math.round(size.width * dpr);
+  el.height = Math.round(size.height * dpr);
+  ctx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * x, dpr * y);
+  return ctx;
+}
+
 /** A live view of one Document: select, drag-move and delete its objects, and draw with the Pen. */
 export function Viewer({ docId }: { docId: string }) {
+  /** The Document; the overlay canvas over it takes the pointer and draws the tools and Selection. */
   const canvas = useRef<HTMLCanvasElement>(null);
+  const overlayCanvas = useRef<HTMLCanvasElement>(null);
   const {
     doc,
     live,
@@ -141,21 +158,21 @@ export function Viewer({ docId }: { docId: string }) {
     [doc, opPreview],
   );
 
-  // ponytail: redraws everything on every change; add viewport culling and dirty rects for 5k+ Nodes (F-VIEW-08).
-  // biome-ignore lint/correctness/useExhaustiveDependencies: fontReady and imagesLoaded redraw text and Images once their font or files are in; anchors, pen, fillStroke and overlay redraw the tools' overlays
+  // Hit tests use `doc`; only the drawing shows the drag.
+  const shown = useMemo(() => {
+    const moved = simplified && drag ? preview(simplified, drag) : simplified;
+    return moved && edit ? previewEdit(moved, edit) : moved;
+  }, [simplified, drag, edit]);
+
+  // ponytail: redraws every Node on every Document change; add viewport culling and dirty rects for 5k+ Nodes (F-VIEW-08).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: fontReady and imagesLoaded redraw text and Images once their font or files are in
   useEffect(() => {
-    const el = canvas.current;
-    const ctx = el?.getContext("2d");
     // On a tab switch the store holds the last tab's Document until connect clears it.
-    if (!el || !ctx || !doc || !simplified || doc.id !== docId || !viewport) return;
-    const dpr = devicePixelRatio;
-    el.width = Math.round(size.width * dpr);
-    el.height = Math.round(size.height * dpr);
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = PASTEBOARD;
-    ctx.fillRect(0, 0, el.width, el.height);
-    const { x, y, scale } = viewport;
-    ctx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * x, dpr * y);
+    if (!doc || !shown || doc.id !== docId || !viewport) return;
+    const ctx = sized(canvas.current, size, viewport);
+    if (!ctx) return;
+    const { scale } = viewport;
+    // The pasteboard is the page's background, under both canvases.
     for (const { frame } of doc.artboards) {
       ctx.fillStyle = "#FFFFFF";
       ctx.fillRect(frame.x, frame.y, frame.width, frame.height);
@@ -163,11 +180,17 @@ export function Viewer({ docId }: { docId: string }) {
       ctx.strokeStyle = "#000000";
       ctx.strokeRect(frame.x, frame.y, frame.width, frame.height);
     }
-    // Hit tests use `doc`; only the drawing shows the drag.
-    const moved = drag ? preview(simplified, drag) : simplified;
-    const shown = edit ? previewEdit(moved, edit) : moved;
     images.want(shown);
     drawDocument(ctx, shown, images.get);
+  }, [doc, shown, docId, viewport, size, fontReady, images, imagesLoaded]);
+
+  // The overlay redraws on its own canvas, without repainting the Document's Nodes.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: anchors, pen, fillStroke and overlay redraw the tools' overlays
+  useEffect(() => {
+    if (!doc || !shown || doc.id !== docId || !viewport) return;
+    const ctx = sized(overlayCanvas.current, size, viewport);
+    if (!ctx) return;
+    const { scale } = viewport;
     ctx.lineWidth = 1 / scale;
     ctx.strokeStyle = SELECTION;
     const active = TOOLS[tool];
@@ -188,7 +211,7 @@ export function Viewer({ docId }: { docId: string }) {
     }
   }, [
     doc,
-    simplified,
+    shown,
     opPreview,
     docId,
     viewport,
@@ -196,20 +219,15 @@ export function Viewer({ docId }: { docId: string }) {
     selection,
     anchors,
     tool,
-    drag,
-    edit,
     pen,
     fillStroke,
     overlay,
-    fontReady,
-    images,
-    imagesLoaded,
   ]);
 
   // Ctrl+wheel (and trackpad pinch) zooms at the cursor; plain wheel and two-finger scroll pan.
   // A native listener, because React's onWheel is passive and cannot preventDefault.
   useEffect(() => {
-    const el = canvas.current;
+    const el = overlayCanvas.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
@@ -382,7 +400,13 @@ export function Viewer({ docId }: { docId: string }) {
     <div style={{ position: "absolute", inset: 0, background: PASTEBOARD }}>
       <canvas
         ref={canvas}
-        style={{ width: "100%", height: "100%", display: "block", cursor }}
+        data-testid="canvas"
+        style={{ width: "100%", height: "100%", display: "block" }}
+      />
+      <canvas
+        ref={overlayCanvas}
+        data-testid="overlay"
+        style={{ position: "absolute", inset: 0, width: "100%", height: "100%", cursor }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerEnd}
