@@ -199,11 +199,12 @@ async function agents(request: Request, env: Env) {
   const now = Date.now();
   // The library's own refresh check: a grant still in KV past its `expiresAt` is gone.
   const live = (await userGrants(env, user.id)).flatMap((grant) =>
-    grant.expiresAt === undefined || grant.expiresAt * 1000 > now ? [grant.metadata.actor] : [],
+    grant.expiresAt === undefined || grant.expiresAt * 1000 > now ? [grant.metadata?.actor] : [],
   );
   await env.DB.prepare(
     `UPDATE actors SET revoked_at = ? WHERE user_id = ? AND kind = 'agent' AND revoked_at IS NULL
-     AND coalesce(granted_at, created_at) < ? AND id NOT IN (SELECT value FROM json_each(?) WHERE value IS NOT NULL)`,
+     AND coalesce(granted_at, created_at) < ?
+     AND id NOT IN (SELECT value FROM json_each(?) WHERE value IS NOT NULL)`,
   )
     .bind(
       new Date(now).toISOString(),
