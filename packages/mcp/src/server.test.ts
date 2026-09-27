@@ -1,4 +1,4 @@
-import { COLOR_PATTERN, ZibelError } from "@zibel/core";
+import { COLOR_PATTERN, PathOpInput, ZibelError } from "@zibel/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { harness } from "./harness.ts";
 
@@ -168,20 +168,12 @@ describe("write tools pass the write and its options apart", () => {
     expect(result.structuredContent).toEqual(out);
   });
 
-  it("path_op", async () => {
+  it("path_op: the operation arguments arrive as given, the write options apart", async () => {
     const { service, call } = await harness({ pathOp: async () => receipt });
     const { partial: _, ...write } = { ...opts, partial: false };
-    const input = {
-      nodeIds: ["r"],
-      op: "join",
-      tolerance: 0.5,
-      cornerAngle: 120,
-      toLines: true,
-      axis: "vertical",
-      anchors: [{ nodeId: "r", subpath: 0, index: 1 }],
-    };
+    const input = { nodeIds: ["r"], op: "simplify", tolerance: 0.5 };
     await call("zibel_path_op", { docId: "d", ...input, ...write });
-    expect(service.pathOp).toHaveBeenCalledWith("d", input, write);
+    expect(service.pathOp.mock.calls[0]).toStrictEqual(["d", PathOpInput.parse(input), write]);
   });
 
   it("freehand_stroke: the fitted Ink as one path through createNodes", async () => {
