@@ -27,12 +27,14 @@ import {
   round,
   type ShapeNode,
   type Stroke,
+  scaleOf,
   shapeSegments,
   type TextNode,
   textBox,
   transformSegments,
   union,
   visibleBounds,
+  worldTransform,
   ZibelError,
 } from "@zibel/core";
 import {
@@ -444,25 +446,60 @@ function node(doc: Document, n: Node, walk: Walk): string {
 
 /**
  * Each Fill, then each Stroke, of a container's Appearance as a locked `<g zibel:paint>` holding a
- * bare copy of every leaf it paints, in document coordinates (ADR-0043).
+ * bare copy of every leaf it paints, in document coordinates (ADR-0043): a shape's outline, or a
+ * text laid out in its own transform, each in a `<g clip-path>` per inner Clipping Mask it is in.
  */
 function containerPaints(doc: Document, n: LayerNode | GroupNode): string[] {
   const { fills, strokes } = containerAppearance(n);
   if (fills.length + strokes.length === 0) return [];
-  const copies = paintedLeaves(doc, n)
-    .map(
-      (l) =>
-        `<path${attrs({ d: formatPath(l.segments), "fill-rule": l.fillRule === "evenodd" ? "evenodd" : undefined })}/>`,
-    )
-    .join("");
-  const group = (label: string, a: Attrs) =>
-    `<g${attrs({ [zibel("paint")]: "true", "sodipodi:insensitive": "true", "inkscape:label": label, ...a })}>${copies}</g>`;
+  const leaves = paintedLeaves(doc, n);
+  const copies = (stroke?: Stroke) =>
+    leaves
+      .map((l) => {
+        let copy: string;
+        if (l.node.type === "text") {
+          const m = worldTransform(doc, l.node);
+          const k = scaleOf(m);
+          copy = text(
+            l.node,
+            {
+              transform: m.every((v, i) => v === IDENTITY[i])
+                ? undefined
+                : `matrix(${round(m).join(" ")})`,
+              // The width is in document units, which the text's own scale must not grow.
+              ...(stroke &&
+                k !== 1 &&
+                strokeStyle({
+                  ...stroke,
+                  width: stroke.width / k,
+                  dash: stroke.dash.map((d) => d / k),
+                })),
+            },
+            [],
+          );
+        } else {
+          copy = `<path${attrs({ d: formatPath(l.segments), "fill-rule": l.fillRule === "evenodd" ? "evenodd" : undefined })}/>`;
+        }
+        // Each inner Clipping Mask's own <clipPath>, outermost first.
+        return l.clips.reduceRight(
+          (inner, c) => `<g${attrs({ "clip-path": `url(#${clipId(c.maskId)})` })}>${inner}</g>`,
+          copy,
+        );
+      })
+      .join("");
+  const group = (label: string, a: Attrs, body: string) =>
+    `<g${attrs({ [zibel("paint")]: "true", "sodipodi:insensitive": "true", "inkscape:label": label, ...a })}>${body}</g>`;
   // paintContainer refuses gradients until #107.
   const color = (p: Fill) => (p.type === "solid" ? p.color : "#000000");
+  const filled = fills.length > 0 ? copies() : "";
   return [
-    ...fills.map((f) => group("Fill", paintAttrs("fill", color(f)))),
+    ...fills.map((f) => group("Fill", paintAttrs("fill", color(f)), filled)),
     ...strokes.map((k) =>
-      group("Stroke", { fill: "none", ...paintAttrs("stroke", color(k)), ...strokeStyle(k) }),
+      group(
+        "Stroke",
+        { fill: "none", ...paintAttrs("stroke", color(k)), ...strokeStyle(k) },
+        copies(k),
+      ),
     ),
   ];
 }
@@ -480,7 +517,8 @@ function text(n: TextNode, a: Attrs, extra: (string | false)[]): string {
   const role = area ? {} : { "sodipodi:role": "line" };
   // A nested tspan for each run of characters with overrides, bare text for the rest (ADR-0029). A range fill
   // goes only where a Fill paints, opaque where the element's fill-opacity would inherit.
-  const painted = a.fill !== "none";
+  // A container paint's copy has no fill of its own and takes none: its Fill paints every glyph.
+  const painted = a.fill !== undefined && a.fill !== "none";
   const spans = (start: number, t: string) => {
     const chars = [...t];
     let out = "";

@@ -851,3 +851,43 @@ it("writes a container's paints as locked <g zibel:paint> copies around its chil
   updateNodes(doc, [{ nodeId: group.id, patch: { appearance: null } }]);
   expect(toSvg(doc)).not.toContain("zibel:paint");
 });
+
+it("paints a text child as a bare <text> copy, and an inner Clipping Mask's leaf under its <clipPath> (#106)", () => {
+  const { doc, defaultLayerId } = newDoc();
+  const [group, text, , clipped, clip] = createNodes(doc, [
+    {
+      type: "group",
+      parentId: defaultLayerId,
+      appearance: { fills: [{ color: "#00FF00" }], strokes: [{ color: "#FF0000", width: 4 }] },
+      children: [
+        {
+          type: "text",
+          x: 10,
+          y: 50,
+          content: "Hi",
+          ranges: [{ start: 0, end: 1, fill: "#0000FF" }],
+        },
+        { type: "rect", x: 0, y: 0, width: 10, height: 10 },
+        { type: "rect", x: 20, y: 0, width: 10, height: 10 },
+        { type: "rect", x: 25, y: 0, width: 10, height: 10 },
+      ],
+    },
+  ]).nodes;
+  if (!group || !text || !clipped || !clip) throw new Error("setup");
+  const mask = makeMask(doc, { clipNodeId: clip.id, contentIds: [clipped.id] }).group;
+  doc.nodes.set(text.id, { ...text, transform: [2, 0, 0, 2, 0, 0] });
+  const svg = toSvg(doc);
+  const [fill, stroke] = [...svg.matchAll(/<g zibel:paint="true"[^>]*>(.*?)<\/g><\/g>?/g)].map(
+    (m) => m[0],
+  );
+  // One copy per leaf, the text in its own transform with no id and no range fill.
+  expect(fill).toMatch(/^<g [^>]*fill="#00FF00"><text [^>]*transform="matrix\(2 0 0 2 0 0\)"/);
+  expect(fill).not.toContain("#0000FF");
+  expect(fill).not.toContain(`z-${text.id}`);
+  expect(fill).toContain(
+    `<g clip-path="url(#clip-z-${mask.id})"><path d="M 20 0 L 30 0 L 30 10 L 20 10 Z"/></g>`,
+  );
+  expect(svg).toContain(`<clipPath id="clip-z-${mask.id}"`);
+  // The text's scale would double the Stroke, so its copy halves the width.
+  expect(stroke).toMatch(/<text [^>]*transform="matrix\(2 0 0 2 0 0\)" stroke-width="2"/);
+});

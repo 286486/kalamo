@@ -229,7 +229,7 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 
 **F-DOC-04 样式模型**（P0）
 - 每个可绘制节点有 `appearance`：`fills[]`、`strokes[]`、`effects[]`，**数组即外观栈**（顺序 = 绘制顺序）。MVP 的 UI 默认只显示 1 fill + 1 stroke，但模型从一开始支持多重。
-- Layer 与 Group 也可有 `appearance`，另加 `contents`（整数，0 至 fills + strokes 数）：它描画每个可见后代 Live Shape 与 Path 的轮廓，每层描画依叠放顺序覆盖全部后代后才画下一层；前 `contents` 层画在子节点之下，其余在上。缺省即空（ADR-0043）。
+- Layer 与 Group 也可有 `appearance`，另加 `contents`（整数，0 至 fills + strokes 数）：它描画每个可见后代 Live Shape 与 Path 的轮廓及文字的字形（内层 Clipping Mask 中的后代只画在其 Clipping Path 内），每层描画依叠放顺序覆盖全部后代后才画下一层；前 `contents` 层画在子节点之下，其余在上。缺省即空（ADR-0043）。
 - `Fill`：`type` solid / gradient / pattern，`color` 或内联的 `gradient`（不引用 Asset，ADR-0026）、`opacity`、`blendMode`。
 - `Stroke`：`type` solid / gradient，`color` 或内联的 `gradient`（描边内渐变）、`width`、`cap`（butt / round / square）、`join`（miter / round / bevel）、`miterLimit`（1–500）、`dash[]`、`dashOffset`、`align`（center / inside / outside）、`arrowStart / arrowEnd`（样式、缩放、对齐）、`widthProfile`（可变宽度点列，P1）、`brushId`（P1）。
 - `Gradient`：`type` linear / radial / freeform（P2），`stops[]`（`offset` 0–1、`color` 含 alpha；`midpoint` 随 Gradient 面板加入）；线性为 `start` / `end`，径向为 `center`、`radius`、`aspectRatio`、`angle`、`focus`，都在 Node 自身坐标中，随 Node 的 `transform` 移动（ADR-0026）。
@@ -982,7 +982,7 @@ zibel/
 | 45 | 多文档标签页，删除替换（2026-09-26） | 三方合并的替换（`doc_replace`）复杂度过高，删除：编辑过的文件经打开成为新 Document，在新标签页中显示；一个标签页就是一个 Document（不设 Sheet 容器）；图稿经系统剪贴板以 Node 范围的 Inkscape 方言 SVG 剪切 / 复制 / 粘贴，Zibel 的拷贝粘贴时不包 Group；30 天 Delta Log 与 `zibel:doc` / `zibel:rev` 一并删除 | ADR-0030、#68、#69、#70 |
 | 46 | 菜单栏（2026-09-27） | 顶部 Illustrator 式菜单栏，在文档标签页之上；菜单项是一张数据表，菜单与快捷键都从中读取；只列已实现的项；浏览器保留快捷键不标；原生 `popover` 实现，不引入菜单库 | ADR-0031、F-VIEW-10 |
 | 47 | 链接图像（2026-09-27） | Image 可链接：可选 `file` 是 SVG 所写的路径或 URL（非 data URL，至多 2048 字符），`embedded` 由 `file` 缺省派生；`src` 变为可选，链接 Image 无 `src` 即缺失链接；`export` SVG 写 `xlink:href="<file>"`，有像素时加 `zibel:src`，从不写像素；`render` 与 PNG 画存下的像素，缺失链接画成灰色细线框加两条对角线；`.zibel.json` 的 `version` 仍为 1；导入链接的 `<image>` 得链接 Image，同一 Document 内粘贴经 `zibel:src` 保留像素，别的 Document 中为缺失链接，警告 `IMAGE_LINK_MISSING` 取代 `LINKED_IMAGE_DROPPED` | ADR-0042、#97、#98、#99 |
-| 48 | 容器外观（2026-09-27） | Layer 与 Group 的 `appearance {fills, strokes, contents}` 按 Illustrator 语义描画后代的轮廓，`contents` 定 Contents 在栈中的位置；缺省为空，`version` 仍为 1；`visibleBounds` 随容器描边增长，`geometricBounds` 不变；`node_transform` 按 √\|det\| 缩放容器描边宽度；SVG 中每层描画是锁定的 `<g zibel:paint>`，内含每个后代轮廓的副本；新错误码 `INVALID_INPUT` | ADR-0043、#17、#103 |
+| 48 | 容器外观（2026-09-27） | Layer 与 Group 的 `appearance {fills, strokes, contents}` 按 Illustrator 语义描画后代的轮廓，`contents` 定 Contents 在栈中的位置；缺省为空，`version` 仍为 1；`visibleBounds` 随容器描边增长，`geometricBounds` 不变；`node_transform` 按 √\|det\| 缩放容器描边宽度；SVG 中每层描画是锁定的 `<g zibel:paint>`，内含每个后代轮廓的副本；新错误码 `INVALID_INPUT` | ADR-0043、#17、#103、#106 |
 
 **剩余开放问题**
 

@@ -381,6 +381,102 @@ describe("container Appearance (ADR-0043)", () => {
     ]);
   });
 
+  it("paints a text child's glyphs in the container's colour, not its range fills, at its scale", () => {
+    const text = {
+      type: "text",
+      name: "t",
+      x: 10,
+      y: 50,
+      content: "Hi",
+      ranges: [{ start: 0, end: 1, fill: "#00FF00" }],
+      appearance: { fills: [{ color: "#AAAAAA" }], strokes: [] },
+    };
+    const log = drawn([group({ fills: ["#CCCCCC"], strokes: ["#DDDDDD"] }, [text])], {
+      t: { transform: [2, 0, 0, 2, 0, 0] },
+    });
+    const from = log.indexOf("fillStyle=#CCCCCC");
+    expect(log.slice(from).filter((l) => !/^(save|restore)$/.test(l))).toEqual([
+      "fillStyle=#CCCCCC",
+      "transform 2 0 0 2 0 0",
+      'font=12px "Source Sans 3"',
+      "fontKerning=none",
+      "fillText H 10 50",
+      expect.stringMatching(/^fillText i /),
+      "strokeStyle=#DDDDDD",
+      "lineWidth=4",
+      "lineCap=butt",
+      "lineJoin=miter",
+      "miterLimit=10",
+      "setLineDash ",
+      "transform 2 0 0 2 0 0",
+      'font=12px "Source Sans 3"',
+      "fontKerning=none",
+      "strokeStyle=#DDDDDD",
+      "lineWidth=2",
+      "lineCap=butt",
+      "lineJoin=miter",
+      "miterLimit=10",
+      "setLineDash ",
+      expect.stringMatching(/^strokeText H /),
+      expect.stringMatching(/^strokeText i /),
+    ]);
+  });
+
+  /** A Group with a Stroke over a rect and a Clipping Mask of a rect clipped by a rect at x 25. */
+  const masked = (outer: "rect" | "mask") => {
+    const { doc, defaultLayerId: parentId } = newDoc();
+    const [g, , clipped, clip] = createNodes(doc, [
+      {
+        ...group({ strokes: ["#DDDDDD"] }, [rect(0), rect(20), { ...rect(25), name: "clip" }]),
+        parentId,
+      } as never,
+    ]).nodes as Node[];
+    if (!g || !clipped || !clip) throw new Error("setup");
+    const mask = makeMask(doc, { clipNodeId: clip.id, contentIds: [clipped.id] }).group;
+    if (outer === "mask") {
+      Object.assign(mask, { appearance: g.type === "group" && g.appearance });
+      Object.assign(g, { appearance: undefined });
+    }
+    const { ctx, log, layer } = recorder();
+    drawDocument(ctx, doc, layer);
+    return log;
+  };
+
+  it("paints a leaf of an inner Clipping Mask inside that mask's clip, and only that leaf", () => {
+    const log = masked("rect");
+    const from = log.indexOf("strokeStyle=#DDDDDD");
+    const ops = log.slice(from).filter((l) => /^(save|restore|clip|moveTo|stroke$)/.test(l));
+    expect(ops).toEqual([
+      "save",
+      "moveTo 0 0",
+      "stroke",
+      "restore",
+      "save",
+      "moveTo 25 0",
+      "clip nonzero",
+      "moveTo 20 0",
+      "stroke",
+      "restore",
+      // The Group's and the Layer's own entries.
+      "restore",
+      "restore",
+    ]);
+  });
+
+  it("clips a Clipping Mask's own Appearance by its Clipping Path", () => {
+    const log = masked("mask");
+    const clipAt = log.indexOf("clip nonzero");
+    const strokeAt = log.indexOf("strokeStyle=#DDDDDD");
+    expect(clipAt).toBeGreaterThan(-1);
+    expect(log.slice(clipAt - 5, clipAt)).toContain("moveTo 25 0");
+    // Drawn after the clip in the same save, painting the clipped leaf with no inner clip of its own.
+    expect(strokeAt).toBeGreaterThan(clipAt);
+    expect(log.slice(strokeAt).filter((l) => /^(clip|moveTo|stroke$)/.test(l))).toEqual([
+      "moveTo 20 0",
+      "stroke",
+    ]);
+  });
+
   it("paints a translucent Group's Appearance inside its layer", () => {
     const log = drawn([{ ...group({ strokes: ["#DDDDDD"] }, [rect(0, "#AAAAAA")]), name: "g" }], {
       g: { opacity: 0.5 },

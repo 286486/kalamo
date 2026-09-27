@@ -94,18 +94,27 @@ export function hitTest(
         const clip = clippingPath(doc, n);
         if (clip && !ctx.isPointInPath(outline(doc, clip), x, y, ruleOf(clip))) continue;
         // Its Appearance hits as the leaf it paints, in draw order around the children
-        // (ADR-0043); a leaf locked below it lets the click through.
+        // (ADR-0043); a leaf locked below it, or a point outside the leaf's inner Clipping Masks,
+        // lets the click through.
         const { fills, strokes, contents } = containerAppearance(n);
         const leaves =
           fills.length + strokes.length > 0
             ? paintedLeaves(doc, n)
                 .filter((l) => !lockedIn(doc, l.node))
+                .filter((l) =>
+                  l.clips.every((c) =>
+                    ctx.isPointInPath(new Path2D(formatPath(c.segments)), x, y, c.fillRule),
+                  ),
+                )
                 .map((l) => ({ ...l, path: new Path2D(formatPath(l.segments)) }))
             : [];
         type Leaf = (typeof leaves)[number];
+        // A text's paint hits anywhere in its frame, as the text itself does.
+        const inside = (l: Leaf) => ctx.isPointInPath(l.path, x, y, l.fillRule);
         const paints = [
-          ...fills.map(() => (l: Leaf) => ctx.isPointInPath(l.path, x, y, l.fillRule)),
+          ...fills.map(() => inside),
           ...strokes.map((s) => (l: Leaf) => {
+            if (l.node.type === "text") return inside(l);
             ctx.lineWidth = Math.max(s.width, tolerance);
             return ctx.isPointInStroke(l.path, x, y);
           }),
