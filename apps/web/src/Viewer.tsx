@@ -181,7 +181,13 @@ export function Viewer({ docId }: { docId: string }) {
       ctx.strokeRect(frame.x, frame.y, frame.width, frame.height);
     }
     images.want(shown);
-    drawDocument(ctx, shown, images.get);
+    // Fonts load for the document, so layers are DOM canvases too.
+    const layer = () => {
+      const el = document.createElement("canvas");
+      [el.width, el.height] = [ctx.canvas.width, ctx.canvas.height];
+      return { ctx: el.getContext("2d") as CanvasRenderingContext2D, image: el };
+    };
+    drawDocument(ctx, shown, layer, images.get);
   }, [doc, shown, docId, viewport, size, fontReady, images, imagesLoaded]);
 
   // The overlay redraws on its own canvas, without repainting the Document's Nodes.

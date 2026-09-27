@@ -5,11 +5,13 @@ import {
   createNodes,
   imageSource,
   makeMask,
+  type Node,
   parseDocument,
   pathOp,
 } from "@zibel/core";
 import { docRect, scopeRect, toSvg } from "@zibel/io";
 import { expect, it } from "vitest";
+import { COMPOSITING, near } from "../../../fixtures/compositing.ts";
 import fixture from "../../../fixtures/documents/inkscape.zibel.json?raw";
 import { RED_2x2_PNG } from "../../../fixtures/images.ts";
 import { svgToPixels, svgToPng } from "./png.ts";
@@ -535,4 +537,33 @@ it("draws a Group's Stroke above its children at contents 0 and behind them at 1
   // Outside both, the outer half of the Stroke shows either way.
   expect(await pixel(0, 8, 30)).toEqual(red);
   expect(await pixel(1, 8, 30)).toEqual(red);
+});
+
+it.each(COMPOSITING)("composes as one image: $name (ADR-0044)", async (c) => {
+  const { doc, defaultLayerId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 200, height: 100, background: "#FFFFFF" }],
+  });
+  createNodes(doc, c.nodes.map((n) => ({ ...n, parentId: defaultLayerId })) as never);
+  const named = (name: string) => [...doc.nodes.values()].find((n) => n.name === name) as Node;
+  const mask =
+    c.mask &&
+    makeMask(doc, {
+      clipNodeId: named(c.mask.clip).id,
+      contentIds: c.mask.content.map((k) => named(k).id),
+    }).group;
+  for (const [k, patch] of Object.entries(c.patches)) {
+    const node = k === "Layer" ? doc.nodes.get(defaultLayerId) : k === "mask" ? mask : named(k);
+    Object.assign(node as Node, patch);
+  }
+  const { pixels, width } = await svgToPixels(toSvg(doc, docRect(doc)), 1);
+  // Pixel [x, y] covers x..x+1, so a Document point reads its own pixel.
+  for (const { x, y, rgb } of c.probes) {
+    const i = (y * width + x) * 4;
+    expect([x, y, ...pixels.subarray(i, i + 3)]).toSatisfy(
+      ([, , ...got]: number[]) => near(got, rgb),
+      `${x}, ${y} near ${rgb.map(Math.round)}`,
+    );
+  }
 });
