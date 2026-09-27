@@ -1,6 +1,6 @@
-import { type Document, serializeDocument } from "@zibel/core";
+import { type Document, type PathOpInput, serializeDocument } from "@zibel/core";
 import { toSvg } from "@zibel/io/write";
-import { clearInputs, removeInputs } from "./direct.ts";
+import { clearInputs, inRange, removeAnchorInputs } from "./direct.ts";
 import { PLACEABLE, pasteClipboard, place } from "./place.ts";
 import {
   editable,
@@ -8,7 +8,7 @@ import {
   inverse,
   maskInput,
   objects,
-  paths,
+  pathTargets,
   releasable,
 } from "./selection.ts";
 import { type State, send, useStore } from "./store.ts";
@@ -73,13 +73,20 @@ const hasDoc = (s: State) => s.doc !== null;
 const hasView = (s: State) => s.viewport !== null;
 const hasSelection = (s: State) => s.selection.length > 0;
 
-/** An Object > Path item that runs `op` on the Selection's paths and Live Shapes. */
-const pathOp = (label: string, op: "reverse" | "add_anchors"): MenuItem => ({
+/** One `path_edit` per path and one `delete`, for edits on the selected Anchors, which they clear. */
+function sendAnchorEdits({ edits, deleteIds }: ReturnType<typeof clearInputs>) {
+  for (const input of edits) send({ type: "path_edit", input });
+  if (deleteIds.length > 0) send({ type: "delete", nodeIds: deleteIds });
+  useStore.setState({ anchors: [] });
+}
+
+/** An Object > Path item that runs `op` on the Selection's paths and Live Shapes (pathTargets). */
+const pathOp = (label: string, op: Exclude<PathOpInput["op"], "convert_to_path">): MenuItem => ({
   label,
-  enabled: ({ doc, selection }) => doc !== null && paths(doc, selection).length > 0,
+  enabled: ({ doc, selection }) => doc !== null && pathTargets(doc, selection).length > 0,
   run: () => {
     const { doc, selection } = useStore.getState();
-    const nodeIds = doc ? paths(doc, selection) : [];
+    const nodeIds = doc ? pathTargets(doc, selection) : [];
     if (nodeIds.length > 0) send({ type: "path_op", input: { nodeIds, op } });
   },
 });
@@ -209,10 +216,7 @@ export function documentMenus(tabs: { open: (file: File) => void; close: () => v
             if (anchors.length > 0) {
               // Selected Anchors go with their segments, opening the path (research §4), and
               // selected objects without a selected Anchor go whole: one command per path.
-              const { edits, deleteIds } = clearInputs(doc, selection, anchors);
-              for (const input of edits) send({ type: "path_edit", input });
-              if (deleteIds.length > 0) send({ type: "delete", nodeIds: deleteIds });
-              useStore.setState({ anchors: [] });
+              sendAnchorEdits(clearInputs(doc, selection, anchors));
               return;
             }
             // The answering tx prunes the Selection; a rejection keeps it for another press.
@@ -234,14 +238,10 @@ export function documentMenus(tabs: { open: (file: File) => void; close: () => v
             pathOp("Add Anchor Points", "add_anchors"),
             {
               label: "Remove Anchor Points",
-              enabled: ({ anchors }) => anchors.length > 0,
+              enabled: ({ doc, anchors }) => doc !== null && anchors.some((k) => inRange(doc, k)),
               run: () => {
                 const { doc, anchors } = useStore.getState();
-                if (!doc) return;
-                const { edits, deleteIds } = removeInputs(doc, anchors);
-                for (const input of edits) send({ type: "path_edit", input });
-                if (deleteIds.length > 0) send({ type: "delete", nodeIds: deleteIds });
-                useStore.setState({ anchors: [] });
+                if (doc) sendAnchorEdits(removeAnchorInputs(doc, anchors));
               },
             },
           ],

@@ -332,22 +332,32 @@ export function clearInputs(doc: Document, selection: string[], anchors: string[
 
 /**
  * Object > Path > Remove Anchor Points (research §5): a `remove_anchor` per selected Anchor, last
- * first so the indices ahead stay put, joining its neighbours; a path with every Anchor selected
- * goes. Keys out of range are ignored, as by Clear.
+ * first so the indices ahead stay put, joining its neighbours. A subpath left with one Anchor, a
+ * Stray Point, goes whole, and a path left with none is deleted. Keys out of range are ignored.
  */
-export function removeInputs(doc: Document, anchors: string[]) {
+export function removeAnchorInputs(doc: Document, anchors: string[]) {
   const edits: PathEditInput[] = [];
   const deleteIds: string[] = [];
   for (const [nodeId, refs] of byNode(anchors)) {
     const n = doc.nodes.get(nodeId);
     const live = refs.filter((r) => inRange(doc, anchorKey(nodeId, r.subpath, r.index)));
     if (!hasAnchors(n) || !editable(doc, n) || live.length === 0) continue;
-    if (allKeys(n).every((k) => anchors.includes(k))) {
+    const subpaths = localAnchors(n);
+    const gone = subpaths.map((s, k) => {
+      const picked = new Set(live.filter((r) => r.subpath === k).map((r) => r.index));
+      return s.anchors.length - picked.size < 2 ? new Set(s.anchors.keys()) : picked;
+    });
+    if (gone.every((picked, k) => picked.size === subpaths[k]?.anchors.length)) {
       deleteIds.push(nodeId);
       continue;
     }
-    live.sort((a, b) => b.subpath - a.subpath || b.index - a.index);
-    const ops = live.map(({ subpath, index }): PathOp => ({ op: "remove_anchor", subpath, index }));
+    const ops = gone
+      .flatMap((picked, subpath) =>
+        [...picked]
+          .sort((x, y) => x - y)
+          .map((index): PathOp => ({ op: "remove_anchor", subpath, index })),
+      )
+      .reverse();
     edits.push({ nodeId, ops });
   }
   return { edits, deleteIds };

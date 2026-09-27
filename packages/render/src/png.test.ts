@@ -464,7 +464,8 @@ it("paints Live Shapes the same after Convert to Path", async () => {
   const differ = before.pixels.filter((v, i) => Math.abs(v - (after.pixels[i] ?? 0)) > 2).length;
   expect(differ).toBeLessThanOrEqual(4);
   // Reverse Path Direction and Add Anchor Points keep the outline: the rasteriser's coverage of an
-  // edge pixel shifts with the segments' order and count, by at most 16 of 255 here.
+  // edge pixel shifts with the segments' order and count (16 of 255 here), where an outline moved
+  // by a tenth of a pixel shifts it by more than 24.
   pathOp(doc, { nodeIds: ids, op: "reverse" });
   pathOp(doc, { nodeIds: ids, op: "add_anchors" });
   const split = await svgToPixels(toSvg(doc, rect), 1);

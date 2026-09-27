@@ -430,11 +430,15 @@ function withAnchors(doc: Document, id: string, at: string): PathNode | LiveShap
   throw invalid(at, `A ${node.type} has no Anchors.`, "Name a path or a Live Shape.");
 }
 
+/** The paths and Live Shapes `nodeIds` names, each once. */
+function allWithAnchors(doc: Document, nodeIds: string[]): (PathNode | LiveShape)[] {
+  const nodes = nodeIds.map((id, i) => withAnchors(doc, id, `nodeIds[${i}]`));
+  return [...new Map(nodes.map((n) => [n.id, n])).values()];
+}
+
 /** `path_op convert_to_path`: converts each Live Shape and leaves a path as it is. */
 export function convertToPath(doc: Document, nodeIds: string[]): { updated: PathNode[] } {
-  const nodes = nodeIds.map((id, i) => withAnchors(doc, id, `nodeIds[${i}]`));
-  const unique = [...new Map(nodes.map((n) => [n.id, n])).values()];
-  const updated = unique.filter(isLiveShape).map(toPath);
+  const updated = allWithAnchors(doc, nodeIds).filter(isLiveShape).map(toPath);
   for (const node of updated) doc.nodes.set(node.id, node);
   return { updated };
 }
@@ -465,8 +469,7 @@ export function pathOp(
 ): { updated: PathNode[]; warnings: WriteReceipt["warnings"] } {
   const { nodeIds, op } = PathOpInput.parse(raw);
   if (op === "convert_to_path") return { ...convertToPath(doc, nodeIds), warnings: [] };
-  const nodes = nodeIds.map((id, i) => withAnchors(doc, id, `nodeIds[${i}]`));
-  const unique = [...new Map(nodes.map((n) => [n.id, n])).values()];
+  const unique = allWithAnchors(doc, nodeIds);
   const updated = unique.map((found) => {
     const node = isLiveShape(found) ? toPath(found) : found;
     const subpaths = toAnchors(parsePath(node.d, "d"));
