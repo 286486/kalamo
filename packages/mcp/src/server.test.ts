@@ -140,54 +140,55 @@ describe("write tools pass the write and its options apart", () => {
     });
   });
 
-  it("mask_make: kind defaults to clip; intent, txId and ifRev but no partial", async () => {
-    const { service, call } = await harness({ makeMask: async () => receipt });
-    const { partial: _, ...write } = { ...opts, partial: false };
-    await call("zibel_mask_make", { docId: "d", clipNodeId: "c", contentIds: ["a"], ...write });
-    expect(service.makeMask).toHaveBeenCalledWith(
-      "d",
-      { clipNodeId: "c", contentIds: ["a"], kind: "clip" },
-      write,
-    );
-  });
-
-  it("path_edit: the ops with their defaults; intent, txId and ifRev but no partial", async () => {
-    const out = { ...receipt, d: "M 0 0 L 5 5", subpaths: [] };
-    const { service, call } = await harness({ pathEdit: async () => out });
-    const { partial: _, ...write } = { ...opts, partial: false };
-    const ops = [{ op: "move_anchor", index: 1, to: [5, 5] }, { op: "reverse" }];
-    const result = await call("zibel_path_edit", { docId: "d", nodeId: "p", ops, ...write });
-    expect(service.pathEdit).toHaveBeenCalledWith(
-      "d",
-      {
-        nodeId: "p",
-        ops: [{ op: "move_anchor", subpath: 0, index: 1, to: [5, 5] }, { op: "reverse" }],
-      },
-      write,
-    );
-    expect(result.structuredContent).toEqual(out);
-  });
-
-  it("path_op: the operation arguments arrive as given, the write options apart", async () => {
-    const { service, call } = await harness({ pathOp: async () => receipt });
-    const { partial: _, ...write } = { ...opts, partial: false };
-    const input = { nodeIds: ["r"], op: "simplify", tolerance: 0.5 };
-    await call("zibel_path_op", { docId: "d", ...input, ...write });
-    expect(service.pathOp.mock.calls[0]).toStrictEqual(["d", PathOpInput.parse(input), write]);
-  });
-
-  it("path_edit: write options not given are absent, not undefined", async () => {
-    const out = { ...receipt, d: "M 0 0", subpaths: [] };
-    const { service, call } = await harness({ pathEdit: async () => out });
-    await call("zibel_path_edit", { docId: "d", nodeId: "p", ops: [{ op: "reverse" }] });
-    expect(service.pathEdit.mock.calls[0]?.[2]).toStrictEqual({});
-  });
-
-  it.each([
+  const writeOptions = [
     ["all", opts],
     ["some", { intent: opts.intent }],
     ["no", {}],
-  ])(
+  ] as const;
+
+  it.each(writeOptions)(
+    "mask_make: kind defaults to clip, with %s write options as given",
+    async (_, write) => {
+      const { service, call } = await harness({ makeMask: async () => receipt });
+      await call("zibel_mask_make", { docId: "d", clipNodeId: "c", contentIds: ["a"], ...write });
+      expect(service.makeMask.mock.calls[0]).toStrictEqual([
+        "d",
+        { clipNodeId: "c", contentIds: ["a"], kind: "clip" },
+        write,
+      ]);
+    },
+  );
+
+  it.each(writeOptions)(
+    "path_edit: the ops with their defaults, with %s write options as given",
+    async (_, write) => {
+      const out = { ...receipt, d: "M 0 0 L 5 5", subpaths: [] };
+      const { service, call } = await harness({ pathEdit: async () => out });
+      const ops = [{ op: "move_anchor", index: 1, to: [5, 5] }, { op: "reverse" }];
+      const result = await call("zibel_path_edit", { docId: "d", nodeId: "p", ops, ...write });
+      expect(service.pathEdit.mock.calls[0]).toStrictEqual([
+        "d",
+        {
+          nodeId: "p",
+          ops: [{ op: "move_anchor", subpath: 0, index: 1, to: [5, 5] }, { op: "reverse" }],
+        },
+        write,
+      ]);
+      expect(result.structuredContent).toEqual(out);
+    },
+  );
+
+  it.each(writeOptions)(
+    "path_op: the operation arguments arrive as given, with %s write options apart",
+    async (_, write) => {
+      const { service, call } = await harness({ pathOp: async () => receipt });
+      const input = { nodeIds: ["r"], op: "simplify", tolerance: 0.5 };
+      await call("zibel_path_op", { docId: "d", ...input, ...write });
+      expect(service.pathOp.mock.calls[0]).toStrictEqual(["d", PathOpInput.parse(input), write]);
+    },
+  );
+
+  it.each(writeOptions)(
     "freehand_stroke: the fitted Ink as one path through createNodes, with %s write options as given",
     async (_, write) => {
       const { service, call } = await harness({ createNodes: async () => receipt });
@@ -248,9 +249,8 @@ describe("write tools pass the write and its options apart", () => {
 
   it("mask_release", async () => {
     const { service, call } = await harness({ releaseMask: async () => receipt });
-    const { partial: _, ...write } = { ...opts, partial: false };
-    await call("zibel_mask_release", { docId: "d", nodeIds: ["g"], ...write });
-    expect(service.releaseMask).toHaveBeenCalledWith("d", ["g"], write);
+    await call("zibel_mask_release", { docId: "d", nodeIds: ["g"], ...opts });
+    expect(service.releaseMask).toHaveBeenCalledWith("d", ["g"], opts);
   });
 
   it("svg_import: fit defaults to false; no name or partial", async () => {
