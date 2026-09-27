@@ -25,7 +25,7 @@ import {
 import { ZibelError } from "./errors.ts";
 import { simplifySubpath } from "./fit.ts";
 import { applyTo, IDENTITY, invert, multiply, scaleOf, transformSegments } from "./matrix.ts";
-import { formatPath, parsePath, type Segment } from "./path.ts";
+import { formatPath, parsePath, pathBounds, type Segment } from "./path.ts";
 import type {
   Document,
   Fill,
@@ -43,8 +43,8 @@ type Point = [number, number];
 /**
  * `path_op` (REQUIREMENTS §6.4) so far: convert_to_path (Object > Shape > Expand Shape), reverse
  * (Reverse Path Direction), add_anchors (Add Anchor Points), join (Join), average (Average),
- * simplify (Simplify), outline_stroke (Outline Stroke), offset (Offset Path), split_into_grid
- * (Split Into Grid) and clean_up (Clean Up).
+ * simplify (Simplify), outline_stroke (Outline Stroke), offset (Offset Path), divide_below (Divide
+ * Objects Below), split_into_grid (Split Into Grid) and clean_up (Clean Up).
  */
 export const PathOpInput = z.object({
   nodeIds: z
@@ -61,6 +61,7 @@ export const PathOpInput = z.object({
     "simplify",
     "outline_stroke",
     "offset",
+    "divide_below",
     "split_into_grid",
     "clean_up",
   ]),
@@ -165,6 +166,7 @@ export const PATH_OP_TEXT: Record<PathOpInput["op"], { menu: string; summary: st
   simplify: { menu: "Simplify…", summary: "Simplify" },
   outline_stroke: { menu: "Outline Stroke", summary: "Outline Stroke" },
   offset: { menu: "Offset Path…", summary: "Offset Path" },
+  divide_below: { menu: "Divide Objects Below", summary: "Divide Objects Below" },
   split_into_grid: { menu: "Split Into Grid…", summary: "Split Into Grid" },
   clean_up: { menu: "Clean Up…", summary: "Clean Up" },
 };
@@ -179,6 +181,9 @@ export type OffsetStyle = Pick<Stroke, "join" | "miterLimit"> &
     distance: number;
   };
 
+/** A fill in document coordinates. */
+export type Filled = { segments: Segment[]; fillRule: PathNode["fillRule"] };
+
 /**
  * The path geometry core needs but does not compute: Skia's, which `@zibel/geometry` loads
  * (ADR-0034).
@@ -191,6 +196,8 @@ export interface Geometry {
   outlineStroke(segments: Segment[], stroke: StrokeStyle): Segment[];
   /** The fill of `segments` offset by `style.distance`, no segments when it shrinks away. */
   offsetPath(segments: Segment[], style: OffsetStyle): Segment[];
+  /** `target`'s fill inside `cutter`'s and outside it, each no segments when empty. */
+  divide(target: Filled, cutter: Filled): { inside: Segment[]; outside: Segment[] };
 }
 
 const invalid = (path: string, message: string, hint: string) =>
@@ -630,6 +637,93 @@ function splitIntoGrid(doc: Document, input: z.output<typeof PathOpInput>): Path
   return { created, updated: [], deletedIds, warnings: [] };
 }
 
+/** Visible and unlocked, as are all its ancestors. */
+const editable = (doc: Document, n: Node | undefined): boolean =>
+  !n ||
+  (n.visible && !n.locked && editable(doc, n.parentId ? doc.nodes.get(n.parentId) : undefined));
+
+const overlap = (a: Rect | null, b: Rect | null) =>
+  !!a &&
+  !!b &&
+  a.x <= b.x + b.width &&
+  b.x <= a.x + a.width &&
+  a.y <= b.y + b.height &&
+  b.y <= a.y + a.height;
+
+/**
+ * `path_op divide_below` (research §5): the one path or Live Shape named cuts each filled path and
+ * Live Shape below it in paint order that it overlaps, visible and unlocked, into the fill inside
+ * it and the fill outside, and is deleted. The outside keeps the Node's id, the inside is a new path
+ * directly above it, both with its appearance and fillRule evenodd. A Clipping Path is neither cut
+ * nor a cutter.
+ */
+function divideBelow(doc: Document, nodeIds: string[], geometry: Geometry): PathOpResult {
+  const [cutter, ...more] = allWithAnchors(doc, nodeIds);
+  if (!cutter || more.length > 0) {
+    throw invalid("nodeIds", "Divide Objects Below takes one cutter.", "Name one path or shape.");
+  }
+  if (cutter.clipping) {
+    throw invalid("nodeIds", "A Clipping Path cannot cut.", "Name a path or shape that paints.");
+  }
+  if (!editable(doc, cutter)) {
+    throw invalid("nodeIds", "The cutter is hidden or locked.", "Show and unlock it first.");
+  }
+  const fillOf = (n: WithAnchors): Filled => {
+    const { path } = anchorsIn(n);
+    const segments = transformSegments(parsePath(path.d, "d"), worldTransform(doc, n));
+    return { segments, fillRule: path.fillRule };
+  };
+  const knife = fillOf(cutter);
+  const box = pathBounds(knife.segments);
+  const order = paintOrder(doc);
+  const top = order.get(cutter.id) ?? 0;
+  const targets = [...doc.nodes.values()].filter(
+    (n): n is WithAnchors =>
+      (n.type === "path" || isLiveShape(n)) &&
+      (order.get(n.id) ?? 0) < top &&
+      n.appearance.fills.length > 0 &&
+      !n.clipping &&
+      editable(doc, n) &&
+      overlap(bounds(doc, n), box),
+  );
+  const created: PathNode[] = [];
+  const updated: PathNode[] = [];
+  const warnings: WriteReceipt["warnings"] = [];
+  for (const found of targets) {
+    const { inside, outside } = geometry.divide(fillOf(found), knife);
+    if (inside.length === 0) continue;
+    const back = invert(worldTransform(doc, found));
+    const piece = (d: Segment[]): PathNode => ({
+      ...anchorsIn(found).path,
+      d: formatPath(transformSegments(d, back)),
+      fillRule: "evenodd",
+    });
+    const above = childrenOf(doc, found.parentId).find((n) => n.index > found.index);
+    const inner = {
+      ...piece(inside),
+      id: newId(),
+      index: generateKeyBetween(found.index, above?.index ?? null),
+    };
+    // Wholly inside, the Node is its inside piece.
+    if (outside.length === 0) updated.push({ ...inner, id: found.id, index: found.index });
+    else {
+      updated.push(piece(outside));
+      created.push(inner);
+    }
+    if (isLiveShape(found)) warnings.push(convertedWarning(found));
+  }
+  if (updated.length === 0) {
+    throw invalid(
+      "nodeIds",
+      "The cutter overlaps no filled path or shape below it.",
+      "Place it over filled, visible, unlocked paths or shapes.",
+    );
+  }
+  doc.nodes.delete(cutter.id);
+  for (const n of [...updated, ...created]) doc.nodes.set(n.id, n);
+  return { created, updated, deletedIds: [cutter.id], warnings };
+}
+
 /**
  * `path_op clean_up` (research §5), over the whole Document: removes Stray Points, a path left
  * with none being deleted; Live Shapes and paths with no Fill and no Stroke; and texts of only
@@ -637,12 +731,11 @@ function splitIntoGrid(doc: Document, input: z.output<typeof PathOpInput>): Path
  * locked Nodes, and Clipping Paths, are left as they are.
  */
 function cleanUp(doc: Document, input: z.output<typeof PathOpInput>): PathOpResult {
-  const editable = (n: Node | undefined): boolean =>
-    !n || (n.visible && !n.locked && editable(n.parentId ? doc.nodes.get(n.parentId) : undefined));
   const deletedIds: string[] = [];
   const updated: PathNode[] = [];
   for (const n of doc.nodes.values()) {
-    if (n.type === "layer" || n.type === "group" || n.type === "image" || !editable(n)) continue;
+    if (n.type === "layer" || n.type === "group" || n.type === "image" || !editable(doc, n))
+      continue;
     if (n.type === "text") {
       if (input.emptyText && n.content.trim() === "") deletedIds.push(n.id);
       continue;
@@ -670,8 +763,8 @@ function cleanUp(doc: Document, input: z.output<typeof PathOpInput>): PathOpResu
 
 /**
  * `path_op` (REQUIREMENTS §6.4) on each path or Live Shape; every op but convert_to_path and
- * offset converts a Live Shape first (F-PATH-07), with a warning. outline_stroke and offset need
- * `geometry`.
+ * offset converts a Live Shape first (F-PATH-07), with a warning. outline_stroke, offset and
+ * divide_below need `geometry`.
  */
 export function pathOp(doc: Document, raw: PathOpInput, geometry?: Geometry): PathOpResult {
   const input = PathOpInput.parse(raw);
@@ -690,6 +783,10 @@ export function pathOp(doc: Document, raw: PathOpInput, geometry?: Geometry): Pa
   if (op === "offset") {
     if (!geometry) throw new Error("offset needs the path geometry (ADR-0034).");
     return offset(doc, input, geometry);
+  }
+  if (op === "divide_below") {
+    if (!geometry) throw new Error("divide_below needs the path geometry (ADR-0034).");
+    return divideBelow(doc, nodeIds, geometry);
   }
   if (op === "split_into_grid") return splitIntoGrid(doc, input);
   if (op === "join") return join(doc, input);

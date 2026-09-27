@@ -1,5 +1,5 @@
 /// <reference path="./pathkit.d.ts" />
-import type { Geometry, OffsetStyle, Segment, StrokeStyle } from "@zibel/core";
+import type { Filled, Geometry, OffsetStyle, Segment, StrokeStyle } from "@zibel/core";
 import { ZibelError } from "@zibel/core";
 import type { PathKit, SkPath } from "pathkit-wasm/bin/pathkit.js";
 
@@ -7,7 +7,27 @@ import type { PathKit, SkPath } from "pathkit-wasm/bin/pathkit.js";
 export const geometryOf = (pk: PathKit): Geometry => ({
   outlineStroke: (segments, stroke) => outlineStroke(pk, segments, stroke),
   offsetPath: (segments, style) => offsetPath(pk, segments, style),
+  divide: (target, cutter) => divide(pk, target, cutter),
 });
+
+/** Object > Path > Divide Objects Below: `target`'s fill inside `cutter`'s and outside it. */
+function divide(pk: PathKit, target: Filled, cutter: Filled) {
+  const [a, b] = [target, cutter].map(({ segments, fillRule }) => {
+    const path = skPath(pk, segments);
+    path.setFillType(fillRule === "evenodd" ? pk.FillType.EVENODD : pk.FillType.WINDING);
+    return path;
+  }) as [SkPath, SkPath];
+  const inside = a.copy();
+  const owned: SkPath[] = [a, b, inside];
+  try {
+    if (!inside.op(b, pk.PathOp.INTERSECT) || !a.op(b, pk.PathOp.DIFFERENCE)) {
+      throw failed("divide");
+    }
+    return { inside: fromCmds(inside.toCmds(), pk), outside: fromCmds(a.toCmds(), pk) };
+  } finally {
+    for (const p of owned) p.delete();
+  }
+}
 
 /**
  * Object > Path > Offset Path: the fill grown or shrunk by `distance`, an open subpath filled as if
