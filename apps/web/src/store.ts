@@ -18,6 +18,8 @@ export interface State extends ViewState {
   /** Window > Layers. */
   layersShown: boolean;
   tool: Tool;
+  /** Direct Selection's selected Anchors (direct.ts's keys): UI state, like the Selection. */
+  anchors: string[];
   /** The Fill and Stroke boxes, kept across Document Tabs as in Illustrator. */
   fillStroke: FillStroke;
 }
@@ -36,6 +38,8 @@ export const useStore = create<State>(() => ({
   selection: [],
   drag: null,
   pen: null,
+  edit: null,
+  anchors: [],
   notice: null,
   size: { width: 0, height: 0 },
   images: null,
@@ -70,6 +74,8 @@ export function connect(docId: string): () => void {
     live: false,
     drag: null,
     pen: null,
+    edit: null,
+    anchors: [],
     notice: null,
     viewport: null,
     selection: [],

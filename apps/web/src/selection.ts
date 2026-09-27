@@ -71,7 +71,8 @@ export function editable(doc: Document, node: Node | undefined): boolean {
 
 /**
  * The object whose topmost selectable leaf is painted at (x, y) in document coordinates, within
- * `tolerance` pt of its outline, or null. Hidden and locked Nodes let the click through.
+ * `tolerance` pt of its outline, or null; with `leaf`, that leaf itself, as Direct Selection
+ * picks. Hidden and locked Nodes let the click through.
  */
 export function hitTest(
   ctx: CanvasRenderingContext2D,
@@ -79,6 +80,7 @@ export function hitTest(
   x: number,
   y: number,
   tolerance: number,
+  leaf = false,
 ): string | null {
   let hit: Node | null = null;
   const walk = (parentId: string | null) => {
@@ -98,7 +100,7 @@ export function hitTest(
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   walk(null);
   ctx.restore();
-  return hit && (objectOf(doc, hit)?.id ?? null);
+  return hit && (leaf ? (hit as Node).id : (objectOf(doc, hit)?.id ?? null));
 }
 
 /**

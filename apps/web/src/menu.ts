@@ -1,5 +1,6 @@
 import { type Document, serializeDocument } from "@zibel/core";
 import { toSvg } from "@zibel/io/write";
+import { clearAnchors } from "./direct.ts";
 import { PLACEABLE, pasteClipboard, place } from "./place.ts";
 import { editable, expandable, inverse, maskInput, objects, releasable } from "./selection.ts";
 import { type State, send, useStore } from "./store.ts";
@@ -185,7 +186,8 @@ export function documentMenus(tabs: { open: (file: File) => void; close: () => v
             doc !== null && selection.some((id) => editable(doc, doc.nodes.get(id))),
           run: () => {
             const { doc, selection } = useStore.getState();
-            if (!doc) return;
+            // Selected Anchors go with their segments, opening the path (research §4).
+            if (!doc || clearAnchors()) return;
             // The answering tx prunes the Selection; a rejection keeps it for another press.
             const nodeIds = selection.filter((id) => editable(doc, doc.nodes.get(id)));
             if (nodeIds.length > 0) send({ type: "delete", nodeIds });

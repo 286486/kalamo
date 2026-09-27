@@ -1,4 +1,4 @@
-import { type Document, transformNodes } from "@zibel/core";
+import { type Document, editPath, type PathEditInput, transformNodes } from "@zibel/core";
 import { applyBroadcast, type ServerMessage } from "@zibel/sync";
 
 /** The Selection being dragged by (dx, dy) pt. `commandId` is set once its move has been sent. */
@@ -19,6 +19,15 @@ export interface PenPath {
   commandId: string | null;
 }
 
+/**
+ * A Direct Selection drag: one `path_edit` per path. `commandIds` is set once they are sent, and
+ * each answer takes its id out; the preview lasts until the last one.
+ */
+export interface PathDrag {
+  inputs: PathEditInput[];
+  commandIds: string[] | null;
+}
+
 export interface ViewState {
   doc: Document | null;
   /** UI state only, never sent as a Document property (CONTEXT.md). */
@@ -26,6 +35,7 @@ export interface ViewState {
   /** Drawn until the answer to its command arrives, so a committed move does not flicker. */
   drag: Drag | null;
   pen: PenPath | null;
+  edit: PathDrag | null;
   /** Why the last command was rejected. */
   notice: string | null;
 }
@@ -44,6 +54,7 @@ export function receive(
     return {
       ...(s.drag?.commandId === msg.id && { drag: null }),
       ...(s.pen?.commandId === msg.id && { pen: null }),
+      ...(s.edit?.commandIds?.includes(msg.id) && { edit: null }),
       notice: gone
         ? "Someone else deleted that object first; it stays deleted."
         : msg.error.message,
@@ -71,6 +82,8 @@ export function receive(
   const answered =
     msg.type === "document" || (!!msg.commandId && msg.commandId === s.drag?.commandId);
   const drawn = msg.type === "tx" && !!msg.commandId && msg.commandId === s.pen?.commandId;
+  const pending = s.edit?.commandIds ?? [];
+  const left = msg.type === "tx" ? pending.filter((id) => id !== msg.commandId) : [];
   const skipped = msg.type === "tx" ? (msg.skippedIds?.length ?? 0) : 0;
   // A selected Node that a browser's command moved into a new Group selects that Group, as Make
   // Clipping Mask does; an Agent's edit leaves the person's Selection alone.
@@ -85,6 +98,10 @@ export function receive(
     // The path the Pen drew becomes the Selection, as in Illustrator.
     selection: drawn ? [...made] : [...new Set(selection)],
     ...(answered && { drag: null }),
+    ...(s.edit &&
+      left.length < pending.length && {
+        edit: left.length > 0 ? { ...s.edit, commandIds: left } : null,
+      }),
     ...((drawn || (msg.type === "document" && s.pen?.commandId)) && { pen: null }),
     ...(skipped > 0 && { notice: `Skipped ${skipped} deleted object(s); they stay deleted.` }),
   };
@@ -98,5 +115,20 @@ export function preview(doc: Document, { nodeIds, dx, dy }: Drag): Document {
   const shown = { ...doc, nodes: new Map(doc.nodes) };
   const present = nodeIds.filter((id) => doc.nodes.has(id));
   if (present.length > 0) transformNodes(shown, { nodeIds: present, translate: { x: dx, y: dy } });
+  return shown;
+}
+
+/**
+ * `doc` with a Direct Selection drag applied by core. Its ops are absolute, so one already
+ * committed applies again unchanged; one core refuses, such as on a Node deleted meanwhile, is left
+ * out here and rejected by the DO.
+ */
+export function previewEdit(doc: Document, { inputs }: PathDrag): Document {
+  const shown = { ...doc, nodes: new Map(doc.nodes) };
+  for (const input of inputs) {
+    try {
+      editPath(shown, input);
+    } catch {}
+  }
   return shown;
 }

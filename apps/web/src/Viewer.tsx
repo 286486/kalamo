@@ -1,4 +1,4 @@
-import { bounds, type Rect } from "@zibel/core";
+import { bounds, formatPath, fromAnchors, type Rect } from "@zibel/core";
 import { toSvg } from "@zibel/io/write";
 import { drawDocument } from "@zibel/render/canvas";
 import blackUrl from "@zibel/render/fonts/SourceSans3-Black.ttf?url";
@@ -8,12 +8,24 @@ import boldItalicUrl from "@zibel/render/fonts/SourceSans3-BoldIt.ttf?url";
 import italicUrl from "@zibel/render/fonts/SourceSans3-It.ttf?url";
 import regularUrl from "@zibel/render/fonts/SourceSans3-Regular.ttf?url";
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  allKeys,
+  anchorKey,
+  anchorsOf,
+  hasAnchors,
+  marqueeAnchors,
+  moveAnchors,
+  moveHandle,
+  moveSegment,
+  parseKey,
+  pick,
+} from "./direct.ts";
 import { imageCache } from "./images.ts";
 import { Layers } from "./Layers.tsx";
 import { menuOpen } from "./MenuBar.tsx";
 import { keysOf } from "./menu.ts";
 import { pastedArt, place, placeable } from "./place.ts";
-import { preview } from "./receive.ts";
+import { preview, previewEdit } from "./receive.ts";
 import { combine, editable, hitTest, marquee } from "./selection.ts";
 import { connect, send, useStore } from "./store.ts";
 import { Tools } from "./Tools.tsx";
@@ -28,10 +40,17 @@ const SLOP = 3;
 
 type Point = { x: number; y: number };
 type Mods = { shift: boolean; alt: boolean };
-/** A press of the Selection tool: moving the Selection, or drawing a marquee. */
-type Gesture =
-  | { kind: "move"; start: Point; nodeIds: string[]; moved: boolean }
-  | { kind: "marquee"; start: Point; mods: Mods; moved: boolean };
+/**
+ * A press of the Selection tool: moving the Selection, or drawing a marquee. Direct Selection also
+ * drags Anchors, one Handle, or a segment grabbed at `t`.
+ */
+type Gesture = { start: Point; moved: boolean } & (
+  | { kind: "move"; nodeIds: string[] }
+  | { kind: "marquee"; mods: Mods }
+  | { kind: "anchors"; keys: string[] }
+  | { kind: "handle"; key: string; which: "handleIn" | "handleOut" }
+  | { kind: "segment"; nodeId: string; subpath: number; segment: number; t: number }
+);
 
 const rectOf = (a: Point, b: Point): Rect => ({
   x: Math.min(a.x, b.x),
@@ -65,8 +84,21 @@ const fontLoaded = Promise.allSettled(
 /** A live view of one Document: select, drag-move and delete its objects, and draw with the Pen. */
 export function Viewer({ docId }: { docId: string }) {
   const canvas = useRef<HTMLCanvasElement>(null);
-  const { doc, live, viewport, selection, drag, pen, notice, size, layersShown, tool, fillStroke } =
-    useStore();
+  const {
+    doc,
+    live,
+    viewport,
+    selection,
+    anchors,
+    drag,
+    edit,
+    pen,
+    notice,
+    size,
+    layersShown,
+    tool,
+    fillStroke,
+  } = useStore();
   /** Space held: drag pans. */
   const [hand, setHand] = useState(false);
   const [alt, setAlt] = useState(false);
@@ -156,13 +188,41 @@ export function Viewer({ docId }: { docId: string }) {
       ctx.strokeRect(frame.x, frame.y, frame.width, frame.height);
     }
     // Hit tests use `doc`; only the drawing shows the drag.
-    const shown = drag ? preview(doc, drag) : doc;
+    const moved = drag ? preview(doc, drag) : doc;
+    const shown = edit ? previewEdit(moved, edit) : moved;
     images.want(shown);
     drawDocument(ctx, shown, images.get);
     ctx.lineWidth = 1 / scale;
     ctx.strokeStyle = SELECTION;
+    const r = 2.5 / scale;
     for (const id of selection) {
       const node = shown.nodes.get(id);
+      if (tool === "direct" && hasAnchors(node)) {
+        // Its outline and Anchors, hollow unless selected; a selected Anchor shows its Handles.
+        const subpaths = anchorsOf(shown, node);
+        ctx.stroke(new Path2D(formatPath(fromAnchors(subpaths))));
+        for (const [k, s] of subpaths.entries()) {
+          for (const [i, a] of s.anchors.entries()) {
+            const [ax, ay] = a.anchor;
+            const on = anchors.includes(anchorKey(id, k, i));
+            for (const h of on ? [a.handleIn, a.handleOut] : []) {
+              if (!h) continue;
+              ctx.beginPath();
+              ctx.moveTo(ax, ay);
+              ctx.lineTo(h[0], h[1]);
+              ctx.stroke();
+              ctx.beginPath();
+              ctx.arc(h[0], h[1], r, 0, 2 * Math.PI);
+              ctx.fillStyle = SELECTION;
+              ctx.fill();
+            }
+            ctx.fillStyle = on ? SELECTION : "#FFFFFF";
+            ctx.fillRect(ax - r, ay - r, 2 * r, 2 * r);
+            ctx.strokeRect(ax - r, ay - r, 2 * r, 2 * r);
+          }
+        }
+        continue;
+      }
       const b = node && bounds(shown, node);
       if (b) ctx.strokeRect(b.x, b.y, b.width, b.height);
     }
@@ -183,7 +243,6 @@ export function Viewer({ docId }: { docId: string }) {
       ctx.lineWidth = 1 / scale;
       ctx.strokeStyle = SELECTION;
       ctx.stroke(path);
-      const r = 3 / scale;
       for (const [px, py] of pen.points) ctx.strokeRect(px - r, py - r, 2 * r, 2 * r);
     }
     if (marqueeRect) {
@@ -198,7 +257,10 @@ export function Viewer({ docId }: { docId: string }) {
     viewport,
     size,
     selection,
+    anchors,
+    tool,
     drag,
+    edit,
     pen,
     pointer,
     fillStroke,
@@ -347,8 +409,9 @@ export function Viewer({ docId }: { docId: string }) {
     if (!ctx) return;
     const start = docPoint(e, v);
     const mods = { shift: e.shiftKey, alt: e.altKey };
-    const hit = hitTest(ctx, doc, start.x, start.y, SLOP / v.scale);
     useStore.setState({ notice: null });
+    if (tool === "direct") return directDown(e, ctx, start, mods);
+    const hit = hitTest(ctx, doc, start.x, start.y, SLOP / v.scale);
     if (hit && mods.shift) {
       useStore.setState({ selection: combine(selection, [hit], mods) });
       return;
@@ -362,6 +425,49 @@ export function Viewer({ docId }: { docId: string }) {
       gesture.current = { kind: "move", start, nodeIds, moved: false };
     } else {
       gesture.current = { kind: "marquee", start, mods, moved: false };
+    }
+  };
+
+  /**
+   * A Direct Selection press (research §4): a selected Anchor's Handle, an Anchor, a segment, inside
+   * a filled path (all its Anchors), or a marquee. Shift adds or removes, without a drag.
+   */
+  const directDown = (
+    e: React.PointerEvent<HTMLCanvasElement>,
+    ctx: CanvasRenderingContext2D,
+    start: Point,
+    mods: Mods,
+  ) => {
+    const { doc, viewport: v, selection, anchors } = useStore.getState();
+    if (!doc || !v) return;
+    const tolerance = SLOP / v.scale;
+    const target = pick(doc, selection, anchors, start.x, start.y, tolerance);
+    const leaf = target ? null : hitTest(ctx, doc, start.x, start.y, tolerance, true);
+    const nodeId =
+      target?.kind === "segment" ? target.nodeId : target ? parseKey(target.key).nodeId : leaf;
+    const node = doc.nodes.get(nodeId ?? "");
+    const keys =
+      target?.kind === "anchor" ? [target.key] : !target && hasAnchors(node) ? allKeys(node) : [];
+    if (nodeId && mods.shift) {
+      const shown = selection.includes(nodeId) ? selection : [...selection, nodeId];
+      useStore.setState({ selection: shown, anchors: combine(anchors, keys, mods) });
+      return;
+    }
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const g = { start, moved: false };
+    if (target?.kind === "handle") {
+      gesture.current = { ...g, kind: "handle", key: target.key, which: target.which };
+    } else if (nodeId) {
+      // Pressing a selected Anchor keeps the Anchor selection, so all of it moves.
+      const kept =
+        keys.length === 1 && anchors.includes(target?.kind === "anchor" ? target.key : "");
+      if (!kept) useStore.setState({ selection: [nodeId], anchors: keys });
+      if (target?.kind === "segment") gesture.current = { ...g, ...target };
+      else if (keys.length > 0)
+        gesture.current = { ...g, kind: "anchors", keys: kept ? anchors : keys };
+      else gesture.current = { ...g, kind: "move", nodeIds: [nodeId] };
+    } else {
+      gesture.current = { ...g, kind: "marquee", mods };
     }
   };
 
@@ -384,21 +490,47 @@ export function Viewer({ docId }: { docId: string }) {
     const [dx, dy] = [p.x - g.start.x, p.y - g.start.y];
     g.moved ||= Math.hypot(dx, dy) * v.scale >= SLOP;
     if (!g.moved) return;
+    const { doc } = useStore.getState();
     if (g.kind === "move")
       useStore.setState({ drag: { nodeIds: g.nodeIds, dx, dy, commandId: null } });
-    else setMarqueeRect(rectOf(g.start, p));
+    else if (g.kind === "marquee") setMarqueeRect(rectOf(g.start, p));
+    else if (doc) {
+      const inputs =
+        g.kind === "anchors"
+          ? moveAnchors(doc, g.keys, dx, dy)
+          : [
+              g.kind === "handle"
+                ? moveHandle(doc, g.key, g.which, dx, dy, e.altKey)
+                : moveSegment(doc, g.nodeId, g.subpath, g.segment, g.t, dx, dy),
+            ].filter((input) => input !== null);
+      useStore.setState({ edit: { inputs, commandIds: null } });
+    }
   };
 
   /** Releasing commits a move as one Transaction, or applies the marquee (a click if it never moved). */
   const onPointerUp = () => {
     const g = gesture.current;
     gesture.current = null;
-    const { doc, drag, selection } = useStore.getState();
+    const { doc, drag, edit, selection, anchors } = useStore.getState();
     if (!g || !doc) return;
-    if (g.kind === "marquee") {
+    if (g.kind === "marquee" && tool === "direct") {
+      // A marquee selects Anchors; the Selection is the paths they are on.
+      const keys = g.moved && marqueeRect ? marqueeAnchors(doc, marqueeRect) : [];
+      const next = combine(anchors, keys, g.mods);
+      const paths = next.map((k) => parseKey(k).nodeId);
+      const kept = g.mods.shift ? selection : [];
+      useStore.setState({ anchors: next, selection: [...new Set([...kept, ...paths])] });
+      setMarqueeRect(null);
+    } else if (g.kind === "marquee") {
       const ids = g.moved && marqueeRect ? marquee(doc, marqueeRect) : [];
       useStore.setState({ selection: combine(selection, ids, g.mods) });
       setMarqueeRect(null);
+    } else if (g.kind !== "move") {
+      // One path_edit per path the drag changed (ADR-0032).
+      if (g.moved && edit && edit.commandIds === null && edit.inputs.length > 0) {
+        const commandIds = edit.inputs.map((input) => send({ type: "path_edit", input }));
+        useStore.setState({ edit: { ...edit, commandIds } });
+      }
     } else if (g.moved && drag && drag.commandId === null) {
       // ponytail: TransformInput takes at most 1000 nodeIds: a larger drag crashes preview() and
       // is closed with 1007 by the DO; chunk the command or lift the max when Documents grow.
@@ -412,11 +544,17 @@ export function Viewer({ docId }: { docId: string }) {
     gesture.current = null;
     setMarqueeRect(null);
     if (useStore.getState().drag?.commandId === null) useStore.setState({ drag: null });
+    if (useStore.getState().edit?.commandIds === null) useStore.setState({ edit: null });
   };
 
   const cursor = hand
     ? "grab"
-    : { selection: "default", pen: "crosshair", zoom: alt ? "zoom-out" : "zoom-in" }[tool];
+    : {
+        selection: "default",
+        direct: "default",
+        pen: "crosshair",
+        zoom: alt ? "zoom-out" : "zoom-in",
+      }[tool];
 
   return (
     <div style={{ position: "absolute", inset: 0, background: PASTEBOARD }}>
