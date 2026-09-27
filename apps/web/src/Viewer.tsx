@@ -11,7 +11,7 @@ import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { SELECTION } from "./canvas.ts";
 import { imageCache } from "./images.ts";
 import { Layers } from "./Layers.tsx";
-import { menuOpen } from "./MenuBar.tsx";
+import { keysTaken } from "./MenuBar.tsx";
 import { keysOf } from "./menu.ts";
 import { pastedArt, place, placeable } from "./place.ts";
 import { preview, previewEdit } from "./receive.ts";
@@ -212,7 +212,7 @@ export function Viewer({ docId }: { docId: string }) {
     const onKey = (e: KeyboardEvent) => {
       const down = e.type === "keydown";
       // A menu, or the menu bar with focus, takes the keys it handles.
-      if (down && (menuOpen() || (e.target as Element).closest?.("[role=menubar]"))) return;
+      if (down && (keysTaken() || (e.target as Element).closest?.("[role=menubar]"))) return;
       setAlt(e.altKey);
       if (e.code === "Space") {
         e.preventDefault();

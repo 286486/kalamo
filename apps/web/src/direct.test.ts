@@ -229,4 +229,13 @@ it("Join and Average take the selected Anchors, Join a wholly selected path whol
   expect(anchorOpTargets(doc, [rect.id], square, "join")).toEqual({ nodeIds: [rect.id] });
   expect(anchorOpTargets(doc, [rect.id], square, "average")?.anchors).toHaveLength(4);
   expect(anchorOpTargets(doc, [], [], "average")).toBeNull();
+  const [dot] = createNodes(doc, [{ type: "path", parentId: rect.parentId as string, d: "M 5 5" }])
+    .nodes as [Node];
+  expect(anchorOpTargets(doc, [dot.id, curve.id], [anchorKey(dot.id, 0, 0), end], "join")).toEqual({
+    nodeIds: [dot.id, curve.id],
+    anchors: [
+      { nodeId: dot.id, subpath: 0, index: 0 },
+      { nodeId: curve.id, subpath: 0, index: 2 },
+    ],
+  });
 });

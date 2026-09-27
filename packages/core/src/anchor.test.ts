@@ -480,6 +480,18 @@ describe("pathOp join", () => {
     expect(dOf(doc, a)).toBe("M 0 0 L 10 0 L 10 10 Z");
   });
 
+  it("measures tolerance in document units, and refuses to close a Stray Point", () => {
+    const { doc, ids } = paths("M 0 0 L 10 0 L 0 0.5");
+    const [a] = ids as [string];
+    doc.nodes.set(a, { ...(doc.nodes.get(a) as PathNode), transform: [4, 0, 0, 4, 0, 0] });
+    pathOp(doc, { nodeIds: ids, op: "join", tolerance: 1 });
+    expect(dOf(doc, a)).toBe("M 0 0 L 10 0 L 0 0.5 Z");
+    const dot = paths("M 5 5");
+    expect(errorOf(() => pathOp(dot.doc, { nodeIds: dot.ids, op: "join" }))).toMatchObject({
+      code: "INVALID_PATH",
+    });
+  });
+
   it("refuses paths without an open subpath", () => {
     const { doc, ids } = paths("M 0 0 L 10 0 L 10 10 Z");
     expect(errorOf(() => pathOp(doc, { nodeIds: ids, op: "join" }))).toMatchObject({

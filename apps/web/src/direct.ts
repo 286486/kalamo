@@ -365,8 +365,8 @@ export function removeAnchorInputs(doc: Document, anchors: string[]) {
 
 /**
  * What Object > Path > Join or Average acts on (research §5): the selected Anchors and their Nodes,
- * else the Selection's paths. Join takes a path with every Anchor selected as a whole path. Null
- * for nothing.
+ * else the Selection's paths. Join takes a path with every Anchor selected as a whole path, but a
+ * Stray Point as an Endpoint. Null for nothing.
  */
 export function anchorOpTargets(
   doc: Document,
@@ -375,7 +375,15 @@ export function anchorOpTargets(
   op: "join" | "average",
 ): { nodeIds: string[]; anchors?: Ref[] } | null {
   let keys = anchors.filter((k) => inRange(doc, k));
-  if (op === "join") keys = splitWhole(doc, keys).partial;
+  if (op === "join") {
+    // A Stray Point is always wholly selected, yet it is an Endpoint to connect.
+    const stray = (k: string) => {
+      const n = doc.nodes.get(parseKey(k).nodeId);
+      return hasAnchors(n) && allKeys(n).length === 1;
+    };
+    const { partial } = splitWhole(doc, keys);
+    keys = keys.filter((k) => partial.includes(k) || stray(k));
+  }
   if (keys.length > 0) {
     const refs = keys.map(parseKey);
     return { nodeIds: [...new Set(refs.map((r) => r.nodeId))], anchors: refs };

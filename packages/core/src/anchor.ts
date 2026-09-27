@@ -2,7 +2,7 @@ import { z } from "zod";
 import { childrenOf, worldTransform } from "./document.ts";
 import { lookup } from "./edit.ts";
 import { ZibelError } from "./errors.ts";
-import { applyTo, IDENTITY, invert, multiply, transformSegments } from "./matrix.ts";
+import { applyTo, IDENTITY, invert, multiply, scaleOf, transformSegments } from "./matrix.ts";
 import { formatPath, parsePath, type Segment, shapeSegments } from "./path.ts";
 import {
   type Document,
@@ -217,6 +217,9 @@ export const PathEditInput = z.object({
 });
 export type PathEditInput = z.input<typeof PathEditInput>;
 
+/** One Anchor of a Node, as `path_op`'s anchors name it. */
+const AnchorRef = z.object({ nodeId: z.string(), subpath, index });
+
 /**
  * `path_op` (REQUIREMENTS §6.4) so far: convert_to_path (Object > Shape > Expand Shape), reverse
  * (Reverse Path Direction), add_anchors (Add Anchor Points), join (Join) and average (Average).
@@ -238,7 +241,7 @@ export const PathOpInput = z.object({
       "average: horizontal lines the Anchors up on one y, vertical on one x, both stacks them.",
     ),
   anchors: z
-    .array(z.object({ nodeId: z.string(), subpath, index }))
+    .array(AnchorRef)
     .max(10000)
     .optional()
     .describe(
@@ -488,7 +491,7 @@ function addAnchors(subpaths: Subpath[]): Subpath[] {
   return subpaths;
 }
 
-type Ref = { nodeId: string; subpath: number; index: number };
+type Ref = z.output<typeof AnchorRef>;
 type PathOpResult = {
   updated: PathNode[];
   deletedIds: string[];
@@ -543,7 +546,8 @@ const gap = (a: Anchor, b: Anchor): Point => [a.anchor[0] - b.anchor[0], a.ancho
 /**
  * Open subpaths `a` and `b` as one, joined at `a`'s end (else start) and `b`'s end (else start),
  * keeping `a`'s direction. Endpoints within `tolerance` merge into `a`'s, `b` sliding onto it, each
- * keeping its Handle; farther ones get a straight segment. Joins are Corner (research §5).
+ * keeping its Handle, as Illustrator's Corner join leaves them unaligned (research §5); farther
+ * ones get a straight segment.
  */
 function connect(a: Subpath, aEnd: boolean, b: Subpath, bEnd: boolean, tolerance: number): Subpath {
   const other = aEnd === bEnd ? flip(b) : b;
@@ -569,7 +573,7 @@ function connect(a: Subpath, aEnd: boolean, b: Subpath, bEnd: boolean, tolerance
         { ...(pa as Anchor), handleIn: moved.at(-1)?.handleIn ?? null },
         ...a.anchors.slice(1),
       ];
-  return { closed: false, anchors: anchors.map((x) => ({ ...x, type: typeOf(x) })) };
+  return { closed: false, anchors };
 }
 
 /** Closes an open subpath, merging its ends when within `tolerance`. */
@@ -593,16 +597,15 @@ const JOIN_HINT = "Name two open Endpoints in anchors, or omit anchors to join w
  * the result with every subpath of the others, keeping its appearance; the others are deleted.
  */
 function join(doc: Document, input: z.output<typeof PathOpInput>): PathOpResult {
-  const { tolerance } = input;
   const refs = checkRefs(input.anchors, input.nodeIds);
   const named = allWithAnchors(doc, input.nodeIds);
   const order = paintOrder(doc);
-  // Everything in the topmost Node's coordinates.
+  // Everything in the topmost Node's coordinates, tolerance too: it is in the Document's.
   const gather = (nodes: WithAnchors[]) => {
     const top = nodes.reduce((a, b) => ((order.get(b.id) ?? 0) > (order.get(a.id) ?? 0) ? b : a));
-    const toTop = invert(worldTransform(doc, top));
-    const each = nodes.map((n) => anchorsIn(n, multiply(toTop, worldTransform(doc, n))));
-    return { top, each };
+    const m = worldTransform(doc, top);
+    const each = nodes.map((n) => anchorsIn(n, multiply(invert(m), worldTransform(doc, n))));
+    return { top, each, tolerance: input.tolerance / scaleOf(m) };
   };
   const done = (top: WithAnchors, subpaths: Subpath[], nodes: WithAnchors[]): PathOpResult => {
     const next = { ...anchorsIn(top).path, d: formatPath(fromAnchors(subpaths)) };
@@ -614,7 +617,7 @@ function join(doc: Document, input: z.output<typeof PathOpInput>): PathOpResult 
 
   if (refs) {
     const nodes = named.filter((n) => refs.some((r) => r.nodeId === n.id));
-    const { top, each } = gather(nodes);
+    const { top, each, tolerance } = gather(nodes);
     const subpathOf = (r: Ref) => each.find((e) => e.node.id === r.nodeId)?.subpaths[r.subpath];
     const isEndpoint = (r: Ref) => {
       const s = subpathOf(r);
@@ -637,14 +640,19 @@ function join(doc: Document, input: z.output<typeof PathOpInput>): PathOpResult 
   if (nodes.length === 0) {
     throw invalid("nodeIds", "None of the paths has an open subpath to join.", JOIN_HINT);
   }
-  const { top, each } = gather(nodes);
+  const { top, each, tolerance } = gather(nodes);
   const closed = each.flatMap((e) => e.subpaths.filter((s) => s.closed));
   // The topmost Node's open subpaths first, so the result keeps its direction.
   const chains = [...each]
     .sort((a, b) => Number(b.node === top) - Number(a.node === top))
     .flatMap((e) => e.subpaths.filter((s) => !s.closed));
-  if (chains.length === 1)
-    return done(top, [closeWithin(chains[0] as Subpath, tolerance), ...closed], nodes);
+  if (chains.length === 1) {
+    const [only] = chains as [Subpath];
+    if (only.anchors.length === 1) {
+      throw invalid("nodeIds", "A Stray Point has no segment to close.", JOIN_HINT);
+    }
+    return done(top, [closeWithin(only, tolerance), ...closed], nodes);
+  }
   while (chains.length > 1) {
     let best = { i: 0, j: 1, aEnd: true, bEnd: false, dist: Infinity };
     for (const [i, a] of chains.entries()) {
@@ -680,20 +688,21 @@ function average(doc: Document, input: z.output<typeof PathOpInput>): PathOpResu
         s.anchors.map((_, index) => ({ nodeId: n.id, subpath, index })),
       ),
     );
-  const refs = [...new Map(listed.map((r) => [`${r.nodeId} ${r.subpath} ${r.index}`, r])).values()];
-  const nodes = named.filter((n) => refs.some((r) => r.nodeId === n.id));
+  const nodes = named.filter((n) => listed.some((r) => r.nodeId === n.id));
   const each = new Map(nodes.map((n) => [n.id, { ...anchorsIn(n), m: worldTransform(doc, n) }]));
-  const world = refs.map((r, i) => {
-    const e = each.get(r.nodeId);
-    const a = e?.subpaths[r.subpath]?.anchors[r.index];
-    if (!e || !a) {
-      throw invalid(
-        `anchors[${i}]`,
-        `The Node has no Anchor ${r.index} in subpath ${r.subpath}.`,
-        "zibel_path_edit returns each subpath's Anchors.",
-      );
-    }
-    return applyTo(e.m, ...a.anchor);
+  const anchorOf = (r: Ref) => each.get(r.nodeId)?.subpaths[r.subpath]?.anchors[r.index];
+  listed.forEach((r, i) => {
+    if (anchorOf(r)) return;
+    throw invalid(
+      `anchors[${i}]`,
+      `The Node has no Anchor ${r.index} in subpath ${r.subpath}.`,
+      "zibel_path_edit returns each subpath's Anchors.",
+    );
+  });
+  const refs = [...new Map(listed.map((r) => [`${r.nodeId} ${r.subpath} ${r.index}`, r])).values()];
+  const world = refs.map((r) => {
+    const { m } = each.get(r.nodeId) as { m: Matrix };
+    return applyTo(m, ...(anchorOf(r) as Anchor).anchor);
   });
   const mean = (k: 0 | 1) => world.reduce((sum, p) => sum + p[k], 0) / world.length;
   const [mx, my] = [mean(0), mean(1)];

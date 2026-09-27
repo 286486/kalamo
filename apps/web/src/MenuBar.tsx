@@ -12,7 +12,7 @@ const CSS = `
 `;
 
 /** True while a menu or a dialog is open, when the canvas and the shortcuts leave the keys to it. */
-export const menuOpen = () =>
+export const keysTaken = () =>
   document.querySelector("[role=menubar] [popover]:popover-open, dialog[open]") !== null;
 
 const itemsOf = (menu: Element) => [...menu.querySelectorAll<HTMLElement>(ITEMS)];
@@ -87,7 +87,7 @@ export function MenuBar({ menus }: { menus: Menu[] }) {
       if (keys === "Ctrl+S") e.preventDefault();
       // An open menu takes the keys; Delete on a focused title is not Clear.
       const inBar = (e.target as Element).closest?.("[role=menubar]");
-      if (menuOpen() || (inBar && keys === "Delete")) return;
+      if (keysTaken() || (inBar && keys === "Delete")) return;
       if (e.key === "F10") {
         e.preventDefault();
         bar.current?.querySelector<HTMLElement>(ITEMS)?.focus();
