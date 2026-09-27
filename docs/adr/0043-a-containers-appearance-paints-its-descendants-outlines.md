@@ -5,7 +5,7 @@ date: 2026-09-27
 
 # A container's Appearance paints its descendants' outlines
 
-CONTEXT.md and F-DOC-04 say a Layer or Group can carry an Appearance, but only leaves took one, and `node_create` dropped a Group's `appearance` without a word (#17). Illustrator gives a Group or Layer its own Fills and Strokes, and its Appearance panel shows the children as one entry, **Contents**, which the designer drags above or below the container's paints. Zibel takes those semantics. This ADR covers Live Shape and Path descendants with solid paints (#103); texts and Clipping Masks (#106), gradients (#107), SVG import (#104) and the browser canvas (#105) follow under the same rules.
+CONTEXT.md and F-DOC-04 say a Layer or Group can carry an Appearance, but only leaves took one, and `node_create` dropped a Group's `appearance` without a word (#17). Illustrator gives a Group or Layer its own Fills and Strokes, and its Appearance panel shows the children as one entry, **Contents**, which the designer drags above or below the container's paints. Zibel takes those semantics. This ADR covers Live Shape and Path descendants with solid paints (#103), texts and Clipping Masks (#106); gradients (#107), SVG import (#104) and the browser canvas (#105) follow under the same rules.
 
 ## The model
 
@@ -17,7 +17,9 @@ CONTEXT.md and F-DOC-04 say a Layer or Group can carry an Appearance, but only l
 
 A container draws, bottom to top: paints `0 … contents − 1`, its children as before, then the remaining paints. Each paint goes over every leaf the container paints before the next paint starts, so one container Stroke is one layer over all the children (Illustrator's group Stroke), and a Stroke below Contents reads as one outline around their union.
 
-One core function, `paintedLeaves`, lists those leaves: the visible descendant Live Shapes and Paths, depth first in stacking order, each with its world outline and its fill rule (a Live Shape's is nonzero). It skips hidden Nodes and hidden subtrees, Images (no Appearance, ADR-0023) and Clipping Paths (never painted, ADR-0021). Until #106 it also skips texts and the content of an inner Clipping Mask. Every renderer draws from this list, so `render` and the canvas cannot disagree. A Clipping Mask Group's own paints are clipped with its content, because they sit inside its clipped `<g>`.
+One core function, `paintedLeaves`, lists those leaves: the visible descendant Live Shapes, Paths and texts, depth first in stacking order, each with its world outline and its fill rule (a Live Shape's is nonzero), and the Clipping Path of every inner Clipping Mask it sits in. It skips hidden Nodes and hidden subtrees, Images (no Appearance, ADR-0023) and Clipping Paths (never painted, ADR-0021). Every renderer draws from this list, so `render` and the canvas cannot disagree. A Clipping Mask Group's own paints are clipped with its content, because they sit inside its clipped `<g>`.
+
+A text has no outline until Create Outlines (F-TEXT-06), so a container paint draws its glyphs as the text lays them out, in the text's own transform; its outline in the list is its frame, which bounds and hit tests use as they do for the text itself. A container Fill paints every glyph in its own colour: a text's Character Range Fills are the text's own and paint only where the text's own Fills do (ADR-0029). A container Stroke's width stays in document units, so on a scaled text it is divided by √|det| of the text's transform. A leaf inside an inner Clipping Mask is painted only inside that mask's Clipping Path, as its own paint is.
 
 ## Bounds
 
@@ -35,7 +37,7 @@ This amends ADR-0017's mapping table with a row:
 
 | Zibel | SVG |
 |---|---|
-| Container Appearance | inside the container's `<g>`, each Fill then each Stroke is a `<g zibel:paint="true" sodipodi:insensitive="true" inkscape:label="Fill"\|"Stroke">` carrying the paint (`fill`, or `fill="none"` and the `stroke` attributes) and one bare `<path>` per painted leaf: its world outline, `fill-rule="evenodd"` where set, no id. The groups below Contents come before the children and the rest after, so document order is paint order |
+| Container Appearance | inside the container's `<g>`, each Fill then each Stroke is a `<g zibel:paint="true" sodipodi:insensitive="true" inkscape:label="Fill"\|"Stroke">` carrying the paint (`fill`, or `fill="none"` and the `stroke` attributes) and one bare copy per painted leaf, with no id: a `<path>` of its world outline, `fill-rule="evenodd"` where set, or a `<text>` laid out as the text writes itself, in its own `transform`, without its Character Range Fills. A copy inside inner Clipping Masks sits in one `<g clip-path>` per mask, outermost first, that reuses the mask's `<clipPath>` id. The groups below Contents come before the children and the rest after, so document order is paint order |
 
 Why one copy per leaf and not one combined `d`: under nonzero, one path of every outline leaves holes where outlines of opposite winding overlap, and Illustrator paints each object on its own. The copies are locked and labelled so a designer in Inkscape sees what they are and cannot move them. They are derived, so import (#104) reads the paint from each group and ignores the copies:
 

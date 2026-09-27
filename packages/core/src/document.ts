@@ -31,6 +31,7 @@ import {
   Shape,
   type ShapeNode,
   type Stroke,
+  type TextNode,
   TextShape,
   textFrame,
 } from "./schema.ts";
@@ -435,29 +436,61 @@ export function paintContainer(a: ContainerAppearanceInput, path: string): Conta
   return { fills, strokes, contents: a.contents };
 }
 
-/** A Live Shape or Path a container paints, with its outline in document coordinates. */
+type FillRule = "nonzero" | "evenodd";
+
+/** A Live Shape, Path or text a container paints, with its outline in document coordinates. */
 export interface PaintedLeaf {
-  node: ShapeNode;
+  node: ShapeNode | TextNode;
+  /** A shape's outline; a text's frame, since its glyphs paint and have no outline (F-TEXT-06). */
   segments: Segment[];
-  fillRule: "nonzero" | "evenodd";
+  fillRule: FillRule;
+  /** The Clipping Paths of the inner Clipping Masks it sits in, outermost first (ADR-0021). */
+  clips: { maskId: string; segments: Segment[]; fillRule: FillRule }[];
+}
+
+const worldOutline = (
+  doc: Document,
+  n: ShapeNode,
+): { segments: Segment[]; fillRule: FillRule } => ({
+  segments: transformSegments(shapeSegments(n), worldTransform(doc, n)),
+  fillRule: n.type === "path" && n.fillRule === "evenodd" ? "evenodd" : "nonzero",
+});
+
+/**
+ * The leaves a container's Appearance paints (ADR-0043): its descendant Live Shapes, Paths and
+ * texts, depth first in stacking order, each under the clip of every inner Clipping Mask it is in.
+ * Hidden Nodes and subtrees, Images and Clipping Paths get none.
+ */
+export function paintedLeaves(
+  doc: Document,
+  container: Node,
+  clips: PaintedLeaf["clips"] = [],
+): PaintedLeaf[] {
+  return childrenOf(doc, container.id).flatMap((n): PaintedLeaf[] => {
+    if (!n.visible || n.type === "image") return [];
+    if (n.type === "layer" || n.type === "group") {
+      const clip = clippingPath(doc, n);
+      const inner = clip ? [...clips, { maskId: n.id, ...worldOutline(doc, clip) }] : clips;
+      return paintedLeaves(doc, n, inner);
+    }
+    if (n.type === "text") {
+      const frame = transformSegments(
+        shapeSegments(frameShape(textBox(n))),
+        worldTransform(doc, n),
+      );
+      return [{ node: n, segments: frame, fillRule: "nonzero", clips }];
+    }
+    if (n.clipping) return [];
+    return [{ node: n, ...worldOutline(doc, n), clips }];
+  });
 }
 
 /**
- * The leaves a container's Appearance paints (ADR-0043): its descendant Live Shapes and Paths,
- * depth first in stacking order. Hidden Nodes and subtrees, Images and Clipping Paths get none.
+ * A container Stroke as a leaf drawn at `scale` must draw it: its width and dash are in document
+ * units, which the leaf's own transform would grow (ADR-0043).
  */
-// ponytail: texts and a Clipping Mask's content get no paint until #106 draws them.
-export function paintedLeaves(doc: Document, container: Node): PaintedLeaf[] {
-  return childrenOf(doc, container.id).flatMap((n): PaintedLeaf[] => {
-    if (!n.visible || n.type === "text" || n.type === "image") return [];
-    if (n.type === "layer" || n.type === "group") {
-      return clippingPath(doc, n) ? [] : paintedLeaves(doc, n);
-    }
-    if (n.clipping) return [];
-    const segments = transformSegments(shapeSegments(n), worldTransform(doc, n));
-    return [{ node: n, segments, fillRule: n.type === "path" ? n.fillRule : "nonzero" }];
-  });
-}
+export const unscaledStroke = (s: Stroke, scale: number): Stroke =>
+  scale === 1 ? s : { ...s, width: s.width / scale, dash: s.dash.map((d) => d / scale) };
 
 /** A container's Appearance, empty when it has none. */
 export const containerAppearance = (n: LayerNode | GroupNode): ContainerAppearance =>
@@ -520,8 +553,16 @@ export function visibleBounds(doc: Document, node: Node): Rect | null {
     const clip = node.type === "group" ? clipAmong(children) : undefined;
     if (clip) return bounds(doc, clip);
     const grow = Math.max(0, ...containerAppearance(node).strokes.map((s) => s.width)) / 2;
+    // A leaf inside an inner Clipping Mask paints only within its Clipping Paths.
     const painted =
-      grow > 0 ? paintedLeaves(doc, node).map((l) => grown(pathBounds(l.segments), grow)) : [];
+      grow > 0
+        ? paintedLeaves(doc, node).map((l) =>
+            l.clips.reduce(
+              (b, c) => intersection(b, pathBounds(c.segments)),
+              grown(pathBounds(l.segments), grow),
+            ),
+          )
+        : [];
     return union([...children.map((c) => visibleBounds(doc, c)), ...painted]);
   }
   const b = bounds(doc, node);
@@ -533,6 +574,15 @@ export function visibleBounds(doc: Document, node: Node): Rect | null {
     scaleOf(worldTransform(doc, node));
   return grown(b, grow);
 }
+
+const intersection = (a: Rect | null, b: Rect | null): Rect | null => {
+  if (!a || !b) return null;
+  const x = Math.max(a.x, b.x);
+  const y = Math.max(a.y, b.y);
+  const right = Math.min(a.x + a.width, b.x + b.width);
+  const bottom = Math.min(a.y + a.height, b.y + b.height);
+  return right < x || bottom < y ? null : { x, y, width: right - x, height: bottom - y };
+};
 
 const grown = (b: Rect | null, by: number): Rect | null =>
   b && { x: b.x - by, y: b.y - by, width: b.width + 2 * by, height: b.height + 2 * by };

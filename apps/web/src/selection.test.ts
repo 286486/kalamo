@@ -323,6 +323,28 @@ describe("hitTest", () => {
       ]);
     });
 
+    it("hits a paint on a text anywhere in its frame, over a sibling it covers", () => {
+      // The text's frame is (10, 38)-(20.776, 53.912); b covers part of it, above it.
+      const text = { type: "text", name: "t", x: 10, y: 50, content: "Hi" };
+      const b = { ...rect("b", 12), y: 40 };
+      const { hit, node } = scene({ strokes: [stroke(1)] }, [text, b]);
+      expect(hit(15, 45, true)).toBe("t");
+      Object.assign(node("g"), { appearance: undefined });
+      expect(hit(15, 45, true)).toBe("b");
+    });
+
+    it("hits a paint on an inner Clipping Mask's leaf only inside that mask's Clipping Path", () => {
+      const { doc, hit, node } = scene({ strokes: [stroke(4)] }, []);
+      const [content, clip] = createNodes(doc, [
+        { ...rect("content", 0, false), parentId: node("g").id, width: 50 },
+        { ...rect("clip", 0), parentId: node("g").id, width: 30 },
+      ]).nodes as [Node, Node];
+      makeMask(doc, { clipNodeId: clip.id, contentIds: [content.id] });
+      // 1.5 inside the top edge: only the Group's Stroke, not the leaf's hairline, reaches it.
+      expect(hit(5, 1.5, true)).toBe("content");
+      expect(hit(40, 1.5, true)).toBeNull();
+    });
+
     it("hits no paint of a Clipping Mask outside its Clipping Path", () => {
       const { doc, hit, node } = scene({}, []);
       const [content, clip] = createNodes(doc, [

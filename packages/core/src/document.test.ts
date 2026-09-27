@@ -1337,10 +1337,10 @@ describe("container Appearance (ADR-0043)", () => {
     expect(createNodes(doc, [group(1)]).nodes).toHaveLength(2);
   });
 
-  it("lists the leaves it paints depth first, skipping hidden Nodes, Images and Clipping Masks", () => {
+  it("lists the leaves it paints depth first, texts too, skipping hidden Nodes, Images and Clipping Paths", () => {
     const { doc, defaultLayerId } = newDoc();
     doc.images.set("i", { width: 1, height: 1, mediaType: "image/png" } as never);
-    const [group, a, inner, b, hidden, , p, clip, clipped] = createNodes(doc, [
+    const [group, a, inner, b, hidden, , p, t, clip, clipped] = createNodes(doc, [
       {
         type: "group",
         parentId: defaultLayerId,
@@ -1355,25 +1355,31 @@ describe("container Appearance (ADR-0043)", () => {
             ],
           },
           { type: "path", d: "M 0 0 L 10 0 L 10 10 Z", fillRule: "evenodd" },
+          { type: "text", x: 0, y: 50, content: "Hi" },
           rect(defaultLayerId),
           rect(defaultLayerId),
         ],
       } as never,
     ]).nodes;
-    if (!group || !a || !inner || !b || !hidden || !p || !clip || !clipped)
+    if (!group || !a || !inner || !b || !hidden || !p || !t || !clip || !clipped)
       throw new Error("setup");
-    makeMask(doc, { clipNodeId: clip.id, contentIds: [clipped.id] });
+    const mask = makeMask(doc, { clipNodeId: clip.id, contentIds: [clipped.id] }).group;
     transformNodes(doc, { nodeIds: [b.id], translate: { x: 5 } });
     doc.nodes.set(hidden.id, { ...hidden, visible: false });
     const leaves = paintedLeaves(doc, group);
-    expect(leaves.map((l) => [l.node.id, l.fillRule])).toEqual([
-      [a.id, "nonzero"],
-      [b.id, "nonzero"],
-      [p.id, "evenodd"],
+    expect(leaves.map((l) => [l.node.id, l.fillRule, l.clips.map((c) => c.maskId)])).toEqual([
+      [a.id, "nonzero", []],
+      [b.id, "nonzero", []],
+      [p.id, "evenodd", []],
+      [t.id, "nonzero", []],
+      [clipped.id, "nonzero", [mask.id]],
     ]);
     expect(leaves[1]?.segments[0]).toMatchObject({ cmd: "M", args: [105, 10] });
+    // A text's outline is its frame; a clip's is its Clipping Path's, here the same rect.
+    expect(leaves[3]?.segments.map((s) => s.cmd)).toEqual(["M", "L", "L", "L", "Z"]);
+    expect(leaves[4]?.clips[0]?.segments).toEqual(leaves[4]?.segments);
     doc.nodes.set(inner.id, { ...inner, visible: false });
-    expect(paintedLeaves(doc, group).map((l) => l.node.id)).toEqual([a.id, p.id]);
+    expect(paintedLeaves(doc, group).map((l) => l.node.id)).toEqual([a.id, p.id, t.id, clipped.id]);
   });
 
   it("grows visibleBounds by half the widest container Stroke, never geometricBounds", () => {
@@ -1389,5 +1395,43 @@ describe("container Appearance (ADR-0043)", () => {
     if (!group) throw new Error("setup");
     expect(bounds(doc, group)).toEqual({ x: 10, y: 10, width: 50, height: 30 });
     expect(visibleBounds(doc, group)).toEqual({ x: 5, y: 5, width: 60, height: 40 });
+  });
+
+  it("cuts the Stroke on an inner Clipping Mask's leaf to its Clipping Path in visibleBounds", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const box = (x: number) => ({ type: "rect" as const, x, y: 0, width: 10, height: 10 });
+    const [group, clipped, clip] = createNodes(doc, [
+      {
+        type: "group",
+        parentId: defaultLayerId,
+        appearance: { strokes: [stroke(4)] },
+        children: [box(20), box(25)],
+      },
+    ]).nodes;
+    if (!group || !clipped || !clip) throw new Error("setup");
+    makeMask(doc, { clipNodeId: clip.id, contentIds: [clipped.id] });
+    // Grown on every side the leaf would reach 18; its clip, which the mask reports, starts at 25.
+    expect(visibleBounds(doc, group)).toEqual({ x: 25, y: 0, width: 10, height: 10 });
+  });
+
+  it("grows visibleBounds around a text child by half the container Stroke", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const [group, text] = createNodes(doc, [
+      {
+        type: "group",
+        parentId: defaultLayerId,
+        appearance: { strokes: [stroke(10)] },
+        children: [{ type: "text", x: 10, y: 50, content: "Hi", appearance: {} }],
+      },
+    ]).nodes;
+    if (!group || !text) throw new Error("setup");
+    const b = bounds(doc, text);
+    if (!b) throw new Error("setup");
+    expect(visibleBounds(doc, group)).toEqual({
+      x: b.x - 5,
+      y: b.y - 5,
+      width: b.width + 10,
+      height: b.height + 10,
+    });
   });
 });

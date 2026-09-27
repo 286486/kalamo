@@ -17,12 +17,16 @@ import {
   type Matrix,
   MISSING_LINK_STROKE,
   type Node,
+  type PaintedLeaf,
   paintedLeaves,
   type Rect,
   type Segment,
+  scaleOf,
   shapeSegments,
   type TextNode,
   transformSegments,
+  unscaledStroke,
+  worldTransform,
 } from "@zibel/core";
 
 type Stroke = LeafNode["appearance"]["strokes"][number];
@@ -215,20 +219,50 @@ function paint(ctx: Canvas2D, n: Node, scene: Scene) {
     // `contents` below the children (ADR-0043).
     const { fills, strokes, contents } = containerAppearance(n);
     const leaves = fills.length + strokes.length > 0 ? paintedLeaves(doc, n) : [];
+    /**
+     * Paints every leaf, each inside its inner Clipping Masks; a text in its glyphs, placed by its
+     * transform, which `glyphs` is given the scale of.
+     */
+    const over = (
+      glyphs: (t: TextNode, scale: number) => void,
+      shape: (l: PaintedLeaf) => void,
+    ) => {
+      for (const l of leaves) {
+        ctx.save();
+        for (const c of l.clips) {
+          trace(ctx, c.segments);
+          ctx.clip(c.fillRule);
+        }
+        if (l.node.type === "text") {
+          const m = worldTransform(doc, l.node);
+          ctx.transform(...m);
+          font(ctx, l.node);
+          glyphs(l.node, scaleOf(m));
+        } else {
+          trace(ctx, l.segments);
+          shape(l);
+        }
+        ctx.restore();
+      }
+    };
+    // No range fills on a text: a container Fill paints every glyph in its own colour.
     const paints = [
       ...fills.map((f) => () => {
         ctx.fillStyle = styleOf(ctx, f, false).style;
-        for (const l of leaves) {
-          trace(ctx, l.segments);
-          ctx.fill(l.fillRule);
-        }
+        over(
+          (t) => text(ctx, t, (c, x, y) => ctx.fillText(c, x, y)),
+          (l) => ctx.fill(l.fillRule),
+        );
       }),
       ...strokes.map((s) => () => {
         pen(ctx, s);
-        for (const l of leaves) {
-          trace(ctx, l.segments);
-          ctx.stroke();
-        }
+        over(
+          (t, k) => {
+            if (k !== 1) pen(ctx, unscaledStroke(s, k));
+            text(ctx, t, (c, x, y) => ctx.strokeText(c, x, y));
+          },
+          () => ctx.stroke(),
+        );
       }),
     ];
     for (const p of paints.slice(0, contents)) p();
@@ -255,20 +289,8 @@ function paint(ctx: Canvas2D, n: Node, scene: Scene) {
       ctx.drawImage(file.image, r.x, r.y, r.width, r.height);
     }
   } else {
-    if (n.type === "text") {
-      // Every font renders in the bundled face its bounds are measured in (ADR-0017, ADR-0028).
-      const { weight, italic } = fontFace(bundledStyle(n.fontStyle));
-      ctx.font = [
-        italic && "italic",
-        weight !== 400 && weight,
-        `${n.fontSize}px`,
-        `"${BUNDLED_FONT}"`,
-      ]
-        .filter(Boolean)
-        .join(" ");
-      // Unkerned, like the SVG, so the drawn width is the advance sum (ADR-0013).
-      ctx.fontKerning = "none";
-    } else {
+    if (n.type === "text") font(ctx, n);
+    else {
       trace(ctx, shapeSegments(n));
     }
     for (const f of n.appearance.fills) {
@@ -293,6 +315,17 @@ function paint(ctx: Canvas2D, n: Node, scene: Scene) {
       else ctx.stroke();
     }
   }
+}
+
+/** Sets `ctx` to draw the text's glyphs. */
+function font(ctx: Canvas2D, n: TextNode) {
+  // Every font renders in the bundled face its bounds are measured in (ADR-0017, ADR-0028).
+  const { weight, italic } = fontFace(bundledStyle(n.fontStyle));
+  ctx.font = [italic && "italic", weight !== 400 && weight, `${n.fontSize}px`, `"${BUNDLED_FONT}"`]
+    .filter(Boolean)
+    .join(" ");
+  // Unkerned, like the SVG, so the drawn width is the advance sum (ADR-0013).
+  ctx.fontKerning = "none";
 }
 
 /** Sets `ctx` to draw the Stroke `s`. */

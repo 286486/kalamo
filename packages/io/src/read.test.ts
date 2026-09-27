@@ -1,9 +1,11 @@
 import {
+  childrenOf,
   createDocument,
   createNodes,
   type Fill,
   type ImageNode,
   type Matrix,
+  makeMask,
   type Node,
   normalizePath,
   readImage,
@@ -1711,6 +1713,70 @@ describe("container Appearance (ADR-0043)", () => {
     expect(file.warnings).toEqual([]);
     const opened = { ...doc, nodes: new Map(file.nodes.map((n) => [n.id, n])) };
     expect(JSON.parse(serializeDocument(opened))).toEqual(JSON.parse(serializeDocument(doc)));
+  });
+
+  it.each([
+    ["a text child", "text"],
+    ["an inner Clipping Mask", "inner"],
+    ["a Clipping Mask's own Appearance", "own"],
+  ] as const)("reads back %s, and Open of an export is the Document (#106)", (_, kind) => {
+    const { doc, defaultLayerId } = createDocument({
+      id: "d",
+      name: "Doc",
+      artboards: [{ width: 100, height: 100 }],
+    });
+    const appearance = {
+      fills: [{ color: "#0000FF" }],
+      strokes: [{ color: "#FF0000", width: 4 }],
+      contents: 1,
+    };
+    const [group, text, clipped, clip] = createNodes(doc, [
+      {
+        type: "group",
+        parentId: defaultLayerId,
+        appearance,
+        children: [
+          {
+            type: "text",
+            x: 10,
+            y: 50,
+            content: "Hi",
+            ranges: [{ start: 0, end: 1, fill: "#00FF00" }],
+          },
+          { type: "rect", x: 20, y: 0, width: 10, height: 10 },
+          { type: "rect", x: 25, y: 0, width: 10, height: 10 },
+        ],
+      },
+    ]).nodes;
+    if (!group || !text || !clipped || !clip) throw new Error("setup");
+    if (kind === "text") doc.nodes.delete(clip.id);
+    else {
+      const mask = makeMask(doc, { clipNodeId: clip.id, contentIds: [clipped.id] }).group;
+      if (kind === "own") {
+        doc.nodes.set(group.id, { ...group, appearance: undefined } as Node);
+        doc.nodes.set(mask.id, {
+          ...mask,
+          appearance: group.type === "group" && group.appearance,
+        } as Node);
+      }
+    }
+    const file = parseSvg(toSvg(doc));
+    expect(file.warnings).toEqual([]);
+    const opened = { ...doc, nodes: new Map(file.nodes.map((n) => [n.id, n])) };
+    // Make Clipping Mask places its Group between keys; Open numbers siblings afresh.
+    const ranked = (d: typeof doc) =>
+      JSON.parse(
+        serializeDocument({
+          ...d,
+          nodes: new Map(
+            [...d.nodes].map(([id, n]) => [
+              id,
+              { ...n, index: String(childrenOf(d, n.parentId).indexOf(n)) },
+            ]),
+          ),
+        }),
+      );
+    expect(ranked(opened)).toEqual(ranked(doc));
   });
 
   it("drops a paint whose group the designer removed, and takes Contents from where the children are", () => {

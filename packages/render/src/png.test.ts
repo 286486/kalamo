@@ -310,9 +310,10 @@ it("draws the fixture Document with known pixels", async () => {
   // and an open arc; by #22, a sixth holding linear and radial gradients on Fills, a Stroke, a
   // text, a turned rect and a stack; by #19, a seventh holding the five non-Regular faces as Point
   // Type and a Bold Italic Area Type; by #20, an eighth Artboard holding tracked text and Character
-  // Ranges; by #104, a ninth holding a Layer with a Stroke and a Group with a Stroke below Contents.
+  // Ranges; by #104, a ninth holding a Layer with a Stroke and a Group with a Stroke below Contents;
+  // by #106, that Group gained a text and a Clipping Mask its paints reach.
   expect(await hash(toSvg(doc, docRect(doc), { images }))).toBe(
-    "3c291ffc61e2bcc1853d9b0f396a8d624799eb84b5fda07f4067e0befd888aa6",
+    "8aab18f7dfa47426efd0d88815b91ef2f23893b202ae1e2b0e6fbe98de3552de",
   );
   expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned, images }))).toBe(
     "24c1e7ad8db33f59933a1b355c879cb19bfdfd67d70b11427b196aa646ea4b60",

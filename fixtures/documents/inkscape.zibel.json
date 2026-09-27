@@ -1731,6 +1731,107 @@
       "width": 40,
       "x": 1260,
       "y": 70
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#333333",
+            "type": "solid"
+          }
+        ],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "content": "Paint",
+      "fontFamily": "Source Sans 3",
+      "fontSize": 14,
+      "id": "01M38T29SXC0NTA1NERST3XT00",
+      "index": "a3",
+      "kind": "point",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29SXC0NTA1NERSGR0VP0",
+      "ranges": [
+        {
+          "end": 1,
+          "fill": "#E63946",
+          "start": 0
+        }
+      ],
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "text",
+      "visible": true,
+      "x": 1262,
+      "y": 112
+    },
+    {
+      "blendMode": "normal",
+      "id": "01M38T29SXC0NTA1NERSMA5K00",
+      "index": "a4",
+      "locked": false,
+      "meta": {},
+      "name": "Masked",
+      "opacity": 1,
+      "parentId": "01M38T29SXC0NTA1NERSGR0VP0",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#FFCC00",
+            "type": "solid"
+          }
+        ],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "height": 25,
+      "id": "01M38T29SXC0NTA1NERSC0NT00",
+      "index": "a0",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29SXC0NTA1NERSMA5K00",
+      "radius": 0,
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "rect",
+      "visible": true,
+      "width": 40,
+      "x": 1300,
+      "y": 80
+    },
+    {
+      "appearance": {
+        "fills": [],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "clipping": true,
+      "height": 21,
+      "id": "01M38T29SXC0NTA1NERSC11P00",
+      "index": "a1",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29SXC0NTA1NERSMA5K00",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "ellipse",
+      "visible": true,
+      "width": 30,
+      "x": 1305,
+      "y": 82
     }
   ],
   "images": {
