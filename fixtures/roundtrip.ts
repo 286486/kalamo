@@ -206,6 +206,12 @@ async function main() {
         warnings: { code: string }[];
       };
     const text = async (args: object) => (await call("zibel_export", args)).content[0]?.text ?? "";
+    /** One fixture line, counting it as failed when either check fails. */
+    const report = (structure: string | undefined, ratio: number) => {
+      if (structure || ratio >= MAX_DIFFERENT) failed++;
+      const pixels = `pixels ${(ratio * 100).toFixed(2)}%${ratio < MAX_DIFFERENT ? "" : " FAIL"}`;
+      return [`structure ${structure ? `FAIL ${structure}` : "pass"}`, pixels].join("  ");
+    };
     /** resvg's PNG of `docId`, the whole Document or `rect`, into `dir`; returns the rect drawn. */
     const resvg = async (dir: string, docId: string, rect?: object) => {
       const png = await call("zibel_export", {
@@ -237,11 +243,12 @@ async function main() {
     };
     for (const file of readdirSync(FIXTURES).filter((f) => f.endsWith(".zibel.json"))) {
       const fixture = file.slice(0, -".zibel.json".length);
+      const json = readFileSync(join(FIXTURES, file), "utf8");
       const dir = join(STATE, fixture);
       mkdirSync(join(dir, "inkscape"), { recursive: true });
       let line: string;
       try {
-        const original = await open(readFileSync(join(FIXTURES, file), "utf8"));
+        const original = await open(json);
         const { docId } = original;
         // Inkscape names the Document after the file it reads, and Open reads the name back from it.
         const exported = await text({ docId, format: "svg" });
@@ -268,23 +275,16 @@ async function main() {
         const pixelsSvg = join(dir, "pixels.svg");
         writeFileSync(pixelsSvg, await text({ docId, format: "svg", scope: { rect: docRect } }));
         const ratio = inkscapeDiff(dir, pixelsSvg);
-        const pixels = `pixels ${(ratio * 100).toFixed(2)}%${ratio < MAX_DIFFERENT ? "" : " FAIL"}`;
-        if (structure || ratio >= MAX_DIFFERENT) failed++;
-        line = [`structure ${structure ? `FAIL ${structure}` : "pass"}`, pixels].join("  ");
+        line = report(structure, ratio);
       } catch (e) {
         failed++;
         line = `FAIL  ${(e as Error).message}`;
       }
       console.log(`${fixture.padEnd(12)}  ${line}`);
-      if (
-        !JSON.parse(readFileSync(join(FIXTURES, file), "utf8")).nodes.some(
-          (n: Doc["nodes"][number]) => n.id === PAINTED,
-        )
-      )
-        continue;
+      if (!JSON.parse(json).nodes.some((n: Doc["nodes"][number]) => n.id === PAINTED)) continue;
       for (const [edit, actions] of Object.entries(EDITS)) {
         try {
-          const original = await open(readFileSync(join(FIXTURES, file), "utf8"));
+          const original = await open(json);
           const { docId } = original;
           const editDir = join(dir, edit);
           mkdirSync(join(editDir, "pixels"), { recursive: true });
@@ -301,12 +301,16 @@ async function main() {
           };
           const edited = await inInkscape(join(editDir, `${original.name}.svg`));
           const framed = join(editDir, "pixels", `${original.name}.svg`);
-          await inInkscape(framed, { rect: docRect });
+          const matrix = matrixOn(edited, PAINTED);
+          // Inkscape draws the framed file, so it must carry the edit Open read.
+          const drawn = matrixOn(await inInkscape(framed, { rect: docRect }), PAINTED);
+          if (drawn.join() !== matrix.join())
+            throw new Error(`framed edit ${drawn}, want ${matrix}`);
           const reopened = await open(edited);
           await call("zibel_node_transform", {
             docId,
             nodeIds: [PAINTED],
-            matrix: matrixOn(edited, PAINTED),
+            matrix,
             pivot: { x: 0, y: 0 },
             scaleStrokes: true,
           });
@@ -321,9 +325,7 @@ async function main() {
             : firstDifference(want, got);
           await resvg(editDir, reopened.docId, docRect);
           const ratio = inkscapeDiff(editDir, framed);
-          const pixels = `pixels ${(ratio * 100).toFixed(2)}%${ratio < MAX_DIFFERENT ? "" : " FAIL"}`;
-          if (structure || ratio >= MAX_DIFFERENT) failed++;
-          line = [`structure ${structure ? `FAIL ${structure}` : "pass"}`, pixels].join("  ");
+          line = report(structure, ratio);
         } catch (e) {
           failed++;
           line = `FAIL  ${(e as Error).message}`;

@@ -149,6 +149,9 @@ export function parseTransform(list: string | null): Matrix {
 const bakes = ([a, b, c, d]: Matrix) =>
   Math.abs(b) < 1e-9 && Math.abs(c) < 1e-9 && a > 0 && Math.abs(a - d) < 1e-9;
 
+/** A matrix that flattens to a line or point, which draws nothing. */
+const flat = ([a, b, c, d]: Matrix) => Math.abs(a * d - b * c) < 1e-12;
+
 /** Rotation, uniform scale and reflection: a Stroke of one width draws them exactly (ADR-0043). */
 const similar = ([a, b, c, d]: Matrix) => {
   const tolerance = 1e-9 * (a * a + b * b + c * c + d * d);
@@ -397,7 +400,7 @@ class Reader {
     if (!own.every(Number.isFinite)) {
       this.warn("INVALID_TRANSFORM", "nan", "An unreadable transform was ignored.");
       own = [...IDENTITY] as Matrix;
-    } else if (Math.abs(own[0] * own[3] - own[1] * own[2]) < 1e-12) {
+    } else if (flat(own)) {
       this.warn("INVALID_TRANSFORM", "flat", "An element scaled to nothing was dropped.");
       return;
     }
@@ -508,7 +511,7 @@ class Reader {
       const own = parseTransform(c.getAttribute("transform"));
       // An unreadable transform is ignored, as walk ignores a leaf's; one that flattens it drops it.
       const readable = own.every(Number.isFinite);
-      if (readable && Math.abs(own[0] * own[3] - own[1] * own[2]) < 1e-12) {
+      if (readable && flat(own)) {
         this.warn("INVALID_TRANSFORM", "flat", "An element scaled to nothing was dropped.");
         return;
       }
@@ -848,7 +851,8 @@ class Reader {
 
   /**
    * Fills and Strokes from resolved style, SVG's defaults where it says nothing. Widths scale, and
-   * gradients move, with `m` when the leaf bakes it into its parameters.
+   * gradients move, with `m` when the leaf bakes it into its parameters; a given `scale` scales
+   * widths instead, as a container's do.
    */
   private appearance(style: Style, e: Element, m: Matrix, scale?: number): Appearance {
     const own = this.baked(e, m) ? m : IDENTITY;
