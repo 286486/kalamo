@@ -1329,6 +1329,7 @@ it("places an SVG as one Group under the parent, and refuses a .zibel.json", asy
     ["group", "Layer 1"],
     ["group", "Guides"],
     ["group", "Painted"],
+    ["group", "Transformed"],
   ]);
   // The fixture's one missing link; its other Images are embedded.
   expect(warnings).toMatchObject([{ code: "IMAGE_LINK_MISSING" }]);

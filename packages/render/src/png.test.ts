@@ -312,9 +312,10 @@ it("draws the fixture Document with known pixels", async () => {
   // Type and a Bold Italic Area Type; by #20, an eighth Artboard holding tracked text and Character
   // Ranges; by #104, a ninth holding a Layer with a Stroke and a Group with a Stroke below Contents;
   // by #106, that Group gained a text and a Clipping Mask its paints reach; by #112, the Artboard
-  // widened for a painted Group of turned, scaled Area Type.
+  // widened for a painted Group of turned, scaled Area Type; by #113, the edited Group left the
+  // painted Layer and the Area Type grew to a sentence.
   expect(await hash(toSvg(doc, docRect(doc), { images }))).toBe(
-    "27ca67e2fc9817c1e3a9cef6b4989bb9462d1177c59037a6dfe2dc88da429853",
+    "d03aad4ae86e3f7d4c3510f5e703016c99f3deda6a029a77390927fd1221d547",
   );
   expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned, images }))).toBe(
     "24c1e7ad8db33f59933a1b355c879cb19bfdfd67d70b11427b196aa646ea4b60",

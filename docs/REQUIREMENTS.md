@@ -743,7 +743,7 @@ flowchart LR
 - 几何计算 float64；导出 SVG 默认 3 位小数，可配 1–7。
 - 布尔 / 偏移 / 描边轮廓有回归测试集（≥ 200 例，含 Paper.js 已知失败案例、自相交、近重合点、共线）。
 - SVG 往返测试：W3C SVG 1.1 测试套件静态子集 + Illustrator 导出的 100 个样例 + Inkscape 绘制的样例，像素 diff < 1%。
-- Inkscape 往返（`pnpm roundtrip`，ADR-0017）：每个 fixture 文档导出 SVG → `inkscape --export-type=svg` 另存（Inkscape ≥ 1.2）→ 导入，结构（大纲、类型、参数、名称、显隐、锁定、画板）相等，resvg 与 Inkscape 渲染像素 diff < 1%。本地运行（无 Inkscape 时跳过）并有独立 CI job，不进 `pnpm check`。每个新节点类型或外观功能都带自己的 fixture。
+- Inkscape 往返（`pnpm roundtrip`，ADR-0017）：每个 fixture 文档导出 SVG → `inkscape --export-type=svg` 另存（Inkscape ≥ 1.2）→ 导入，结构（大纲、类型、参数、名称、显隐、锁定、画板）相等，resvg 与 Inkscape 渲染像素 diff 在按画板分区的预算内（ADR-0017）。本地运行（无 Inkscape 时跳过）并有独立 CI job，不进 `pnpm check`。每个新节点类型或外观功能都带自己的 fixture。
 - 文本：同一字体在编辑器、`render`、SVG 转曲、PDF 三处字形位置一致（误差 < 0.1 pt）。
 
 ### 7.3 兼容性
@@ -897,7 +897,7 @@ zibel/
 | 阶段 | 周期（估） | 目标 | 退出标准 |
 |---|---|---|---|
 | **M0 基础骨架（headless-first）** | 4–6 周 | `core` 文档模型 + 命令 + 事务 + 历史；Canvas2D 渲染；**浏览器端只是查看器**：打开文档、缩放平移、选择、移动、删除、图层面板，不含绘图工具；`.zibel.json` 导入导出；MCP（无状态 HTTP，本地 `wrangler dev`）：`doc_*`、`doc_outline`、`node_get/query`、`node_create/update/delete/transform`、`render`、`export(svg/png)`、`tx_*`；Agent 是 M0 唯一的画图者 | Claude Code 能创建 100 个矩形 / 文字并截图；浏览器能看到并拖动它们；撤销正常；core 测试在 workerd 中通过；3 个 Agent 基准任务用 `pnpm bench` 在本地跑通 |
-| **M1 MVP（Illustrator 第一梯队 + 图表 + 托管）** | 10–12 周 | 钢笔 / 曲率 / 铅笔；路径编辑与 `Object > Path` 主要命令；布尔（live + expand）与 Shape Builder；对齐分布、智能参考线；填充 / 描边 / 线性径向渐变 / 色板；文字（点 / 区域、HarfBuzz、转曲）；剪切蒙版；画板；**Inkscape 往返：可编辑 SVG 导出、SVG 导入（打开 / 置入）、多文档标签页与跨标签页复制粘贴、`pnpm roundtrip`**（ADR-0017）；9 个 `chart_create_*`（Illustrator 同款）+ `chart_update/expand` + `diagram_create`（Mermaid flowchart）；`validate`、`scene_describe`、skills；**Cloudflare 托管上线**：Worker + Document DO + R2 + D1、OAuth、Streamable HTTP MCP、resvg 渲染；Apache-2.0 公开仓库 | 成功指标表 §1.5 中的 Agent 基准任务 ≥ 80% 一次通过；SVG 往返 diff < 1%；托管版可被 Claude Desktop 远程连接；Inkscape 往返检查通过 |
+| **M1 MVP（Illustrator 第一梯队 + 图表 + 托管）** | 10–12 周 | 钢笔 / 曲率 / 铅笔；路径编辑与 `Object > Path` 主要命令；布尔（live + expand）与 Shape Builder；对齐分布、智能参考线；填充 / 描边 / 线性径向渐变 / 色板；文字（点 / 区域、HarfBuzz、转曲）；剪切蒙版；画板；**Inkscape 往返：可编辑 SVG 导出、SVG 导入（打开 / 置入）、多文档标签页与跨标签页复制粘贴、`pnpm roundtrip`**（ADR-0017）；9 个 `chart_create_*`（Illustrator 同款）+ `chart_update/expand` + `diagram_create`（Mermaid flowchart）；`validate`、`scene_describe`、skills；**Cloudflare 托管上线**：Worker + Document DO + R2 + D1、OAuth、Streamable HTTP MCP、resvg 渲染；Apache-2.0 公开仓库 | 成功指标表 §1.5 中的 Agent 基准任务 ≥ 80% 一次通过；SVG 往返 diff < 1%；托管版可被 Claude Desktop 远程连接；Inkscape 往返检查通过（像素 diff 在按画板分区的预算内，ADR-0017） |
 | **M2 手绘 + 插画深度** | 8 周 | 压感手绘管线、Blob Brush、Eraser、Shaper；Calligraphic / Art 画笔；Appearance 多重 fill / stroke + Graphic Styles + 基础 Effects（阴影 / 发光 / 模糊 / 圆角 / 偏移）；不透明度蒙版；Symbols；Repeat；Blend；Recolor；Image Trace；可变宽度描边；路径文字；Asset Export、PDF 导出；连接线绑定；`run_script` 沙箱 | 插画基准任务通过；触控笔设备实测 |
 | **M3 性能与协作** | 6–8 周 | CanvasKit 渲染后端（浏览器与 Worker）；10k 节点性能达标；多用户协作（光标 / 选区）；软锁与 Agent 意图展示；版本历史（R2 快照）；Queues 长任务；审计与配额；Docker 自托管镜像 | §7.1 性能表全部达标 |
 | **M4 扩展** | 持续 | Freeform 渐变、Envelope、Live Paint 组、CMYK 文档模式（近似预览）、更多 Effects 与图表类型、Pattern Brush、OpenType 特性、PDF 导入、插件 API、纵排、稳定器 | 按需求排期 |

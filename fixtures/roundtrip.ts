@@ -4,7 +4,7 @@
 import { spawnSync } from "node:child_process";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { inflateSync } from "node:zlib";
+import { crc32, deflateSync, inflateSync } from "node:zlib";
 import { httpCall } from "./agent-benchmarks/mcp.ts";
 import { startServer } from "./wrangler.ts";
 
@@ -14,11 +14,17 @@ const FIXTURES = join(import.meta.dirname, "documents");
 const WHITE = "#FFFFFF";
 /** Fails a hung Inkscape (a display or font-cache probe) instead of the CI job's 6 h limit. */
 const TIMEOUT_MS = 120_000;
-/** A pixel differs when a channel is off by more than this; a fixture fails at 1% of pixels. */
+/** A pixel differs when a channel is off by more than this. */
 const TOLERANCE = 32;
-const MAX_DIFFERENT = 0.01;
+/** The share of a region's pixels that may differ (ADR-0017): twice the worst measured baseline
+ * for vector art, and for a text or Image under what one hidden word differs by. */
+const BUDGET = { vector: 0.007, text: 0.15 };
+/** Text and Image bounds grow by this, in pt, to cover antialiasing, besides their Strokes. */
+const MARGIN = 2;
 /** The inkscape fixture's painted Group (ADR-0043), which the edit passes transform in Inkscape. */
 const PAINTED = "01M38T29SXC0NTA1NERSGR0VP0";
+/** Nodes that resvg draws hidden against Inkscape's no-edit PNG: each must fail its own region. */
+const PROBES = { star: "01M38T29SRR0VNDNVMBERSTAR0", Bold: "01M38T29SVTYPE0000000000B0" };
 /** Inkscape edits whose matrix, written on the Group's <g>, must import as node_transform (#108). */
 const EDITS = {
   "rotate+scale": "transform-rotate:30;transform-scale:2",
@@ -163,18 +169,84 @@ function decodePng(png: Buffer): Image {
   return { width, height, data: out };
 }
 
-/** The share of pixels where any channel differs by more than TOLERANCE. */
-function differentPixels(a: Image, b: Image): number {
+/** An RGBA8 PNG of `image`, unfiltered. */
+function encodePng({ width, height, data }: Image): Buffer {
+  const chunk = (type: string, body: Buffer) => {
+    const out = Buffer.alloc(12 + body.length);
+    out.writeUInt32BE(body.length, 0);
+    out.write(type, 4, "latin1");
+    body.copy(out, 8);
+    out.writeUInt32BE(crc32(out.subarray(4, 8 + body.length)), 8 + body.length);
+    return out;
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header.set([8, 6, 0, 0, 0], 8);
+  const raw = Buffer.alloc(height * (width * 4 + 1));
+  for (let y = 0; y < height; y++)
+    raw.set(data.subarray(y * width * 4, (y + 1) * width * 4), y * (width * 4 + 1) + 1);
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk("IHDR", header),
+    chunk("IDAT", deflateSync(raw)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+type Rect = { x: number; y: number; width: number; height: number };
+const contains = (r: Rect, x: number, y: number) =>
+  r.x <= x && x < r.x + r.width && r.y <= y && y < r.y + r.height;
+
+interface Region {
+  name: string;
+  kind: keyof typeof BUDGET;
+  /** What a text region holds: a text's first 16 characters, or an Image's name. */
+  subject?: string;
+  /** Pixels in the region, and those of them that differ. */
+  area: number;
+  differ: number;
+}
+
+/** A pixel in no region: counted by no budget. */
+const UNCHECKED = 0xffff;
+
+/** Each pixel's index into `regions`: each Artboard's and then outside Artboards' vector region,
+ * then a text region for each text or Image on each of them. */
+interface RegionMap {
+  regions: Region[];
+  of: Uint16Array;
+  docRect: Rect;
+}
+
+const share = (r: Region) => r.differ / r.area;
+const percent = (n: number) => `${Number((n * 100).toFixed(2))}%`;
+const label = (r: Region) => [r.name, r.kind, r.subject].filter(Boolean).join(" ");
+const against = (r: Region) => `${percent(share(r))} of ${percent(BUDGET[r.kind])}`;
+const describe = (r: Region) => `${label(r)} ${r.differ} px of ${r.area} (${against(r)})`;
+
+/** Counts the pixels where any channel differs by more than TOLERANCE into each region of `map`,
+ * and draws them in magenta over a faded copy of resvg's PNG, as `diff`. */
+function compare(map: RegionMap, resvgPng: string, inkscapePng: string, diff: string): Region[] {
+  const [a, b] = [resvgPng, inkscapePng].map((f) => decodePng(readFileSync(f))) as [Image, Image];
   if (a.width !== b.width || a.height !== b.height)
     throw new Error(`resvg ${a.width}x${a.height} px, Inkscape ${b.width}x${b.height} px`);
-  let n = 0;
-  for (let i = 0; i < a.data.length; i += 4)
+  if (a.width !== map.docRect.width || a.height !== map.docRect.height)
+    throw new Error(`PNG ${a.width}x${a.height} px, want the docRect at 1 px per pt`);
+  const regions = map.regions.map((r) => ({ ...r, differ: 0 }));
+  const out = new Uint8Array(a.data.length);
+  for (let i = 0; i < a.data.length; i += 4) {
+    let differs = false;
     for (let k = 0; k < 4; k++)
-      if (Math.abs((a.data[i + k] ?? 0) - (b.data[i + k] ?? 0)) > TOLERANCE) {
-        n++;
-        break;
-      }
-  return n / (a.width * a.height);
+      differs ||= Math.abs((a.data[i + k] ?? 0) - (b.data[i + k] ?? 0)) > TOLERANCE;
+    const region = regions[map.of[i / 4] ?? 0];
+    if (differs && region) region.differ++;
+    for (let k = 0; k < 3; k++)
+      out[i + k] = differs ? ([255, 0, 255][k] ?? 0) : 191 + ((a.data[i + k] ?? 0) >> 2);
+    out[i + 3] = 255;
+  }
+  writeFileSync(diff, encodePng({ width: a.width, height: a.height, data: out }));
+  return regions;
 }
 
 async function main() {
@@ -206,14 +278,105 @@ async function main() {
         warnings: { code: string }[];
       };
     const text = async (args: object) => (await call("zibel_export", args)).content[0]?.text ?? "";
+    /** The regions of the Document `docId` in its PNG of `docRect`, at 1 px per pt: each pixel
+     * goes to the first Artboard holding it, and there to text when it is in the bounds of a
+     * drawn text or Image grown by MARGIN and half the widest Stroke on it or a container above. */
+    const regionMap = async (docId: string, docRect: Rect): Promise<RegionMap> => {
+      const doc = JSON.parse(await text({ docId, format: "zibel_json" })) as Doc;
+      const views = (
+        await call("zibel_node_get", {
+          docId,
+          nodeIds: doc.nodes.map((n) => n.id),
+          detail: "full",
+        })
+      ).structuredContent.nodes as {
+        id: string;
+        type: string;
+        parentId: string | null;
+        visible: boolean;
+        visibleBounds?: Rect | null;
+        worldTransform?: number[];
+        name: string;
+        content?: string;
+        src?: string;
+        appearance?: { strokes?: { width: number }[] };
+      }[];
+      const byId = new Map(views.map((v) => [v.id, v]));
+      const rects: { rect: Rect; subject: string; unchecked: boolean }[] = [];
+      for (const v of views) {
+        if ((v.type !== "text" && v.type !== "image") || !v.visibleBounds) continue;
+        const chain = [];
+        for (let n: typeof v | undefined = v; n; n = byId.get(n.parentId ?? "")) chain.push(n);
+        if (!chain.every((n) => n.visible)) continue;
+        // visibleBounds already holds the Node's own Stroke; a container's outlines it as well.
+        const stroke = Math.max(
+          0,
+          ...chain.slice(1).flatMap((n) => {
+            const [a = 1, b = 0, c = 0, d = 1] = n.worldTransform ?? [];
+            return (n.appearance?.strokes ?? []).map(
+              (s) => s.width * Math.sqrt(Math.abs(a * d - b * c)),
+            );
+          }),
+        );
+        const grow = MARGIN + stroke / 2;
+        const { x, y, width, height } = v.visibleBounds;
+        rects.push({
+          rect: { x: x - grow, y: y - grow, width: width + 2 * grow, height: height + 2 * grow },
+          subject: JSON.stringify(
+            (v.content ?? (v.name || v.id)).replace(/\s+/g, " ").slice(0, 16),
+          ),
+          // Inkscape draws its own icon for a missing link (ADR-0042): no budget covers it.
+          unchecked: v.type === "image" && !v.src,
+        });
+      }
+      const names = [...doc.artboards.map((a) => String(a.name)), "outside Artboards"];
+      const frames = doc.artboards.map((a) => a.frame as Rect);
+      // Each Artboard's vector region, then each text or Image on each Artboard as it is met.
+      const regions: Region[] = names.map((name) => ({ name, kind: "vector", area: 0, differ: 0 }));
+      const index = new Map<string, number>();
+      const of = new Uint16Array(docRect.width * docRect.height);
+      for (let py = 0; py < docRect.height; py++)
+        for (let px = 0; px < docRect.width; px++) {
+          const [x, y] = [docRect.x + px + 0.5, docRect.y + py + 0.5];
+          const found = frames.findIndex((f) => contains(f, x, y));
+          const artboard = found < 0 ? frames.length : found;
+          const t = rects.findIndex((r) => contains(r.rect, x, y));
+          const rect = rects[t];
+          let i = artboard;
+          if (rect?.unchecked) i = UNCHECKED;
+          else if (rect) {
+            const key = `${artboard} ${t}`;
+            i = index.get(key) ?? regions.length;
+            if (i === regions.length) {
+              index.set(key, i);
+              const name = names[artboard] as string;
+              regions.push({ name, kind: "text", subject: rect.subject, area: 0, differ: 0 });
+            }
+          }
+          of[py * docRect.width + px] = i;
+          if (regions[i]) regions[i].area++;
+        }
+      return { regions, of, docRect };
+    };
+    /** The regions over budget, and the region closest to its budget. */
+    const judge = (regions: Region[]) => {
+      const counted = regions.filter((r) => r.area);
+      const over = counted.filter((r) => share(r) > BUDGET[r.kind]);
+      const load = (r: Region) => share(r) / BUDGET[r.kind];
+      const worst = counted.reduce((w, r) => (load(r) > load(w) ? r : w));
+      return { over, worst };
+    };
     /** One fixture line, counting it as failed when either check fails. */
-    const report = (structure: string | undefined, ratio: number) => {
-      if (structure || ratio >= MAX_DIFFERENT) failed++;
-      const pixels = `pixels ${(ratio * 100).toFixed(2)}%${ratio < MAX_DIFFERENT ? "" : " FAIL"}`;
+    const report = (structure: string | undefined, regions: Region[]) => {
+      const { over, worst } = judge(regions);
+      if (structure || over.length) failed++;
+      const pixels = over.length
+        ? `pixels FAIL ${over.map(describe).join(", ")}`
+        : `pixels pass (worst ${label(worst)} ${against(worst)})`;
       return [`structure ${structure ? `FAIL ${structure}` : "pass"}`, pixels].join("  ");
     };
     /** resvg's PNG of `docId`, the whole Document or `rect`, into `dir`; returns the rect drawn. */
-    const resvg = async (dir: string, docId: string, rect?: object) => {
+    const resvg = async (dir: string, docId: string, rect?: Rect) => {
       const png = await call("zibel_export", {
         docId,
         format: "png",
@@ -221,10 +384,10 @@ async function main() {
         ...(rect && { scope: { rect } }),
       });
       writeFileSync(join(dir, "resvg.png"), Buffer.from(png.content[0]?.data ?? "", "base64"));
-      return png.structuredContent.viewport.docRect as object;
+      return png.structuredContent.viewport.docRect as Rect;
     };
-    /** Inkscape's PNG of `svg` at 1 px per pt, against resvg's in `dir`: the share that differs. */
-    const inkscapeDiff = (dir: string, svg: string) => {
+    /** Inkscape's PNG of `svg` at 1 px per pt, against resvg's in `dir`, by region of `map`. */
+    const inkscapeDiff = (dir: string, svg: string, map: RegionMap) => {
       inkscape(
         "--export-type=png",
         "-C",
@@ -236,10 +399,7 @@ async function main() {
         `--export-filename=${join(dir, "inkscape.png")}`,
         svg,
       );
-      return differentPixels(
-        decodePng(readFileSync(join(dir, "resvg.png"))),
-        decodePng(readFileSync(join(dir, "inkscape.png"))),
-      );
+      return compare(map, join(dir, "resvg.png"), join(dir, "inkscape.png"), join(dir, "diff.png"));
     };
     for (const file of readdirSync(FIXTURES).filter((f) => f.endsWith(".zibel.json"))) {
       const fixture = file.slice(0, -".zibel.json".length);
@@ -247,6 +407,7 @@ async function main() {
       const dir = join(STATE, fixture);
       mkdirSync(join(dir, "inkscape"), { recursive: true });
       let line: string;
+      const probes: string[] = [];
       try {
         const original = await open(json);
         const { docId } = original;
@@ -274,13 +435,55 @@ async function main() {
         const docRect = await resvg(dir, docId);
         const pixelsSvg = join(dir, "pixels.svg");
         writeFileSync(pixelsSvg, await text({ docId, format: "svg", scope: { rect: docRect } }));
-        const ratio = inkscapeDiff(dir, pixelsSvg);
-        line = report(structure, ratio);
+        const map = await regionMap(docId, docRect);
+        line = report(structure, inkscapeDiff(dir, pixelsSvg, map));
+
+        // Each probe hidden from resvg must fail on its own Artboard and region kind. The probes
+        // are the edit target's fixture's: there a missing one fails, as a buried one does.
+        const probing = want.nodes.some((n) => n.id === PAINTED);
+        for (const [probe, nodeId] of Object.entries(probing ? PROBES : {})) {
+          try {
+            const [view] = (
+              await call("zibel_node_get", { docId, nodeIds: [nodeId], detail: "full" })
+            ).structuredContent.nodes as { visibleBounds: Rect | null }[];
+            const b = view?.visibleBounds;
+            if (!b) throw new Error("draws nothing");
+            const px = Math.floor(b.x + b.width / 2 - docRect.x);
+            const py = Math.floor(b.y + b.height / 2 - docRect.y);
+            const at = px >= 0 && px < docRect.width && py >= 0 ? py * docRect.width + px : -1;
+            const copy = await open(json);
+            await call("zibel_node_update", {
+              docId: copy.docId,
+              updates: [{ nodeId, patch: { visible: false } }],
+            });
+            const probeDir = join(dir, "probes", probe);
+            mkdirSync(probeDir, { recursive: true });
+            await resvg(probeDir, copy.docId, docRect);
+            const regions = compare(
+              map,
+              join(probeDir, "resvg.png"),
+              join(dir, "inkscape.png"),
+              join(probeDir, "diff.png"),
+            );
+            const own = regions[map.of[at] ?? UNCHECKED];
+            if (!own) throw new Error("its centre is in no region");
+            const detected = judge(regions).over.includes(own);
+            if (!detected) failed++;
+            const under = `${label(own)} ${percent(share(own))} under ${percent(BUDGET[own.kind])}`;
+            probes.push(
+              `probe ${probe}: ${detected ? `detected (${describe(own)})` : `not detected, ${under}`}`,
+            );
+          } catch (e) {
+            failed++;
+            probes.push(`probe ${probe}: FAIL ${(e as Error).message}`);
+          }
+        }
       } catch (e) {
         failed++;
         line = `FAIL  ${(e as Error).message}`;
       }
       console.log(`${fixture.padEnd(12)}  ${line}`);
+      for (const probe of probes) console.log(`${fixture.padEnd(12)}  ${probe}`);
       if (!JSON.parse(json).nodes.some((n: Doc["nodes"][number]) => n.id === PAINTED)) continue;
       for (const [edit, actions] of Object.entries(EDITS)) {
         try {
@@ -324,8 +527,8 @@ async function main() {
             ? `warnings: ${JSON.stringify(warnings)}`
             : firstDifference(want, got);
           await resvg(editDir, reopened.docId, docRect);
-          const ratio = inkscapeDiff(editDir, framed);
-          line = report(structure, ratio);
+          const map = await regionMap(reopened.docId, docRect);
+          line = report(structure, inkscapeDiff(editDir, framed, map));
         } catch (e) {
           failed++;
           line = `FAIL  ${(e as Error).message}`;
