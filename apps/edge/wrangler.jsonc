@@ -4,7 +4,8 @@
   "main": "src/index.ts",
   // Must not be later than the workerd bundled with @cloudflare/vitest-plugin.
   "compatibility_date": "2026-09-21",
-  "compatibility_flags": ["nodejs_compat"],
+  // global_fetch_strictly_public: the SSRF guard that MCP OAuth's Client ID Metadata Documents need.
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   // pathkit-wasm's Emscripten loader takes nodejs_compat's process for Node and reads __dirname,
   // which an ES module Worker lacks. It never loads a file: the wasm is handed over (ADR-0034).
   "define": { "__dirname": "\"/\"" },
@@ -13,11 +14,11 @@
     { "type": "Data", "globs": ["**/*.ttf"], "fallthrough": true },
     { "type": "Text", "globs": ["**/*.md"], "fallthrough": true }
   ],
-  // The web app (built by `pnpm dev`); the Worker answers /mcp, /api and /auth first.
+  // The web app (built by `pnpm dev`); the Worker answers /mcp, /api, /auth and OAuth's routes first.
   "assets": {
     "directory": "../web/dist",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/mcp", "/api/*", "/auth/*"]
+    "run_worker_first": ["/mcp", "/api/*", "/auth/*", "/authorize", "/oauth/*", "/.well-known/*"]
   },
   "durable_objects": {
     "bindings": [{ "name": "DOCUMENT", "class_name": "DocumentObject" }]
@@ -32,9 +33,12 @@
     }
   ],
   // Image files, one object per file per Document (ADR-0046); wrangler dev and tests emulate it.
+  // MCP OAuth grants and tokens, hashed and encrypted by workers-oauth-provider (ADR-0047).
+  // `wrangler kv namespace create OAUTH_KV --binding OAUTH_KV --update-config` replaces this id.
+  "kv_namespaces": [{ "binding": "OAUTH_KV", "id": "0e8bd0c1a4c34b5c9a0cbf3a7c2e3d41" }],
   "r2_buckets": [{ "binding": "IMAGES", "bucket_name": "zibel-images" }],
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["DocumentObject"] }],
   // Deployed Workers sign browsers in with GitHub (ADR-0047). `.dev.vars` sets `dev` locally; the
-  // GitHub secrets and APP_ORIGIN (and DEV_TOKENS until MCP OAuth) are Worker secrets.
+  // GitHub secrets, APP_ORIGIN and MCP_ORIGIN are Worker secrets.
   "vars": { "AUTH_MODE": "github" }
 }

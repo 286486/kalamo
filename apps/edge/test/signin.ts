@@ -1,3 +1,4 @@
+import { createExecutionContext } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { vi } from "vitest";
 import worker from "../src/index.ts";
@@ -13,9 +14,16 @@ export const githubEnv: Env = {
   GITHUB_CLIENT_SECRET: "test-secret",
 };
 
-/** A request to the Worker in GitHub mode; `init` carries any cookie and Origin. */
+/**
+ * A request to the Worker in GitHub mode; `init` carries any cookie and Origin. A path is on
+ * APP_ORIGIN; a full URL goes where it names.
+ */
 export const hosted = (path: string, init: RequestInit = {}, e: Env = githubEnv) =>
-  worker.fetch(new Request(`${APP_ORIGIN}${path}`, init) as Parameters<typeof worker.fetch>[0], e);
+  worker.fetch(
+    new Request(new URL(path, APP_ORIGIN), init) as Parameters<typeof worker.fetch>[0],
+    e,
+    createExecutionContext(),
+  );
 
 /** The access token the stubbed GitHub hands out, which nothing may keep. */
 export const GITHUB_TOKEN = "gho_stubbed_access_token";

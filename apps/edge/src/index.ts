@@ -7,21 +7,50 @@ import {
   authRoute,
   crossOrigin,
   foreignOrigin,
+  githubMode,
   misconfigured,
   type Principal,
   permissionDenied,
   signInRequired,
 } from "./auth.ts";
 import { imageKey } from "./document-object.ts";
+import { agentPrincipal, oauthProvider, oauthRoute, revokedChallenge } from "./oauth.ts";
 import { documentService, listDocuments, unwrap } from "./service.ts";
 
 export { DocumentObject } from "./document-object.ts";
 
+/**
+ * GitHub mode puts the OAuth provider in front (ADR-0047): it answers discovery, registration and
+ * tokens, hands `/mcp` with a valid token to `agentMcp`, and everything else to `app`.
+ */
 export default {
-  async fetch(request, env): Promise<Response> {
-    if (misconfigured(env)) return new Response("server misconfigured", { status: 500 });
+  fetch(request, env, ctx): Promise<Response> {
+    if (misconfigured(env)) {
+      return Promise.resolve(new Response("server misconfigured", { status: 500 }));
+    }
+    if (!githubMode(env)) return app.fetch(request, env);
+    return oauthProvider(env, app, agentMcp).fetch(request, env, ctx);
+  },
+} satisfies ExportedHandler<Env>;
+
+/** `/mcp` behind a valid OAuth token, as the token's Agent Actor. */
+const agentMcp = {
+  async fetch(request, env, ctx) {
+    const principal = await agentPrincipal(env, ctx);
+    if (!principal) {
+      return new Response(null, {
+        status: 401,
+        headers: { "www-authenticate": revokedChallenge(env) },
+      });
+    }
+    return mcp(request, env, principal);
+  },
+} satisfies ExportedHandler<Env>;
+
+const app = {
+  async fetch(request: Request, env: Env): Promise<Response> {
     if (crossOrigin(request, env)) return foreignOrigin();
-    const auth = authRoute(request, env);
+    const auth = authRoute(request, env) ?? (githubMode(env) ? oauthRoute(request, env) : null);
     if (auth) return auth;
     const url = new URL(request.url);
     const principal = await authenticate(request, env);
@@ -50,7 +79,7 @@ export default {
     if (url.pathname === "/api/docs") return Response.json({ documents: await listDocuments(env) });
     return new Response("not found", { status: 404 });
   },
-} satisfies ExportedHandler<Env>;
+};
 
 async function mcp(request: Request, env: Env, principal: Principal | null): Promise<Response> {
   if (!principal) return permissionDenied();

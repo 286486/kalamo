@@ -24,7 +24,7 @@ const mcpPing = (e: Env, token?: string) =>
   );
 
 describe("server misconfigured", () => {
-  it.each(["GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "APP_ORIGIN", "DB"] as const)(
+  it.each(["GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "APP_ORIGIN", "DB", "OAUTH_KV"] as const)(
     "answers every request 500 without %s",
     async (key) => {
       const e = { ...githubEnv, [key]: undefined } as unknown as Env;
@@ -258,11 +258,8 @@ describe("attribution", () => {
 });
 
 describe("MCP in GitHub mode", () => {
-  it("still takes a dev token, and refuses without one", async () => {
-    expect((await mcpPing(githubEnv, "dev-token-a")).status).toBe(200);
-    expect((await mcpPing(githubEnv)).status).toBe(401);
-    const noTokens = { ...githubEnv, DEV_TOKENS: undefined };
-    expect((await mcpPing(noTokens, "dev-token-a")).status).toBe(401);
+  it("takes no dev token", async () => {
+    expect((await mcpPing(githubEnv, "dev-token-a")).status).toBe(401);
   });
 });
 

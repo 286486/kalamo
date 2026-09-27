@@ -46,20 +46,25 @@ claude mcp add --transport http zibel http://localhost:8787/mcp -H "Authorizatio
 The Worker runs in one of two auth modes, set by `AUTH_MODE` (ADR-0047):
 
 - `github`, the default in `apps/edge/wrangler.jsonc`: people sign in to the browser app with GitHub. Any value other than `dev` means `github`.
-- `dev`: MCP takes the `DEV_TOKENS` Bearer tokens and browsers are not signed in. It is safe only on a private network, and only with long random tokens.
+- `dev`: MCP takes the `DEV_TOKENS` Bearer tokens and browsers are not signed in. GitHub mode ignores `DEV_TOKENS`. It is safe only on a private network, and only with long random tokens.
 
-Until Document ownership lands, every signed-in person reaches every Document, and MCP still takes `DEV_TOKENS` tokens in GitHub mode. Do not put sensitive documents on a hosted Worker yet.
+Until Document ownership lands, every signed-in person and every connected Agent reaches every Document. Do not put sensitive documents on a hosted Worker yet.
 
 GitHub mode needs a GitHub OAuth App (GitHub > Settings > Developer settings > OAuth Apps) whose authorization callback URL is `<APP_ORIGIN>/auth/github/callback`, for example `https://zibel.example.workers.dev/auth/github/callback`. Zibel asks it for no scopes. The Worker then needs these secrets, and answers every request 500 `server misconfigured` while one is missing:
 
-- `APP_ORIGIN`: the browser app's origin, such as `https://zibel.example.workers.dev`, with no trailing slash.
+- `APP_ORIGIN`: the browser app's origin, such as `https://zibel.example.workers.dev`, with no trailing slash. It is also the OAuth issuer that MCP clients authorize with.
+- `MCP_ORIGIN` (optional): the origin MCP clients connect to, such as `https://mcp.zibel.example`, if it differs from `APP_ORIGIN`. Both hosts must route to the Worker.
 - `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`: the OAuth App's.
-- `DEV_TOKENS` (optional): `token=actor` pairs for MCP until MCP OAuth lands.
+
+GitHub mode also needs the `OAUTH_KV` KV namespace, where `@cloudflare/workers-oauth-provider` keeps MCP OAuth grants and tokens (hashed, with encrypted props). The provider needs no secret of its own.
+
+MCP clients connect to `<MCP_ORIGIN>/mcp` with no token, for example `claude mcp add --transport http zibel https://zibel.example.workers.dev/mcp`. The client discovers the authorization server, opens GitHub sign-in and a Zibel consent page in the browser, and becomes an Agent of that person, named after the client and the login. The account menu's Connected Agents lists and revokes them.
 
 ```sh
 pnpm exec wrangler login
 cp apps/edge/.deploy.vars.example apps/edge/.deploy.vars # fill in the secrets above
 pnpm exec wrangler d1 create zibel --location apac --binding DB --update-config -c apps/edge/wrangler.jsonc
+pnpm exec wrangler kv namespace create OAUTH_KV --binding OAUTH_KV --update-config -c apps/edge/wrangler.jsonc
 pnpm deploy:check
 pnpm deploy
 ```

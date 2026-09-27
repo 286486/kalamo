@@ -2,5 +2,5 @@
 APP_ORIGIN="https://zibel.example.workers.dev"
 GITHUB_CLIENT_ID="replace-with-the-oauth-app-client-id"
 GITHUB_CLIENT_SECRET="replace-with-the-oauth-app-client-secret"
-# Optional until MCP OAuth: comma-separated token=actor pairs of long random tokens.
-DEV_TOKENS="replace-with-a-long-random-token=agent-a"
+# Optional: the origin MCP clients connect to, when it is not APP_ORIGIN.
+# MCP_ORIGIN="https://mcp.zibel.example"

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 /** `GET /api/me` (ADR-0047). */
 export interface Me {
@@ -24,8 +24,13 @@ export function useMe() {
   return me;
 }
 
-/** The GitHub login, avatar and Sign out, at the menu bar's right end; nothing in dev mode. */
+/**
+ * The GitHub login and avatar at the menu bar's right end, opening the account menu: Connected
+ * Agents and Sign out. Nothing in dev mode.
+ */
 export function Account({ me }: { me: Me }) {
+  const [open, setOpen] = useState(false);
+  const [agents, setAgents] = useState(false);
   if (me.mode !== "github") return null;
   return (
     <div
@@ -33,21 +38,106 @@ export function Account({ me }: { me: Me }) {
         position: "fixed",
         top: 0,
         right: 8,
-        height: 26,
-        display: "flex",
-        alignItems: "center",
-        gap: 6,
         font: "13px system-ui, sans-serif",
+        zIndex: 10,
       }}
     >
-      {me.avatarUrl && (
-        <img src={me.avatarUrl} alt="" width={18} height={18} style={{ borderRadius: 9 }} />
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        style={{ height: 26, display: "flex", alignItems: "center", gap: 6 }}
+      >
+        {me.avatarUrl && (
+          <img src={me.avatarUrl} alt="" width={18} height={18} style={{ borderRadius: 9 }} />
+        )}
+        {me.login}
+      </button>
+      {open && (
+        <div
+          role="menu"
+          style={{ position: "absolute", right: 0, background: "white", border: "1px solid #ccc" }}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              setAgents(true);
+            }}
+          >
+            Connected Agents…
+          </button>
+          <form method="post" action="/auth/signout">
+            <button type="submit" role="menuitem">
+              Sign out
+            </button>
+          </form>
+        </div>
       )}
-      <span>{me.login}</span>
-      <form method="post" action="/auth/signout">
-        <button type="submit">Sign out</button>
-      </form>
+      {agents && <ConnectedAgents onClose={() => setAgents(false)} />}
     </div>
+  );
+}
+
+/** `GET /api/agents` (ADR-0047). */
+interface Agent {
+  actorId: string;
+  name: string;
+  access: "write" | "read";
+  createdAt: string;
+}
+
+/** The MCP clients the User approved, each revocable. */
+function ConnectedAgents({ onClose }: { onClose: () => void }) {
+  const [agents, setAgents] = useState<Agent[] | "error" | null>(null);
+  const load = useCallback(() => {
+    fetch("/api/agents")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((body: { agents: Agent[] }) => setAgents(body.agents))
+      .catch(() => setAgents("error"));
+  }, []);
+  useEffect(load, [load]);
+  const revoke = async (agent: Agent) => {
+    if (!confirm(`Revoke ${agent.name}? It stops working now and must connect again.`)) return;
+    await fetch(`/api/agents/${encodeURIComponent(agent.actorId)}`, { method: "DELETE" });
+    load();
+  };
+  return (
+    <dialog
+      open
+      aria-label="Connected Agents"
+      style={{ position: "fixed", top: 40, right: 8, left: "auto", minWidth: 320 }}
+    >
+      <h2 style={{ fontSize: 15, marginTop: 0 }}>Connected Agents</h2>
+      {agents === null && <p>Loading…</p>}
+      {agents === "error" && <p>Could not load your Agents.</p>}
+      {Array.isArray(agents) && agents.length === 0 && <p>No MCP client is connected.</p>}
+      {Array.isArray(agents) && agents.length > 0 && (
+        <table>
+          <tbody>
+            {agents.map((a) => (
+              <tr key={a.actorId}>
+                <td>{a.name}</td>
+                <td>{a.access === "write" ? "Read and edit" : "Read only"}</td>
+                <td>{new Date(a.createdAt).toLocaleDateString()}</td>
+                <td>
+                  <button type="button" onClick={() => revoke(a)}>
+                    Revoke
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <p>
+        <button type="button" onClick={onClose}>
+          Close
+        </button>
+      </p>
+    </dialog>
   );
 }
 

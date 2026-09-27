@@ -26,19 +26,18 @@ export const githubMode = (env: Env) => env.AUTH_MODE !== "dev";
 /** GitHub mode without what it needs answers every request 500, rather than serve without auth. */
 export const misconfigured = (env: Env) =>
   githubMode(env) &&
-  !(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET && env.APP_ORIGIN && env.DB);
+  !(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET && env.APP_ORIGIN && env.DB && env.OAUTH_KV);
 
 /**
  * GitHub mode refuses a cookie-authenticated write or WebSocket upgrade from another site's page
- * (CSRF, cross-site WebSocket hijacking). `/mcp` authenticates by Bearer token, which no page sends.
+ * (CSRF, cross-site WebSocket hijacking). `/mcp` and OAuth's own endpoints never reach this check.
  */
 export const crossOrigin = (request: Request, env: Env) =>
   githubMode(env) &&
-  new URL(request.url).pathname !== "/mcp" &&
   (!["GET", "HEAD"].includes(request.method) || request.headers.get("upgrade") === "websocket") &&
   request.headers.get("origin") !== env.APP_ORIGIN;
 
-/** The Principal of a request, or null: one function per auth mode. */
+/** The Principal of a browser request, or of dev mode's `/mcp`, or null: one function per auth mode. */
 export const authenticate = (request: Request, env: Env): Promise<Principal | null> =>
   (githubMode(env) ? github : dev)(request, env);
 
@@ -47,9 +46,8 @@ async function dev(request: Request, env: Env) {
   return isMcp(request) ? devPrincipal(request, env) : LOCAL;
 }
 
-/** GitHub mode: an MCP client by its dev token until MCP OAuth; a browser by its session. */
+/** GitHub mode: a browser by its session. `/mcp` takes its Principal from the OAuth token. */
 async function github(request: Request, env: Env) {
-  if (isMcp(request)) return devPrincipal(request, env);
   const user = await sessionUser(request, env);
   return user && { userId: user.id, actor: `user_${user.id}`, access: "write" as const };
 }
@@ -72,14 +70,14 @@ function actorFor(request: Request, devTokens: string): string | null {
   return null;
 }
 
-interface User {
+export interface User {
   id: string;
   login: string;
   avatarUrl: string | null;
 }
 
 /** The signed-in User of an unexpired session, sliding its last-seen time at most once a day. */
-async function sessionUser(request: Request, env: Env): Promise<User | null> {
+export async function sessionUser(request: Request, env: Env): Promise<User | null> {
   const token = readCookie(request, SESSION_COOKIE);
   if (!token) return null;
   const hash = await sha256(token);
@@ -252,7 +250,8 @@ const cookie = (name: string, value: string, maxAge: number) =>
 const readCookie = (request: Request, name: string) =>
   request.headers.get("cookie")?.match(new RegExp(`(?:^|;\\s*)${name}=([^;]*)`))?.[1] || null;
 
-const hex = (bytes: Uint8Array) => [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+export const hex = (bytes: Uint8Array) =>
+  [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
 
 const sha256 = async (text: string) =>
   hex(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))));
