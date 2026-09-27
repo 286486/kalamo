@@ -1,5 +1,5 @@
 import { evictDurableObject, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
-import { env } from "cloudflare:workers";
+import { env, exports } from "cloudflare:workers";
 import { imageId, readImage } from "@zibel/core";
 import { parseFile } from "@zibel/io";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -319,6 +319,13 @@ describe("image files in R2, swept once nothing names them (ADR-0046)", () => {
     expect(await s.createNodes([image(BLUE_1x1_PNG)], "agent", { ifRev: rev - 1 })).toMatchObject({
       error: { code: "REV_CONFLICT" },
     });
+    const rect = { type: "rect", parentId, x: 0, y: 0, width: 1, height: 1 } as const;
+    ok(await s.createNodes([image(BLUE_1x1_PNG, bad), rect], "agent", { partial: true }));
+    expect((await stored("r2-refused")).rows).toEqual([]);
+    // The failed item's upload is an orphan, swept once it is an hour old.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now() + 60 * 60_000 + 1000);
+    expect(await runDurableObjectAlarm(s)).toBe(true);
     expect(await stored("r2-refused")).toEqual({ rows: [], objects: [] });
     ok(await s.createNodes([image(BLUE_1x1_PNG)], "agent"));
     expect(await stored("r2-refused")).toEqual({
@@ -350,6 +357,9 @@ describe("image files in R2, swept once nothing names them (ADR-0046)", () => {
     ok(await s.createNodes([rect], "agent"));
     expect(await runDurableObjectAlarm(s)).toBe(true);
     expect(await stored("r2-history")).toEqual({ rows: [], objects: [] });
+    const served = await exports.default.fetch(`http://zibel/api/docs/r2-history/images/${id}`);
+    expect(served.status).toBe(404);
+    await served.body?.cancel();
     expect(await s.createNodes([image(id)], "agent")).toMatchObject({
       error: { code: "INVALID_IMAGE" },
     });
@@ -391,7 +401,8 @@ describe("image files in R2, swept once nothing names them (ADR-0046)", () => {
     expect(await stored("r2-orphan")).toEqual({ rows: [red], objects: [orphan, red] });
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(Date.now() + 60 * 60_000 + 1000);
-    await sweep(s, parentId);
+    // The sweep that kept it asked for another once it is an hour old.
+    expect(await runDurableObjectAlarm(s)).toBe(true);
     expect(await stored("r2-orphan")).toEqual({ rows: [red], objects: [red] });
     await sweep(s, parentId);
     expect(await stored("r2-orphan")).toEqual({ rows: [red], objects: [red] });
@@ -408,7 +419,7 @@ describe("image files in R2, swept once nothing names them (ADR-0046)", () => {
     const url = (bytes: Uint8Array) => `data:image/png;base64,${bytes.toBase64()}`;
 
     it("refuses a write that would store a new file past it, with nothing stored; a held file always passes", async () => {
-      const { s, image } = await setup("r2-quota");
+      const { s, image, parentId } = await setup("r2-quota");
       for (let n = 0; n < 4; n++) ok(await s.createNodes([image(url(png(n)))], "agent"));
       expect(await s.storedImageBytes()).toBe(20 * 1024 * 1024);
       const { rev } = ok(await s.info());
@@ -424,6 +435,12 @@ describe("image files in R2, swept once nothing names them (ADR-0046)", () => {
       expect((await stored("r2-quota")).objects).toHaveLength(4);
       expect(await objectOf("r2-quota", await blueId())).toBeNull();
 
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><image width="1" height="1" xlink:href="${BLUE_1x1_PNG}"/></svg>`;
+      expect(await s.place(parseFile(svg), "user", { parentId })).toMatchObject({
+        error: { code: "LIMIT_EXCEEDED" },
+      });
+      expect(ok(await s.info()).rev).toBe(rev);
+      expect(await objectOf("r2-quota", await blueId())).toBeNull();
       const held = await imageId(png(0));
       ok(await s.createNodes([image(held), image(url(png(1)))], "agent"));
       expect(await s.storedImageBytes()).toBe(20 * 1024 * 1024);

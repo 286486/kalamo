@@ -92,7 +92,7 @@ const USER = "user";
 /** Transactions the undo stack keeps (F-HIST-01). */
 const UNDO_DEPTH = 200;
 
-/** F-MCP-06c's Document size, which the image files a Document stores count against (ADR-0046). */
+/** The image files one Document may store: F-MCP-06c's 20 MB Document size (ADR-0046). */
 const MAX_DOCUMENT_IMAGE_BYTES = 20 * 1024 * 1024;
 
 /** An object with no row this old is a failed write's upload, not one whose write is in flight. */
@@ -203,7 +203,9 @@ export class DocumentObject extends DurableObject<Env> {
       this.sql.exec("ALTER TABLE images ADD COLUMN size INTEGER NOT NULL DEFAULT 0");
     }
     const docId = this.sql.exec<{ id: string }>("SELECT id FROM doc").toArray()[0]?.id;
-    const rows = this.sql.exec<{ id: string; mime: string }>("SELECT id, mime FROM images");
+    const rows = this.sql.exec<{ id: string; mime: ImageInfo["mime"] }>(
+      "SELECT id, mime FROM images",
+    );
     for (const { id, mime } of rows.toArray()) {
       const chunks = this.sql
         .exec<{ bytes: ArrayBuffer }>("SELECT bytes FROM image_chunks WHERE id = ? ORDER BY n", id)
@@ -215,11 +217,7 @@ export class DocumentObject extends DurableObject<Env> {
         bytes.set(c, at);
         at += c.length;
       }
-      if (docId) {
-        await this.env.IMAGES.put(imageKey(docId, id), bytes, {
-          httpMetadata: { contentType: mime },
-        });
-      }
+      if (docId) await this.upload(docId, new Map([[id, { mime, width: 0, height: 0, bytes }]]));
       this.sql.exec("UPDATE images SET size = ? WHERE id = ?", bytes.length, id);
     }
     this.sql.exec("DROP TABLE image_chunks");
@@ -639,7 +637,7 @@ export class DocumentObject extends DurableObject<Env> {
     if (adding === 0 || total <= MAX_DOCUMENT_IMAGE_BYTES) return;
     throw new ZibelError({
       code: "LIMIT_EXCEEDED",
-      message: `The Document stores ${total - adding} bytes of image files; ${adding} more would pass its limit of ${MAX_DOCUMENT_IMAGE_BYTES} (20 MB).`,
+      message: `The Document stores ${total - adding} bytes of image files; ${adding} more would pass its limit of ${MAX_DOCUMENT_IMAGE_BYTES} (${MAX_DOCUMENT_IMAGE_BYTES / 1024 / 1024} MB).`,
       hint: `Delete Images the Document no longer needs. A deleted Image's file keeps counting while undo history holds it: until ${UNDO_DEPTH} more Transactions push it out, or an edit after an undo clears the redo stack.`,
     });
   }
@@ -661,10 +659,8 @@ export class DocumentObject extends DurableObject<Env> {
     const urls = new Map(
       await Promise.all(
         [...ids].map(async (id) => {
-          const [object, info] = [
-            await this.env.IMAGES.get(imageKey(doc.id, id)),
-            doc.images.get(id),
-          ];
+          const object = await this.env.IMAGES.get(imageKey(doc.id, id));
+          const info = doc.images.get(id);
           const bytes = object && new Uint8Array(await object.arrayBuffer());
           return [id, bytes && info ? dataUrl({ ...info, bytes }) : undefined] as const;
         }),
@@ -789,9 +785,15 @@ export class DocumentObject extends DurableObject<Env> {
         ...rest
       } = edit(doc);
       const change = { created, updated, deletedIds };
+      // With `partial`, a file only failed items named gets no row; its object is swept.
+      const srcs = new Set(
+        [...created, ...updated].flatMap((n) => (n.type === "image" && n.src ? [n.src] : [])),
+      );
+      const named = new Map([...files].filter(([id]) => srcs.has(id)));
+      if (named.size < files.size && !rehearse) this.markSweep(Date.now() + ORPHAN_GRACE_MS);
       const label = rest.summary ?? summary(verb, change);
       const { txId, rev, pruned } = this.ctx.storage.transactionSync(() => {
-        this.addFiles(files);
+        this.addFiles(named);
         const written = opts.txId
           ? { ...this.stage(opts.txId, committed.rev, change), pruned: false }
           : this.commit(actor, label, opts.intent, change, step);
@@ -1147,9 +1149,9 @@ export class DocumentObject extends DurableObject<Env> {
       try {
         await sweep;
       } catch (e) {
-        // The platform retries a failed alarm, which then sweeps again.
-        this.ctx.storage.kv.put(SWEEP_AT, Date.now());
-        throw e;
+        // Swept again later, and the alarm still serves the Transaction deadlines.
+        console.error("Image sweep failed", e);
+        this.markSweep();
       }
     }
     await this.schedule();
@@ -1203,7 +1205,9 @@ export class DocumentObject extends DurableObject<Env> {
       const page = await this.env.IMAGES.list({ prefix, cursor });
       for (const { key, uploaded } of page.objects) {
         const id = key.slice(prefix.length);
-        if (!held.has(id) && !kept.has(id) && uploaded.getTime() < cutoff) keys.add(key);
+        if (held.has(id) || kept.has(id)) continue;
+        if (uploaded.getTime() < cutoff) keys.add(key);
+        else this.markSweep(uploaded.getTime() + ORPHAN_GRACE_MS);
       }
       if (!page.truncated) break;
       cursor = page.cursor;
@@ -1485,9 +1489,10 @@ async function hashed(file: ImageFile, files: Files): Promise<string> {
 }
 
 /** A rehearsed write's refusal, or undefined when it reached REHEARSED, where it would commit. */
-function rehearsal(fn: () => object): { error: ErrorData } | undefined {
+function rehearsal(fn: () => Result<object>): { error: ErrorData } | undefined {
   try {
-    return fn() as { error: ErrorData };
+    const result = fn();
+    return "error" in result ? result : undefined;
   } catch (e) {
     if (e === REHEARSED) return undefined;
     throw e;
