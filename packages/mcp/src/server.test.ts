@@ -27,6 +27,11 @@ const receipt = {
   warnings: [],
 };
 const opts = { intent: "why", txId: "t", ifRev: 3 };
+const writeOptions = [
+  ["all", opts],
+  ["some", { intent: opts.intent }],
+  ["no", {}],
+] as const;
 
 describe("write tools pass the write and its options apart", () => {
   it("node_create: every type through the published union, with the schema defaults filled", async () => {
@@ -140,12 +145,6 @@ describe("write tools pass the write and its options apart", () => {
     });
   });
 
-  const writeOptions = [
-    ["all", opts],
-    ["some", { intent: opts.intent }],
-    ["no", {}],
-  ] as const;
-
   it.each(writeOptions)(
     "mask_make: kind defaults to clip, with %s write options as given",
     async (_, write) => {
@@ -179,7 +178,7 @@ describe("write tools pass the write and its options apart", () => {
   );
 
   it.each(writeOptions)(
-    "path_op: the operation arguments arrive as given, with %s write options apart",
+    "path_op: the operation arguments as given, with %s write options as given",
     async (_, write) => {
       const { service, call } = await harness({ pathOp: async () => receipt });
       const input = { nodeIds: ["r"], op: "simplify", tolerance: 0.5 };
