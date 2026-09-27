@@ -528,6 +528,98 @@ it("keeps a randomized star's parameters as written, its matrix unbaked (ADR-002
   expect(file.warnings).toEqual([]);
 });
 
+describe("a leaf under a writer's rounded uniform scale bakes (#110)", () => {
+  const BODY =
+    '<rect width="10" height="4" style="stroke:#000;stroke-width:2;stroke-dasharray:1 2" fill="url(#g)"/>' +
+    '<circle cx="3" cy="3" r="3" stroke="#000"/>' +
+    '<text style="font-size:10">Hi</text>' +
+    `<image width="4" height="3" href="${RED_2x2_PNG}"/>` +
+    '<path d="M 0 0 L 10 0 L 10 5" stroke="#000"/>' +
+    star({});
+  const DEFS = `<defs><linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" x2="10"><stop offset="0" stop-color="#000"/><stop offset="1" stop-color="#FFF"/></linearGradient></defs>`;
+  const open = (groups: string[], body = BODY) =>
+    parseFile(
+      svg(
+        `width="1000" height="1000" ${'xmlns:xlink="http://www.w3.org/1999/xlink"'}`,
+        DEFS + groups.reduceRight((inner, t) => `<g transform="${t}">${inner}</g>`, body),
+      ),
+    );
+  const read = (file: ReturnType<typeof parseFile>) =>
+    leaves(file).map(({ id, parentId, ...rest }) => rest);
+  const exact = read(open(["matrix(2,0,0,2,5,5)"]));
+
+  it.each([
+    [["matrix(2,0,0,2.0000001,5,5)"]],
+    [["matrix(2,1e-8,0,2,5,5)"]],
+    [
+      [
+        "translate(5 5)",
+        "matrix(0.7071068,0,0,0.7071067,0,0)",
+        "matrix(2.828427,0,0,2.828428,0,0)",
+      ],
+    ],
+  ])("under %j it opens as under an exact ×2", (groups) => {
+    const file = open(groups);
+    expect(read(file)).toEqual(exact);
+    expect(file.warnings).toEqual([]);
+  });
+
+  it("reads the rect's size, Stroke and dash in document units", () => {
+    const [rect, ellipse, text, image, path, star] = read(open(["matrix(2,0,0,2.0000001,5,5)"]));
+    expect(rect).toMatchObject({
+      x: 5,
+      width: 20,
+      transform: [1, 0, 0, 1, 0, 0],
+      appearance: {
+        fills: [{ gradient: { start: { x: 5, y: 5 }, end: { x: 25, y: 5 } } }],
+        strokes: [{ width: 4, dash: [2, 4] }],
+      },
+    });
+    expect(ellipse).toMatchObject({ width: 12, appearance: { strokes: [{ width: 2 }] } });
+    expect(text).toMatchObject({ fontSize: 20 });
+    expect(image).toMatchObject({ width: 8, height: 6 });
+    expect(path).toMatchObject({ d: "M 5 5 L 25 5 L 25 15" });
+    expect(star).toMatchObject({ cx: 525, outerRadius: 70 });
+    for (const n of [ellipse, text, image, path, star]) {
+      expect(n?.transform).toEqual([1, 0, 0, 1, 0, 0]);
+    }
+  });
+
+  it.each(["rotate(0.01)", "skewX(0.01)", "scale(1,1.00001)", "scale(-1,1)", "rotate(180)"])(
+    "keeps %s as a matrix",
+    (t) => {
+      for (const n of read(open([t]))) {
+        expect(n.transform).not.toEqual([1, 0, 0, 1, 0, 0]);
+      }
+      expect(read(open([t]))[0]).toMatchObject({
+        width: 10,
+        appearance: { strokes: [{ width: 2 }] },
+      });
+    },
+  );
+
+  it("keeps a randomized star's matrix", () => {
+    const [randomized] = read(
+      open(["matrix(2,0,0,2.0000001,0,0)"], star({ "inkscape:randomized": 0.1 })),
+    );
+    expect(randomized).toMatchObject({ cx: 260, outerRadius: 35, transform: [2, 0, 0, 2, 0, 0] });
+  });
+
+  it("gives the same Nodes on a second open of its export", () => {
+    const first = open(
+      ["matrix(2,0,0,2.0000001,5,5)"],
+      '<rect width="10" height="4" stroke="#000"/>',
+    );
+    const { doc } = createDocument({
+      id: "d",
+      name: "D",
+      artboards: [{ width: 1000, height: 1000 }],
+    });
+    const opened = { ...doc, nodes: new Map(first.nodes.map((n) => [n.id, n])) };
+    expect(read(parseFile(toSvg(opened)))).toEqual(read(first));
+  });
+});
+
 it("opens a star and a polygon drawn in Inkscape as Live Shapes that draw Inkscape's outline", () => {
   // Inkscape 1.2.2's parameters, and the d it rebuilt from them with object-to-path.
   const drawn = [
