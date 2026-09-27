@@ -27,6 +27,8 @@ One core function, `paintedLeaves`, lists those leaves: the visible descendant L
 
 A container has no matrix (ADR-0007), so nothing scales its Strokes the way a leaf's matrix scales a leaf's. `node_transform` therefore treats container Strokes as leaf Strokes look: with `scaleStrokes: true` (the default) every container in the transformed subtrees has its Stroke `width` and `dash` multiplied by √|det| of the matrix, the factor a leaf divides by for `false`; with `false` they stay as they are, which keeps the rendered width. Such containers are listed in `updatedIds`. Transforming only a descendant leaf leaves its containers' Strokes as they are.
 
+Import keeps the same rule (#108): a container that another editor transformed imports as that container transformed by `node_transform` with the same matrix and `scaleStrokes: true`. Its children take the composed matrix as any leaf does, and its Strokes take √|det| of the matrix composed at the paint group (ancestors, root unit scale, the container's own transform and the paint group's own). A container gradient (#107) must map through that same matrix.
+
 ## SVG
 
 This amends ADR-0017's mapping table with a row:
@@ -39,6 +41,7 @@ Why one copy per leaf and not one combined `d`: under nonzero, one path of every
 
 - In a `<g>` read as a Layer or Group, each direct child `<g zibel:paint>` is one Fill, or when its fill is none one Stroke, resolved like a leaf's paint; a hidden one is no paint. `contents` is the number of paints before the first other drawn child. A designer who deletes a paint group removes that paint, and one who moves a child leaves no stale outline, since export redraws the copies from the children.
 - A paint group anywhere else (at the root, outside every Layer) is dropped with `UNSUPPORTED_ELEMENT`. A gradient paint is dropped with `UNSUPPORTED_PAINT` until #107. A Fill group above a Stroke group reads in fills-then-strokes order with `UNSUPPORTED_ATTRIBUTE`, since a Fill cannot sit above a Stroke.
+- Under a transform, a Stroke's `width` and `dash` are multiplied by √|det| of the matrix composed at its paint group (see Transforms). Inkscape's rotate, scale and flip write the matrix on the container's `<g>` and leave the paint group's `stroke-width` as it was, so a similarity (rotation, uniform scale, reflection and their compositions; orthogonal columns of equal length, within 1e-9 relative to the scale) imports exactly and silently. Under skew or non-uniform scale Inkscape draws a Stroke whose width varies with direction, which one width in document units cannot hold; Illustrator never draws such a Stroke either (transforming a Group bakes the transform into its paths, and Scale Strokes & Effects scales a width by one factor), so the Stroke takes √|det| with one `UNSUPPORTED_ATTRIBUTE` per import. A paint group whose own transform flattens it is dropped with `INVALID_TRANSFORM` and not counted in Contents; an unreadable one is ignored.
 - A plain `<g fill>` from another editor is SVG inheritance, not a container Appearance, and imports as before: its children inherit the paint.
 
 Open and Place both read them, so Place and paste keep container Appearance on the Groups they make, Layers that become Groups included.
