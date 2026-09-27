@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { lookup } from "./edit.ts";
 import { ZibelError } from "./errors.ts";
-import { formatPath, parsePath, type Segment } from "./path.ts";
-import type { Document, ShapeNode } from "./schema.ts";
+import { formatPath, parsePath, type Segment, shapeSegments } from "./path.ts";
+import { type Document, type Node, SHAPES, type ShapeNode, type WriteReceipt } from "./schema.ts";
 
 type Point = [number, number];
 export type PathNode = Extract<ShapeNode, { type: "path" }>;
@@ -205,6 +205,13 @@ export const PathEditInput = z.object({
 });
 export type PathEditInput = z.input<typeof PathEditInput>;
 
+/** `path_op` (REQUIREMENTS §6.4): the Object > Path commands; convert_to_path is the first. */
+export const PathOpInput = z.object({
+  nodeIds: z.array(z.string()).min(1).max(1000),
+  op: z.literal("convert_to_path"),
+});
+export type PathOpInput = z.input<typeof PathOpInput>;
+
 const invalid = (path: string, message: string, hint: string) =>
   new ZibelError({ code: "INVALID_PATH", message, hint, path });
 
@@ -390,28 +397,67 @@ const noSubpath = (subpaths: Subpath[], at: string) =>
     `Use a subpath from 0 to ${subpaths.length - 1}, in d's order: each M starts one.`,
   );
 
+type LiveShape = Exclude<ShapeNode, PathNode>;
+/** A rect, ellipse, line, polygon or star: its outline comes from its parameters. */
+export const isLiveShape = (node: Node): node is LiveShape =>
+  node.type in SHAPES && node.type !== "path";
+
+/**
+ * Convert to Path (ADR-0032): a Live Shape keeps its id, parent, `index`, name and appearance, and
+ * swaps its parameters for the `d` its outline gives. Undo removes the added keys (ADR-0011).
+ */
+function toPath(node: LiveShape): PathNode {
+  const out: Record<string, unknown> = { ...node };
+  for (const key of Object.keys(SHAPES[node.type].shape)) delete out[key];
+  return {
+    ...out,
+    type: "path",
+    d: formatPath(shapeSegments(node)),
+    fillRule: "nonzero",
+  } as PathNode;
+}
+
+/** `path_op convert_to_path`: converts each Live Shape and leaves a path as it is. */
+export function convertToPath(doc: Document, nodeIds: string[]): { updated: PathNode[] } {
+  const nodes = nodeIds.map((id, i) => {
+    const node = lookup(doc, id, `nodeIds[${i}]`);
+    if (node.type !== "path" && !isLiveShape(node)) {
+      throw invalid(
+        `nodeIds[${i}]`,
+        `A ${node.type} has no Anchors.`,
+        "Convert to Path takes a Live Shape (rect, ellipse, line, polygon, star) or a path.",
+      );
+    }
+    return node;
+  });
+  const updated = nodes.filter(isLiveShape).map(toPath);
+  for (const node of updated) doc.nodes.set(node.id, node);
+  return { updated };
+}
+
 /**
  * `path_edit` (REQUIREMENTS §6.4): applies the ops in order to a path's Anchors and writes its `d`,
- * or throws before changing anything. Returns the new Node and its Anchors as stored.
+ * or throws before changing anything. A Live Shape is converted first (F-PATH-07), with a warning.
+ * Returns the new Node and its Anchors as stored.
  */
 export function editPath(
   doc: Document,
   raw: PathEditInput,
-): { node: PathNode; subpaths: (Subpath & { anchors: (Anchor & { index: number })[] })[] } {
+): {
+  node: PathNode;
+  subpaths: (Subpath & { anchors: (Anchor & { index: number })[] })[];
+  warnings: WriteReceipt["warnings"];
+} {
   const input = PathEditInput.parse(raw);
-  const node = lookup(doc, input.nodeId, "nodeId");
-  if (node.type !== "path") {
-    const live = node.type in { rect: 1, ellipse: 1, line: 1, polygon: 1, star: 1 };
+  const found = lookup(doc, input.nodeId, "nodeId");
+  if (found.type !== "path" && !isLiveShape(found)) {
     throw invalid(
       "nodeId",
-      live
-        ? `A ${node.type} is a Live Shape: its Anchors come from its parameters.`
-        : `A ${node.type} has no Anchors.`,
-      live
-        ? "Convert it with path_op convert_to_path first, or change its parameters with node_update."
-        : "path_edit edits a path.",
+      `A ${found.type} has no Anchors.`,
+      "path_edit edits a path or a Live Shape.",
     );
   }
+  const node = isLiveShape(found) ? toPath(found) : found;
   let subpaths = toAnchors(parsePath(node.d, "d"));
   input.ops.forEach((op, i) => {
     subpaths = apply(subpaths, op, `ops[${i}]`);
@@ -426,5 +472,14 @@ export function editPath(
       ...s,
       anchors: s.anchors.map((a, index) => ({ index, ...a })),
     })),
+    warnings: isLiveShape(found)
+      ? [
+          {
+            code: "CONVERTED_TO_PATH",
+            nodeId: found.id,
+            message: `The ${found.type} was converted to a path first: it keeps its id, and its parameters are gone.`,
+          },
+        ]
+      : [],
   };
 }

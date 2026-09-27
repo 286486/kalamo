@@ -63,6 +63,7 @@ export function documentService(env: Env, actor: string): DocumentService {
     // Workers RPC types a tuple as number[].
     pathEdit: async (docId, input, opts) =>
       unwrap(await doc(docId).pathEdit(input, actor, opts)) as PathEditReceipt,
+    pathOp: async (docId, input, opts) => unwrap(await doc(docId).pathOp(input, actor, opts)),
     get: async (docId, nodeIds, detail, txId) =>
       unwrap(await doc(docId).get(nodeIds, detail, actor, txId)),
     outline: async (docId, opts, txId) => unwrap(await doc(docId).outline(opts, actor, txId)),

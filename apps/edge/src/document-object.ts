@@ -5,6 +5,7 @@ import {
   bounds,
   type ConciseView,
   commitTransaction,
+  convertToPath,
   createDocument,
   createNodes,
   type Document,
@@ -32,6 +33,7 @@ import {
   overflowWarnings,
   overlay,
   type PathEditInput,
+  type PathOpInput,
   placeImage,
   placeNodes,
   queryNodes,
@@ -274,7 +276,9 @@ export class DocumentObject extends DurableObject<Env> {
             ? [command.input.clipNodeId, ...command.input.contentIds]
             : command.type === "path_edit"
               ? [command.input.nodeId]
-              : command.nodeIds;
+              : command.type === "path_op"
+                ? command.input.nodeIds
+                : command.nodeIds;
     // The socket was accepted for an existing Document, so load() cannot throw DOC_NOT_FOUND.
     const { nodes } = this.load();
     const gone = nodeIds.filter((n) => !nodes.has(n));
@@ -301,6 +305,7 @@ export class DocumentObject extends DurableObject<Env> {
       return this.releaseMask(command.nodeIds, USER, { commandId });
     }
     if (command.type === "path_edit") return this.pathEdit(command.input, USER, { commandId });
+    if (command.type === "path_op") return this.pathOp(command.input, USER, { commandId });
     return this.deleteNodes(command.nodeIds, USER, { commandId });
   }
 
@@ -493,10 +498,23 @@ export class DocumentObject extends DurableObject<Env> {
     let edited: ReturnType<typeof editPath> | undefined;
     const result = this.write(actor, opts, "Edit Path", (doc) => {
       edited = editPath(doc, input);
-      return { updated: [edited.node], failed: [], summary: "Edit Path" };
+      return {
+        updated: [edited.node],
+        warnings: edited.warnings,
+        failed: [],
+        summary: "Edit Path",
+      };
     });
     if ("error" in result || !edited) return result as Result<PathEditReceipt>;
     return { ...result, d: edited.node.d, subpaths: edited.subpaths };
+  }
+
+  pathOp(input: PathOpInput, actor: string, opts: Options = {}): Result<WriteReceipt> {
+    return this.write(actor, opts, "Convert to Path", (doc) => ({
+      ...convertToPath(doc, input.nodeIds),
+      failed: [],
+      summary: "Convert to Path",
+    }));
   }
 
   /**

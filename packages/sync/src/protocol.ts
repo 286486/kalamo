@@ -5,6 +5,7 @@ import {
   MaskInput,
   type Node,
   PathEditInput,
+  PathOpInput,
   TransformInput,
   Writable,
 } from "@zibel/core";
@@ -68,6 +69,8 @@ export const ClientMessage = z.object({
     z.object({ type: z.literal("mask_release"), nodeIds: z.array(z.string()).min(1) }),
     // Direct Selection and continuing a path with the Pen (ADR-0032).
     z.object({ type: z.literal("path_edit"), input: PathEditInput }),
+    // Object > Shape > Expand Shape (ADR-0032).
+    z.object({ type: z.literal("path_op"), input: PathOpInput }),
     z.object({ type: z.literal("undo") }),
     z.object({ type: z.literal("redo") }),
   ]),

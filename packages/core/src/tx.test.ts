@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { convertToPath } from "./anchor.ts";
 import { createDocument, createNodes } from "./document.ts";
 import { deleteNodes, transformNodes, updateNodes } from "./edit.ts";
 import { ZibelError } from "./errors.ts";
@@ -182,6 +183,7 @@ describe("revert", () => {
       "a transform",
       (doc, { rect, group }) => transformNodes(doc, { nodeIds: [rect.id, group.id], rotate: 30 }),
     ],
+    ["a Convert to Path", (doc, { rect }) => convertToPath(doc, [rect.id])],
     ["a delete of a Group", (doc, { group }) => deleteNodes(doc, [group.id])],
     [
       "a committed overlay that updates a child and deletes its Group",

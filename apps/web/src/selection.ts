@@ -6,6 +6,7 @@ import {
   formatPath,
   frameShape,
   type ImageNode,
+  isLiveShape,
   type LeafNode,
   type MaskInput,
   type Node,
@@ -188,4 +189,11 @@ export const releasable = (doc: Document, selection: string[]) =>
   selection.filter((id) => {
     const n = doc.nodes.get(id);
     return !!n && editable(doc, n) && (("clipping" in n && n.clipping) || !!clippingPath(doc, n));
+  });
+
+/** Object > Shape > Expand Shape on the Selection: its editable Live Shapes (ADR-0032). */
+export const expandable = (doc: Document, selection: string[]) =>
+  selection.filter((id) => {
+    const n = doc.nodes.get(id);
+    return !!n && editable(doc, n) && isLiveShape(n);
   });

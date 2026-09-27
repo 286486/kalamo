@@ -276,6 +276,24 @@ it("commits a path_edit command as the User Actor", async () => {
   expect(edited?.type === "tx" && edited.updated[0]).toMatchObject({ id, d: "M 0 0 L 20 5" });
 });
 
+it("converts a rect with a path_op command, and undo brings the rect back without d", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const [id] = (await call("zibel_node_create", { docId, nodes: [rect(defaultLayerId)] }))
+    .structuredContent.createdIds;
+  const { ws, received } = await subscribe(docId);
+  await received(1);
+  ws.send(command("c1", { type: "path_op", input: { nodeIds: [id], op: "convert_to_path" } }));
+  const [, converted] = await received(2);
+  expect(converted).toMatchObject({ type: "tx", actor: "user", commandId: "c1" });
+  expect(converted?.type === "tx" && converted.updated[0]).toMatchObject({ id, type: "path" });
+  ws.send(command("u1", { type: "undo" }));
+  const [, , undone] = await received(3);
+  const back = undone?.type === "tx" && undone.updated[0];
+  expect(back).toMatchObject({ id, ...rect(defaultLayerId) });
+  expect(back).not.toHaveProperty("d");
+  expect(back).not.toHaveProperty("fillRule");
+});
+
 it("rejects a mask_make naming a Node deleted meanwhile with NODE_GONE", async () => {
   const { docId, defaultLayerId } = await newDoc();
   const [art, clip] = (

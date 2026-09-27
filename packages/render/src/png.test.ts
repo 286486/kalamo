@@ -1,5 +1,6 @@
 import {
   bounds,
+  convertToPath,
   createDocument,
   createNodes,
   imageSource,
@@ -425,4 +426,40 @@ it("draws a linear gradient from start to end, and a radial one's first stop at 
   // Red at the focus, left of the centre, and already half way to blue at the centre.
   expect(at(8, 40)[0]).toBeGreaterThan(230);
   expect(at(20, 40)[0]).toBeLessThan(200);
+});
+
+it("paints Live Shapes the same after Convert to Path", async () => {
+  const { doc, defaultLayerId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 200, height: 100, background: "#FFFFFF" }],
+  });
+  const appearance = {
+    fills: [{ color: "#3366CC" }],
+    strokes: [{ color: "#000000", width: 3 }],
+  };
+  const ids = createNodes(
+    doc,
+    [
+      { type: "rect" as const, x: 10, y: 10, width: 60, height: 40, radius: 8, appearance },
+      { type: "ellipse" as const, x: 80, y: 10, width: 50, height: 40, endAngle: 270, appearance },
+      {
+        type: "star" as const,
+        cx: 165,
+        cy: 50,
+        outerRadius: 30,
+        innerRadius: 12,
+        points: 5,
+        appearance,
+      },
+      { type: "line" as const, x1: 10, y1: 80, x2: 190, y2: 90, appearance },
+    ].map((n) => ({ ...n, parentId: defaultLayerId })),
+  ).nodes.map((n) => n.id);
+  const rect = docRect(doc);
+  const before = await svgToPixels(toSvg(doc, rect), 1);
+  expect(convertToPath(doc, ids).updated).toHaveLength(4);
+  const after = await svgToPixels(toSvg(doc, rect), 1);
+  // A path's antialiasing is not a <rect>'s or <ellipse>'s to the level: allow a few edge pixels.
+  const differ = before.pixels.filter((v, i) => Math.abs(v - (after.pixels[i] ?? 0)) > 2).length;
+  expect(differ).toBeLessThanOrEqual(4);
 });

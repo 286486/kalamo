@@ -9,6 +9,7 @@ import {
   NodeQuery,
   NodeType,
   PathEditInput,
+  PathOpInput,
   parseColor,
   RenderOverlay,
   RenderScope,
@@ -434,7 +435,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         "An Anchor is {index, anchor: [x, y], handleIn: [x, y] | null, handleOut: [x, y] | null, type: corner | smooth}. Positions are in the path's own coordinates, the same as its d, not document coordinates once the path has a transform (see geometricBounds). An Anchor is smooth when its two Handles lie on one line through it, else corner; the type is derived, not stored.",
         "Each M in d starts a subpath; ops name one by subpath (default 0) and an Anchor by its index in it, from 0. A closed subpath's closing segment runs from its last Anchor to its first; a C that returns to the first Anchor before Z is that closing segment, while an L back is its own Anchor.",
         "Ops: move_anchor {index, to} moves an Anchor and its Handles. set_handles {index, handleIn, handleOut} sets a Handle, or retracts it with null; an omitted one stays; an open subpath's first Anchor has no handleIn and its last no handleOut. set_point_type {index, type}: corner retracts both Handles, smooth lines them up, pulling out a missing one along the neighbouring Anchors; an Endpoint is always corner. add_anchor {segment, t} splits the segment from Anchor segment to the next at curve parameter t (0 to 1) without changing its shape. remove_anchor {index} joins its neighbours. close joins the last Anchor to the first; open cuts the closing segment at the first Anchor, keeping the outline. reverse {subpath} reverses one subpath, or every one when omitted. set_d {d} replaces d as a whole.",
-        "A Live Shape (rect, ellipse, line, polygon, star) is refused for now: convert it to a path with path_op convert_to_path once that is available, or edit its parameters with zibel_node_update.",
+        "A Live Shape (rect, ellipse, line, polygon, star) is converted to a path first, as zibel_path_op convert_to_path does, and warnings says so (CONVERTED_TO_PATH); its Anchors are those of the d zibel_node_get shows for it. To keep it live, edit its parameters with zibel_node_update instead.",
         "Returns the receipt, the new d and every subpath's Anchors as stored, with at most 3 decimals.",
       ].join(" "),
       inputSchema: { docId, ...PathEditInput.shape, ...maskWrite },
@@ -445,6 +446,22 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       run("zibel_path_edit", async () =>
         json(await service.pathEdit(docId, { nodeId, ops }, opts)),
       ),
+  );
+
+  server.registerTool(
+    "zibel_path_op",
+    {
+      title: "Path Operation",
+      description: [
+        "Run an Object > Path command on Nodes, in one Transaction.",
+        "op convert_to_path turns each Live Shape (rect, ellipse, line, polygon, star) into a path with the same outline, as Illustrator's Object > Shape > Expand Shape: it keeps its id, parent, stacking order, name, transform and appearance, and its parameters give way to d and fillRule. A path is left as it is; any other Node fails the call. zibel_path_edit converts a Live Shape by itself, so convert first only to keep the shape as a path without editing it.",
+      ].join(" "),
+      inputSchema: { docId, ...PathOpInput.shape, ...maskWrite },
+      outputSchema: WriteReceipt.shape,
+      annotations: edit,
+    },
+    ({ docId, nodeIds, op, ...opts }) =>
+      run("zibel_path_op", async () => json(await service.pathOp(docId, { nodeIds, op }, opts))),
   );
 
   server.registerTool(
