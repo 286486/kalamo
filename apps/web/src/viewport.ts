@@ -1,4 +1,4 @@
-import type { Rect } from "@zibel/core";
+import { type Document, type Rect, union } from "@zibel/core";
 
 /** Maps document points to screen (CSS px): screen = doc * scale + (x, y). */
 export interface Viewport {
@@ -10,6 +10,41 @@ export interface Viewport {
 /** Illustrator's zoom range, 3.13% to 6400%. */
 const MIN_SCALE = 0.0313;
 const MAX_SCALE = 64;
+/** The levels Illustrator's Zoom In and Zoom Out step through. */
+const LEVELS = [
+  MIN_SCALE,
+  1 / 24,
+  1 / 16,
+  1 / 12,
+  1 / 8,
+  1 / 6,
+  1 / 4,
+  1 / 3,
+  1 / 2,
+  2 / 3,
+  1,
+  1.5,
+  2,
+  3,
+  4,
+  6,
+  8,
+  12,
+  16,
+  24,
+  32,
+  48,
+  MAX_SCALE,
+];
+
+/** The next zoom level above (`dir` 1) or below (-1) `scale`, or the end of the range. */
+export const zoomStep = (scale: number, dir: 1 | -1) =>
+  (dir > 0 ? LEVELS.find((l) => l > scale * 1.001) : LEVELS.findLast((l) => l < scale / 1.001)) ??
+  (dir > 0 ? MAX_SCALE : MIN_SCALE);
+
+/** Every Artboard, which Fit Artboard in Window shows. */
+export const artboardsRect = (doc: Document) =>
+  union(doc.artboards.map((a) => a.frame)) ?? { x: 0, y: 0, width: 100, height: 100 };
 
 export const toDoc = (v: Viewport, sx: number, sy: number) => ({
   x: (sx - v.x) / v.scale,

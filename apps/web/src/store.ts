@@ -1,14 +1,21 @@
 import { newId } from "@zibel/core";
 import type { ClientMessage, Command, ServerMessage } from "@zibel/sync";
 import { create } from "zustand";
+import type { ImageCache } from "./images.ts";
 import { receive, type ViewState } from "./receive.ts";
 import type { Viewport } from "./viewport.ts";
 
-interface State extends ViewState {
+export interface State extends ViewState {
   /** False while the socket is down; the last Document stays on screen. */
   live: boolean;
   /** Null until the first Document arrives and is fitted to the screen. */
   viewport: Viewport | null;
+  /** The canvas in CSS px. */
+  size: { width: number; height: number };
+  /** The shown Document's image files, which the downloads embed. */
+  images: ImageCache | null;
+  /** Window > Layers. */
+  layersShown: boolean;
 }
 
 export const useStore = create<State>(() => ({
@@ -18,6 +25,9 @@ export const useStore = create<State>(() => ({
   selection: [],
   drag: null,
   notice: null,
+  size: { width: 0, height: 0 },
+  images: null,
+  layersShown: true,
 }));
 
 let socket: WebSocket | null = null;

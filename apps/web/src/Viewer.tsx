@@ -1,4 +1,4 @@
-import { bounds, type Document, type Rect, serializeDocument, union } from "@zibel/core";
+import { bounds, type Rect } from "@zibel/core";
 import { toSvg } from "@zibel/io/write";
 import { drawDocument } from "@zibel/render/canvas";
 import blackUrl from "@zibel/render/fonts/SourceSans3-Black.ttf?url";
@@ -10,10 +10,12 @@ import regularUrl from "@zibel/render/fonts/SourceSans3-Regular.ttf?url";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { imageCache } from "./images.ts";
 import { Layers } from "./Layers.tsx";
+import { menuOpen } from "./MenuBar.tsx";
+import { pastedArt, place, placeable } from "./place.ts";
 import { preview } from "./receive.ts";
-import { combine, editable, hitTest, inverse, marquee, objects, placeParent } from "./selection.ts";
+import { combine, editable, hitTest, marquee } from "./selection.ts";
 import { connect, send, useStore } from "./store.ts";
-import { fit, toDoc, type Viewport, zoomAt } from "./viewport.ts";
+import { artboardsRect, fit, toDoc, type Viewport, zoomAt } from "./viewport.ts";
 
 const PASTEBOARD = "#E6E6E6";
 /** Illustrator's first Layer colour, used for the Selection and the marquee. */
@@ -57,67 +59,10 @@ const fontLoaded = Promise.allSettled(
   }),
 );
 
-/** Saves text the browser made from its Document: the same text `export` returns at that rev. */
-function download(text: string, type: string, filename: string) {
-  const url = URL.createObjectURL(new Blob([text], { type }));
-  Object.assign(document.createElement("a"), { href: url, download: filename }).click();
-  URL.revokeObjectURL(url);
-}
-
-/** Makes a download once every image file it embeds is here (ADR-0023). */
-async function saveWith(
-  cache: ReturnType<typeof imageCache>,
-  doc: Document,
-  make: (images: (id: string) => string | undefined) => [string, string, string],
-) {
-  try {
-    await cache.ready(doc);
-    download(...make((id) => cache.get(id)?.dataUrl));
-  } catch (e) {
-    useStore.setState({ notice: `Could not download: ${String(e)}` });
-  }
-}
-
-/**
- * Place (ADR-0017) POSTs the file to the Worker, which writes it as the user; the canvas
- * follows the `tx` broadcast like any other write. What it placed becomes the Selection.
- * Failures and warnings show as the notice.
- */
-async function postFile(docId: string, url: string, body: BodyInit, what: string) {
-  const notice = (text: string) => useStore.setState({ notice: text });
-  try {
-    const res = await fetch(url, { method: "POST", body });
-    const json = (await res.json()) as {
-      message?: string;
-      hint?: string;
-      warnings?: { message: string }[];
-      createdIds?: string[];
-      /** Place's: what went into the parent, the Group or a copy's Nodes. */
-      nodes?: { id: string }[];
-    };
-    if (!res.ok) notice(`Could not ${what}: ${json.message} ${json.hint ?? ""}`);
-    else
-      useStore.setState({
-        notice: json.warnings?.map((w) => w.message).join(" ") || null,
-        ...(useStore.getState().doc?.id === docId && {
-          selection: json.nodes?.map((n) => n.id) ?? json.createdIds ?? [],
-        }),
-      });
-  } catch (e) {
-    notice(`Could not ${what}: ${String(e)}`);
-  }
-}
-
-const isSvg = (file: File) => file.type === "image/svg+xml" || /\.svg$/i.test(file.name);
-
-const artboardsRect = (doc: Document) =>
-  union(doc.artboards.map((a) => a.frame)) ?? { x: 0, y: 0, width: 100, height: 100 };
-
 /** A live view of one Document: select, drag-move and delete its objects. */
 export function Viewer({ docId }: { docId: string }) {
   const canvas = useRef<HTMLCanvasElement>(null);
-  const { doc, live, viewport, selection, drag, notice } = useStore();
-  const [size, setSize] = useState({ width: 0, height: 0 });
+  const { doc, live, viewport, selection, drag, notice, size, layersShown } = useStore();
   /** Space held: drag pans. */
   const [hand, setHand] = useState(false);
   /** Illustrator's Zoom tool (Z): click zooms in, Alt+click out. */
@@ -132,6 +77,7 @@ export function Viewer({ docId }: { docId: string }) {
   /** Counts image files decoded, so the canvas redraws as each arrives. */
   const [imagesLoaded, setImagesLoaded] = useState(0);
   const images = useMemo(() => imageCache(docId, () => setImagesLoaded((n) => n + 1)), [docId]);
+  useEffect(() => useStore.setState({ images }), [images]);
 
   useEffect(() => {
     fontLoaded.then((faces) => {
@@ -156,7 +102,10 @@ export function Viewer({ docId }: { docId: string }) {
     const el = canvas.current;
     if (!el) return;
     const observer = new ResizeObserver(([entry]) => {
-      if (entry) setSize({ width: entry.contentRect.width, height: entry.contentRect.height });
+      if (entry) {
+        const { width, height } = entry.contentRect;
+        useStore.setState({ size: { width, height } });
+      }
     });
     observer.observe(el);
     return () => observer.disconnect();
@@ -231,11 +180,13 @@ export function Viewer({ docId }: { docId: string }) {
     return () => el.removeEventListener("wheel", onWheel);
   }, []);
 
+  // Tool keys only; menu commands and their shortcuts are in menu.ts (ADR-0031).
   useEffect(() => {
-    const set = (v: Viewport) => useStore.setState({ viewport: v });
     const onKey = (e: KeyboardEvent) => {
-      setAlt(e.altKey);
       const down = e.type === "keydown";
+      // A menu, or the menu bar with focus, takes the keys it handles.
+      if (down && (menuOpen() || (e.target as Element).closest?.("[role=menubar]"))) return;
+      setAlt(e.altKey);
       if (e.code === "Space") {
         e.preventDefault();
         setHand(down);
@@ -245,31 +196,9 @@ export function Viewer({ docId }: { docId: string }) {
       const key = e.key.toLowerCase();
       // Its paste event comes between keydown and keyup.
       if (key === "v") inPlace.current = down && mod && e.shiftKey;
-      if (!down) return;
-      const { doc, viewport: v, selection } = useStore.getState();
-      if (!doc || !v) return;
-      if (mod && key === "z") {
-        e.preventDefault();
-        send({ type: e.shiftKey ? "redo" : "undo" });
-      } else if (mod && key === "a") {
-        e.preventDefault();
-        useStore.setState({ selection: e.shiftKey ? [] : objects(doc).map((n) => n.id) });
-      } else if ((e.key === "Delete" || e.key === "Backspace") && selection.length > 0) {
-        e.preventDefault();
-        // The answering tx prunes the Selection; a rejection keeps it for another press.
-        const nodeIds = selection.filter((id) => editable(doc, doc.nodes.get(id)));
-        if (nodeIds.length > 0) send({ type: "delete", nodeIds });
-      } else if (mod && e.key === "0") {
-        e.preventDefault();
-        set(fit(artboardsRect(doc), size.width, size.height));
-      } else if (mod && e.key === "1") {
-        e.preventDefault();
-        set(zoomAt(v, 1 / v.scale, size.width / 2, size.height / 2));
-      } else if (!mod && e.key.toLowerCase() === "z") {
-        setZoomTool(true);
-      } else if (!mod && (e.key === "Escape" || e.key.toLowerCase() === "v")) {
-        setZoomTool(false);
-      }
+      if (!down || mod) return;
+      if (key === "z") setZoomTool(true);
+      else if (key === "escape" || key === "v") setZoomTool(false);
     };
     addEventListener("keydown", onKey);
     addEventListener("keyup", onKey);
@@ -277,46 +206,16 @@ export function Viewer({ docId }: { docId: string }) {
       removeEventListener("keydown", onKey);
       removeEventListener("keyup", onKey);
     };
-  }, [size]);
+  }, []);
 
   /** Set by Ctrl+Shift+V for the paste event it fires: Paste in Place (ADR-0030). */
   const inPlace = useRef(false);
 
-  /**
-   * Place at the centre of the canvas, or pasted text where it was with `inPlace`, in the Selection's
-   * Layer or the top one: an SVG as a Group (ADR-0017), or a Zibel copy's Nodes as they were
-   * (ADR-0030), any other file as an Image, which the Worker checks (ADR-0023).
-   */
-  const place = (file: File | string, inPlace = false) => {
-    const { doc, viewport: v, selection } = useStore.getState();
-    const parentId = doc && placeParent(doc, selection);
-    if (!v || !parentId) return;
-    const { x, y } = toDoc(v, size.width / 2, size.height / 2);
-    const query = new URLSearchParams({ parentId, x: String(x), y: String(y) });
-    const post = (path: string, body: BodyInit, what: string) =>
-      postFile(docId, `/api/docs/${docId}/${path}?${query}`, body, what);
-    if (typeof file === "string") {
-      if (inPlace) query.set("inPlace", "");
-      post("place", file, "place the pasted SVG");
-    } else if (isSvg(file)) {
-      query.set("name", file.name);
-      file.text().then(
-        (text) => post("place", text, `place ${file.name}`),
-        (e) => useStore.setState({ notice: `Could not place ${file.name}: ${String(e)}` }),
-      );
-    } else {
-      post("place-image", file, `place ${file.name}`);
-    }
-  };
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: place reads the current size
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
       const data = e.clipboardData;
       const text = data?.getData("image/svg+xml") || data?.getData("text/plain") || "";
-      const pasted = text.trimStart().startsWith("<")
-        ? text
-        : [...(data?.files ?? [])].find((f) => f.type.startsWith("image/"));
+      const pasted = pastedArt(text, [...(data?.files ?? [])]);
       if (!pasted) return;
       e.preventDefault();
       place(pasted, inPlace.current);
@@ -351,11 +250,11 @@ export function Viewer({ docId }: { docId: string }) {
       removeEventListener("copy", onCopyOrCut);
       removeEventListener("cut", onCopyOrCut);
     };
-  }, [size, images]);
+  }, [images]);
 
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
-    const file = [...e.dataTransfer.files].find((f) => isSvg(f) || f.type.startsWith("image/"));
+    const file = [...e.dataTransfer.files].find(placeable);
     if (file) place(file);
   };
 
@@ -446,11 +345,6 @@ export function Viewer({ docId }: { docId: string }) {
     if (useStore.getState().drag?.commandId === null) useStore.setState({ drag: null });
   };
 
-  const select = (pick: (doc: Document, selection: string[]) => string[]) => () => {
-    const { doc, selection } = useStore.getState();
-    if (doc) useStore.setState({ selection: pick(doc, selection) });
-  };
-
   const cursor = hand ? "grab" : zoomTool ? (alt ? "zoom-out" : "zoom-in") : "default";
 
   return (
@@ -465,50 +359,25 @@ export function Viewer({ docId }: { docId: string }) {
         onDragOver={(e) => e.preventDefault()}
         onDrop={onDrop}
       />
-      <div style={{ position: "absolute", top: 8, left: 12, color: "#444" }}>
+      {/* The status bar, where Illustrator shows the zoom. */}
+      <div
+        role="status"
+        style={{
+          position: "absolute",
+          bottom: 0,
+          left: 0,
+          padding: "2px 8px",
+          background: "rgba(245, 245, 245, 0.9)",
+          color: "#444",
+          font: "12px system-ui, sans-serif",
+        }}
+      >
         {[viewport && `${Math.round(viewport.scale * 100)}%`, !live && "connecting…"]
           .filter(Boolean)
-          .join(" · ")}{" "}
-        <button type="button" onClick={select((d) => objects(d).map((n) => n.id))}>
-          Select All
-        </button>{" "}
-        <button type="button" onClick={select(() => [])}>
-          Deselect
-        </button>{" "}
-        <button type="button" onClick={select(inverse)}>
-          Inverse
-        </button>{" "}
-        <button
-          type="button"
-          disabled={!doc}
-          onClick={() =>
-            doc &&
-            saveWith(images, doc, (files) => [
-              serializeDocument(doc, files),
-              "application/json",
-              `${doc.name}.zibel.json`,
-            ])
-          }
-        >
-          Download .zibel.json
-        </button>{" "}
-        <button
-          type="button"
-          disabled={!doc}
-          onClick={() =>
-            doc &&
-            saveWith(images, doc, (files) => [
-              toSvg(doc, undefined, { images: files }),
-              "image/svg+xml",
-              `${doc.name}.svg`,
-            ])
-          }
-        >
-          Download SVG
-        </button>
-        {notice && <div style={{ color: "#B00020" }}>{notice}</div>}
+          .join(" · ")}
+        {notice && <span style={{ color: "#B00020", marginLeft: 12 }}>{notice}</span>}
       </div>
-      <Layers />
+      {layersShown && <Layers />}
     </div>
   );
 }

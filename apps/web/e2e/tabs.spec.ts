@@ -48,7 +48,11 @@ test("Documents open in tabs that switch in place, close, and come back on reloa
   await expect(box).toHaveAttribute("aria-pressed", "true");
 
   // Open file… makes a new Document in a new, active tab.
-  await page.locator('input[type="file"]').evaluate((input: HTMLInputElement, text) => {
+  const [chooser] = await Promise.all([
+    page.waitForEvent("filechooser"),
+    page.getByRole("button", { name: "Open file…" }).click(),
+  ]);
+  await (await chooser.element()).evaluate((input: HTMLInputElement, text) => {
     const data = new DataTransfer();
     data.items.add(new File([text], "opened.svg", { type: "image/svg+xml" }));
     input.files = data.files;
