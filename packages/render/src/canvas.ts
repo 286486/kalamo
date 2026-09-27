@@ -151,13 +151,13 @@ function draw(
 ) {
   if (!n.visible) return;
   ctx.save();
-  // ponytail: opacity multiplies into globalAlpha per paint, so overlapping children (or a Fill
-  // under a Stroke) show through each other where SVG composites the group first; draw
-  // translucent containers to an offscreen layer when that difference matters.
+  // ponytail: opacity multiplies into globalAlpha, and a blend mode sets globalCompositeOperation,
+  // per paint, so overlapping children (or a Fill under a Stroke) show through or blend with each
+  // other where SVG composites the container first; draw translucent or blended containers to an
+  // offscreen layer when that difference matters.
   ctx.globalAlpha *= n.opacity;
-  // Canvas2D takes the CSS blend-mode names `toSvg` writes as mix-blend-mode. A normal Node keeps
-  // the mode it draws in, so a blended container's children blend too; like opacity, each paint
-  // blends on its own where SVG blends the composited container.
+  // Canvas2D takes the CSS names `toSvg` writes as mix-blend-mode. A normal Node keeps the mode it
+  // draws in, so a blended container's children blend too.
   if (n.blendMode !== "normal") ctx.globalCompositeOperation = n.blendMode;
   ctx.transform(...n.transform);
   if (n.type === "layer" || n.type === "group") {

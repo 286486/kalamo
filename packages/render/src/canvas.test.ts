@@ -136,13 +136,13 @@ it("skips hidden Nodes, and applies opacity and transform through save and resto
   expect(after.visible).toBe(true);
 });
 
-it("paints a Node in its blend mode, as render does, and restores the one below it", () => {
+it("paints a Node in its blend mode, as render does, and returns to source-over after it", () => {
   const { doc, defaultLayerId: parentId } = newDoc();
   const [multiplied, screened] = createNodes(doc, [
     { type: "rect", parentId, x: 0, y: 0, width: 1, height: 1 },
     { type: "group", parentId, children: [{ type: "rect", x: 0, y: 0, width: 1, height: 1 }] },
     { type: "rect", parentId, x: 0, y: 0, width: 1, height: 1 },
-  ]).nodes as [Node, Node];
+  ]).nodes as [Node, Node, Node];
   multiplied.blendMode = "multiply";
   screened.blendMode = "screen";
   const { ctx, log } = recorder();
