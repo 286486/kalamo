@@ -1,0 +1,67 @@
+import { expect, test } from "@playwright/test";
+import { call } from "./mcp.ts";
+
+// #81: the Pen continues and connects an Agent's paths; +, - and Shift+C edit their Anchors.
+test("the Pen continues a path onto another, and +, - and Shift+C edit an Agent's path", async ({
+  page,
+  request,
+}) => {
+  const { docId, defaultLayerId: parentId } = (
+    await call(request, "zibel_doc_create", {
+      name: "Pen edit",
+      artboards: [{ width: 200, height: 100 }],
+    })
+  ).structuredContent;
+  const created = await call(request, "zibel_node_create", {
+    docId,
+    nodes: [
+      { type: "path", parentId, d: "M 20 20 L 60 20" },
+      { type: "path", parentId, d: "M 100 20 L 140 20" },
+      // A Smooth Anchor at (100, 80) between two Corners.
+      { type: "path", parentId, d: "M 60 80 C 60 80 80 60 100 80 C 120 100 140 80 140 80" },
+    ],
+  });
+  const [a, b, curve] = created.structuredContent.createdIds as [string, string, string];
+  const get = async (id: string) =>
+    (await call(request, "zibel_node_get", { docId, nodeIds: [id], detail: "full" }))
+      .structuredContent?.nodes[0];
+
+  await page.goto(`/docs/${docId}`);
+  await expect(page.getByTestId("status-bar")).toContainText(/\d+%/);
+  await page.keyboard.press("Control+1");
+  await expect(page.getByTestId("status-bar")).toContainText("100%");
+  const box = await page.locator("canvas").boundingBox();
+  if (!box) throw new Error("no canvas");
+  const at = (x: number, y: number) =>
+    [box.x + box.width / 2 + x - 100, box.y + box.height / 2 + y - 50] as const;
+
+  // Continuing a's end, then clicking b's start: one Transaction leaves one path.
+  const { rev } = created.structuredContent;
+  await page.keyboard.press("p");
+  await page.mouse.click(...at(60, 20));
+  await page.mouse.click(...at(80, 40));
+  await page.mouse.click(...at(100, 20));
+  await expect
+    .poll(async () => (await get(b))?.d)
+    .toBe("M 20 20 L 60 20 L 80 40 L 100 20 L 140 20");
+  const { changes } = (await call(request, "zibel_doc_changes", { docId, sinceRev: rev }))
+    .structuredContent;
+  expect(changes).toMatchObject([{ actor: "user", updatedIds: [b], deletedIds: [a] }]);
+
+  // + adds an Anchor at the middle of the curve's first segment, and - removes it again.
+  await page.keyboard.press("=");
+  await page.mouse.click(...at(72.5, 72.5));
+  await expect.poll(async () => ((await get(curve))?.d.match(/C/g) ?? []).length).toBe(3);
+  await page.keyboard.press("-");
+  await page.mouse.click(...at(72.5, 72.5));
+  await expect.poll(async () => ((await get(curve))?.d.match(/C/g) ?? []).length).toBe(2);
+
+  // Shift+C: a click on the Smooth Anchor retracts its Handles.
+  await page.keyboard.press("Shift+C");
+  await expect(page.getByRole("button", { name: "Anchor Point Tool (Shift+C)" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await page.mouse.click(...at(100, 80));
+  await expect.poll(async () => (await get(curve))?.d).toBe("M 60 80 L 100 80 L 140 80");
+});

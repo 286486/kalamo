@@ -336,7 +336,7 @@ Source: https://helpx.adobe.com/illustrator/using/default-keyboard-shortcuts.htm
 
 ## Open questions to verify in a live Illustrator
 1. Does Undo while drawing with the Pen keep the path active, and is the continued path's outgoing handle kept?
-2. Does continuing from a smooth endpoint start a straight or a curved segment? (The docs contradict each other.)
+2. Does continuing from a smooth endpoint start a straight or a curved segment? (The docs contradict each other.) Not verified live; Zibel starts it straight, because `d` stores no outgoing Handle at an open Endpoint (ADR-0037).
 3. Exact positions of Reverse Path Direction and Smooth in Object > Path.
 4. The Pencil option defaults (15 px close, 12 px edit, Keep selected on).
 5. How the Curvature tool closes a path (clicking the first point?).

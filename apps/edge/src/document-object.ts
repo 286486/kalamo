@@ -311,6 +311,20 @@ export class DocumentObject extends DurableObject<Env> {
       nodeIds: (c) => c.input.nodeIds,
       run: (c, commandId) => this.pathOp(c.input, USER, { commandId }),
     },
+    path_join: {
+      nodeIds: (c) => [c.edit.nodeId, ...c.join.nodeIds],
+      run: (c, commandId) =>
+        this.write(USER, { commandId }, "Join", (doc) => {
+          const { warnings } = editPath(doc, c.edit);
+          const joined = pathOp(doc, c.join);
+          return {
+            ...joined,
+            warnings: [...warnings, ...joined.warnings],
+            failed: [],
+            summary: "Join",
+          };
+        }),
+    },
   };
 
   /**

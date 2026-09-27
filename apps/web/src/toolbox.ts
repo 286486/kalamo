@@ -1,4 +1,5 @@
 import type { Document, Node } from "@zibel/core";
+import { addAnchorTool, anchorPointTool, deleteAnchorTool } from "./anchorTools.ts";
 import { curvatureTool } from "./curvatureTool.ts";
 import { directTool } from "./directTool.ts";
 import { pencilTool } from "./pencilTool.ts";
@@ -68,6 +69,9 @@ export const TOOLS = {
   direct: directTool,
   zoom: zoomTool,
   pen: penTool,
+  addAnchor: addAnchorTool,
+  deleteAnchor: deleteAnchorTool,
+  anchorPoint: anchorPointTool,
   curvature: curvatureTool,
   pencil: pencilTool,
 } satisfies Record<string, CanvasTool>;
@@ -75,5 +79,6 @@ export const TOOLS = {
 export type Tool = keyof typeof TOOLS;
 
 export const TOOL_KEYS: Record<string, Tool> = Object.fromEntries(
-  (Object.keys(TOOLS) as Tool[]).map((name) => [TOOLS[name].shortcut, name] as const),
+  // keysOf reports + as =, the key it is on.
+  (Object.keys(TOOLS) as Tool[]).map((name) => [TOOLS[name].shortcut.replace(/^\+$/, "="), name]),
 );

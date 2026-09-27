@@ -19,12 +19,25 @@ export interface Drag {
   commandId: string | null;
 }
 
+/** An open subpath's Endpoint: its first Anchor, or its last. */
+export interface Endpoint {
+  nodeId: string;
+  subpath: number;
+  atStart: boolean;
+}
+
 /**
  * The path the Pen is drawing, in document coordinates (ADR-0032). It stays in the browser until
  * finished; `commandId` is set once its `create` has been sent, and it is drawn until the answer.
  */
 export interface PenPath {
   anchors: BareAnchor[];
+  /**
+   * The path the Pen continues from its Endpoint: `anchors` start with its subpath's `kept` Anchors,
+   * turned to end at that Endpoint. `to` is another path's Endpoint the last Anchor connects to.
+   */
+  from?: Endpoint & { kept: number };
+  to?: Endpoint;
   /** The Curvature tool's Anchors as placed, which `anchors` follow. */
   curve?: CurveAnchor[];
   closed: boolean;

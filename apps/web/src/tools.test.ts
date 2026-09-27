@@ -1,4 +1,13 @@
-import { type BareAnchor, createDocument, parsePath, toAnchors } from "@zibel/core";
+import {
+  type BareAnchor,
+  createDocument,
+  createNodes,
+  type Document,
+  editPath,
+  parsePath,
+  pathOp,
+  toAnchors,
+} from "@zibel/core";
 import { beforeEach, expect, it, vi } from "vitest";
 import { DEFAULT_FILL_STROKE, send, useStore } from "./store.ts";
 import {
@@ -235,4 +244,114 @@ it("a path of Smooth Anchors commits as C segments in one Transaction", () => {
     type: "create",
     nodes: [{ d: "M 0 0 C 5 -5 15 -5 20 0 C 25 5 35 5 40 0" }],
   });
+});
+
+/** Two open lines, (0, 0) to (10, 0) and (30, 0) to (40, 0), and a selected closed triangle. */
+function paths() {
+  const { doc: d, defaultLayerId: parentId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 100, height: 100 }],
+  });
+  const [a, b, tri] = createNodes(d, [
+    { type: "path", parentId, d: "M 0 0 L 10 0" },
+    { type: "path", parentId, d: "M 30 0 L 40 0" },
+    { type: "path", parentId, d: "M 0 50 L 20 50 L 10 70 Z" },
+  ]).nodes.map((n) => n.id) as [string, string, string];
+  useStore.setState({ doc: d, selection: [tri] });
+  return { d, a, b, tri };
+}
+const sent = () => vi.mocked(send).mock.calls.map(([c]) => c);
+const dOf = (d: Document, id: string) => (d.nodes.get(id) as { d: string }).d;
+
+it("continuing an open path from its Endpoint and pressing Enter sends one path_edit", () => {
+  const { a } = paths();
+  penClick([10, 0], 1);
+  penClick([20, 10], 1);
+  finishPen();
+  expect(sent()).toEqual([
+    { type: "path_edit", input: { nodeId: a, ops: [{ op: "set_d", d: "M 0 0 L 10 0 L 20 10" }] } },
+  ]);
+  expect(pen()).toBeNull();
+  expect(useStore.getState().selection).toEqual([a]);
+});
+
+it("continuing from the first Endpoint keeps the path's direction; Ctrl+Z stops at its own Anchors", () => {
+  const { a } = paths();
+  penClick([0, 0], 1);
+  penClick([-10, 5], 1);
+  expect(undoAnchor()).toBe(true);
+  expect(pen()?.anchors).toHaveLength(2);
+  penClick([-10, 5], 1);
+  finishPen();
+  expect(sent()).toEqual([
+    { type: "path_edit", input: { nodeId: a, ops: [{ op: "set_d", d: "M -10 5 L 0 0 L 10 0" }] } },
+  ]);
+  vi.mocked(send).mockClear();
+  penClick([0, 0], 1);
+  undoAnchor();
+  expect(pen()).toBeNull();
+  expect(sent()).toEqual([]);
+});
+
+it("continuing and clicking the path's other Endpoint closes it", () => {
+  const { a } = paths();
+  penClick([10, 0], 1);
+  penClick([5, 10], 1);
+  penClick([0, 0], 1);
+  expect(sent()).toEqual([
+    {
+      type: "path_edit",
+      input: { nodeId: a, ops: [{ op: "set_d", d: "M 0 0 L 10 0 L 5 10 Z" }] },
+    },
+  ]);
+});
+
+it("connecting a continued path to another's Endpoint is one path_join leaving one path", () => {
+  const { d, a, b } = paths();
+  penClick([10, 0], 1);
+  penClick([20, 5], 1);
+  penClick([30, 0], 1);
+  const [command, ...rest] = sent();
+  expect(rest).toEqual([]);
+  if (command?.type !== "path_join") throw new Error(`sent ${command?.type}`);
+  const after = { ...d, nodes: new Map(d.nodes) };
+  editPath(after, command.edit);
+  const { deletedIds, updated } = pathOp(after, command.join);
+  // Join keeps the topmost path.
+  expect(deletedIds).toEqual([a]);
+  expect(updated.map((n) => n.id)).toEqual([b]);
+  expect(dOf(after, b)).toBe("M 0 0 L 10 0 L 20 5 L 30 0 L 40 0");
+});
+
+it("a new path connecting to an Endpoint continues that path backwards, in one path_edit", () => {
+  const { b } = paths();
+  penClick([20, 20], 1);
+  penClick([40, 0], 1);
+  expect(sent()).toEqual([
+    { type: "path_edit", input: { nodeId: b, ops: [{ op: "set_d", d: "M 30 0 L 40 0 L 20 20" }] } },
+  ]);
+});
+
+it("over a selected path the Pen deletes the Anchor or adds one, and Shift draws instead", () => {
+  const { tri } = paths();
+  penClick([20, 50], 1);
+  expect(sent()).toEqual([
+    {
+      type: "path_edit",
+      input: { nodeId: tri, ops: [{ op: "remove_anchor", subpath: 0, index: 1 }] },
+    },
+  ]);
+  vi.mocked(send).mockClear();
+  penClick([5, 50], 1);
+  const [add] = sent();
+  expect(add).toMatchObject({ type: "path_edit", input: { nodeId: tri } });
+  const op = add?.type === "path_edit" ? add.input.ops[0] : null;
+  expect(op).toMatchObject({ op: "add_anchor", subpath: 0, segment: 0 });
+  expect(op?.op === "add_anchor" && op.t).toBeCloseTo(0.25);
+  expect(pen()).toBeNull();
+  vi.mocked(send).mockClear();
+  penClick([5, 50], 1, true);
+  expect(sent()).toEqual([]);
+  expect(pen()?.anchors).toEqual([corner(5, 50)]);
 });

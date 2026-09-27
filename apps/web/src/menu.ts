@@ -1,5 +1,6 @@
 import { type Document, type PathOpInput, serializeDocument } from "@zibel/core";
 import { toSvg } from "@zibel/io/write";
+import { sendAnchorEdits } from "./anchorTools.ts";
 import { curvatureClearInputs, removeCurveAnchor } from "./curvature.ts";
 import { anchorOpTargets, clearInputs, inRange, removeAnchorInputs } from "./direct.ts";
 import { PLACEABLE, pasteClipboard, place } from "./place.ts";
@@ -74,13 +75,6 @@ async function save(
 const hasDoc = (s: State) => s.doc !== null;
 const hasView = (s: State) => s.viewport !== null;
 const hasSelection = (s: State) => s.selection.length > 0;
-
-/** One `path_edit` per path and one `delete`, for edits on the selected Anchors, which they clear. */
-function sendAnchorEdits({ edits, deleteIds }: ReturnType<typeof clearInputs>) {
-  for (const input of edits) send({ type: "path_edit", input });
-  if (deleteIds.length > 0) send({ type: "delete", nodeIds: deleteIds });
-  useStore.setState({ anchors: [] });
-}
 
 const hasPathTargets = ({ doc, selection }: State) =>
   doc !== null && pathTargets(doc, selection).length > 0;

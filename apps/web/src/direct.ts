@@ -65,7 +65,7 @@ export const allKeys = (n: ShapeNode) =>
   localAnchors(n).flatMap((s, k) => s.anchors.map((_, i) => anchorKey(n.id, k, i)));
 
 /** Every visible, unlocked path and Live Shape, in draw order. */
-function editableShapes(doc: Document): ShapeNode[] {
+export function editableShapes(doc: Document): ShapeNode[] {
   const walk = (parentId: string | null): ShapeNode[] =>
     childrenOf(doc, parentId).flatMap((n) => {
       if (!n.visible || n.locked) return [];

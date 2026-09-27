@@ -305,6 +305,40 @@ it("commits a path_edit command as the User Actor", async () => {
   expect(edited?.type === "tx" && edited.updated[0]).toMatchObject({ id, d: "M 0 0 L 20 5" });
 });
 
+it("commits a path_join command as one Transaction that leaves one path", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const [a, b] = (
+    await call("zibel_node_create", {
+      docId,
+      nodes: [
+        { type: "path", parentId: defaultLayerId, d: "M 0 0 L 10 0" },
+        { type: "path", parentId: defaultLayerId, d: "M 30 0 L 40 0" },
+      ],
+    })
+  ).structuredContent.createdIds;
+  const { ws, received } = await subscribe(docId);
+  await received(1);
+  ws.send(
+    command("j1", {
+      type: "path_join",
+      edit: { nodeId: a, ops: [{ op: "set_d", d: "M 0 0 L 10 0 L 20 5 L 30 0" }] },
+      join: {
+        nodeIds: [a, b],
+        op: "join",
+        anchors: [
+          { nodeId: a, subpath: 0, index: 3 },
+          { nodeId: b, subpath: 0, index: 0 },
+        ],
+      },
+    }),
+  );
+  const [, joined] = await received(2);
+  expect(joined).toMatchObject({ type: "tx", actor: "user", commandId: "j1", deletedIds: [a] });
+  expect(joined?.type === "tx" && joined.updated).toMatchObject([
+    { id: b, d: "M 0 0 L 10 0 L 20 5 L 30 0 L 40 0" },
+  ]);
+});
+
 it("converts a rect with a path_op command, and undo brings the rect back without d", async () => {
   const { docId, defaultLayerId } = await newDoc();
   const [id] = (await call("zibel_node_create", { docId, nodes: [rect(defaultLayerId)] }))
