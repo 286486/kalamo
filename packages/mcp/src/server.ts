@@ -453,7 +453,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
     {
       title: "Path Operation",
       description: [
-        "Run an Object > Path command on Nodes, in one Transaction.",
+        "Run a path operation on Nodes, in one Transaction.",
         "op convert_to_path turns each Live Shape (rect, ellipse, line, polygon, star) into a path with the same outline, as Illustrator's Object > Shape > Expand Shape: it keeps its id, parent, stacking order, name, transform and appearance, and its parameters give way to d and fillRule. A path is left as it is; any other Node fails the call. zibel_path_edit converts a Live Shape by itself, so convert first only to keep the shape as a path without editing it.",
       ].join(" "),
       inputSchema: { docId, ...PathOpInput.shape, ...maskWrite },

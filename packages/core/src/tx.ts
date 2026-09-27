@@ -1,6 +1,6 @@
 import { subtree } from "./edit.ts";
 import { ZibelError } from "./errors.ts";
-import type { Document, Node } from "./schema.ts";
+import { type Document, type Node, SHAPES } from "./schema.ts";
 
 /**
  * One Node an open Transaction touched (ADR-0008): `base` is the committed copy at first touch
@@ -123,8 +123,12 @@ function merge(current: Node, base: Node, working: Node): Node {
   const b = base as unknown as Record<string, unknown>;
   const w = working as unknown as Record<string, unknown>;
   const out: Record<string, unknown> = { ...current };
+  // Converted to a path meanwhile (ADR-0032): the Live Shape's parameters are gone, so edits to
+  // them are dropped, as delete beats edit.
+  const converted = current.type !== base.type && working.type === base.type;
+  const gone = converted ? SHAPES[base.type as keyof typeof SHAPES]?.shape : undefined;
   for (const k of new Set([...Object.keys(b), ...Object.keys(w)])) {
-    if (same(b[k], w[k])) continue;
+    if (same(b[k], w[k]) || (gone && k in gone)) continue;
     if (Object.hasOwn(w, k)) out[k] = w[k];
     else delete out[k];
   }

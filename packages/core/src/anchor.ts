@@ -205,7 +205,7 @@ export const PathEditInput = z.object({
 });
 export type PathEditInput = z.input<typeof PathEditInput>;
 
-/** `path_op` (REQUIREMENTS §6.4): the Object > Path commands; convert_to_path is the first. */
+/** `path_op` (REQUIREMENTS §6.4): convert_to_path (Object > Shape > Expand Shape) so far. */
 export const PathOpInput = z.object({
   nodeIds: z.array(z.string()).min(1).max(1000),
   op: z.literal("convert_to_path"),
@@ -418,19 +418,17 @@ function toPath(node: LiveShape): PathNode {
 }
 
 /** `path_op convert_to_path`: converts each Live Shape and leaves a path as it is. */
+/** The path or Live Shape `id` names, or INVALID_PATH for a Node without Anchors. */
+function withAnchors(doc: Document, id: string, at: string): PathNode | LiveShape {
+  const node = lookup(doc, id, at);
+  if (node.type === "path" || isLiveShape(node)) return node;
+  throw invalid(at, `A ${node.type} has no Anchors.`, "Name a path or a Live Shape.");
+}
+
 export function convertToPath(doc: Document, nodeIds: string[]): { updated: PathNode[] } {
-  const nodes = nodeIds.map((id, i) => {
-    const node = lookup(doc, id, `nodeIds[${i}]`);
-    if (node.type !== "path" && !isLiveShape(node)) {
-      throw invalid(
-        `nodeIds[${i}]`,
-        `A ${node.type} has no Anchors.`,
-        "Convert to Path takes a Live Shape (rect, ellipse, line, polygon, star) or a path.",
-      );
-    }
-    return node;
-  });
-  const updated = nodes.filter(isLiveShape).map(toPath);
+  const nodes = nodeIds.map((id, i) => withAnchors(doc, id, `nodeIds[${i}]`));
+  const unique = [...new Map(nodes.map((n) => [n.id, n])).values()];
+  const updated = unique.filter(isLiveShape).map(toPath);
   for (const node of updated) doc.nodes.set(node.id, node);
   return { updated };
 }
@@ -449,14 +447,7 @@ export function editPath(
   warnings: WriteReceipt["warnings"];
 } {
   const input = PathEditInput.parse(raw);
-  const found = lookup(doc, input.nodeId, "nodeId");
-  if (found.type !== "path" && !isLiveShape(found)) {
-    throw invalid(
-      "nodeId",
-      `A ${found.type} has no Anchors.`,
-      "path_edit edits a path or a Live Shape.",
-    );
-  }
+  const found = withAnchors(doc, input.nodeId, "nodeId");
   const node = isLiveShape(found) ? toPath(found) : found;
   let subpaths = toAnchors(parsePath(node.d, "d"));
   input.ops.forEach((op, i) => {

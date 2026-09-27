@@ -141,7 +141,7 @@ export interface DocumentService {
   releaseMask(docId: string, nodeIds: string[], opts?: WriteOptions): Promise<WriteReceipt>;
   /** Anchor edits on one path (REQUIREMENTS §6.4); a Live Shape is converted first, with a warning. */
   pathEdit(docId: string, input: PathEditInput, opts?: WriteOptions): Promise<PathEditReceipt>;
-  /** The Object > Path commands (REQUIREMENTS §6.4): convert_to_path so far (ADR-0032). */
+  /** Path operations (REQUIREMENTS §6.4): convert_to_path so far (ADR-0032). */
   pathOp(docId: string, input: PathOpInput, opts?: WriteOptions): Promise<WriteReceipt>;
   /** Reads take `txId` to see that open Transaction's uncommitted edits. */
   get(

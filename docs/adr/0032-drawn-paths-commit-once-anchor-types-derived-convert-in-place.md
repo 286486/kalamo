@@ -27,5 +27,6 @@ After the commit, undo removes the whole path. Illustrator steps back one Anchor
 ## Consequences
 
 - The browser gains a `create` Command. `path_edit` and `path_op` become Commands that parse the same schemas as their MCP tools.
-- The undo of a type change is a new case in the per-key revert of ADR-0011: keys present only after the change are removed.
+- The undo of a type change is a new case in the per-key revert of ADR-0011: keys present only after the change are removed. When a Transaction's overlay commits onto a Node converted since, its edits to the Live Shape's parameters are dropped, as delete beats edit.
+- `path_edit` on a Live Shape reports the conversion as a `CONVERTED_TO_PATH` warning in its receipt.
 - A file that marks an Anchor Smooth while its Handles are not collinear opens with that Anchor as Corner.
