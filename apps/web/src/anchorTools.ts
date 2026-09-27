@@ -1,16 +1,20 @@
 import type { Document, PathEditInput } from "@zibel/core";
 import { cancelDrag, commitDrag, dragged, type Press } from "./canvas.ts";
 import {
+  anchorsOf,
   hasAnchors,
   localAnchors,
   localDelta,
   moveHandle,
+  nearestSegment,
   parseKey,
   pick,
   plus,
   removeAnchorInputs,
+  type Target,
 } from "./direct.ts";
 import { directTool } from "./directTool.ts";
+import { editable } from "./selection.ts";
 import { send, useStore } from "./store.ts";
 import type { CanvasTool, ToolEvent } from "./toolbox.ts";
 
@@ -25,13 +29,27 @@ export function sendAnchorEdits({ edits, deleteIds }: ReturnType<typeof removeAn
   useStore.setState({ anchors: [] });
 }
 
+/** The nearest segment of the paths `ids` within `tolerance`, as pick names one. */
+function nearestOf(doc: Document, ids: string[], p: Point, tolerance: number) {
+  let best: (Extract<Target, { kind: "segment" }> & { dist: number }) | null = null;
+  for (const nodeId of ids) {
+    const n = doc.nodes.get(nodeId);
+    if (!hasAnchors(n) || !editable(doc, n)) continue;
+    const hit = nearestSegment(anchorsOf(doc, n), ...p);
+    if (hit && hit.dist <= tolerance && (!best || hit.dist < best.dist)) {
+      best = { kind: "segment", nodeId, ...hit };
+    }
+  }
+  return best;
+}
+
 /**
  * A click with the Add Anchor Point tool: an Anchor on the topmost segment within `tolerance`,
  * keeping its shape; `only` limits it to those paths. False when it hit no segment.
  */
 export function addAnchorAt(doc: Document, p: Point, tolerance: number, only?: string[]): boolean {
-  const hit = pick(doc, [], [], p[0], p[1], tolerance);
-  if (hit?.kind !== "segment" || (only && !only.includes(hit.nodeId))) return false;
+  const hit = only ? nearestOf(doc, only, p, tolerance) : pick(doc, [], [], p[0], p[1], tolerance);
+  if (hit?.kind !== "segment") return false;
   const { nodeId, subpath, segment } = hit;
   const n = doc.nodes.get(nodeId);
   const s = hasAnchors(n) ? localAnchors(n)[subpath] : undefined;
@@ -105,7 +123,7 @@ let gesture:
 /**
  * Dragging out of the Anchor `key` by (dx, dy) in document coordinates: Smooth, its outgoing
  * Handle at the pointer and the incoming one mirrored, as the Pen places one. An open subpath's
- * Endpoint has one Handle, which it gets.
+ * Endpoint has one Handle, which follows the pointer.
  */
 export function pullHandles(
   doc: Document,
@@ -122,8 +140,9 @@ export function pullHandles(
   const out = plus(a.anchor, d);
   const back = plus(a.anchor, [-d[0], -d[1]]);
   const open = !s.closed;
-  const handleIn = open && index === 0 ? {} : { handleIn: back };
-  const handleOut = open && index === s.anchors.length - 1 ? {} : { handleOut: out };
+  const last = open && index === s.anchors.length - 1;
+  const handleIn = open && index === 0 ? {} : { handleIn: last ? out : back };
+  const handleOut = last ? {} : { handleOut: out };
   return { nodeId, ops: [{ op: "set_handles", subpath, index, ...handleIn, ...handleOut }] };
 }
 

@@ -19,10 +19,6 @@ export interface Drag {
   commandId: string | null;
 }
 
-/**
- * The path the Pen is drawing, in document coordinates (ADR-0032). It stays in the browser until
- * finished; `commandId` is set once its `create` has been sent, and it is drawn until the answer.
- */
 /** An open subpath's Endpoint: its first Anchor, or its last. */
 export interface Endpoint {
   nodeId: string;
@@ -30,6 +26,10 @@ export interface Endpoint {
   atStart: boolean;
 }
 
+/**
+ * The path the Pen is drawing, in document coordinates (ADR-0032). It stays in the browser until
+ * finished; `commandId` is set once its `create` has been sent, and it is drawn until the answer.
+ */
 export interface PenPath {
   anchors: BareAnchor[];
   /**

@@ -98,8 +98,8 @@ it("Shift+C: a click makes a Smooth Anchor Corner", () => {
 it("Shift+C: dragging out of a Corner pulls out mirrored Handles, making it Smooth", () => {
   const { doc } = agentPath();
   gesture(anchorPointTool, doc, [20, 0], [25, 5]);
-  // An Endpoint has only its incoming Handle, which mirrors the drag.
-  expect(edited(doc)[2]).toMatchObject({ handleIn: [15, -5], handleOut: null });
+  // An Endpoint has only its incoming Handle, which follows the drag.
+  expect(edited(doc)[2]).toMatchObject({ handleIn: [25, 5], handleOut: null });
 });
 
 it("Shift+C: dragging a Handle of a selected Anchor moves it alone, making a Corner", () => {

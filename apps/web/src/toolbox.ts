@@ -79,6 +79,6 @@ export const TOOLS = {
 export type Tool = keyof typeof TOOLS;
 
 export const TOOL_KEYS: Record<string, Tool> = Object.fromEntries(
-  // keysOf names + as =, which a US keyboard types it with.
+  // keysOf reports + as =, the key it is on.
   (Object.keys(TOOLS) as Tool[]).map((name) => [TOOLS[name].shortcut.replace(/^\+$/, "="), name]),
 );
