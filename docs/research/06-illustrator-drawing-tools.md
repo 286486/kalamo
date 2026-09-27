@@ -107,6 +107,7 @@ Sources:
 
 **Closing** [U]
 - Not stated in the docs. Clicking the first point closes the path, and the pointer shows a close indicator the way the Pen does.
+- Zibel (#82) closes on a click on the first Anchor, once the path has two, as its Pen does; a drag on it moves it instead. Not yet checked against a live Illustrator.
 
 **Shortcut**
 - The shortcuts page writes it as "Shift + ~" on both Windows and macOS. On US layouts that is the backtick/tilde key (`` ` ``/`~`) with Shift. [A]

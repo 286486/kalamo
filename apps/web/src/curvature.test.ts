@@ -8,13 +8,13 @@ import {
 } from "@zibel/core";
 import { beforeEach, expect, it, vi } from "vitest";
 import {
+  curvatureClearInputs,
   curvatureDown,
   curvatureDrag,
   curvatureUp,
   curveThrough,
   moveInput,
-  removeInputs,
-  removePoint,
+  removeCurveAnchor,
   toggleInput,
 } from "./curvature.ts";
 import { anchorKey } from "./direct.ts";
@@ -65,7 +65,7 @@ beforeEach(() => {
   vi.mocked(send).mockClear();
 });
 
-it("runs a smooth curve through the points, straight between two, closing all the way round", () => {
+it("runs a smooth curve through the Anchors, straight between two, closing all the way round", () => {
   const smooth = (at: Point) => ({ at, smooth: true });
   expect(curveThrough([smooth([0, 0]), smooth([10, 0])], false)).toEqual([
     { anchor: [0, 0], handleIn: null, handleOut: null },
@@ -86,7 +86,7 @@ it("runs a smooth curve through the points, straight between two, closing all th
   );
   expect(corner[1]).toEqual({ anchor: [10, 10], handleIn: null, handleOut: null });
   expect(corner[0]?.handleIn).not.toBeNull();
-  // Four points on a circle close into one: its Handles are a quarter circle's 0.5523 of the radius.
+  // Four Anchors on a circle close into one: its Handles are a quarter circle's 0.5523 of the radius.
   const ring = curveThrough(
     [smooth([10, 0]), smooth([0, 10]), smooth([-10, 0]), smooth([0, -10])],
     true,
@@ -94,7 +94,7 @@ it("runs a smooth curve through the points, straight between two, closing all th
   expect(ring[0]?.handleOut?.[1]).toBeCloseTo(5.523, 2);
 });
 
-it("four clicks and Esc commit one smooth open path through the four points", () => {
+it("four clicks and Esc commit one smooth open path through the four Anchors", () => {
   clicks([0, 0], [20, 20], [40, 0], [60, 20]);
   expect(send).not.toHaveBeenCalled();
   finishPen();
@@ -111,7 +111,7 @@ it("four clicks and Esc commit one smooth open path through the four points", ()
   expect(sentD()).toMatch(/^M 0 0 C( [\d.-]+){6} C( [\d.-]+){6} C( [\d.-]+){6}$/);
 });
 
-it("a double-click or an Alt-click places a Corner, and a click on the first point closes", () => {
+it("a double-click or an Alt-click places a Corner, and a click on the first Anchor closes", () => {
   clicks([0, 0], [20, 20]);
   click([20.5, 20]); // The second click of a double-click, at once.
   clicks([40, 0]);
@@ -128,25 +128,31 @@ it("a double-click or an Alt-click places a Corner, and a click on the first poi
   ]);
 });
 
-it("dragging a point moves it, Delete removes one, and Ctrl+Z the last", () => {
+it("a click on the only Anchor does not close the path", () => {
+  clicks([0, 0], [0, 0]);
+  expect(send).not.toHaveBeenCalled();
+  expect(useStore.getState().pen?.curve).toEqual([{ at: [0, 0], smooth: true }]);
+});
+
+it("dragging an Anchor moves it, Delete removes one, and Ctrl+Z the last", () => {
   clicks([0, 0], [20, 20], [40, 0]);
   vi.advanceTimersByTime(1000);
   curvatureDown([20, 20], 1, false);
   curvatureDrag([20, 30]);
   curvatureUp();
-  expect(useStore.getState().pen?.points?.map((p) => p.at)).toEqual([
+  expect(useStore.getState().pen?.curve?.map((p) => p.at)).toEqual([
     [0, 0],
     [20, 30],
     [40, 0],
   ]);
-  // Delete takes the point pressed last.
-  expect(removePoint()).toBe(true);
-  expect(useStore.getState().pen?.points?.map((p) => p.at)).toEqual([
+  // Delete takes the Anchor pressed last.
+  expect(removeCurveAnchor()).toBe(true);
+  expect(useStore.getState().pen?.curve?.map((p) => p.at)).toEqual([
     [0, 0],
     [40, 0],
   ]);
   expect(undoAnchor()).toBe(true);
-  expect(useStore.getState().pen?.points?.map((p) => p.at)).toEqual([[0, 0]]);
+  expect(useStore.getState().pen?.curve?.map((p) => p.at)).toEqual([[0, 0]]);
   expect(useStore.getState().pen?.anchors).toHaveLength(1);
 });
 
@@ -204,7 +210,7 @@ it("moving an Anchor reshapes its Smooth neighbours through it", () => {
 
 it("Delete removes an Anchor and keeps the curve connected", () => {
   const { doc, id } = committed();
-  const { edits, deleteIds } = removeInputs(doc, [anchorKey(id, 0, 2)]);
+  const { edits, deleteIds } = curvatureClearInputs(doc, [id], [anchorKey(id, 0, 2)]);
   expect(deleteIds).toEqual([]);
   const [edit] = edits;
   const op = edit?.ops[0];
@@ -218,8 +224,9 @@ it("Delete removes an Anchor and keeps the curve connected", () => {
   expect(sub?.anchors[1]?.type).toBe("smooth");
   // Down to one Anchor, the path goes.
   expect(
-    removeInputs(
+    curvatureClearInputs(
       doc,
+      [id],
       [0, 1, 2].map((i) => anchorKey(id, 0, i)),
     ).deleteIds,
   ).toEqual([id]);

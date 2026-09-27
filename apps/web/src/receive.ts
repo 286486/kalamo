@@ -6,7 +6,7 @@ import {
   transformNodes,
 } from "@zibel/core";
 import { applyBroadcast, type ServerMessage } from "@zibel/sync";
-import type { CurvePoint } from "./curvature.ts";
+import type { CurveAnchor } from "./curvature.ts";
 import { inRange, parseKey } from "./direct.ts";
 
 /** The Selection being dragged by (dx, dy) pt. `commandId` is set once its move has been sent. */
@@ -23,8 +23,8 @@ export interface Drag {
  */
 export interface PenPath {
   anchors: BareAnchor[];
-  /** The Curvature tool's points, which `anchors` follow. */
-  points?: CurvePoint[];
+  /** The Curvature tool's Anchors as placed, which `anchors` follow. */
+  curve?: CurveAnchor[];
   closed: boolean;
   commandId: string | null;
 }

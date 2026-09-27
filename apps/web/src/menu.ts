@@ -1,6 +1,6 @@
 import { type Document, type PathOpInput, serializeDocument } from "@zibel/core";
 import { toSvg } from "@zibel/io/write";
-import { removeInputs, removePoint } from "./curvature.ts";
+import { curvatureClearInputs, removeCurveAnchor } from "./curvature.ts";
 import { clearInputs, inRange, removeAnchorInputs } from "./direct.ts";
 import { PLACEABLE, pasteClipboard, place } from "./place.ts";
 import {
@@ -209,17 +209,18 @@ export function documentMenus(tabs: { open: (file: File) => void; close: () => v
         {
           label: "Clear",
           keys: "Delete",
-          enabled: (s) =>
-            (s.tool === "curvature" && drawing(s) !== null) ||
-            (s.doc !== null &&
-              s.selection.some((id) => s.doc && editable(s.doc, s.doc.nodes.get(id)))),
+          enabled: (s) => {
+            const { doc } = s;
+            if (s.tool === "curvature" && drawing(s)) return true;
+            return doc !== null && s.selection.some((id) => editable(doc, doc.nodes.get(id)));
+          },
           run: () => {
             const { doc, selection, anchors, tool } = useStore.getState();
-            // The Curvature tool removes a point and keeps the curve connected (research 06 §2).
-            if (tool === "curvature" && removePoint()) return;
+            // The Curvature tool removes an Anchor and keeps the curve connected (research 06 §2).
+            if (tool === "curvature" && removeCurveAnchor()) return;
             if (!doc) return;
             if (tool === "curvature" && anchors.length > 0) {
-              sendAnchorEdits(removeInputs(doc, anchors));
+              sendAnchorEdits(curvatureClearInputs(doc, selection, anchors));
               return;
             }
             if (anchors.length > 0) {

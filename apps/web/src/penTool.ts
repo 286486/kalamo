@@ -60,7 +60,7 @@ export const penTool: CanvasTool = {
     const s = useStore.getState();
     const { pen, fillStroke } = s;
     // The Curvature tool draws its own.
-    if (!pen || pen.points) return;
+    if (!pen || pen.curve) return;
     // The path so far in its Fill and Stroke, then its outline, rubber band, Anchors and Handles.
     const last = pen.anchors.at(-1);
     let anchors = pen.anchors;

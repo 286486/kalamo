@@ -82,8 +82,8 @@ export function finishPen(closed = false) {
   const s = useStore.getState();
   const pen = drawing(s);
   if (!pen) return;
-  // A curve closing through its first point bends there too.
-  const anchors = pen.points ? curveThrough(pen.points, closed) : pen.anchors;
+  // A curve closing through its first Anchor bends there too.
+  const anchors = pen.curve ? curveThrough(pen.curve, closed) : pen.anchors;
   const done = { ...pen, anchors, closed };
   const node = s.doc && pen.anchors.length >= 2 ? penNode({ ...s, doc: s.doc }, done) : null;
   if (!node) {
@@ -117,7 +117,7 @@ let press: {
 export const penPressed = () => press !== null;
 export const penClosing = () => press?.kind === "close";
 
-const near = (a: Point, b: Point, tolerance: number) =>
+export const near = (a: Point, b: Point, tolerance: number) =>
   Math.hypot(a[0] - b[0], a[1] - b[1]) <= tolerance;
 
 /**
@@ -196,9 +196,9 @@ export function penUp() {
 export function undoAnchor(): boolean {
   const pen = drawing(useStore.getState());
   if (!pen) return false;
-  const points = pen.points?.slice(0, -1);
-  const anchors = points ? curveThrough(points, false) : pen.anchors.slice(0, -1);
-  useStore.setState({ pen: anchors.length > 0 ? { ...pen, anchors, points } : null });
+  const curve = pen.curve?.slice(0, -1);
+  const anchors = curve ? curveThrough(curve, false) : pen.anchors.slice(0, -1);
+  useStore.setState({ pen: anchors.length > 0 ? { ...pen, anchors, curve } : null });
   return true;
 }
 

@@ -175,7 +175,7 @@ export function localDelta(doc: Document, n: Node, dx: number, dy: number): Poin
   const [x1, y1] = applyTo(inv, dx, dy);
   return [x1 - x0, y1 - y0];
 }
-const plus = (p: Point, [dx, dy]: Point): Point => [p[0] + dx, p[1] + dy];
+export const plus = (p: Point, [dx, dy]: Point): Point => [p[0] + dx, p[1] + dy];
 
 /** Moving the Anchors `keys` by (dx, dy): one `path_edit` per path. */
 export function moveAnchors(doc: Document, keys: string[], dx: number, dy: number) {

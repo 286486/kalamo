@@ -15,11 +15,11 @@ import { drawing, finishPen, pathD } from "./tools.ts";
 
 type Point = [number, number];
 
-/** Where the rubber band's next point is, in document coordinates. */
+/** Where the rubber band's next Anchor is, in document coordinates. */
 let pointer: Point | null = null;
 
-/** A point as Illustrator's Curvature tool shows it: a circle if Smooth, a square if Corner. */
-function drawPoint(
+/** An Anchor as Illustrator's Curvature tool shows it: a circle if Smooth, a square if Corner. */
+function drawAnchor(
   ctx: CanvasRenderingContext2D,
   [x, y]: Point,
   smooth: boolean,
@@ -35,7 +35,7 @@ function drawPoint(
   ctx.stroke();
 }
 
-/** Clicks place Smooth points and the curve runs through them; see curvature.ts. */
+/** Clicks place Smooth Anchors and the curve runs through them; see curvature.ts. */
 export const curvatureTool: CanvasTool = {
   title: "Curvature Tool",
   shortcut: "Shift+~",
@@ -71,15 +71,15 @@ export const curvatureTool: CanvasTool = {
   draw(ctx, _doc, scale) {
     const s = useStore.getState();
     const { pen } = s;
-    if (!pen?.points) return;
-    // The rubber band: the curve as it would run through a point at the pointer.
+    if (!pen?.curve) return;
+    // The rubber band: the curve as it would run through an Anchor at the pointer.
     const d =
       drawing(s) && pointer && !curvaturePressed()
-        ? pathD(curveThrough([...pen.points, { at: pointer, smooth: true }], false), false)
+        ? pathD(curveThrough([...pen.curve, { at: pointer, smooth: true }], false), false)
         : pathD(pen.anchors, pen.closed);
     drawDrawing(ctx, new Path2D(d), s.fillStroke, scale);
-    for (const [i, p] of pen.points.entries()) {
-      drawPoint(ctx, p.at, p.smooth, i === pen.points.length - 1, scale);
+    for (const [i, p] of pen.curve.entries()) {
+      drawAnchor(ctx, p.at, p.smooth, i === pen.curve.length - 1, scale);
     }
   },
   /** Its outline and Anchors, as circles and squares; selected ones solid. */
@@ -91,7 +91,7 @@ export const curvatureTool: CanvasTool = {
     for (const [k, sub] of subpaths.entries()) {
       for (const [i, a] of sub.anchors.entries()) {
         const on = anchors.includes(anchorKey(node.id, k, i));
-        drawPoint(ctx, a.anchor, a.type === "smooth", on, scale);
+        drawAnchor(ctx, a.anchor, a.type === "smooth", on, scale);
       }
     }
     return true;

@@ -15,30 +15,31 @@ import {
   localAnchors,
   localDelta,
   parseKey,
+  plus,
 } from "./direct.ts";
 import { editable } from "./selection.ts";
 import { send, useStore } from "./store.ts";
-import { drawing, finishPen } from "./tools.ts";
+import { drawing, finishPen, near } from "./tools.ts";
 
-/** The Curvature tool (research 06 §2): clicks place points and the curve runs through them. */
+/** The Curvature tool (research 06 §2): clicks place Anchors and the curve runs through them. */
 
 type Point = [number, number];
 
-/** A point the Curvature tool placed; a Corner has no Handles. */
-export interface CurvePoint {
+/** An Anchor the Curvature tool placed; a Corner has no Handles. */
+export interface CurveAnchor {
   at: Point;
   smooth: boolean;
 }
 
 /**
  * A Handle's length as a share of its segment's chord: a quarter circle's (4/3 tan 22.5° over
- * √2), so four points on a circle close into it.
+ * √2), so four Anchors on a circle close into it.
  */
 const REACH = 0.3905;
-/** Two presses this close in time, on the same point, are a double-click. */
+/** Two presses this close in time, on the same Anchor, are a double-click. */
 const DOUBLE_MS = 500;
 
-/** A Smooth point's Handles: along the chord from `prev` to `next`, each reaching toward its neighbour. */
+/** A Smooth Anchor's Handles: along the chord from `prev` to `next`, each reaching toward its neighbour. */
 function curveHandles(prev: Point, [x, y]: Point, next: Point): [Point, Point] | null {
   const [dx, dy] = [next[0] - prev[0], next[1] - prev[1]];
   const l = Math.hypot(dx, dy);
@@ -60,48 +61,45 @@ function neighbours<T>(items: T[], i: number, closed: boolean): [T, T] | null {
 }
 
 /**
- * The Anchors of a curve through `points`: a Smooth point's Handles follow its neighbours, as a
+ * The Anchors of a curve through the Anchors placed: a Smooth Anchor's Handles follow its neighbours, as a
  * Catmull-Rom spline's do, and a Corner and an open curve's Endpoints have none.
  */
-export function curveThrough(points: CurvePoint[], closed: boolean): BareAnchor[] {
-  return points.map((p, i) => {
-    const around = p.smooth ? neighbours(points, i, closed) : null;
+export function curveThrough(curve: CurveAnchor[], closed: boolean): BareAnchor[] {
+  return curve.map((p, i) => {
+    const around = p.smooth ? neighbours(curve, i, closed) : null;
     const h = around && curveHandles(around[0].at, p.at, around[1].at);
     return { anchor: p.at, handleIn: h?.[0] ?? null, handleOut: h?.[1] ?? null };
   });
 }
 
-/** Sets the points of the path being drawn; its Anchors follow them. */
-function setPoints(points: CurvePoint[]) {
+/** Sets the curve of the path being drawn; its Anchors follow it. */
+function setCurve(curve: CurveAnchor[]) {
   useStore.setState({
     pen:
-      points.length > 0
-        ? { anchors: curveThrough(points, false), points, closed: false, commandId: null }
+      curve.length > 0
+        ? { anchors: curveThrough(curve, false), curve, closed: false, commandId: null }
         : null,
   });
 }
 
-const near = (a: Point, b: Point, tolerance: number) =>
-  Math.hypot(a[0] - b[0], a[1] - b[1]) <= tolerance;
-
 /**
- * The press: on a point of the path being drawn (`index`), or on an Anchor of a selected path
- * (`key`), which a drag moves; `from` is where it started. Pressing the first point closes the
+ * The press: on an Anchor of the path being drawn (`index`), or on an Anchor of a selected path
+ * (`key`), which a drag moves; `from` is where it started. Pressing the first Anchor closes the
  * path on release unless it was dragged.
  */
 let press:
-  | { kind: "point"; index: number; from: Point; close: boolean; moved: boolean }
+  | { kind: "drawn"; index: number; from: Point; close: boolean; moved: boolean }
   | { kind: "anchor"; key: string; from: Point }
   | null = null;
-/** The point pressed last, which Delete removes while drawing. */
+/** The Anchor pressed last, which Delete removes while drawing. */
 let current: number | null = null;
 let lastDown: { at: Point; time: number } | null = null;
 
 export const curvaturePressed = () => press !== null;
 
 /**
- * A Curvature press at `p` (research 06 §2). While drawing: a double-click on a point toggles it
- * between Smooth and Corner, a press on one grabs it, and elsewhere a click places a Smooth point,
+ * A Curvature press at `p` (research 06 §2). While drawing: a double-click on an Anchor toggles it
+ * between Smooth and Corner, a press on one grabs it, and elsewhere a click places a Smooth Anchor,
  * or a Corner with Alt. Otherwise a press on an Anchor of a selected path selects and grabs it, a
  * double-click toggles it in one `path_edit`, and elsewhere a new path starts.
  */
@@ -111,18 +109,24 @@ export function curvatureDown(p: Point, tolerance: number, alt: boolean) {
   lastDown = double ? null : { at: p, time };
   const s = useStore.getState();
   const pen = drawing(s);
-  const points = pen?.points ?? [];
-  if (pen && points.length > 0) {
-    const index = points.findIndex((q) => near(p, q.at, tolerance));
+  const curve = pen?.curve ?? [];
+  if (pen && curve.length > 0) {
+    const index = curve.findIndex((q) => near(p, q.at, tolerance));
     if (index >= 0) {
       current = index;
-      const q = points[index] as CurvePoint;
+      const q = curve[index] as CurveAnchor;
       if (double) {
         press = null;
-        setPoints(points.with(index, { ...q, smooth: !q.smooth }));
+        setCurve(curve.with(index, { ...q, smooth: !q.smooth }));
         return;
       }
-      press = { kind: "point", index, from: q.at, close: index === 0, moved: false };
+      press = {
+        kind: "drawn",
+        index,
+        from: q.at,
+        close: index === 0 && curve.length >= 2,
+        moved: false,
+      };
       return;
     }
   } else if (s.doc) {
@@ -142,20 +146,20 @@ export function curvatureDown(p: Point, tolerance: number, alt: boolean) {
       return;
     }
   }
-  current = points.length;
-  press = { kind: "point", index: points.length, from: p, close: false, moved: false };
-  setPoints([...points, { at: p, smooth: !alt }]);
+  current = curve.length;
+  press = { kind: "drawn", index: curve.length, from: p, close: false, moved: false };
+  setCurve([...curve, { at: p, smooth: !alt }]);
 }
 
-/** A drag of the press to `p`: the grabbed point moves and the curve reshapes through it. */
+/** A drag of the press to `p`: the grabbed Anchor moves and the curve reshapes through it. */
 export function curvatureDrag(p: Point) {
   const s = useStore.getState();
-  if (press?.kind === "point") {
-    const points = drawing(s)?.points;
-    const q = points?.[press.index];
-    if (!points || !q) return;
+  if (press?.kind === "drawn") {
+    const curve = drawing(s)?.curve;
+    const q = curve?.[press.index];
+    if (!curve || !q) return;
     press.moved = true;
-    setPoints(points.with(press.index, { ...q, at: p }));
+    setCurve(curve.with(press.index, { ...q, at: p }));
   } else if (press?.kind === "anchor" && s.doc) {
     const n = s.doc.nodes.get(parseKey(press.key).nodeId);
     if (!n) return;
@@ -165,9 +169,9 @@ export function curvatureDrag(p: Point) {
   }
 }
 
-/** Releasing: a click on the first point closes the path. */
+/** Releasing: a click on the first Anchor closes the path. */
 export function curvatureUp() {
-  const closing = press?.kind === "point" && press.close && !press.moved;
+  const closing = press?.kind === "drawn" && press.close && !press.moved;
   press = null;
   if (closing) finishPen(true);
 }
@@ -176,12 +180,12 @@ export const curvatureCancel = () => {
   press = null;
 };
 
-/** Delete while drawing removes the point pressed last; false when not drawing. */
-export function removePoint(): boolean {
-  const points = drawing(useStore.getState())?.points;
-  if (!points) return false;
-  const i = current !== null && current < points.length ? current : points.length - 1;
-  setPoints(points.toSpliced(i, 1));
+/** Delete while drawing removes the Anchor pressed last; false when not drawing. */
+export function removeCurveAnchor(): boolean {
+  const curve = drawing(useStore.getState())?.curve;
+  if (!curve) return false;
+  const i = current !== null && current < curve.length ? current : curve.length - 1;
+  setCurve(curve.toSpliced(i, 1));
   current = null;
   return true;
 }
@@ -211,7 +215,7 @@ function reshape(anchors: Anchor[], closed: boolean, indices: number[]) {
 }
 
 /** Anchor `i` and its neighbours, round a closed subpath. */
-const around = (n: number, i: number, closed: boolean) =>
+const withNeighbours = (n: number, i: number, closed: boolean) =>
   [i - 1, i, i + 1].map((j) => (closed ? (j + n) % n : j)).filter((j) => j >= 0 && j < n);
 
 /** Moving the Anchor `key` by `d`, in its path's coordinates: its Smooth neighbours follow it. */
@@ -221,10 +225,10 @@ export function moveInput(doc: Document, key: string, d: Point): PathEditInput |
   const s = hasAnchors(n) ? localAnchors(n)[subpath] : undefined;
   const a = s?.anchors[index];
   if (!s || !a) return null;
-  const to: Point = [a.anchor[0] + d[0], a.anchor[1] + d[1]];
-  const by = (h: Point | null): Point | null => h && [h[0] + d[0], h[1] + d[1]];
+  const to = plus(a.anchor, d);
+  const by = (h: Point | null) => h && plus(h, d);
   Object.assign(a, { anchor: to, handleIn: by(a.handleIn), handleOut: by(a.handleOut) });
-  const indices = around(s.anchors.length, index, s.closed);
+  const indices = withNeighbours(s.anchors.length, index, s.closed);
   reshape(s.anchors, s.closed, indices);
   const ops: PathOp[] = [{ op: "move_anchor", subpath, index, to }];
   for (const i of indices) {
@@ -247,8 +251,8 @@ export function toggleInput(doc: Document, key: string): PathEditInput | null {
   if (a.type === "smooth") {
     return { nodeId, ops: [{ op: "set_point_type", subpath, index, type: "corner" }] };
   }
-  const nb = neighbours(s.anchors, index, s.closed);
-  const h = nb && curveHandles(nb[0].anchor, a.anchor, nb[1].anchor);
+  const sides = neighbours(s.anchors, index, s.closed);
+  const h = sides && curveHandles(sides[0].anchor, a.anchor, sides[1].anchor);
   if (!h) return null;
   return {
     nodeId,
@@ -257,14 +261,15 @@ export function toggleInput(doc: Document, key: string): PathEditInput | null {
 }
 
 /**
- * Delete under the Curvature tool: removes the selected Anchors and keeps each curve connected,
- * reshaping the Smooth Anchors beside them (research 06 §2). A subpath left with one Anchor goes,
- * and a path left with none is deleted.
+ * Edit > Clear under the Curvature tool: removes the selected Anchors and keeps each curve
+ * connected, reshaping the Smooth Anchors beside them (research 06 §2). A subpath left with one
+ * Anchor goes, and a path left with none is deleted, as are selected objects with no selected
+ * Anchor, as clearInputs does.
  */
-export function removeInputs(doc: Document, keys: string[]) {
+export function curvatureClearInputs(doc: Document, selection: string[], keys: string[]) {
   const edits: PathEditInput[] = [];
-  const deleteIds: string[] = [];
   const ids = new Set(keys.map((k) => parseKey(k).nodeId));
+  const deleteIds = selection.filter((id) => !ids.has(id) && editable(doc, doc.nodes.get(id)));
   for (const nodeId of ids) {
     const n = doc.nodes.get(nodeId);
     if (!hasAnchors(n) || !editable(doc, n)) continue;
