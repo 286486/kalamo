@@ -202,6 +202,9 @@ importers:
       '@zibel/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@zibel/geometry':
+        specifier: workspace:*
+        version: link:../../packages/geometry
       '@zibel/io':
         specifier: workspace:*
         version: link:../../packages/io
@@ -272,6 +275,10 @@ importers:
       pathkit-wasm:
         specifier: 1.0.0
         version: 1.0.0
+    devDependencies:
+      '@zibel/render':
+        specifier: workspace:*
+        version: link:../render
 
   packages/io:
     dependencies:

@@ -6,6 +6,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",
     "@zibel/core": "workspace:*",
+    "@zibel/geometry": "workspace:*",
     "@zibel/io": "workspace:*",
     "@zibel/mcp": "workspace:*",
     "@zibel/render": "workspace:*",

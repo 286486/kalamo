@@ -1,4 +1,5 @@
-import { type Segment, ZibelError } from "@zibel/core";
+import type { Geometry, Segment, StrokeStyle } from "@zibel/core";
+import { ZibelError } from "@zibel/core";
 import PathKitInit, { type PathKit, type SkPath } from "pathkit-wasm/bin/pathkit.js";
 import wasm from "pathkit-wasm/bin/pathkit.wasm";
 
@@ -33,14 +34,7 @@ export interface OffsetOptions {
 export async function offsetPath(segments: Segment[], opts: OffsetOptions): Promise<Segment[]> {
   if (opts.distance === 0) return segments; // Skia would stroke a hairline and shrink the path.
   const pk = await pathKit();
-  const V = {
-    M: pk.MOVE_VERB,
-    L: pk.LINE_VERB,
-    Q: pk.QUAD_VERB,
-    C: pk.CUBIC_VERB,
-    Z: pk.CLOSE_VERB,
-  };
-  const path = pk.FromCmds(segments.map((s) => [V[s.cmd], ...s.args]));
+  const path = skPath(pk, segments);
   path.setFillType(opts.fillRule === "evenodd" ? pk.FillType.EVENODD : pk.FillType.WINDING);
   const stroke = path.copy();
   const owned: SkPath[] = [path, stroke];
@@ -52,17 +46,84 @@ export async function offsetPath(segments: Segment[], opts: OffsetOptions): Prom
         cap: pk.StrokeCap.BUTT,
         miter_limit: opts.miterLimit ?? 4,
       }) && path.op(stroke, opts.distance > 0 ? pk.PathOp.UNION : pk.PathOp.DIFFERENCE);
-    if (!ok) {
-      throw new ZibelError({
-        code: "BOOLEAN_FAILED",
-        message: "Skia PathOps could not offset this path.",
-        hint: "Check d for non-finite numbers or degenerate segments.",
-      });
-    }
+    if (!ok) throw failed("offset");
     return fromCmds(path.toCmds(), pk);
   } finally {
     for (const p of owned) p.delete();
   }
+}
+
+/**
+ * PathKit loaded, with the ops that run synchronously on it, for callers that cannot await inside
+ * their edit (a Durable Object's Transaction).
+ */
+export async function loadGeometry(): Promise<Geometry> {
+  const pk = await pathKit();
+  return { outlineStroke: (segments, stroke) => outlineStroke(pk, segments, stroke) };
+}
+
+/**
+ * Object > Path > Outline Stroke: the area `stroke` paints along `segments`, dashes included, as
+ * non-overlapping contours that fill the same under nonzero and evenodd.
+ */
+function outlineStroke(pk: PathKit, segments: Segment[], stroke: StrokeStyle): Segment[] {
+  const path = skPath(pk, segments);
+  const owned: SkPath[] = [path];
+  try {
+    const dashed = stroke.dash.length > 0 ? dash(pk, path, stroke.dash, owned) : path;
+    const ok =
+      dashed?.stroke({
+        width: stroke.width,
+        join: pk.StrokeJoin[stroke.join.toUpperCase() as "MITER" | "ROUND" | "BEVEL"],
+        cap: pk.StrokeCap[stroke.cap.toUpperCase() as "BUTT" | "ROUND" | "SQUARE"],
+        miter_limit: stroke.miterLimit,
+      }) && dashed.simplify();
+    if (!ok) throw failed("outline the Stroke of");
+    return fromCmds(ok.toCmds(), pk);
+  } finally {
+    for (const p of owned) p.delete();
+  }
+}
+
+/**
+ * The dashes of `pattern` along `path`, as SVG lays them from each subpath's start. PathKit dashes
+ * with one dash and gap, so each dash of the pattern is its own pass, `on` then the rest of the
+ * period off, started where that dash begins; the passes' dashes together are the pattern's.
+ */
+function dash(pk: PathKit, path: SkPath, pattern: number[], owned: SkPath[]): SkPath | null {
+  const even = pattern.length % 2 === 0 ? pattern : [...pattern, ...pattern]; // as SVG repeats it
+  const period = even.reduce((a, b) => a + b, 0);
+  if (period <= 0) return path; // SVG draws such a pattern solid
+  const out = pk.NewPath();
+  owned.push(out);
+  let start = 0;
+  for (let i = 0; i < even.length; i += 2) {
+    const on = even[i] as number;
+    const pass = path.copy();
+    owned.push(pass);
+    if (!pass.dash(on, period - on, (period - start) % period)) return null;
+    out.addPath(pass);
+    start += on + (even[i + 1] as number);
+  }
+  return out;
+}
+
+const failed = (what: string) =>
+  new ZibelError({
+    code: "BOOLEAN_FAILED",
+    message: `Skia PathOps could not ${what} this path.`,
+    hint: "Check d for non-finite numbers or degenerate segments.",
+  });
+
+function skPath(pk: PathKit, segments: Segment[]): SkPath {
+  const V = {
+    M: pk.MOVE_VERB,
+    L: pk.LINE_VERB,
+    Q: pk.QUAD_VERB,
+    C: pk.CUBIC_VERB,
+    Z: pk.CLOSE_VERB,
+  };
+  return pk.FromCmds(segments.map((s) => [V[s.cmd], ...s.args]));
 }
 
 /** Skia verbs to core Segments. Conics (Skia's round joins and caps) become cubics. */
