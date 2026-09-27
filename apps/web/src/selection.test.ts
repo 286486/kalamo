@@ -119,6 +119,40 @@ it("is not editable when the Node is gone", () => {
   expect(editable(doc, undefined)).toBe(false);
 });
 
+/**
+ * A context whose paths are their d's bounding box, enough for rects: a Stroke is the band
+ * `lineWidth` wide centred on the box's edge.
+ */
+function boxes() {
+  vi.stubGlobal(
+    "Path2D",
+    class {
+      constructor(readonly d: string) {}
+    },
+  );
+  const box = (d: string, x: number, y: number, grow = 0) => {
+    const n = d.match(/-?[\d.]+/g)?.map(Number) ?? [];
+    const xs = n.filter((_, i) => i % 2 === 0);
+    const ys = n.filter((_, i) => i % 2 === 1);
+    return (
+      Math.min(...xs) - grow <= x &&
+      x <= Math.max(...xs) + grow &&
+      Math.min(...ys) - grow <= y &&
+      y <= Math.max(...ys) + grow
+    );
+  };
+  const ctx = {
+    lineWidth: 1,
+    save() {},
+    restore() {},
+    setTransform() {},
+    isPointInPath: (p: { d: string }, x: number, y: number) => box(p.d, x, y),
+    isPointInStroke: (p: { d: string }, x: number, y: number) =>
+      box(p.d, x, y, ctx.lineWidth / 2) && !box(p.d, x, y, -ctx.lineWidth / 2),
+  };
+  return ctx as unknown as CanvasRenderingContext2D;
+}
+
 describe("hitTest", () => {
   it("hits a text anywhere inside its bounds", () => {
     const { doc, defaultLayerId } = createDocument({
@@ -177,28 +211,7 @@ describe("hitTest", () => {
   });
 
   it("hits a Clipping Mask's content only inside its Clipping Path, which is never a hit itself", () => {
-    // A Path2D that is its d's bounding box: enough for rects.
-    vi.stubGlobal(
-      "Path2D",
-      class {
-        constructor(readonly d: string) {}
-      },
-    );
-    const box = (d: string, x: number, y: number) => {
-      const n = d.match(/-?[\d.]+/g)?.map(Number) ?? [];
-      const xs = n.filter((_, i) => i % 2 === 0);
-      const ys = n.filter((_, i) => i % 2 === 1);
-      return (
-        Math.min(...xs) <= x && x <= Math.max(...xs) && Math.min(...ys) <= y && y <= Math.max(...ys)
-      );
-    };
-    const ctx = {
-      save() {},
-      restore() {},
-      setTransform() {},
-      isPointInPath: (p: { d: string }, x: number, y: number) => box(p.d, x, y),
-      isPointInStroke: () => false,
-    } as unknown as CanvasRenderingContext2D;
+    const ctx = boxes();
     const { doc, defaultLayerId: parentId } = createDocument({
       id: "d",
       name: "Doc",
@@ -217,6 +230,102 @@ describe("hitTest", () => {
     expect(hitTest(ctx, doc, 8, 5, 1)).toBe(group.id);
     expect(hitTest(ctx, doc, 30, 30, 1)).toBeNull();
     expect(hitTest(ctx, doc, 65, 5, 1)).toBeNull();
+  });
+
+  describe("a container's Appearance (ADR-0043)", () => {
+    const rect = (name: string, x: number, filled = true) => ({
+      type: "rect" as const,
+      name,
+      x,
+      y: 0,
+      width: 10,
+      height: 10,
+      appearance: { fills: filled ? [{ color: "#FF0000" }] : [], strokes: [] },
+    });
+    const stroke = (width: number) => ({ color: "#0000FF", width });
+    /** Group g holding `children`, painted by `appearance`, in the default Layer. */
+    const scene = (
+      appearance: { fills?: object[]; strokes?: object[]; contents?: number },
+      children: object[],
+    ) => {
+      const { doc, defaultLayerId: parentId } = createDocument({
+        id: "d",
+        name: "Doc",
+        artboards: [{ width: 200, height: 100 }],
+      });
+      createNodes(doc, [
+        {
+          type: "group",
+          name: "g",
+          parentId,
+          appearance: { fills: [], strokes: [], contents: 0, ...appearance },
+          children,
+        },
+      ] as never);
+      const node = (name: string) =>
+        [...doc.nodes.values()].find((n) => n.name === name || n.id === name) as Node;
+      const hit = (x: number, y: number, leaf = false) => {
+        const id = hitTest(boxes(), doc, x, y, 1, leaf);
+        return id && node(id).name;
+      };
+      return { doc, node, hit, parentId };
+    };
+
+    it("hits a Stroke outside every child's Fill as the Group, and as the leaf it paints", () => {
+      const { hit, node } = scene({ strokes: [stroke(4)] }, [rect("a", 0)]);
+      expect([hit(11.5, 5), hit(11.5, 5, true)]).toEqual(["g", "a"]);
+      Object.assign(node("g"), { appearance: undefined });
+      expect(hit(11.5, 5)).toBeNull();
+    });
+
+    it("hits a Fill inside an unfilled child", () => {
+      const { hit } = scene({ fills: [{ color: "#00FF00" }] }, [rect("a", 0, false)]);
+      expect([hit(5, 5), hit(5, 5, true)]).toEqual(["g", "a"]);
+    });
+
+    it("hits paints below the children only where no child is, and above before the child they cover", () => {
+      // b's Fill covers a's right edge, where the Stroke paints a.
+      const children = [rect("a", 0), rect("b", 8)];
+      const at = (contents: number) => scene({ strokes: [stroke(2)], contents }, children).hit;
+      expect(at(0)(10, 5, true)).toBe("a");
+      expect(at(1)(10, 5, true)).toBe("b");
+      expect(at(1)(-0.5, 5, true)).toBe("a");
+    });
+
+    it("hits a Layer's paint as the object that holds the painted leaf", () => {
+      const { hit, node, parentId } = scene({}, [rect("a", 0)]);
+      Object.assign(node(parentId), {
+        appearance: { fills: [], strokes: [stroke(4)], contents: 0 },
+      });
+      expect([hit(11.5, 5), hit(11.5, 5, true)]).toEqual(["g", "a"]);
+    });
+
+    it("lets the click through a locked Group, a locked or hidden painted leaf", () => {
+      const lockedGroup = scene({ strokes: [stroke(4)] }, [rect("a", 0)]);
+      lockedGroup.node("g").locked = true;
+      const inner = { type: "group", name: "i", children: [rect("a", 0)] };
+      const lockedLeaf = scene({ strokes: [stroke(4)] }, [inner]);
+      lockedLeaf.node("i").locked = true;
+      const hidden = scene({ strokes: [stroke(4)] }, [rect("a", 0)]);
+      hidden.node("a").visible = false;
+      expect([lockedGroup, lockedLeaf, hidden].map((s) => s.hit(11.5, 5, true))).toEqual([
+        null,
+        null,
+        null,
+      ]);
+    });
+
+    it("hits no paint of a Clipping Mask outside its Clipping Path", () => {
+      const { doc, hit, node } = scene({}, []);
+      const [content, clip] = createNodes(doc, [
+        { ...rect("content", 0), parentId: node("g").id, width: 50 },
+        { ...rect("clip", 0), parentId: node("g").id, width: 30 },
+      ]).nodes as [Node, Node];
+      const { group } = makeMask(doc, { clipNodeId: clip.id, contentIds: [content.id] });
+      Object.assign(group, { appearance: { fills: [], strokes: [stroke(4)], contents: 0 } });
+      expect(hit(50, 5, true)).toBeNull();
+      expect(hit(0, 5, true)).toBe("content");
+    });
   });
 });
 

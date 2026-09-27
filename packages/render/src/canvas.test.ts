@@ -249,6 +249,148 @@ describe("opacity and blend modes (ADR-0044)", () => {
   });
 });
 
+describe("container Appearance (ADR-0043)", () => {
+  const rect = (x: number, fill?: string) => ({
+    type: "rect",
+    x,
+    y: 0,
+    width: 10,
+    height: 10,
+    appearance: { fills: fill ? [{ color: fill }] : [], strokes: [] },
+  });
+  const group = (
+    appearance: { fills?: string[]; strokes?: string[]; contents?: number },
+    children: object[],
+  ) => ({
+    type: "group",
+    appearance: {
+      fills: (appearance.fills ?? []).map((color) => ({ color })),
+      strokes: (appearance.strokes ?? []).map((color) => ({ color, width: 4 })),
+      contents: appearance.contents ?? 0,
+    },
+    children,
+  });
+  /** `style` is by Node name. */
+  const drawn = (nodes: object[], style: Record<string, Partial<Node>> = {}) => {
+    const { doc, defaultLayerId: parentId } = newDoc();
+    doc.images.set("a".repeat(64), { mime: "image/png", width: 1, height: 1 });
+    createNodes(doc, nodes.map((n) => ({ parentId, ...n })) as never);
+    for (const n of doc.nodes.values()) Object.assign(n, style[n.name ?? ""]);
+    const { ctx, log, layer } = recorder();
+    drawDocument(ctx, doc, layer, () => ({ image: "IMG", width: 1, height: 1 }));
+    return log;
+  };
+  /** Each fill or stroke as its style and the x its outline starts at, "#CCCCCC@0". */
+  const paints = (log: string[]) => {
+    let style = "";
+    let at = "";
+    const out: string[] = [];
+    for (const l of log) {
+      const m = /^(?:> )*(?:(?:fill|stroke)Style=(\S+)|moveTo (\S+)|(fill|stroke)\b)/.exec(l);
+      if (m?.[1]) style = m[1];
+      else if (m?.[2]) at = m[2];
+      else if (m?.[3]) out.push(`${style}@${at}`);
+    }
+    return out;
+  };
+
+  it("draws each paint over every leaf before the next, the first `contents` below the children", () => {
+    const children = [rect(0, "#AAAAAA"), rect(20, "#BBBBBB")];
+    const at = (contents: number) =>
+      paints(
+        drawn([group({ fills: ["#CCCCCC"], strokes: ["#DDDDDD"], contents }, children)]).slice(2),
+      );
+    expect(at(0)).toEqual([
+      "#AAAAAA@0",
+      "#BBBBBB@20",
+      "#CCCCCC@0",
+      "#CCCCCC@20",
+      "#DDDDDD@0",
+      "#DDDDDD@20",
+    ]);
+    expect(at(1)).toEqual([
+      "#CCCCCC@0",
+      "#CCCCCC@20",
+      "#AAAAAA@0",
+      "#BBBBBB@20",
+      "#DDDDDD@0",
+      "#DDDDDD@20",
+    ]);
+    expect(at(2)).toEqual([
+      "#CCCCCC@0",
+      "#CCCCCC@20",
+      "#DDDDDD@0",
+      "#DDDDDD@20",
+      "#AAAAAA@0",
+      "#BBBBBB@20",
+    ]);
+  });
+
+  it("paints a nested Group's leaves with the outer Appearance, over the inner Group's own", () => {
+    const inner = group({ strokes: ["#EEEEEE"] }, [rect(20, "#BBBBBB")]);
+    const log = drawn([group({ strokes: ["#111111"] }, [rect(0, "#AAAAAA"), inner])]);
+    expect(paints(log.slice(2))).toEqual([
+      "#AAAAAA@0",
+      "#BBBBBB@20",
+      "#EEEEEE@20",
+      "#111111@0",
+      "#111111@20",
+    ]);
+  });
+
+  it("paints no hidden child, no Image, and nothing of a hidden Group", () => {
+    const image = { type: "image", src: "a".repeat(64), x: 40, y: 0, width: 1, height: 1 };
+    const children = [rect(0), { ...rect(20), name: "h" }, image];
+    const g = { ...group({ strokes: ["#DDDDDD"] }, children), name: "g" };
+    const hide = { visible: false };
+    expect(paints(drawn([g], { h: hide }).slice(2))).toEqual(["#DDDDDD@0"]);
+    const hidden = drawn([g], { h: hide, g: hide });
+    expect(paints(hidden.slice(2))).toEqual([]);
+  });
+
+  it("fills an evenodd Path with evenodd and a Live Shape with nonzero", () => {
+    const path = {
+      type: "path",
+      d: "M 0 0 L 30 0 L 30 30 Z",
+      fillRule: "evenodd",
+      appearance: { fills: [], strokes: [] },
+    };
+    const log = drawn([group({ fills: ["#CCCCCC"] }, [path, rect(40)])]);
+    expect(log.filter((l) => /^fill( |$)/.test(l))).toEqual(["fill evenodd", "fill nonzero"]);
+  });
+
+  it("sets a Stroke's width, cap, join, miter limit and dash", () => {
+    const g = group({}, [rect(0)]) as ReturnType<typeof group>;
+    const stroke = {
+      color: "#DDDDDD",
+      width: 3,
+      cap: "round",
+      join: "bevel",
+      miterLimit: 4,
+      dash: [2, 1],
+    };
+    g.appearance.strokes = [stroke] as never;
+    const log = drawn([g]);
+    const from = log.indexOf("strokeStyle=#DDDDDD");
+    expect(log.slice(from, from + 6)).toEqual([
+      "strokeStyle=#DDDDDD",
+      "lineWidth=3",
+      "lineCap=round",
+      "lineJoin=bevel",
+      "miterLimit=4",
+      "setLineDash 2,1",
+    ]);
+  });
+
+  it("paints a translucent Group's Appearance inside its layer", () => {
+    const log = drawn([{ ...group({ strokes: ["#DDDDDD"] }, [rect(0, "#AAAAAA")]), name: "g" }], {
+      g: { opacity: 0.5 },
+    });
+    const inLayer = log.filter((l) => /strokeStyle=#DDDDDD|^(> )*stroke$/.test(l));
+    expect(inLayer).toEqual(["> strokeStyle=#DDDDDD", "> stroke"]);
+  });
+});
+
 it("draws Point Type with fillText per Fill and strokeText per Stroke, unkerned", () => {
   const { doc, defaultLayerId: parentId } = newDoc();
   createNodes(doc, [

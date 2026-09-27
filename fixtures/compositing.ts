@@ -1,6 +1,6 @@
 /**
  * Documents whose pixels depend on a translucent or blended Node composing as one image (ADR-0044),
- * each with the colour expected at chosen Document points. `render` and the browser canvas are both
+ * or on a container's Appearance (ADR-0043), each with the colour expected at chosen Document points. `render` and the browser canvas are both
  * checked against them. Every case draws on one 200 × 100 Artboard with a white background.
  */
 
@@ -36,6 +36,31 @@ const pair = (lower: RGB, upper: RGB) => [
   rect("upper", 50, 20, 60, 60, upper),
 ];
 const backdrop = (fill: RGB) => rect("backdrop", 0, 0, 200, 100, fill);
+/** A container Appearance as `node_update` takes it and a Document stores it. */
+const appearance = (fills: RGB[], strokes: [RGB, number][], contents: number) => ({
+  fills: fills.map((c) => ({ type: "solid", color: hex(c) })),
+  strokes: strokes.map(([c, width]) => ({
+    type: "solid",
+    color: hex(c),
+    width,
+    cap: "butt",
+    join: "miter",
+    miterLimit: 10,
+    dash: [],
+  })),
+  contents,
+});
+/** A Group Stroke 10 wide over `pair(RED, BLUE)`: at 23 inside the lower rect, at 80 inside the upper. */
+const strokedPair = (contents: number, rgb: { at23: RGB; at80: RGB }): CompositingCase => ({
+  name: `a Group Stroke at contents ${contents} draws ${contents ? "below" : "above"} every child`,
+  nodes: [{ type: "group", name: "g", children: pair(RED, BLUE) }],
+  patches: { g: { appearance: appearance([], [[YELLOW, 10]], contents) } },
+  probes: [
+    { x: 17, y: 50, rgb: YELLOW },
+    { x: 23, y: 50, rgb: rgb.at23 },
+    { x: 80, y: 50, rgb: rgb.at80 },
+  ],
+});
 
 export interface CompositingCase {
   name: string;
@@ -44,7 +69,7 @@ export interface CompositingCase {
   /** Made into a Clipping Mask, by the names of its Clipping Path and content; it is then "mask". */
   mask?: { clip: string; content: string[] };
   /** `node_update` patches by Node name, applied last; "Layer" is the default Layer. */
-  patches: Record<string, { opacity?: number; blendMode?: string }>;
+  patches: Record<string, { opacity?: number; blendMode?: string; appearance?: object }>;
   /** Document points and their colour. */
   probes: { x: number; y: number; rgb: RGB }[];
 }
@@ -118,6 +143,62 @@ export const COMPOSITING: CompositingCase[] = [
       { x: 65, y: 50, rgb: half },
       { x: 25, y: 25, rgb: WHITE },
       { x: 100, y: 50, rgb: WHITE },
+    ],
+  },
+  strokedPair(0, { at23: YELLOW, at80: YELLOW }),
+  strokedPair(1, { at23: RED, at80: BLUE }),
+  {
+    name: "a Group Fill below its children and a Stroke above them",
+    nodes: [
+      {
+        type: "group",
+        name: "g",
+        children: [
+          { ...rect("hollow", 20, 20, 60, 60, RED), appearance: { fills: [], strokes: [] } },
+          rect("upper", 50, 20, 60, 60, RED),
+        ],
+      },
+    ],
+    patches: { g: { appearance: appearance([CYAN], [[BLUE, 4]], 1) } },
+    probes: [
+      { x: 35, y: 50, rgb: CYAN },
+      { x: 65, y: 50, rgb: RED },
+      { x: 80, y: 50, rgb: BLUE },
+      { x: 95, y: 50, rgb: RED },
+    ],
+  },
+  {
+    // Per paint, the Stroke's inner half would be blue at 50% over red at 50%.
+    name: "a 50% Group's Stroke is faded with its child as one image",
+    nodes: [{ type: "group", name: "g", children: [rect("r", 40, 30, 120, 40, RED)] }],
+    patches: { g: { opacity: 0.5, appearance: appearance([], [[BLUE, 20]], 0) } },
+    probes: [
+      { x: 35, y: 50, rgb: over(BLUE, 0.5, WHITE) },
+      { x: 45, y: 50, rgb: over(BLUE, 0.5, WHITE) },
+      { x: 100, y: 50, rgb: half },
+    ],
+  },
+  {
+    name: "a Group Fill leaves an evenodd Path's hole open",
+    nodes: [
+      {
+        type: "group",
+        name: "g",
+        children: [
+          {
+            type: "path",
+            name: "ring",
+            d: "M 20 20 L 80 20 L 80 80 L 20 80 Z M 40 40 L 60 40 L 60 60 L 40 60 Z",
+            fillRule: "evenodd",
+            appearance: { fills: [], strokes: [] },
+          },
+        ],
+      },
+    ],
+    patches: { g: { appearance: appearance([RED], [], 0) } },
+    probes: [
+      { x: 30, y: 50, rgb: RED },
+      { x: 50, y: 50, rgb: WHITE },
     ],
   },
 ];

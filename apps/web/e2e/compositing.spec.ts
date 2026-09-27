@@ -8,8 +8,9 @@ interface Entry {
   children?: Entry[];
 }
 
-// #111: the canvas composes a translucent or blended Node as one image, as `render` does
-// (ADR-0044). The same cases are checked against resvg in the render package's PNG tests.
+// #111, #105: the canvas composes a translucent or blended Node as one image (ADR-0044) and draws
+// a container's Appearance (ADR-0043), as `render` does. The same cases are checked against resvg
+// in the render package's PNG tests.
 for (const c of COMPOSITING) {
   test(`the canvas matches render: ${c.name}`, async ({ page, request }) => {
     const { docId, defaultLayerId: parentId } = (
@@ -43,15 +44,15 @@ for (const c of COMPOSITING) {
       ).structuredContent;
       ids.set("mask", createdIds[0]);
     }
-    await call(request, "zibel_node_update", {
-      docId,
-      updates: Object.entries(c.patches).map(([k, patch]) => ({ nodeId: ids.get(k), patch })),
-    });
-
     await page.goto(`/docs/${docId}`);
     await expect(page.getByTestId("status-bar")).toContainText(/\d+%/);
     await page.keyboard.press("Control+1");
     await expect(page.getByTestId("status-bar")).toContainText("100%");
+    // Patched once the canvas is open, so each case also reaches it through the broadcast.
+    await call(request, "zibel_node_update", {
+      docId,
+      updates: Object.entries(c.patches).map(([k, patch]) => ({ nodeId: ids.get(k), patch })),
+    });
     // At 100% the Artboard's centre, (100, 50), is the canvas's.
     const read = () =>
       page.getByTestId("canvas").evaluate((el: HTMLCanvasElement, probes) => {

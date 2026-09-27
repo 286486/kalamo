@@ -55,5 +55,5 @@ Open and Place both read them, so Place and paste keep container Appearance on t
 ## Consequences
 
 - `ErrorCode` gains `INVALID_INPUT` (F-MCP-15).
-- `render` covers container paints; the browser canvas does not draw them until #105.
+- `render` and the browser canvas draw container paints from the same `paintedLeaves` list, and a click on one hits the leaf it paints (#105): the Selection tool picks its object, Direct Selection the leaf.
 - A container Stroke's width is in document units and changes on `node_transform`, so a Group scaled with `scaleStrokes: false` and back with `true` does not return to its first width; the same holds for leaves.
