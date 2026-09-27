@@ -110,7 +110,8 @@ export interface DecodedImage {
  */
 export type NewLayer = () => { ctx: Canvas2D; image: unknown };
 
-interface Env {
+/** What every Node of one drawDocument call draws from. */
+interface Scene {
   doc: Document;
   layer: NewLayer;
   images: ((id: string) => DecodedImage | undefined) | undefined;
@@ -166,7 +167,7 @@ const paintsMoreThanOnce = (n: Node) =>
   n.type === "text" ||
   (n.type !== "image" && n.appearance.fills.length + n.appearance.strokes.length > 1);
 
-function draw(ctx: Canvas2D, n: Node, env: Env) {
+function draw(ctx: Canvas2D, n: Node, scene: Scene) {
   if (!n.visible) return;
   const mode = n.blendMode === "normal" ? "source-over" : n.blendMode;
   if ((n.opacity < 1 || mode !== "source-over") && paintsMoreThanOnce(n)) {
@@ -174,10 +175,10 @@ function draw(ctx: Canvas2D, n: Node, env: Env) {
     // mode, in device pixels, inside every ancestor's clip.
     // ponytail: a layer covers the whole canvas; crop it to the Node's visible bounds in device space
     // if many translucent containers show up in a profile.
-    const { ctx: into, image } = env.layer();
+    const { ctx: into, image } = scene.layer();
     const { a, b, c, d, e, f } = ctx.getTransform();
     into.setTransform(a, b, c, d, e, f);
-    paint(into, n, env);
+    paint(into, n, scene);
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = n.opacity;
@@ -192,13 +193,13 @@ function draw(ctx: Canvas2D, n: Node, env: Env) {
   ctx.save();
   ctx.globalAlpha = n.opacity;
   if (mode !== "source-over") ctx.globalCompositeOperation = mode;
-  paint(ctx, n, env);
+  paint(ctx, n, scene);
   ctx.restore();
 }
 
 /** Draws `n` in `ctx`'s opacity and mode, its children each in their own; leaves `ctx` changed. */
-function paint(ctx: Canvas2D, n: Node, env: Env) {
-  const { doc, images } = env;
+function paint(ctx: Canvas2D, n: Node, scene: Scene) {
+  const { doc, images } = scene;
   ctx.transform(...n.transform);
   if (n.type === "layer" || n.type === "group") {
     // A Clipping Mask's children draw only inside its Clipping Path, which never paints (ADR-0021).
@@ -207,7 +208,7 @@ function paint(ctx: Canvas2D, n: Node, env: Env) {
       trace(ctx, transformSegments(shapeSegments(clip), clip.transform));
       ctx.clip(clip.type === "path" && clip.fillRule === "evenodd" ? "evenodd" : "nonzero");
     }
-    for (const c of childrenOf(doc, n.id)) if (c !== clip) draw(ctx, c, env);
+    for (const c of childrenOf(doc, n.id)) if (c !== clip) draw(ctx, c, scene);
   } else if (n.type === "image") {
     const file = n.src === undefined ? undefined : images?.(n.src);
     if (n.src === undefined) {
