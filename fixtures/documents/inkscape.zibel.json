@@ -1608,6 +1608,20 @@
       "visible": true
     },
     {
+      "blendMode": "normal",
+      "id": "01M38T29SXC0NTA1NERSED1T00",
+      "index": "a3",
+      "locked": false,
+      "meta": {},
+      "name": "Transformed",
+      "opacity": 1,
+      "parentId": null,
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "layer",
+      "visible": true
+    },
+    {
       "appearance": {
         "contents": 1,
         "fills": [],
@@ -1629,7 +1643,7 @@
       "meta": {},
       "name": "Outlined",
       "opacity": 1,
-      "parentId": "01M38T29SXC0NTA1NERS1AYER0",
+      "parentId": "01M38T29SXC0NTA1NERSED1T00",
       "tags": [],
       "transform": [1, 0, 0, 1, 0, 0],
       "type": "group",
@@ -1855,7 +1869,7 @@
       },
       "blendMode": "normal",
       "id": "01M38T29SXC0NTA1NERSAREAGP",
-      "index": "a1",
+      "index": "a0",
       "locked": false,
       "meta": {},
       "name": "Area",
@@ -1877,10 +1891,10 @@
         "strokes": []
       },
       "blendMode": "normal",
-      "content": "Area type flows",
+      "content": "Area type wraps in its frame and then flows past its last line.",
       "fontFamily": "Source Sans 3",
       "fontSize": 14,
-      "height": 32,
+      "height": 64,
       "id": "01M38T29SXC0NTA1NERSAREAT0",
       "index": "a0",
       "kind": "area",
@@ -1898,10 +1912,10 @@
         }
       ],
       "tags": [],
-      "transform": [1.2, 0.35, -0.35, 1.2, 1400, 30],
+      "transform": [1.2, 0.35, -0.35, 1.2, 1385, 8],
       "type": "text",
       "visible": true,
-      "width": 40,
+      "width": 70,
       "x": 0,
       "y": 0
     }
