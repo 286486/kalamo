@@ -404,10 +404,8 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         openWorldHint: false,
       },
     },
-    ({ docId, intent, txId, ifRev, ...input }) =>
-      run("zibel_mask_make", async () =>
-        json(await service.makeMask(docId, input, { intent, txId, ifRev })),
-      ),
+    (args) =>
+      run("zibel_mask_make", async () => json(await service.makeMask(...splitTxWrite(args)))),
   );
 
   server.registerTool(
@@ -445,10 +443,8 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       outputSchema: PathEditOutput.shape,
       annotations: edit,
     },
-    ({ docId, nodeId, ops, ...opts }) =>
-      run("zibel_path_edit", async () =>
-        json(await service.pathEdit(docId, { nodeId, ops }, opts)),
-      ),
+    (args) =>
+      run("zibel_path_edit", async () => json(await service.pathEdit(...splitTxWrite(args)))),
   );
 
   server.registerTool(
@@ -468,16 +464,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       outputSchema: WriteReceipt.shape,
       annotations: edit,
     },
-    ({ docId, nodeIds, op, tolerance, cornerAngle, toLines, axis, anchors, ...opts }) =>
-      run("zibel_path_op", async () =>
-        json(
-          await service.pathOp(
-            docId,
-            { nodeIds, op, tolerance, cornerAngle, toLines, axis, anchors },
-            opts,
-          ),
-        ),
-      ),
+    (args) => run("zibel_path_op", async () => json(await service.pathOp(...splitTxWrite(args)))),
   );
 
   server.registerTool(
@@ -777,3 +764,12 @@ const json = (result: object): CallToolResult => ({
   structuredContent: result as Record<string, unknown>,
   content: [{ type: "text", text: JSON.stringify(result) }],
 });
+
+/** A txWrite tool's arguments as the service takes them: docId, the operation input as given, then the write options. */
+const splitTxWrite = <T extends { docId: string; intent?: string; txId?: string; ifRev?: number }>({
+  docId,
+  intent,
+  txId,
+  ifRev,
+  ...input
+}: T) => [docId, input, { intent, txId, ifRev }] as const;
