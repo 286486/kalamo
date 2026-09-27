@@ -31,15 +31,25 @@ declare module "pathkit-wasm/bin/pathkit.js" {
     StrokeCap: { BUTT: Enum; ROUND: Enum; SQUARE: Enum };
     FillType: { WINDING: Enum; EVENODD: Enum };
   }
-  export default function PathKitInit(opts: {
-    instantiateWasm(
-      imports: WebAssembly.Imports,
-      done: (instance: WebAssembly.Instance, module: WebAssembly.Module) => void,
-    ): WebAssembly.Exports;
-  }): Promise<PathKit>;
+  export default function PathKitInit(
+    opts:
+      | {
+          instantiateWasm(
+            imports: WebAssembly.Imports,
+            done: (instance: WebAssembly.Instance, module: WebAssembly.Module) => void,
+          ): WebAssembly.Exports;
+        }
+      | { locateFile(file: string): string },
+  ): Promise<PathKit>;
 }
 
 declare module "pathkit-wasm/bin/pathkit.wasm" {
   const module: WebAssembly.Module;
   export default module;
+}
+
+/** Vite's URL of the file, for the browser's loader. */
+declare module "pathkit-wasm/bin/pathkit.wasm?url" {
+  const url: string;
+  export default url;
 }

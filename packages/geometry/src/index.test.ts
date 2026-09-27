@@ -1,6 +1,7 @@
 import {
   formatNumber,
   formatPath,
+  type OffsetStyle,
   parsePath,
   pathBounds,
   type Segment,
@@ -9,7 +10,7 @@ import {
 } from "@zibel/core";
 import { svgToPixels } from "@zibel/render";
 import { describe, expect, it } from "vitest";
-import { loadGeometry, offsetPath } from "./index.ts";
+import { loadGeometry } from "./index.ts";
 
 const K = 0.5522847498;
 /** A circle as four cubics, the way core draws an ellipse. */
@@ -30,6 +31,15 @@ const cmds = (s: Segment[]) => new Set(s.map((x) => x.cmd));
 const square = parsePath("M 0 0 L 100 0 L 100 100 L 0 100 Z", "d");
 
 describe("offsetPath in workerd (ADR-0034)", () => {
+  const offsetPath = async (segments: Segment[], style: Partial<OffsetStyle>) =>
+    (await loadGeometry()).offsetPath(segments, {
+      distance: 0,
+      join: "miter",
+      miterLimit: 4,
+      fillRule: "nonzero",
+      ...style,
+    });
+
   it("grows a circle and keeps it curved", async () => {
     const out = await offsetPath(circle(50, 50, 40), { distance: 10, join: "round" });
     expect(bounds(out)).toEqual({ x: "0", y: "0", width: "100", height: "100" });

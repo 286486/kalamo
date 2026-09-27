@@ -41,7 +41,7 @@ it("keeps the drag preview until the tx answering its command arrives", () => {
     selection: [a.id],
     drag: drag([a.id], "c1"),
     pen: null,
-    simplify: null,
+    opPreview: null,
     notice: null,
     edit: null,
     anchors: [],
@@ -60,7 +60,7 @@ it("snaps back and shows a notice when its command is rejected", () => {
     selection: [a.id],
     drag: drag([a.id], "c1"),
     pen: null,
-    simplify: null,
+    opPreview: null,
     notice: null,
     edit: null,
     anchors: [],
@@ -77,7 +77,7 @@ it("drops deleted Nodes from the Selection", () => {
     selection: [a.id, b.id],
     drag: null,
     pen: null,
-    simplify: null,
+    opPreview: null,
     notice: null,
     edit: null,
     anchors: [],
@@ -94,7 +94,7 @@ it("asks to reconnect on a missed rev, and drops an unanswered drag on a new Doc
     selection: [a.id],
     drag: drag([a.id], "c1"),
     pen: null,
-    simplify: null,
+    opPreview: null,
     notice: null,
     edit: null,
     anchors: [],
@@ -119,7 +119,7 @@ it("tells the person when an undo skipped Nodes deleted meanwhile", () => {
     selection: [],
     drag: null,
     pen: null,
-    simplify: null,
+    opPreview: null,
     notice: null,
     edit: null,
     anchors: [],
@@ -137,7 +137,7 @@ it("selects the Group a selected Node was just moved into, as Make Clipping Mask
     selection: [a.id, b.id],
     drag: null,
     pen: null,
-    simplify: null,
+    opPreview: null,
     notice: null,
     edit: null,
     anchors: [],
@@ -167,7 +167,7 @@ it("keeps the Pen's path until its create is answered, then selects what it made
     selection: [a.id],
     drag: null,
     pen: pen("c1"),
-    simplify: null,
+    opPreview: null,
     notice: null,
     edit: null,
     anchors: [],
@@ -192,7 +192,7 @@ it("keeps a path the Pen is still drawing across a reconnect", () => {
     selection: [],
     drag: null,
     pen: pen(null),
-    simplify: null,
+    opPreview: null,
     notice: null,
     edit: null,
     anchors: [],
@@ -215,7 +215,7 @@ it("keeps a Direct Selection drag's preview until every path_edit is answered", 
     selection: [a.id],
     drag: null,
     pen: null,
-    simplify: null,
+    opPreview: null,
     notice: null,
     edit,
     anchors: [],
@@ -247,7 +247,7 @@ it("drops selected Anchors of a Node someone else changed, and keeps ours still 
     selection: [a.id, b.id],
     drag: null,
     pen: null,
-    simplify: null,
+    opPreview: null,
     notice: null,
     edit: null,
     anchors,
@@ -273,31 +273,31 @@ it("drops selected Anchors of a Node someone else changed, and keeps ours still 
 it("keeps a Simplify preview until the answer to its path_op, and previews it with core", () => {
   const { doc, a } = fixture();
   const input = { nodeIds: [a.id], op: "simplify" as const };
-  const simplify = { input, showOriginal: false, commandId: null };
+  const opPreview = { input, showOriginal: false, commandId: null };
   const base = {
     doc,
     selection: [a.id],
     drag: null,
     pen: null,
-    simplify: null,
+    opPreview: null,
     notice: null,
     edit: null,
   };
-  const open = { ...base, simplify, anchors: [] };
+  const open = { ...base, opPreview, anchors: [] };
   // Not yet sent: nothing answers it, a reconnect included.
   expect(receive(open, tx(doc, { commandId: "c1" }), "d")).not.toHaveProperty("simplify");
   const msg = { type: "document" as const, rev: 9, name: "N", artboards: [], nodes: [a] };
   expect(receive(open, msg, "d")).not.toHaveProperty("simplify");
-  const sent = { ...open, simplify: { ...simplify, commandId: "c1" } };
+  const sent = { ...open, opPreview: { ...opPreview, commandId: "c1" } };
   expect(receive(sent, tx(doc, { actor: "agent-a" }), "d")).not.toHaveProperty("simplify");
-  expect(receive(sent, tx(doc, { commandId: "c1" }), "d")).toMatchObject({ simplify: null });
+  expect(receive(sent, tx(doc, { commandId: "c1" }), "d")).toMatchObject({ opPreview: null });
   const error = { code: "INVALID_PATH" as const, message: "no", hint: "" };
   expect(receive(sent, { type: "rejected", id: "c1", error }, "d")).toMatchObject({
-    simplify: null,
+    opPreview: null,
   });
-  expect(receive(sent, msg, "d")).toMatchObject({ simplify: null });
+  expect(receive(sent, msg, "d")).toMatchObject({ opPreview: null });
   // The preview converts the rect as core will, and leaves the Document alone.
-  expect(previewOp(doc, input).nodes.get(a.id)).toMatchObject({ id: a.id, type: "path" });
+  expect(previewOp(doc, { input }).nodes.get(a.id)).toMatchObject({ id: a.id, type: "path" });
   expect(doc.nodes.get(a.id)).toBe(a);
-  expect(previewOp(doc, { ...input, nodeIds: ["gone"] })).toBe(doc);
+  expect(previewOp(doc, { input: { ...input, nodeIds: ["gone"] } })).toBe(doc);
 });

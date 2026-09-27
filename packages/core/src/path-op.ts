@@ -26,7 +26,7 @@ type Point = [number, number];
 /**
  * `path_op` (REQUIREMENTS §6.4) so far: convert_to_path (Object > Shape > Expand Shape), reverse
  * (Reverse Path Direction), add_anchors (Add Anchor Points), join (Join), average (Average),
- * simplify (Simplify) and outline_stroke (Outline Stroke).
+ * simplify (Simplify), outline_stroke (Outline Stroke) and offset (Offset Path).
  */
 export const PathOpInput = z.object({
   nodeIds: z.array(z.string()).min(1).max(1000),
@@ -38,6 +38,7 @@ export const PathOpInput = z.object({
     "average",
     "simplify",
     "outline_stroke",
+    "offset",
   ]),
   tolerance: z
     .number()
@@ -66,6 +67,24 @@ export const PathOpInput = z.object({
     .describe(
       "average: horizontal lines the Anchors up on one y, vertical on one x, both stacks them.",
     ),
+  distance: z
+    .number()
+    .finite()
+    .optional()
+    .describe(
+      "offset: Illustrator's Offset, in document units; required. Positive grows the path, negative shrinks it.",
+    ),
+  join: z
+    .enum(["miter", "round", "bevel"])
+    .default("miter")
+    .describe("offset: Illustrator's Joins, how the offset turns at a corner."),
+  miterLimit: z
+    .number()
+    .min(1)
+    .default(4)
+    .describe(
+      "offset: past this many times the distance, a miter corner is beveled instead, as a Stroke's.",
+    ),
   anchors: z
     .array(AnchorRef)
     .max(10000)
@@ -88,18 +107,33 @@ export const PATH_OP_TEXT: Record<PathOpInput["op"], { menu: string; summary: st
   average: { menu: "Average…", summary: "Average" },
   simplify: { menu: "Simplify…", summary: "Simplify" },
   outline_stroke: { menu: "Outline Stroke", summary: "Outline Stroke" },
+  offset: { menu: "Offset Path…", summary: "Offset Path" },
 };
 
 /** How a Stroke is drawn along its path, without its paint. */
 export type StrokeStyle = Pick<Stroke, "width" | "cap" | "join" | "miterLimit" | "dash">;
 
+/** How Offset Path grows or shrinks a path's fill. */
+export interface OffsetStyle {
+  /** Negative shrinks. */
+  distance: number;
+  join: "miter" | "round" | "bevel";
+  miterLimit: number;
+  fillRule: "nonzero" | "evenodd";
+}
+
 /**
  * The path geometry core needs but does not compute: Skia's, which `@zibel/geometry` loads
- * (ADR-0034). In and out in the path's own coordinates.
+ * (ADR-0034).
  */
 export interface Geometry {
-  /** The area `stroke` paints along `segments`, dashes included, to fill under nonzero. */
+  /**
+   * The area `stroke` paints along `segments`, dashes included, to fill under nonzero; in the
+   * path's own coordinates.
+   */
   outlineStroke(segments: Segment[], stroke: StrokeStyle): Segment[];
+  /** The fill of `segments` offset by `style.distance`, no segments when it shrinks away. */
+  offsetPath(segments: Segment[], style: OffsetStyle): Segment[];
 }
 
 const invalid = (path: string, message: string, hint: string) =>
@@ -442,8 +476,51 @@ function outlineStrokes(doc: Document, nodeIds: string[], geometry: Geometry): P
 }
 
 /**
- * `path_op` (REQUIREMENTS §6.4) on each path or Live Shape; every op but convert_to_path converts a
- * Live Shape first (F-PATH-07), with a warning. outline_stroke needs `geometry`.
+ * `path_op offset` (research §5): a copy of each path offset by `distance` in document units,
+ * directly below it as Inkscape's Linked Offset stacks it (ADR-0039). The original stays, a Live
+ * Shape live; a Clipping Path, or a path that shrinks away, gets no copy.
+ */
+function offset(
+  doc: Document,
+  input: z.output<typeof PathOpInput>,
+  geometry: Geometry,
+): PathOpResult {
+  const { nodeIds, distance, join, miterLimit } = input;
+  if (distance === undefined) {
+    throw invalid("distance", "Offset Path needs a distance.", "Pass distance in document units.");
+  }
+  const created: PathNode[] = [];
+  for (const found of allWithAnchors(doc, nodeIds).filter((n) => !n.clipping)) {
+    const path = isLiveShape(found) ? toPath(found) : found;
+    // Offsets in document units, so a scaled path's copy is offset by distance on the page.
+    const world = worldTransform(doc, found);
+    const grown = geometry.offsetPath(transformSegments(parsePath(path.d, "d"), world), {
+      distance,
+      join,
+      miterLimit,
+      fillRule: path.fillRule,
+    });
+    if (grown.length === 0) continue;
+    const below = childrenOf(doc, found.parentId).findLast((n) => n.index < found.index);
+    const copy: PathNode = {
+      ...path,
+      id: newId(),
+      index: generateKeyBetween(below?.index ?? null, found.index),
+      d: formatPath(transformSegments(grown, invert(world))),
+    };
+    doc.nodes.set(copy.id, copy);
+    created.push(copy);
+  }
+  if (created.length === 0) {
+    throw invalid("nodeIds", "No path has an offset to add.", "Name a filled area it can offset.");
+  }
+  return { created, updated: [], deletedIds: [], warnings: [] };
+}
+
+/**
+ * `path_op` (REQUIREMENTS §6.4) on each path or Live Shape; every op but convert_to_path and
+ * offset converts a Live Shape first (F-PATH-07), with a warning. outline_stroke and offset need
+ * `geometry`.
  */
 export function pathOp(doc: Document, raw: PathOpInput, geometry?: Geometry): PathOpResult {
   const input = PathOpInput.parse(raw);
@@ -454,6 +531,10 @@ export function pathOp(doc: Document, raw: PathOpInput, geometry?: Geometry): Pa
   if (op === "outline_stroke") {
     if (!geometry) throw new Error("outline_stroke needs the path geometry (ADR-0034).");
     return outlineStrokes(doc, nodeIds, geometry);
+  }
+  if (op === "offset") {
+    if (!geometry) throw new Error("offset needs the path geometry (ADR-0034).");
+    return offset(doc, input, geometry);
   }
   if (op === "join") return join(doc, input);
   if (op === "average") return average(doc, input);

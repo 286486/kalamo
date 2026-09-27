@@ -59,7 +59,7 @@ export function Viewer({ docId }: { docId: string }) {
     anchors,
     drag,
     edit,
-    simplify,
+    opPreview,
     pen,
     notice,
     size,
@@ -137,8 +137,8 @@ export function Viewer({ docId }: { docId: string }) {
 
   // Simplify's preview refits every path, so it runs once per change, not once per frame.
   const simplified = useMemo(
-    () => (doc && simplify ? previewOp(doc, simplify.input) : doc),
-    [doc, simplify],
+    () => (doc && opPreview ? previewOp(doc, opPreview) : doc),
+    [doc, opPreview],
   );
 
   // ponytail: redraws everything on every change; add viewport culling and dirty rects for 5k+ Nodes (F-VIEW-08).
@@ -179,9 +179,9 @@ export function Viewer({ docId }: { docId: string }) {
     }
     for (const t of Object.values(TOOLS)) t.draw?.(ctx, shown, scale);
     // Simplify's Show Original Path.
-    if (simplify?.showOriginal) {
+    if (opPreview?.showOriginal) {
       ctx.strokeStyle = ORIGINAL;
-      for (const id of simplify.input.nodeIds) {
+      for (const id of opPreview.input.nodeIds) {
         const node = doc.nodes.get(id);
         if (hasAnchors(node)) ctx.stroke(new Path2D(formatPath(fromAnchors(anchorsOf(doc, node)))));
       }
@@ -189,7 +189,7 @@ export function Viewer({ docId }: { docId: string }) {
   }, [
     doc,
     simplified,
-    simplify,
+    opPreview,
     docId,
     viewport,
     size,

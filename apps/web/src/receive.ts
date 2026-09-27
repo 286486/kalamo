@@ -2,6 +2,7 @@ import {
   type BareAnchor,
   type Document,
   editPath,
+  type Geometry,
   type PathEditInput,
   type PathOpInput,
   pathOp,
@@ -56,14 +57,17 @@ export interface PathDrag {
 }
 
 /**
- * Object > Path > Simplify while its bar or dialog is open: previewed in the browser, then sent as
- * one `path_op` on OK (ADR-0035); `commandId` is set then, and it is drawn until the answer.
+ * Object > Path > Simplify or Offset Path while its bar or dialog is open: previewed in the
+ * browser, then sent as one `path_op` on OK (ADR-0035); `commandId` is set then, and it is drawn
+ * until the answer.
  */
-export interface SimplifyPreview {
+export interface PathOpPreview {
   input: PathOpInput;
-  /** The dialog's Show Original Path. */
+  /** Simplify's Show Original Path. */
   showOriginal: boolean;
   commandId: string | null;
+  /** PathKit, which Offset Path's preview needs (ADR-0034). */
+  geometry?: Geometry;
 }
 
 export interface ViewState {
@@ -74,7 +78,7 @@ export interface ViewState {
   drag: Drag | null;
   pen: PenPath | null;
   edit: PathDrag | null;
-  simplify: SimplifyPreview | null;
+  opPreview: PathOpPreview | null;
   /** Direct Selection's selected Anchors (direct.ts's keys): UI state, like the Selection. */
   anchors: string[];
   /** Why the last command was rejected. */
@@ -95,7 +99,7 @@ export function receive(
     return {
       ...(s.drag?.commandId === msg.id && { drag: null }),
       ...(s.pen?.commandId === msg.id && { pen: null }),
-      ...(s.simplify?.commandId === msg.id && { simplify: null }),
+      ...(s.opPreview?.commandId === msg.id && { opPreview: null }),
       ...settle(s.edit, msg.id),
       notice: gone
         ? "Someone else deleted that object first; it stays deleted."
@@ -151,8 +155,8 @@ export function receive(
     anchors,
     ...(msg.type === "document" ? { edit: null } : settle(s.edit, msg.commandId)),
     ...((drawn || (msg.type === "document" && s.pen?.commandId)) && { pen: null }),
-    ...(s.simplify?.commandId &&
-      (msg.type === "document" || msg.commandId === s.simplify.commandId) && { simplify: null }),
+    ...(s.opPreview?.commandId &&
+      (msg.type === "document" || msg.commandId === s.opPreview.commandId) && { opPreview: null }),
     ...(skipped > 0 && { notice: `Skipped ${skipped} deleted object(s); they stay deleted.` }),
   };
 }
@@ -186,10 +190,13 @@ export function previewEdit(doc: Document, { inputs }: PathDrag): Document {
 }
 
 /** `doc` with a `path_op` applied by core, or as it is when core refuses it. */
-export function previewOp(doc: Document, input: PathOpInput): Document {
+export function previewOp(
+  doc: Document,
+  { input, geometry }: Pick<PathOpPreview, "input" | "geometry">,
+): Document {
   const shown = { ...doc, nodes: new Map(doc.nodes) };
   try {
-    pathOp(shown, input);
+    pathOp(shown, input, geometry);
     return shown;
   } catch (e) {
     console.warn("A path_op preview skipped what core refuses.", e);
