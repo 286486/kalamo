@@ -72,13 +72,14 @@ export const directTool: CanvasTool = {
     const keys =
       target?.kind === "anchor" ? [target.key] : !target && hasAnchors(node) ? allKeys(node) : [];
     const segment =
-      target?.kind === "segment" ? [anchorKey(target.nodeId, target.subpath, target.segment)] : [];
+      target?.kind === "segment" ? anchorKey(target.nodeId, target.subpath, target.segment) : null;
+    const segmentKeys = segment ? [segment] : [];
     if (nodeId && mods.shift) {
       const shown = selection.includes(nodeId) ? selection : [...selection, nodeId];
       useStore.setState({
         selection: shown,
         anchors: combine(anchors, keys, mods),
-        segments: combine(segments, segment, mods),
+        segments: combine(segments, segmentKeys, mods),
       });
       return;
     }
@@ -91,8 +92,8 @@ export const directTool: CanvasTool = {
       // keeps the selection, so all of it moves; a segment selects no Anchor.
       const kept =
         (keys.length > 0 && keys.every((k) => anchors.includes(k))) ||
-        (segment.length > 0 && segments.includes(segment[0] as string));
-      if (!kept) useStore.setState({ selection: [nodeId], anchors: keys, segments: segment });
+        (!!segment && segments.includes(segment));
+      if (!kept) useStore.setState({ selection: [nodeId], anchors: keys, segments: segmentKeys });
       const moving = kept ? anchors : keys;
       if (target?.kind === "segment") gesture = { ...g, ...target };
       else if (moving.length > 0) gesture = { ...g, kind: "anchors", keys: moving };

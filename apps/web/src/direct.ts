@@ -125,7 +125,7 @@ export function segmentHandles(doc: Document, key: string): { key: string; which
   const { nodeId, subpath, index } = parseKey(key);
   const n = doc.nodes.get(nodeId);
   const s = hasAnchors(n) ? localAnchors(n)[subpath] : undefined;
-  if (!s || index >= segmentCount(s)) return [];
+  if (!s || !Number.isInteger(index) || index < 0 || index >= segmentCount(s)) return [];
   const next = (index + 1) % s.anchors.length;
   return [
     { key: anchorKey(nodeId, subpath, index), which: "handleOut" },
@@ -308,22 +308,22 @@ export function deleteParts(
   return subpaths.flatMap((s, k) => {
     const has = (refs: typeof anchors, i: number) =>
       refs.some((r) => r.subpath === k && r.index === i);
-    const cut = s.anchors.map((_, i) => has(anchors, i));
+    const cutAnchor = s.anchors.map((_, i) => has(anchors, i));
     // Segment i starts at Anchor i; an open subpath's last Anchor starts none.
-    const gap = s.anchors.map((_, i) => has(segments, i) && i < segmentCount(s));
-    const first = s.anchors.findIndex((_, i) => cut[i] || gap[i]);
+    const cutSegment = s.anchors.map((_, i) => has(segments, i) && i < segmentCount(s));
+    const first = s.anchors.findIndex((_, i) => cutAnchor[i] || cutSegment[i]);
     if (first < 0) return [s];
     // A closed subpath is walked from just after a cut, so each piece is in order.
     const start = s.closed ? first + 1 : 0;
     const pieces: Anchor[][] = [[]];
     for (let j = 0; j < s.anchors.length; j++) {
       const i = (start + j) % s.anchors.length;
-      if (cut[i]) {
+      if (cutAnchor[i]) {
         pieces.push([]);
         continue;
       }
       pieces.at(-1)?.push({ ...(s.anchors[i] as Anchor) });
-      if (gap[i]) pieces.push([]);
+      if (cutSegment[i]) pieces.push([]);
     }
     return pieces
       .filter((p) => p.length >= 2)
@@ -343,12 +343,7 @@ export function inRange(doc: Document, key: string): boolean {
 }
 
 /** Whether `key` names a segment its Node has now. */
-export function segmentInRange(doc: Document, key: string): boolean {
-  const { nodeId, subpath, index } = parseKey(key);
-  const n = doc.nodes.get(nodeId);
-  const s = hasAnchors(n) ? localAnchors(n)[subpath] : undefined;
-  return !!s && Number.isInteger(index) && index >= 0 && index < segmentCount(s);
-}
+export const segmentInRange = (doc: Document, key: string) => segmentHandles(doc, key).length > 0;
 
 /**
  * Edit > Clear under Direct Selection: a `set_d` per path with selected Anchors or segments, and
@@ -362,18 +357,20 @@ export function clearInputs(
   segments: string[] = [],
 ) {
   const edits: PathEditInput[] = [];
-  const grouped = byNode(anchors);
-  const cuts = byNode(segments);
+  const anchorsBy = byNode(anchors);
+  const segmentsBy = byNode(segments);
   const deleteIds = selection.filter(
-    (id) => !grouped.has(id) && !cuts.has(id) && editable(doc, doc.nodes.get(id)),
+    (id) => !anchorsBy.has(id) && !segmentsBy.has(id) && editable(doc, doc.nodes.get(id)),
   );
-  for (const nodeId of new Set([...grouped.keys(), ...cuts.keys()])) {
+  for (const nodeId of new Set([...anchorsBy.keys(), ...segmentsBy.keys()])) {
     const n = doc.nodes.get(nodeId);
     const key = (r: Ref) => anchorKey(nodeId, r.subpath, r.index);
-    const live = (grouped.get(nodeId) ?? []).filter((r) => inRange(doc, key(r)));
-    const gaps = (cuts.get(nodeId) ?? []).filter((r) => segmentInRange(doc, key(r)));
-    if (!hasAnchors(n) || !editable(doc, n) || live.length + gaps.length === 0) continue;
-    const left = deleteParts(localAnchors(n), live, gaps);
+    const liveAnchors = (anchorsBy.get(nodeId) ?? []).filter((r) => inRange(doc, key(r)));
+    const liveSegments = (segmentsBy.get(nodeId) ?? []).filter((r) => segmentInRange(doc, key(r)));
+    if (!hasAnchors(n) || !editable(doc, n) || liveAnchors.length + liveSegments.length === 0) {
+      continue;
+    }
+    const left = deleteParts(localAnchors(n), liveAnchors, liveSegments);
     if (left.length === 0) deleteIds.push(nodeId);
     else edits.push({ nodeId, ops: [{ op: "set_d", d: formatPath(fromAnchors(left)) }] });
   }
