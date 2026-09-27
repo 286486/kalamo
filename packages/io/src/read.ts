@@ -232,7 +232,7 @@ interface Context {
 }
 
 /**
- * The deepest Layer and Group nesting Open reads. Deeper files are refused: the walk, and core's
+ * The deepest Layer and Group nesting Zibel reads. Deeper files are refused: the walk, and core's
  * walks after it, recurse (REQUIREMENTS §6.7).
  */
 export const MAX_DEPTH = 256;
@@ -373,7 +373,7 @@ class Reader {
         throw new ZibelError({
           code: "LIMIT_EXCEEDED",
           message: `Groups in the file nest deeper than ${MAX_DEPTH} levels.`,
-          hint: "Ungroup the innermost levels in the editor that made the file, then open it again.",
+          hint: "Ungroup the innermost levels in the editor that made the file, then try again.",
           path: "content",
         });
       }

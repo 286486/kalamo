@@ -1282,6 +1282,13 @@ it("places an SVG as one Group under the parent, and refuses a .zibel.json", asy
   expect(errorOf(refused)).toMatchObject({ code: "INVALID_DOCUMENT", path: "svg" });
   const text = await call("zibel_svg_import", { docId, svg: "nope", parentId: defaultLayerId });
   expect(errorOf(text)).toMatchObject({ code: "INVALID_DOCUMENT", path: "svg" });
+  expect(errorOf(text).hint).not.toContain(".zibel.json file");
+  const big = `<svg xmlns="http://www.w3.org/2000/svg"><desc>${"x".repeat(5 * 1024 * 1024)}</desc></svg>`;
+  const huge = errorOf(
+    await call("zibel_svg_import", { docId, svg: big, parentId: defaultLayerId }),
+  );
+  expect(huge).toMatchObject({ code: "LIMIT_EXCEEDED", path: "svg" });
+  expect(huge.message).not.toContain("Open");
 
   // Staged in a Transaction: invisible to the committed rev until commit.
   const { txId, rev } = (await call("zibel_tx_begin", { docId })).structuredContent;

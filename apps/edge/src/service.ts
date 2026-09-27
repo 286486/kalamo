@@ -32,6 +32,15 @@ export function documentService(env: Env, actor: string): DocumentService {
       return { ...opened, warnings };
     },
     place: async (docId, { svg, name, ...opts }) => {
+      // Refused here, not by parseFile, whose hint is for Open.
+      if (!/^\uFEFF?\s*</.test(svg)) {
+        throw new ZibelError({
+          code: "INVALID_DOCUMENT",
+          message: "Place takes SVG; this is not an SVG file.",
+          hint: "Pass the text of an .svg file. zibel_doc_open reads a Zibel file as a new Document.",
+          path: "svg",
+        });
+      }
       let file: ReturnType<typeof parseFile>;
       try {
         file = await read(svg, { name });

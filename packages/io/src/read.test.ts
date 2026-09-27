@@ -75,7 +75,11 @@ it.each([
 
 it("refuses an SVG over 5 MB before parsing it", () => {
   const big = svg("", `<desc>${"x".repeat(SVG_LIMIT)}</desc>`);
-  expect(errorOf(() => parseFile(big))).toMatchObject({ code: "LIMIT_EXCEEDED", path: "content" });
+  expect(errorOf(() => parseFile(big))).toMatchObject({
+    code: "LIMIT_EXCEEDED",
+    path: "content",
+    message: expect.not.stringContaining("Open"),
+  });
 });
 
 it("makes one Artboard from the root's size in pt, and one empty Layer", () => {

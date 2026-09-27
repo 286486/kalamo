@@ -838,7 +838,7 @@ export class DocumentObject extends DurableObject<Env> {
    * was put in the parent, to depth 2.
    */
   place(
-    file: OpenedFile & { format: "svg" | "zibel_json" },
+    file: OpenedFile,
     actor: string,
     opts: Options & {
       parentId: string;
@@ -848,16 +848,8 @@ export class DocumentObject extends DurableObject<Env> {
     },
   ): Result<WriteReceipt & { nodes: OutlineNode[] }> {
     let nodes: OutlineNode[] = [];
-    if (file.format === "svg") this.storeImages(file.images);
+    this.storeImages(file.images);
     const receipt = this.write(actor, opts, "Place", (doc) => {
-      if (file.format !== "svg") {
-        throw new ZibelError({
-          code: "INVALID_DOCUMENT",
-          message: "Place takes SVG; this is a .zibel.json file.",
-          hint: "Write its Nodes with zibel_node_create, or open it as a new Document with zibel_doc_open.",
-          path: "svg",
-        });
-      }
       const { placedIds, created } = placeNodes(doc, file, opts);
       const placed = new Set(placedIds);
       nodes = outline(doc, { rootId: opts.parentId, depth: 2 }).filter((n) => placed.has(n.id));

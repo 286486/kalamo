@@ -126,13 +126,9 @@ it("centres on position, and fit scales to the parent's Artboard", async () => {
   expect(fitted.bounds?.x).toBeCloseTo(0, 3);
 });
 
-it("refuses a .zibel.json and a parent that is not a Layer or Group, changing nothing", async () => {
+it("refuses a parent that is not a Layer or Group, changing nothing", async () => {
   const { s, layer } = await setup("place-refused");
   const { rev } = ok(await s.info());
-  const { text } = ok(await s.file("user"));
-  expect(await place(s, text, { parentId: layer })).toMatchObject({
-    error: { code: "INVALID_DOCUMENT", path: "svg" },
-  });
   const [rect] = ok(await s.outline({ rootId: layer }, "user")).nodes;
   expect(await place(s, TWO_LAYERS, { parentId: rect?.id })).toMatchObject({
     error: { code: "INVALID_PARENT" },
