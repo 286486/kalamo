@@ -489,8 +489,12 @@ export class DocumentObject extends DurableObject<Env> {
   }
 
   /** Stores a data URL's file and returns its id. */
-  private async storeDataUrl(src: string, path: string): Promise<string> {
-    const file = readImage(src, path);
+  private storeDataUrl(src: string, path: string): Promise<string> {
+    return this.storeFile(readImage(src, path));
+  }
+
+  /** Stores a checked file and returns its id. */
+  private async storeFile(file: ImageFile): Promise<string> {
     const id = await imageId(file.bytes);
     this.storeImages(new Map([[id, file]]));
     return id;
@@ -877,8 +881,7 @@ export class DocumentObject extends DurableObject<Env> {
     },
   ): Promise<Result<WriteReceipt>> {
     const { name, ...image } = file;
-    const src = await imageId(image.bytes);
-    this.storeImages(new Map([[src, image]]));
+    const src = await this.storeFile(image);
     return this.write(actor, opts, "Place", (doc) => ({
       created: placeImage(doc, { src, name }, opts).created,
       failed: [],
@@ -895,8 +898,7 @@ export class DocumentObject extends DurableObject<Env> {
     opts: Options & { nodeId: string },
   ): Promise<Result<WriteReceipt>> {
     const { name, ...image } = file;
-    const src = await imageId(image.bytes);
-    this.storeImages(new Map([[src, image]]));
+    const src = await this.storeFile(image);
     return this.write(actor, opts, "Relink", (doc) => {
       const node = doc.nodes.get(opts.nodeId);
       const refuse = (message: string, hint: string) =>

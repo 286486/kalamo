@@ -85,8 +85,7 @@ async function placeBitmap(docId: string, request: Request, env: Env): Promise<R
   const x = Number(q.get("x") ?? Number.NaN);
   const y = Number(q.get("y") ?? Number.NaN);
   return answer(async () => {
-    // ponytail: read whole, under the platform's request cap (100 MB); stream with a cap if that bites.
-    const file = checkImage(new Uint8Array(await request.arrayBuffer()), "file");
+    const file = await bitmap(request);
     const frame = Number.isFinite(x) && Number.isFinite(y);
     return unwrap(
       await env.DOCUMENT.get(env.DOCUMENT.idFromName(docId)).placeImage(
@@ -102,6 +101,11 @@ async function placeBitmap(docId: string, request: Request, env: Env): Promise<R
   });
 }
 
+/** The body as a PNG, JPEG or GIF of at most 5 MB (ADR-0023). */
+const bitmap = async (request: Request) =>
+  // ponytail: read whole, under the platform's request cap (100 MB); stream with a cap if that bites.
+  checkImage(new Uint8Array(await request.arrayBuffer()), "file");
+
 /**
  * Object > Relink… (ADR-0042): the file's bytes as the body; the Image's `nodeId` and the file's
  * `name`, which a linked Image takes as its `file`, in the query. By the user, like Place.
@@ -109,7 +113,7 @@ async function placeBitmap(docId: string, request: Request, env: Env): Promise<R
 async function relinkBitmap(docId: string, request: Request, env: Env): Promise<Response> {
   const q = new URL(request.url).searchParams;
   return answer(async () => {
-    const file = checkImage(new Uint8Array(await request.arrayBuffer()), "file");
+    const file = await bitmap(request);
     return unwrap(
       await env.DOCUMENT.get(env.DOCUMENT.idFromName(docId)).relinkImage(
         { ...file, name: q.get("name") ?? undefined },
