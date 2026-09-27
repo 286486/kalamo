@@ -3,6 +3,7 @@ import {
   applyTo,
   childrenOf,
   clippingPath,
+  crossedFrame,
   type Document,
   ellipseMatrix,
   type Fill,
@@ -15,8 +16,8 @@ import {
   invert,
   layoutText,
   lookup,
+  MISSING_LINK_STROKE,
   type Node,
-  parsePath,
   type Rect,
   type RenderScope,
   round,
@@ -350,16 +351,14 @@ function node(doc: Document, n: Node, walk: Walk): string {
     const { x, y, width, height, preserveAspectRatio, src, file } = n;
     const link = file !== undefined && walk.linked === "link";
     if (file !== undefined && src === undefined && walk.linked === "draw") {
-      // A missing link, as Illustrator draws an unresolved placed file: its frame and both
-      // diagonals, moved into place so the stroke stays a hairline however the Image is scaled.
-      const [l, t, r, b] = [x, y, x + width, y + height];
-      const d = `M${l} ${t}L${r} ${t}L${r} ${b}L${l} ${b}ZM${l} ${t}L${r} ${b}M${r} ${t}L${l} ${b}`;
+      // A missing link's crossed frame, moved into place so the stroke stays a hairline however
+      // the Image is scaled.
       const { transform: _, ...rest } = own;
       return `<path${attrs({
-        d: formatPath(transformSegments(parsePath(d, "d"), n.transform)),
+        d: formatPath(transformSegments(crossedFrame(n), n.transform)),
         ...rest,
         style: style(
-          `fill:none;stroke:#999999;stroke-width:${formatNumber(walk.hairline)}`,
+          `fill:none;stroke:${MISSING_LINK_STROKE};stroke-width:${formatNumber(walk.hairline)}`,
           ...looks,
         ),
       })}/>`;

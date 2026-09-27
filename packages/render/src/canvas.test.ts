@@ -391,20 +391,26 @@ it("draws a missing link as its frame and both diagonals, in a one-pixel stroke 
     width: 60,
     height: 40,
   } as const;
-  const [missing] = createNodes(doc, [
+  const [missing, loading] = createNodes(doc, [
     { ...frame, file: "missing.png" },
     // Linked with pixels still loading: nothing, as an embedded Image.
     { ...frame, file: "linked.png", src },
-  ]).nodes as [Node];
+  ]).nodes as [Node, Node];
   missing.transform = [2, 0, 0, 2, 5, 0];
   const frameBounds = { x: 25, y: 20, width: 120, height: 80 };
   expect([bounds(doc, missing), visibleBounds(doc, missing)]).toEqual([frameBounds, frameBounds]);
+  const loadingBounds = { x: 10, y: 10, width: 60, height: 40 };
+  expect([bounds(doc, loading), visibleBounds(doc, loading)]).toEqual([
+    loadingBounds,
+    loadingBounds,
+  ]);
   const { ctx, log } = recorder();
   drawDocument(ctx, doc, () => undefined);
-  expect(
-    log.filter((l) => !/^(save|restore|globalAlpha)/.test(l) && !l.startsWith("fill")),
-  ).toEqual([
+  // The Layer's and Image's transforms, then the device-space stroke, all inside their saves.
+  expect(log.filter((l) => !/^(globalAlpha|fill)/.test(l))).toEqual([
+    "save",
     "transform 1 0 0 1 0 0",
+    "save",
     "transform 2 0 0 2 5 0",
     "beginPath",
     "moveTo 10 10",
@@ -421,7 +427,11 @@ it("draws a missing link as its frame and both diagonals, in a one-pixel stroke 
     "lineWidth=1",
     "setLineDash ",
     "stroke",
+    "restore",
+    "save",
     "transform 1 0 0 1 0 0",
+    "restore",
+    "restore",
   ]);
 });
 

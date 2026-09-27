@@ -4,6 +4,7 @@ import {
   bundledStyle,
   childrenOf,
   clippingPath,
+  crossedFrame,
   type Document,
   ellipseMatrix,
   type Fill,
@@ -13,6 +14,7 @@ import {
   type LeafNode,
   layoutText,
   type Matrix,
+  MISSING_LINK_STROKE,
   type Node,
   type Rect,
   type Segment,
@@ -164,21 +166,11 @@ function draw(
   } else if (n.type === "image") {
     const file = n.src === undefined ? undefined : images?.(n.src);
     if (n.src === undefined) {
-      // A missing link, as `toSvg` draws it: its frame and both diagonals (ADR-0042). The path
-      // is traced in place, then stroked in device space so it stays one pixel at any zoom.
-      const [l, t, r, b] = [n.x, n.y, n.x + n.width, n.y + n.height];
-      ctx.beginPath();
-      ctx.moveTo(l, t);
-      ctx.lineTo(r, t);
-      ctx.lineTo(r, b);
-      ctx.lineTo(l, b);
-      ctx.closePath();
-      ctx.moveTo(l, t);
-      ctx.lineTo(r, b);
-      ctx.moveTo(r, t);
-      ctx.lineTo(l, b);
+      // A missing link, as `toSvg` draws it (ADR-0042): traced in place, then stroked in device
+      // space so it stays one device pixel at any zoom.
+      trace(ctx, crossedFrame(n));
       ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.strokeStyle = "#999999";
+      ctx.strokeStyle = MISSING_LINK_STROKE;
       ctx.lineWidth = 1;
       ctx.setLineDash([]);
       ctx.stroke();
