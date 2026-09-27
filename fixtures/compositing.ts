@@ -228,6 +228,7 @@ export const COMPOSITING: CompositingCase[] = [
       { x: 67, y: 18, rgb: MAGENTA },
       { x: 15, y: 50, rgb: MAGENTA },
       { x: 25, y: 18, rgb: WHITE },
+      { x: 15, y: 34, rgb: WHITE },
       { x: 15, y: 82, rgb: WHITE },
     ],
   },

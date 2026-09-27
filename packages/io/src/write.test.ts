@@ -929,10 +929,13 @@ it.each([
     doc.nodes.set(text.id, { ...text, transform: [1.2, 0.35, -0.35, 1.2, 0, 0] });
     const svg = toSvg(doc);
     const frame = `id="area-z-${text.id}"`;
-    expect(svg.split(frame)).toHaveLength(2);
+    expect(svg.match(new RegExp(frame, "g"))).toHaveLength(1);
     // The text, the Fill's copy and the Stroke's copy flow in it; only the text has an id.
-    expect(svg.split(`shape-inside:url(#area-z-${text.id})`)).toHaveLength(4);
-    expect(svg.split(`id="z-${text.id}"`)).toHaveLength(2);
+    expect(svg.match(new RegExp(`shape-inside:url\\(#area-z-${text.id}\\)`, "g"))).toHaveLength(3);
+    expect(svg.match(new RegExp(`id="z-${text.id}"`, "g"))).toHaveLength(1);
+    for (const [paint] of svg.matchAll(/<g zibel:paint="true".*?<\/g>/g)) {
+      expect(paint).not.toMatch(/<text [^>]*\bid=/);
+    }
     expect(svg).toMatch(/inkscape:label="Stroke"[^>]*><text [^>]*stroke-width="3.2"/);
     // A Fill below Contents copies the text before its frame is defined; SVG resolves it either way.
     expect(svg.indexOf('inkscape:label="Fill"') < svg.indexOf(frame)).toBe(contents === 1);
