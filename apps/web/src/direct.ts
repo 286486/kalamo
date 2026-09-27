@@ -3,6 +3,7 @@ import {
   applyTo,
   childrenOf,
   type Document,
+  editSubpaths,
   formatPath,
   fromAnchors,
   invert,
@@ -471,13 +472,14 @@ export function convertTargets(doc: Document, anchors: string[], segments: strin
 
 /**
  * Convert selected anchor points to corner or smooth: one `path_edit` of `set_point_type` per
- * path. An Anchor already that type, or an open subpath's Endpoint for smooth, is left out.
+ * path. An Anchor already that type is left out, and so is one smooth cannot turn: an open
+ * subpath's Endpoint, or one with no direction to smooth along, which would fail the whole edit.
  */
 export function convertInputs(
   doc: Document,
   anchors: string[],
   segments: string[],
-  type: "corner" | "smooth",
+  type: Anchor["type"],
 ): PathEditInput[] {
   return convertTargets(doc, anchors, segments).flatMap(({ nodeId, refs }) => {
     const subpaths = localAnchors(doc.nodes.get(nodeId) as ShapeNode);
@@ -486,8 +488,17 @@ export function convertInputs(
         const s = subpaths[subpath] as Subpath;
         const a = s.anchors[index] as Anchor;
         if (type === "corner") return !!(a.handleIn || a.handleOut);
-        const endpoint = !s.closed && (index === 0 || index === s.anchors.length - 1);
-        return !endpoint && a.type !== "smooth";
+        if (a.type === "smooth") return false;
+        try {
+          editSubpaths(
+            structuredClone(subpaths),
+            { op: "set_point_type", subpath, index, type },
+            "",
+          );
+          return true;
+        } catch {
+          return false;
+        }
       })
       .sort((x, y) => x.subpath - y.subpath || x.index - y.index)
       .map((r): PathOp => ({ op: "set_point_type", ...r, type }));

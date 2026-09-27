@@ -1,8 +1,9 @@
+import type { Anchor } from "@zibel/core";
 import { convertInputs, convertTargets } from "./direct.ts";
 import { send, useStore } from "./store.ts";
 
-/** One `path_edit` per path, drawn until its answer, as a drag is. */
-function convert(type: "corner" | "smooth") {
+/** One `path_edit` per path, previewed until each is answered, as a Direct Selection drag is. */
+function convert(type: Anchor["type"]) {
   const { doc, anchors, segments } = useStore.getState();
   const inputs = doc ? convertInputs(doc, anchors, segments, type) : [];
   if (inputs.length === 0) return;
@@ -16,22 +17,25 @@ function convert(type: "corner" | "smooth") {
  * where the Control panel is, not under the paths, so it never covers the next segment clicked.
  */
 export function AnchorsBar() {
-  const { doc, anchors, segments, tool } = useStore();
+  const doc = useStore((s) => s.doc);
+  const anchors = useStore((s) => s.anchors);
+  const segments = useStore((s) => s.segments);
+  const tool = useStore((s) => s.tool);
   if (tool !== "direct" || !doc || convertTargets(doc, anchors, segments).length === 0) return null;
-  const button = (type: "corner" | "smooth", label: string) => (
-    <button
-      type="button"
-      aria-label={`Convert selected anchor points to ${type}`}
-      title={`Convert selected anchor points to ${type}`}
-      onClick={() => convert(type)}
-    >
-      {label}
-    </button>
-  );
+  const button = (type: Anchor["type"], label: string) => {
+    const name = `Convert selected anchor points to ${type}`;
+    return (
+      <button type="button" aria-label={name} title={name} onClick={() => convert(type)}>
+        {label}
+      </button>
+    );
+  };
   return (
     <div
       role="toolbar"
       aria-label="Anchors"
+      // A click must not leave focus on a button, where Enter and Space would press it again.
+      onMouseDown={(e) => (e.target as Element).closest("button") && e.preventDefault()}
       style={{
         position: "absolute",
         top: 8,

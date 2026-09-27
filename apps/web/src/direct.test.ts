@@ -380,6 +380,11 @@ it("convertInputs turns the selected Anchors and each selected segment's ends Co
   // Already the type, or an open subpath's Endpoint for Smooth: nothing to send.
   expect(convertInputs(doc, [anchorKey(rect.id, 0, 0)], [], "corner")).toEqual([]);
   expect(convertInputs(doc, [anchorKey(curve.id, 0, 0)], [], "smooth")).toEqual([]);
+  // A closed two-Anchor line has no direction to smooth along: sent, it would fail the edit.
+  const flat = createNodes(doc, [
+    { type: "path", parentId: rect.parentId, d: "M 0 0 L 10 0 Z" },
+  ] as never).nodes[0] as Node;
+  expect(convertInputs(doc, [anchorKey(flat.id, 0, 0)], [], "smooth")).toEqual([]);
 });
 
 it("convertTargets takes paths partly selected, not whole ones or keys out of range", () => {
