@@ -1775,7 +1775,10 @@ describe("container Appearance (ADR-0043)", () => {
       ],
     ])("keeps %s silent, with the Stroke scaled", (_, outer, inner, width) => {
       const { looks, warnings } = open(`<g transform="${outer}">${group(inner)}</g>`);
-      expect(looks[0]?.strokes[0]?.width).toBeCloseTo(width, 3);
+      const stroke = looks[0]?.strokes[0];
+      expect(stroke?.width).toBeCloseTo(width, 3);
+      expect(stroke?.dash?.[0]).toBeCloseTo(width / 2, 3);
+      expect(stroke?.dash?.[1]).toBeCloseTo(width / 4, 3);
       expect(warnings).toEqual([]);
     });
 
