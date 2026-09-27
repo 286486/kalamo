@@ -503,3 +503,36 @@ it("paints Live Shapes the same after Convert to Path", async () => {
   const split = await svgToPixels(toSvg(doc, rect), 1);
   expect(split.pixels.every((v, i) => Math.abs(v - (after.pixels[i] ?? 0)) <= 24)).toBe(true);
 });
+
+it("draws a Group's Stroke above its children at contents 0 and behind them at 1 (ADR-0043)", async () => {
+  const pixel = async (contents: number, x: number, y: number) => {
+    const { doc, defaultLayerId } = createDocument({
+      id: "d",
+      name: "Doc",
+      artboards: [{ width: 80, height: 60, background: "#FFFFFF" }],
+    });
+    const blue = { fills: [{ color: "#0000FF" }] };
+    createNodes(doc, [
+      {
+        type: "group",
+        parentId: defaultLayerId,
+        appearance: { strokes: [{ color: "#FF0000", width: 6 }], contents },
+        children: [
+          { type: "rect", x: 10, y: 10, width: 40, height: 40, appearance: blue },
+          { type: "rect", x: 30, y: 10, width: 40, height: 40, appearance: blue },
+        ],
+      },
+    ]);
+    const { pixels, width } = await svgToPixels(toSvg(doc, docRect(doc)), 1);
+    const i = (y * width + x) * 4;
+    return [...pixels.subarray(i, i + 3)];
+  };
+  const red = [255, 0, 0];
+  const blue = [0, 0, 255];
+  // The left rect's right edge, inside the right rect: the Stroke shows only when above.
+  expect(await pixel(0, 50, 30)).toEqual(red);
+  expect(await pixel(1, 50, 30)).toEqual(blue);
+  // Outside both, the outer half of the Stroke shows either way.
+  expect(await pixel(0, 8, 30)).toEqual(red);
+  expect(await pixel(1, 8, 30)).toEqual(red);
+});

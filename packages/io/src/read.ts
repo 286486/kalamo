@@ -382,6 +382,8 @@ class Reader {
       this.warn("INVALID_TRANSFORM", "flat", "An element scaled to nothing was dropped.");
       return;
     }
+    // ponytail: a container paint's copies are derived; #104 reads the paint back into its container.
+    if (zibelAttr(e, "paint") === "true") return;
     const matrix = multiply(ctx.matrix, own);
     const style = computeStyle(e, ctx.style, this.rules);
     const tag = e.localName;

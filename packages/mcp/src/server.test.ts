@@ -774,6 +774,25 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
   );
 });
 
+it("publishes appearance with contents on layer and group in node_create and node_update (ADR-0043)", async () => {
+  const { client } = await harness();
+  const tools = (await client.listTools()).tools;
+  const create = tools.find((t) => t.name === "zibel_node_create");
+  if (!create) throw new Error("setup");
+  const variants = (
+    (create.inputSchema.properties as { nodes: unknown }).nodes as { items: { oneOf: object[] } }
+  ).items.oneOf as { properties: Record<string, { const?: string; properties?: object }> }[];
+  for (const type of ["layer", "group"]) {
+    const v = variants.find((o) => o.properties.type?.const === type);
+    expect(v?.properties.appearance?.properties, type).toHaveProperty("contents");
+    expect(create.description).toContain(`${type} {`);
+  }
+  expect(create.description).toContain("contents");
+  const update = tools.find((t) => t.name === "zibel_node_update");
+  expect(JSON.stringify(update?.inputSchema)).toContain('"contents"');
+  expect(update?.description).toContain("appearance: null removes it");
+});
+
 it("serves skill://zibel/drawing-conventions and points at it in the instructions", async () => {
   const uri = "skill://zibel/drawing-conventions";
   const { client } = await harness();

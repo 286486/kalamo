@@ -145,11 +145,27 @@ export const AppearanceInput = z.object({
   strokes: z.array(Stroke).default([]).describe("Painted bottom to top, above every Fill."),
 });
 
+const contents = z
+  .number()
+  .int()
+  .describe(
+    "Where the children sit in the stack: how many paints, counted from the first Fill up through the Strokes, draw below them; 0 to fills + strokes. Default 0, every paint above.",
+  );
+/** A Layer's or Group's Appearance: it paints every descendant's outline (ADR-0043). */
+export type ContainerAppearanceInput = z.output<typeof ContainerAppearanceInput>;
+export const ContainerAppearanceInput = AppearanceInput.extend({
+  contents: contents.default(0),
+});
+
 export type Fill = { type: "solid"; color: string } | { type: "gradient"; gradient: Gradient };
 export type Stroke = Fill & Omit<z.output<(typeof Stroke.options)[0]>, "type" | "color">;
 export interface Appearance {
   fills: Fill[];
   strokes: Stroke[];
+}
+/** `contents` of the paints, from the bottom of fills then strokes, draw below the children. */
+export interface ContainerAppearance extends Appearance {
+  contents: number;
 }
 
 export const ArtboardInput = z.object({
@@ -513,9 +529,11 @@ interface GroupChild {
   name?: string;
   tags?: string[];
   meta?: Record<string, unknown>;
+  appearance?: ContainerAppearanceInput;
   children: ChildInput[];
 }
-interface GroupChildIn extends Omit<GroupChild, "children"> {
+interface GroupChildIn extends Omit<GroupChild, "children" | "appearance"> {
+  appearance?: z.input<typeof ContainerAppearanceInput>;
   children?: ChildIn[];
 }
 /**
@@ -528,9 +546,15 @@ const InlineLayer = z.object({ type: z.literal("layer"), ...item });
 const ChildInput: z.ZodType<ChildInput, ChildIn> = z.lazy(() =>
   z.discriminatedUnion("type", [...LEAF_ITEMS, GroupItem, InlineLayer]),
 );
+const container = {
+  appearance: ContainerAppearanceInput.optional().describe(
+    "Paints every descendant Live Shape's and path's outline, each in its stacking order; omit for none.",
+  ),
+};
 const GroupItem = z.object({
   type: z.literal("group"),
   ...item,
+  ...container,
   children: z.array(ChildInput).default([]).describe("Created inside this Group, bottom to top."),
 });
 
@@ -541,6 +565,7 @@ export const NodeInput = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("layer"),
     ...item,
+    ...container,
     parentId: z
       .string()
       .nullable()
@@ -571,7 +596,7 @@ export const BlendMode = z.enum([
   "luminosity",
 ]);
 
-/** What `node_update` may write on every Node; a leaf adds its parameters and `appearance`. */
+/** What `node_update` may write on every Node; a leaf adds its parameters, and every Node but an Image `appearance`. */
 export const Writable = z.object({
   name: z.string(),
   visible: z.boolean(),
@@ -612,7 +637,10 @@ export const NodePatch = z
     Object.fromEntries(
       Object.entries({
         ...Writable.shape,
-        appearance: z.object({ fills: z.array(Fill), strokes: z.array(Stroke) }).partial(),
+        appearance: z
+          .object({ fills: z.array(Fill), strokes: z.array(Stroke), contents })
+          .partial()
+          .describe("contents only on a Layer or Group."),
         ...parameters,
       }).map(([k, t]) => [k, (t as z.ZodType).nullable().optional()]),
     ),
@@ -722,10 +750,14 @@ interface NodeBase {
 
 export interface LayerNode extends NodeBase {
   type: "layer";
+  /** Missing means empty (ADR-0043). */
+  appearance?: ContainerAppearance;
 }
 
 export interface GroupNode extends NodeBase {
   type: "group";
+  /** Missing means empty (ADR-0043). */
+  appearance?: ContainerAppearance;
 }
 
 /** A Live Shape or Path: its parameters plus an Appearance. */

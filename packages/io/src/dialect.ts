@@ -21,7 +21,15 @@ export const XMLNS = {
 };
 
 /** Zibel's own attributes, written as `zibel:<name>`. */
-export type ZibelAttr = "scope" | "stack" | "artboard" | "background" | "tags" | "meta" | "src";
+export type ZibelAttr =
+  | "scope"
+  | "stack"
+  | "paint"
+  | "artboard"
+  | "background"
+  | "tags"
+  | "meta"
+  | "src";
 
 export const zibel = (name: ZibelAttr) => `zibel:${name}` as const;
 

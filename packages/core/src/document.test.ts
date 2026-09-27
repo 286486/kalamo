@@ -7,11 +7,14 @@ import {
   nodeView,
   type OutlineNode,
   outline,
+  paintedLeaves,
   queryNodes,
   touches,
   visibleBounds,
 } from "./document.ts";
+import { transformNodes } from "./edit.ts";
 import { ZibelError } from "./errors.ts";
+import { makeMask } from "./mask.ts";
 import { compose } from "./matrix.ts";
 import { AppearanceInput, type Node, NodeQuery } from "./schema.ts";
 
@@ -221,7 +224,7 @@ describe("gradients", () => {
           appearance: { fills: [{ type: "gradient", gradient: { stops, ...gradient } }] },
         } as never,
       ]).nodes;
-      if (!node || !("appearance" in node)) throw new Error("setup");
+      if (!node || node.type !== "rect") throw new Error("setup");
       const [fill] = node.appearance.fills;
       if (fill?.type !== "gradient") throw new Error("setup");
       return fill.gradient;
@@ -647,7 +650,7 @@ it("rejects an inline Layer in a Group's children with INVALID_PARENT, creating 
 it("gives each default Appearance its own arrays", () => {
   const { doc, defaultLayerId } = newDoc();
   const [a, b] = createNodes(doc, [rect(defaultLayerId), rect(defaultLayerId)]).nodes;
-  if (!a || !b || !("appearance" in a) || !("appearance" in b)) throw new Error("setup");
+  if (!a || !b || a.type !== "rect" || b.type !== "rect") throw new Error("setup");
   expect(a.appearance.strokes[0]?.dash).not.toBe(b.appearance.strokes[0]?.dash);
 });
 
@@ -1284,5 +1287,107 @@ describe("an Image", () => {
       path: "nodes[0].src",
       hint: expect.stringContaining("PNG"),
     });
+  });
+});
+
+describe("container Appearance (ADR-0043)", () => {
+  const stroke = (width: number) => ({ color: "#FF0000", width });
+
+  it("stores appearance on a Layer, a Group and an inline Group, and nothing when omitted", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const [layer, group, inner, plain] = createNodes(doc, [
+      { type: "layer", appearance: { strokes: [stroke(2)] } },
+      {
+        type: "group",
+        parentId: defaultLayerId,
+        appearance: { fills: [{ color: "#00FF00" }], contents: 1 },
+        children: [{ type: "group", appearance: { strokes: [stroke(1)] }, children: [] }],
+      },
+      { type: "group", parentId: defaultLayerId },
+    ]).nodes;
+    expect(layer).toMatchObject({
+      appearance: { fills: [], strokes: [{ width: 2 }], contents: 0 },
+    });
+    expect(group).toMatchObject({
+      appearance: { fills: [{ type: "solid", color: "#00FF00" }], strokes: [], contents: 1 },
+    });
+    expect(inner).toMatchObject({ appearance: { strokes: [{ color: "#FF0000", width: 1 }] } });
+    expect(plain).not.toHaveProperty("appearance");
+    if (!plain) throw new Error("setup");
+    expect((nodeView(doc, plain, "full") as { appearance?: unknown }).appearance).toEqual({
+      fills: [],
+      strokes: [],
+      contents: 0,
+    });
+  });
+
+  it("refuses contents outside the stack with INVALID_INPUT at its path", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const group = (contents: number) => ({
+      type: "group" as const,
+      parentId: defaultLayerId,
+      children: [{ type: "group" as const, appearance: { strokes: [stroke(1)], contents } }],
+    });
+    for (const contents of [-1, 2]) {
+      expect(codeOf(() => createNodes(doc, [group(contents)]))).toMatchObject({
+        code: "INVALID_INPUT",
+        path: "nodes[0].children[0].appearance.contents",
+      });
+    }
+    expect(createNodes(doc, [group(1)]).nodes).toHaveLength(2);
+  });
+
+  it("lists the leaves it paints depth first, skipping hidden Nodes, Images and Clipping Masks", () => {
+    const { doc, defaultLayerId } = newDoc();
+    doc.images.set("i", { width: 1, height: 1, mediaType: "image/png" } as never);
+    const [group, a, inner, b, hidden, , p, clip, clipped] = createNodes(doc, [
+      {
+        type: "group",
+        parentId: defaultLayerId,
+        children: [
+          rect(defaultLayerId),
+          {
+            type: "group",
+            children: [
+              { ...rect(defaultLayerId), x: 100 },
+              { ...rect(defaultLayerId), name: "hidden" },
+              { type: "image", src: "i", x: 0, y: 0 },
+            ],
+          },
+          { type: "path", d: "M 0 0 L 10 0 L 10 10 Z", fillRule: "evenodd" },
+          rect(defaultLayerId),
+          rect(defaultLayerId),
+        ],
+      } as never,
+    ]).nodes;
+    if (!group || !a || !inner || !b || !hidden || !p || !clip || !clipped)
+      throw new Error("setup");
+    makeMask(doc, { clipNodeId: clip.id, contentIds: [clipped.id] });
+    transformNodes(doc, { nodeIds: [b.id], translate: { x: 5 } });
+    doc.nodes.set(hidden.id, { ...hidden, visible: false });
+    const leaves = paintedLeaves(doc, group);
+    expect(leaves.map((l) => [l.node.id, l.fillRule])).toEqual([
+      [a.id, "nonzero"],
+      [b.id, "nonzero"],
+      [p.id, "evenodd"],
+    ]);
+    expect(leaves[1]?.segments[0]).toMatchObject({ cmd: "M", args: [105, 10] });
+    doc.nodes.set(inner.id, { ...inner, visible: false });
+    expect(paintedLeaves(doc, group).map((l) => l.node.id)).toEqual([a.id, p.id]);
+  });
+
+  it("grows visibleBounds by half the widest container Stroke, never geometricBounds", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const [group] = createNodes(doc, [
+      {
+        type: "group",
+        parentId: defaultLayerId,
+        appearance: { strokes: [stroke(4), stroke(10)] },
+        children: [{ ...rect(defaultLayerId), appearance: {} }],
+      },
+    ]).nodes;
+    if (!group) throw new Error("setup");
+    expect(bounds(doc, group)).toEqual({ x: 10, y: 10, width: 50, height: 30 });
+    expect(visibleBounds(doc, group)).toEqual({ x: 5, y: 5, width: 60, height: 40 });
   });
 });

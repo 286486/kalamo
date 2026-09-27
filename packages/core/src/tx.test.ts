@@ -17,6 +17,7 @@ const setup = () => {
     {
       type: "group",
       parentId: defaultLayerId,
+      appearance: { strokes: [{ color: "#FF0000", width: 2 }] },
       children: [{ type: "ellipse", x: 0, y: 0, width: 5, height: 5 }],
     },
   ]).nodes as [ShapeNode, Node, ShapeNode];
@@ -199,6 +200,18 @@ describe("revert", () => {
       (doc, { rect, group }) => transformNodes(doc, { nodeIds: [rect.id, group.id], rotate: 30 }),
     ],
     ["a Convert to Path", (doc, { rect }) => convertToPath(doc, [rect.id])],
+    [
+      "an update that sets a Layer's appearance and clears a Group's",
+      (doc, { defaultLayerId, group }) =>
+        updateNodes(doc, [
+          { nodeId: defaultLayerId, patch: { appearance: { fills: [{ color: "#00FF00" }] } } },
+          { nodeId: group.id, patch: { appearance: null } },
+        ]),
+    ],
+    [
+      "a scale of a Group with a Stroke",
+      (doc, { group }) => transformNodes(doc, { nodeIds: [group.id], scale: 3 }),
+    ],
     ["a delete of a Group", (doc, { group }) => deleteNodes(doc, [group.id])],
     [
       "a committed overlay that updates a child and deletes its Group",

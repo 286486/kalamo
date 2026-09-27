@@ -92,6 +92,37 @@ it("parses what it serialises back to the same Document, and the same text", () 
   expect(serializeDocument(reopened)).toBe(text);
 });
 
+it("reads a Layer's and a Group's Appearance back as written, and a file without one unchanged", () => {
+  const doc = scene();
+  const [layer, group] = [...doc.nodes.values()];
+  if (layer?.type !== "layer" || group?.type !== "group") throw new Error("setup");
+  const before = JSON.parse(serializeDocument(doc)).nodes;
+  expect(before.find((n: Node) => n.id === layer.id)).not.toHaveProperty("appearance");
+  group.appearance = {
+    fills: [{ type: "solid", color: "#00FF00" }],
+    strokes: [
+      {
+        type: "solid",
+        color: "#FF0000",
+        width: 2,
+        cap: "butt",
+        join: "miter",
+        miterLimit: 10,
+        dash: [],
+      },
+    ],
+    contents: 1,
+  };
+  const text = serializeDocument(doc);
+  expect(new Map(parseDocument(text).nodes.map((n) => [n.id, n]))).toEqual(doc.nodes);
+  const file = JSON.parse(text);
+  file.nodes.find((n: Node) => n.id === group.id).appearance.contents = 3;
+  expect(errorOf(() => parseDocument(JSON.stringify(file)))).toMatchObject({
+    code: "INVALID_DOCUMENT",
+    path: expect.stringMatching(/^nodes\[\d+\]\.appearance\.contents$/),
+  });
+});
+
 it("reads a Path without fillRule as nonzero and keeps evenodd", () => {
   const file = JSON.parse(serializeDocument(scene()));
   const path = file.nodes.find((n: { type: string }) => n.type === "path");

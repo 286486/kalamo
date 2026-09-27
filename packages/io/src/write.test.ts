@@ -5,6 +5,7 @@ import {
   makeMask,
   type ShapeNode,
   shapeSegments,
+  updateNodes,
 } from "@zibel/core";
 import { describe, expect, it } from "vitest";
 import { scopeRect, svgRect, toSvg } from "./write.ts";
@@ -815,4 +816,38 @@ describe("gradients (ADR-0026)", () => {
     );
     expect(svg).toContain(`fill="url(#fill-0-z-${id})"`);
   });
+});
+
+it("writes a container's paints as locked <g zibel:paint> copies around its children (ADR-0043)", () => {
+  const { doc, defaultLayerId } = newDoc();
+  const [group, a, , p] = createNodes(doc, [
+    {
+      type: "group",
+      parentId: defaultLayerId,
+      appearance: {
+        fills: [{ color: "#00FF00" }],
+        strokes: [{ color: "#FF0000", width: 4 }],
+        contents: 1,
+      },
+      children: [
+        { type: "rect", x: 0, y: 0, width: 10, height: 10, appearance: {} },
+        {
+          type: "group",
+          children: [{ type: "path", d: "M 0 0 L 5 0 L 5 5 Z", fillRule: "evenodd" }],
+        },
+      ],
+    },
+  ]).nodes;
+  if (!group || !a || !p) throw new Error("setup");
+  const copies = `<path d="M 0 0 L 10 0 L 10 10 L 0 10 Z"/><path d="M 0 0 L 5 0 L 5 5 Z" fill-rule="evenodd"/>`;
+  const svg = toSvg(doc);
+  expect(svg).toContain(
+    `<g id="z-${group.id}"><g zibel:paint="true" sodipodi:insensitive="true" inkscape:label="Fill" fill="#00FF00">${copies}</g><rect`,
+  );
+  expect(svg).toContain(
+    `</g><g zibel:paint="true" sodipodi:insensitive="true" inkscape:label="Stroke" fill="none" stroke="#FF0000" stroke-width="4" stroke-miterlimit="10">${copies}</g></g>`,
+  );
+  // A Group without an Appearance writes no paint.
+  updateNodes(doc, [{ nodeId: group.id, patch: { appearance: null } }]);
+  expect(toSvg(doc)).not.toContain("zibel:paint");
 });
