@@ -8,6 +8,7 @@ import boldItalicUrl from "@zibel/render/fonts/SourceSans3-BoldIt.ttf?url";
 import italicUrl from "@zibel/render/fonts/SourceSans3-It.ttf?url";
 import regularUrl from "@zibel/render/fonts/SourceSans3-Regular.ttf?url";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { AnchorsBar } from "./AnchorsBar.tsx";
 import { SELECTION } from "./canvas.ts";
 import { anchorsOf, hasAnchors } from "./direct.ts";
 import { imageCache } from "./images.ts";
@@ -448,6 +449,7 @@ export function Viewer({ docId }: { docId: string }) {
           </span>
         )}
       </div>
+      <AnchorsBar />
       <Tools />
       {layersShown && <Layers />}
     </div>

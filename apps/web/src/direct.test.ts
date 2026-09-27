@@ -3,6 +3,7 @@ import {
   createNodes,
   editPath,
   type Node,
+  type PathEditInput,
   parsePath,
   toAnchors,
 } from "@zibel/core";
@@ -11,6 +12,8 @@ import {
   anchorKey,
   anchorOpTargets,
   clearInputs,
+  convertInputs,
+  convertTargets,
   deleteParts,
   marqueeAnchors,
   moveAnchors,
@@ -340,4 +343,59 @@ it("Join and Average take the selected Anchors, Join a wholly selected path whol
       { nodeId: curve.id, subpath: 0, index: 2 },
     ],
   });
+});
+
+it("convertInputs turns the selected Anchors and each selected segment's ends Corner or Smooth", () => {
+  const { doc, rect, curve } = fixture();
+  // Segment 0 of the curve runs from its Endpoint to its Smooth Anchor: Corner retracts both.
+  const corner = convertInputs(doc, [], [anchorKey(curve.id, 0, 0)], "corner");
+  expect(corner).toEqual([
+    {
+      nodeId: curve.id,
+      ops: [
+        { op: "set_point_type", subpath: 0, index: 0, type: "corner" },
+        { op: "set_point_type", subpath: 0, index: 1, type: "corner" },
+      ],
+    },
+  ]);
+  const straight = editPath(structuredClone(doc), corner[0] as PathEditInput).node.d;
+  // Both Handles of each end go, so the next segment loses its first one too.
+  expect(straight).toBe("M 0 0 L 20 0 C 20 0 40 -10 40 0");
+  // Smooth on the rect's segment 1 smooths its ends; a selected Anchor of the curve converts with it.
+  const smooth = convertInputs(
+    doc,
+    [anchorKey(curve.id, 0, 1)],
+    [anchorKey(rect.id, 0, 1)],
+    "smooth",
+  );
+  expect(smooth).toEqual([
+    {
+      nodeId: rect.id,
+      ops: [
+        { op: "set_point_type", subpath: 0, index: 1, type: "smooth" },
+        { op: "set_point_type", subpath: 0, index: 2, type: "smooth" },
+      ],
+    },
+  ]);
+  // Already the type, or an open subpath's Endpoint for Smooth: nothing to send.
+  expect(convertInputs(doc, [anchorKey(rect.id, 0, 0)], [], "corner")).toEqual([]);
+  expect(convertInputs(doc, [anchorKey(curve.id, 0, 0)], [], "smooth")).toEqual([]);
+});
+
+it("convertTargets takes paths partly selected, not whole ones or keys out of range", () => {
+  const { doc, rect, curve } = fixture();
+  const whole = [0, 1, 2, 3].map((i) => anchorKey(rect.id, 0, i));
+  expect(convertTargets(doc, whole, [])).toEqual([]);
+  expect(convertTargets(doc, [anchorKey(rect.id, 0, 9)], [anchorKey(curve.id, 0, 2)])).toEqual([]);
+  // A segment and an Anchor sharing an end name it once.
+  const both = convertTargets(doc, [anchorKey(curve.id, 0, 1)], [anchorKey(curve.id, 0, 1)]);
+  expect(both).toEqual([
+    {
+      nodeId: curve.id,
+      refs: [
+        { subpath: 0, index: 1 },
+        { subpath: 0, index: 2 },
+      ],
+    },
+  ]);
 });

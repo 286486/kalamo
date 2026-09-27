@@ -452,3 +452,45 @@ export function splitWhole(doc: Document, keys: string[]) {
   }
   return { whole, partial };
 }
+
+/**
+ * What the Anchors bar converts (research 06 §4): the selected Anchors and each selected segment's
+ * two ends, on paths partly selected. A path with every Anchor selected is selected whole, and
+ * keys out of range are ignored.
+ */
+export function convertTargets(doc: Document, anchors: string[], segments: string[]) {
+  const live = anchors.filter((k) => inRange(doc, k));
+  const { whole } = splitWhole(doc, live);
+  const keys = [...live, ...segments.flatMap((k) => segmentHandles(doc, k).map((h) => h.key))];
+  return [...byNode([...new Set(keys)])].flatMap(([nodeId, refs]) =>
+    whole.includes(nodeId) || !editable(doc, doc.nodes.get(nodeId))
+      ? []
+      : [{ nodeId, refs: refs.map(({ subpath, index }) => ({ subpath, index })) }],
+  );
+}
+
+/**
+ * Convert selected anchor points to corner or smooth: one `path_edit` of `set_point_type` per
+ * path. An Anchor already that type, or an open subpath's Endpoint for smooth, is left out.
+ */
+export function convertInputs(
+  doc: Document,
+  anchors: string[],
+  segments: string[],
+  type: "corner" | "smooth",
+): PathEditInput[] {
+  return convertTargets(doc, anchors, segments).flatMap(({ nodeId, refs }) => {
+    const subpaths = localAnchors(doc.nodes.get(nodeId) as ShapeNode);
+    const ops = refs
+      .filter(({ subpath, index }) => {
+        const s = subpaths[subpath] as Subpath;
+        const a = s.anchors[index] as Anchor;
+        if (type === "corner") return !!(a.handleIn || a.handleOut);
+        const endpoint = !s.closed && (index === 0 || index === s.anchors.length - 1);
+        return !endpoint && a.type !== "smooth";
+      })
+      .sort((x, y) => x.subpath - y.subpath || x.index - y.index)
+      .map((r): PathOp => ({ op: "set_point_type", ...r, type }));
+    return ops.length > 0 ? [{ nodeId, ops }] : [];
+  });
+}
