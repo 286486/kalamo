@@ -255,6 +255,27 @@ it("makes a Clipping Mask from a mask_make command and releases it with mask_rel
   expect(released?.type === "tx" && released.updated[0]).not.toHaveProperty("clipping");
 });
 
+it("commits a path_edit command as the User Actor", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const [id] = (
+    await call("zibel_node_create", {
+      docId,
+      nodes: [{ type: "path", parentId: defaultLayerId, d: "M 0 0 L 10 0" }],
+    })
+  ).structuredContent.createdIds;
+  const { ws, received } = await subscribe(docId);
+  await received(1);
+  ws.send(
+    command("p1", {
+      type: "path_edit",
+      input: { nodeId: id, ops: [{ op: "move_anchor", index: 1, to: [20, 5] }] },
+    }),
+  );
+  const [, edited] = await received(2);
+  expect(edited).toMatchObject({ type: "tx", actor: "user", commandId: "p1" });
+  expect(edited?.type === "tx" && edited.updated[0]).toMatchObject({ id, d: "M 0 0 L 20 5" });
+});
+
 it("rejects a mask_make naming a Node deleted meanwhile with NODE_GONE", async () => {
   const { docId, defaultLayerId } = await newDoc();
   const [art, clip] = (

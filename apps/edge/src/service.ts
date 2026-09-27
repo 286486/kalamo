@@ -1,7 +1,7 @@
 import { type ErrorData, newId, resolveImages, ZibelError } from "@zibel/core";
 import { parseFile } from "@zibel/io";
 import { svgToPng } from "@zibel/render";
-import type { DocumentService } from "@zibel/sync";
+import type { DocumentService, PathEditReceipt } from "@zibel/sync";
 import { fetchImage } from "./fetch-image.ts";
 
 /** A file for Open or Place, its images named by their hash (ADR-0023). */
@@ -60,6 +60,9 @@ export function documentService(env: Env, actor: string): DocumentService {
     makeMask: async (docId, input, opts) => unwrap(await doc(docId).makeMask(input, actor, opts)),
     releaseMask: async (docId, nodeIds, opts) =>
       unwrap(await doc(docId).releaseMask(nodeIds, actor, opts)),
+    // Workers RPC types a tuple as number[].
+    pathEdit: async (docId, input, opts) =>
+      unwrap(await doc(docId).pathEdit(input, actor, opts)) as PathEditReceipt,
     get: async (docId, nodeIds, detail, txId) =>
       unwrap(await doc(docId).get(nodeIds, detail, actor, txId)),
     outline: async (docId, opts, txId) => unwrap(await doc(docId).outline(opts, actor, txId)),

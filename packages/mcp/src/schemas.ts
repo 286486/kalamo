@@ -48,6 +48,25 @@ export const OpenedDocumentOutput = z.object({
 });
 
 /** svg_import's receipt: `nodes` is the placed Group's outline to depth 2. */
+const XY = z.tuple([z.number(), z.number()]);
+export const PathEditOutput = WriteReceipt.extend({
+  d: z.string(),
+  subpaths: z.array(
+    z.object({
+      closed: z.boolean(),
+      anchors: z.array(
+        z.object({
+          index: z.number().int(),
+          anchor: XY,
+          handleIn: XY.nullable(),
+          handleOut: XY.nullable(),
+          type: z.enum(["corner", "smooth"]),
+        }),
+      ),
+    }),
+  ),
+});
+
 export const PlacedOutput = WriteReceipt.extend({ nodes: z.array(OutlineNode) });
 
 export const OutlineOutput = z.object({ rev: z.number().int(), nodes: z.array(OutlineNode) });

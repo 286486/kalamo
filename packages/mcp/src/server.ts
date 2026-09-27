@@ -8,6 +8,7 @@ import {
   NodeInput,
   NodeQuery,
   NodeType,
+  PathEditInput,
   parseColor,
   RenderOverlay,
   RenderScope,
@@ -29,6 +30,7 @@ import {
   NodeQueryOutput,
   OpenedDocumentOutput,
   OutlineOutput,
+  PathEditOutput,
   PlacedOutput,
   RenderOutput,
   TxOutput,
@@ -421,6 +423,28 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
     },
     ({ docId, nodeIds, ...opts }) =>
       run("zibel_mask_release", async () => json(await service.releaseMask(docId, nodeIds, opts))),
+  );
+
+  server.registerTool(
+    "zibel_path_edit",
+    {
+      title: "Edit Path",
+      description: [
+        "Edit a path's Anchors, as Illustrator's Direct Selection, Pen and Anchor Point tools do: ops apply in order, each to the result so far, in one Transaction; one bad op fails the call and changes nothing.",
+        "An Anchor is {index, anchor: [x, y], handleIn: [x, y] | null, handleOut: [x, y] | null, type: corner | smooth}. Positions are in the path's own coordinates, the same as its d, not document coordinates once the path has a transform (see geometricBounds). An Anchor is smooth when its two Handles lie on one line through it, else corner; the type is derived, not stored.",
+        "Each M in d starts a subpath; ops name one by subpath (default 0) and an Anchor by its index in it, from 0. A closed subpath's closing segment runs from its last Anchor to its first; a C that returns to the first Anchor before Z is that closing segment, while an L back is its own Anchor.",
+        "Ops: move_anchor {index, to} moves an Anchor and its Handles. set_handles {index, handleIn, handleOut} sets a Handle, or retracts it with null; an omitted one stays; an open subpath's first Anchor has no handleIn and its last no handleOut. set_point_type {index, type}: corner retracts both Handles, smooth lines them up, pulling out a missing one along the neighbouring Anchors; an Endpoint is always corner. add_anchor {segment, t} splits the segment from Anchor segment to the next at curve parameter t (0 to 1) without changing its shape. remove_anchor {index} joins its neighbours. close joins the last Anchor to the first; open cuts the closing segment at the first Anchor, keeping the outline. reverse {subpath} reverses one subpath, or every one when omitted. set_d {d} replaces d as a whole.",
+        "A Live Shape (rect, ellipse, line, polygon, star) is refused for now: convert it to a path with path_op convert_to_path once that is available, or edit its parameters with zibel_node_update.",
+        "Returns the receipt, the new d and every subpath's Anchors as stored, with at most 3 decimals.",
+      ].join(" "),
+      inputSchema: { docId, ...PathEditInput.shape, ...maskWrite },
+      outputSchema: PathEditOutput.shape,
+      annotations: edit,
+    },
+    ({ docId, nodeId, ops, ...opts }) =>
+      run("zibel_path_edit", async () =>
+        json(await service.pathEdit(docId, { nodeId, ops }, opts)),
+      ),
   );
 
   server.registerTool(
