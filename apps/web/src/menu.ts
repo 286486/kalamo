@@ -1,4 +1,4 @@
-import { type Document, type PathOpInput, serializeDocument } from "@zibel/core";
+import { type Document, PATH_OP_TEXT, type PathOpInput, serializeDocument } from "@zibel/core";
 import { toSvg } from "@zibel/io/write";
 import { sendAnchorEdits } from "./anchorTools.ts";
 import { curvatureClearInputs, removeCurveAnchor } from "./curvature.ts";
@@ -80,8 +80,8 @@ const hasPathTargets = ({ doc, selection }: State) =>
   doc !== null && pathTargets(doc, selection).length > 0;
 
 /** An Object > Path item that runs `op` on the Selection's paths and Live Shapes (pathTargets). */
-const pathOp = (label: string, op: Exclude<PathOpInput["op"], "convert_to_path">): MenuItem => ({
-  label,
+const pathOp = (op: Exclude<PathOpInput["op"], "convert_to_path">): MenuItem => ({
+  label: PATH_OP_TEXT[op].menu,
   enabled: hasPathTargets,
   run: () => {
     const { doc, selection } = useStore.getState();
@@ -277,7 +277,7 @@ export function documentMenus(tabs: { open: (file: File) => void; close: () => v
           label: "Path",
           items: [
             {
-              label: "Join",
+              label: PATH_OP_TEXT.join.menu,
               keys: "Ctrl+J",
               enabled: join.enabled,
               run: () => {
@@ -286,7 +286,7 @@ export function documentMenus(tabs: { open: (file: File) => void; close: () => v
               },
             },
             {
-              label: "Average…",
+              label: PATH_OP_TEXT.average.menu,
               keys: "Alt+Ctrl+J",
               enabled: average.enabled,
               run: () => {
@@ -298,9 +298,9 @@ export function documentMenus(tabs: { open: (file: File) => void; close: () => v
                 });
               },
             },
-            pathOp("Reverse Path Direction", "reverse"),
-            { label: "Simplify…", enabled: hasPathTargets, run: startSimplify },
-            pathOp("Add Anchor Points", "add_anchors"),
+            pathOp("reverse"),
+            { label: PATH_OP_TEXT.simplify.menu, enabled: hasPathTargets, run: startSimplify },
+            pathOp("add_anchors"),
             {
               label: "Remove Anchor Points",
               enabled: ({ doc, anchors }) => doc !== null && anchors.some((k) => inRange(doc, k)),
@@ -315,7 +315,7 @@ export function documentMenus(tabs: { open: (file: File) => void; close: () => v
           label: "Shape",
           items: [
             {
-              label: "Expand Shape",
+              label: PATH_OP_TEXT.convert_to_path.menu,
               enabled: ({ doc, selection }) =>
                 doc !== null && expandable(doc, selection).length > 0,
               run: () => {
