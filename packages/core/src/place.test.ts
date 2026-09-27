@@ -9,7 +9,7 @@ import {
 } from "./document.ts";
 import { makeMask } from "./mask.ts";
 import { placeImage, placeNodes } from "./place.ts";
-import type { Node, ShapeNode } from "./schema.ts";
+import type { Node, ShapeNode, Stroke } from "./schema.ts";
 
 /** The Nodes of a file with two Layers, a rect in each and a sub-Layer in the first, as Open reads it. */
 function file() {
@@ -96,6 +96,25 @@ describe("placeNodes", () => {
     const leaf = created.find((n) => n.type === "rect") as ShapeNode;
     expect(leaf.appearance.strokes[0]?.width).toBe(2);
     expect(visibleBounds(doc, leaf)?.height).toBeCloseTo(40 + 8);
+  });
+
+  it("keeps a container's Appearance on the Groups it places, a Layer's too, fit scaling its Strokes", () => {
+    const { doc, defaultLayerId } = setup();
+    const f = file();
+    const layer = f.nodes.find((n) => n.name === "Top") as Node;
+    const [stroke] = (f.nodes.find((n) => n.type === "rect") as ShapeNode).appearance.strokes;
+    const appearance = {
+      fills: [{ type: "solid" as const, color: "#00FF00" }],
+      strokes: [{ ...(stroke as Stroke), width: 3 }],
+      contents: 1,
+    };
+    f.nodes = f.nodes.map((n) => (n === layer ? ({ ...n, appearance } as Node) : n));
+    const { created } = placeNodes(doc, f, { parentId: defaultLayerId, fit: true });
+    const placed = created.find((n) => n.name === "Top");
+    expect(placed).toMatchObject({
+      type: "group",
+      appearance: { ...appearance, strokes: [{ width: 12 }] },
+    });
   });
 
   it("uses the Artboard the parent overlaps most, else the first", () => {
