@@ -9,6 +9,7 @@ import {
 import { expect, it } from "vitest";
 import {
   anchorKey,
+  anchorOpTargets,
   clearInputs,
   deleteAnchors,
   marqueeAnchors,
@@ -215,4 +216,26 @@ it("Remove Anchor Points drops a subpath it would leave as a Stray Point", () =>
   // Both subpaths left bare: the path goes.
   const keys = [anchorKey(two.id, 0, 0), anchorKey(two.id, 1, 0), anchorKey(two.id, 1, 2)];
   expect(removeAnchorInputs(doc, keys)).toEqual({ edits: [], deleteIds: [two.id] });
+});
+
+it("Join and Average take the selected Anchors, Join a wholly selected path whole, else the Selection's paths", () => {
+  const { doc, rect, curve } = fixture();
+  const end = anchorKey(curve.id, 0, 2);
+  const square = [0, 1, 2, 3].map((i) => anchorKey(rect.id, 0, i));
+  expect(anchorOpTargets(doc, [rect.id, curve.id], [end, ...square], "join")).toEqual({
+    nodeIds: [curve.id],
+    anchors: [{ nodeId: curve.id, subpath: 0, index: 2 }],
+  });
+  expect(anchorOpTargets(doc, [rect.id], square, "join")).toEqual({ nodeIds: [rect.id] });
+  expect(anchorOpTargets(doc, [rect.id], square, "average")?.anchors).toHaveLength(4);
+  expect(anchorOpTargets(doc, [], [], "average")).toBeNull();
+  const [dot] = createNodes(doc, [{ type: "path", parentId: rect.parentId as string, d: "M 5 5" }])
+    .nodes as [Node];
+  expect(anchorOpTargets(doc, [dot.id, curve.id], [anchorKey(dot.id, 0, 0), end], "join")).toEqual({
+    nodeIds: [dot.id, curve.id],
+    anchors: [
+      { nodeId: dot.id, subpath: 0, index: 0 },
+      { nodeId: curve.id, subpath: 0, index: 2 },
+    ],
+  });
 });

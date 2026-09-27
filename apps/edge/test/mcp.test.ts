@@ -186,6 +186,38 @@ it("reverses a path with path_op and adds an Anchor at the middle of every segme
   expect(await dOf()).toBe("M 0 0 L 5 0 L 10 0 L 10 5 L 10 10");
 });
 
+it("joins two open paths with path_op into the topmost in one Transaction, and averages Anchors", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const [a, b] = (
+    await call("zibel_node_create", {
+      docId,
+      nodes: [
+        { type: "path", parentId: defaultLayerId, d: "M 0 0 L 10 0" },
+        { type: "path", parentId: defaultLayerId, d: "M 30 0 L 20 0" },
+      ],
+    })
+  ).structuredContent.createdIds as string[];
+  const joined = (await call("zibel_path_op", { docId, nodeIds: [a, b], op: "join" }))
+    .structuredContent;
+  expect(joined).toMatchObject({ updatedIds: [b], deletedIds: [a] });
+  const { changes } = (await call("zibel_doc_changes", { docId, sinceRev: joined.rev - 1 }))
+    .structuredContent;
+  expect(changes).toEqual([expect.objectContaining({ rev: joined.rev, summary: "Join" })]);
+  const dOf = async () =>
+    (await call("zibel_node_get", { docId, nodeIds: [b], detail: "full" })).structuredContent
+      .nodes[0].d;
+  expect(await dOf()).toBe("M 30 0 L 20 0 L 10 0 L 0 0");
+  await call("zibel_path_op", { docId, nodeIds: [b], op: "join" });
+  expect(await dOf()).toBe("M 30 0 L 20 0 L 10 0 L 0 0 Z");
+  await call("zibel_path_op", {
+    docId,
+    nodeIds: [b],
+    op: "average",
+    anchors: [0, 1, 2].map((index) => ({ nodeId: b, subpath: 0, index })),
+  });
+  expect(await dOf()).toBe("M 20 0 L 20 0 L 20 0 L 0 0 Z");
+});
+
 it("draws a freehand_stroke as one smooth closed path", async () => {
   const { docId, defaultLayerId } = await newDoc();
   const points = Array.from({ length: 61 }, (_, k) => ({

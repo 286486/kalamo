@@ -543,6 +543,8 @@ export class DocumentObject extends DurableObject<Env> {
       convert_to_path: "Convert to Path",
       reverse: "Reverse Path Direction",
       add_anchors: "Add Anchor Points",
+      join: "Join",
+      average: "Average",
     }[input.op];
     return this.write(actor, opts, summary, (doc) => ({
       ...pathOp(doc, input),

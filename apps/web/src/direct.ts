@@ -17,7 +17,7 @@ import {
   toAnchors,
   worldTransform,
 } from "@zibel/core";
-import { editable } from "./selection.ts";
+import { editable, pathTargets } from "./selection.ts";
 
 /** Direct Selection (research §4): Anchors, Handles and segments of paths and Live Shapes. */
 
@@ -361,6 +361,35 @@ export function removeAnchorInputs(doc: Document, anchors: string[]) {
     edits.push({ nodeId, ops });
   }
   return { edits, deleteIds };
+}
+
+/**
+ * What Object > Path > Join or Average acts on (research §5): the selected Anchors and their Nodes,
+ * else the Selection's paths. Join takes a path with every Anchor selected as a whole path, but a
+ * Stray Point as an Endpoint. Null for nothing.
+ */
+export function anchorOpTargets(
+  doc: Document,
+  selection: string[],
+  anchors: string[],
+  op: "join" | "average",
+): { nodeIds: string[]; anchors?: Ref[] } | null {
+  let keys = anchors.filter((k) => inRange(doc, k));
+  if (op === "join") {
+    // A Stray Point is always wholly selected, yet it is an Endpoint to connect.
+    const stray = (k: string) => {
+      const n = doc.nodes.get(parseKey(k).nodeId);
+      return hasAnchors(n) && allKeys(n).length === 1;
+    };
+    const { partial } = splitWhole(doc, keys);
+    keys = keys.filter((k) => partial.includes(k) || stray(k));
+  }
+  if (keys.length > 0) {
+    const refs = keys.map(parseKey);
+    return { nodeIds: [...new Set(refs.map((r) => r.nodeId))], anchors: refs };
+  }
+  const nodeIds = pathTargets(doc, selection);
+  return nodeIds.length > 0 ? { nodeIds } : null;
 }
 
 /** The paths with every Anchor in `keys`, which move whole, and the keys of the rest. */

@@ -44,3 +44,54 @@ test("Object > Path reverses a path, adds Anchors and removes the selected one",
   await choose(page, "Object", "Path", "Remove Anchor Points");
   await expect.poll(d).toBe("M 180 50 L 140 50 L 60 50 L 20 50");
 });
+
+// #84: Object > Path > Join (Ctrl+J) and Average… (Alt+Ctrl+J).
+test("Join makes two open paths one and closes one alone; Average stacks Anchors", async ({
+  page,
+  request,
+}) => {
+  const { docId, defaultLayerId: parentId } = (
+    await call(request, "zibel_doc_create", {
+      name: "Join",
+      artboards: [{ width: 200, height: 100 }],
+    })
+  ).structuredContent;
+  const [a, b] = (
+    await call(request, "zibel_node_create", {
+      docId,
+      nodes: [
+        { type: "path", parentId, d: "M 20 50 L 80 50" },
+        { type: "path", parentId, d: "M 180 50 L 120 50" },
+      ],
+    })
+  ).structuredContent.createdIds as [string, string];
+  const node = async (id: string) =>
+    (await call(request, "zibel_node_get", { docId, nodeIds: [id], detail: "full" }))
+      .structuredContent?.nodes[0];
+
+  await page.goto(`/docs/${docId}`);
+  await expect(page.getByTestId("status-bar")).toContainText(/\d+%/);
+  await page.keyboard.press("Control+a");
+  await choose(page, "Object", "Path", "Join");
+  await expect.poll(async () => (await node(b))?.d).toBe("M 180 50 L 120 50 L 80 50 L 20 50");
+  expect(await node(a)).toBeUndefined();
+  // Undo brings both back: one Transaction.
+  await page.keyboard.press("Control+z");
+  await expect.poll(async () => (await node(a))?.d).toBe("M 20 50 L 80 50");
+  await page.keyboard.press("Shift+Control+z");
+  await expect.poll(async () => (await node(a))?.d).toBeUndefined();
+
+  await page.keyboard.press("Control+a");
+  await page.keyboard.press("Control+j");
+  await expect.poll(async () => (await node(b))?.d).toBe("M 180 50 L 120 50 L 80 50 L 20 50 Z");
+
+  await page.keyboard.press("Control+a");
+  await page.keyboard.press("Alt+Control+j");
+  const dialog = page.getByRole("dialog", { name: "Average" });
+  await dialog.getByLabel("Horizontal").check();
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toBeHidden();
+  await choose(page, "Object", "Path", "Average…");
+  await dialog.getByRole("button", { name: "OK" }).click();
+  await expect.poll(async () => (await node(b))?.d).toBe("M 100 50 L 100 50 L 100 50 L 100 50 Z");
+});
