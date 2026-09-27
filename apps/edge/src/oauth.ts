@@ -138,24 +138,34 @@ async function decide(request: Request, env: Env) {
   });
   // Written once the grant exists, so a failed authorization leaves no Agent listed.
   const client = await oauth.lookupClient(authRequest.clientId);
-  await env.DB.prepare(
+  const now = new Date().toISOString();
+  const upsert = env.DB.prepare(
     `INSERT INTO actors (id, user_id, kind, client_id, redirect_uri, name, access, created_at)
      VALUES (?, ?, 'agent', ?, ?, ?, ?, ?)
      ON CONFLICT (id) DO UPDATE SET name = excluded.name, access = excluded.access`,
-  )
-    .bind(
-      actor,
-      user.id,
-      authRequest.clientId,
-      authRequest.redirectUri,
-      `${client?.clientName || authRequest.clientId} (${user.login})`,
-      access,
-      new Date().toISOString(),
-    )
-    .run();
+  ).bind(
+    actor,
+    user.id,
+    authRequest.clientId,
+    authRequest.redirectUri,
+    `${client?.clientName || authRequest.clientId} (${user.login})`,
+    access,
+    now,
+  );
+  // The library replaced every earlier grant of a DCR client for this User, whatever its
+  // redirect URI (a CIMD client's only on the same one, whose Actor is reused), so the Actors
+  // of those grants are retired. Pinned to workers-oauth-provider 1.1.0's `completeAuthorization`.
+  const retire = env.DB.prepare(
+    `UPDATE actors SET revoked_at = ? WHERE user_id = ? AND kind = 'agent' AND client_id = ?
+     AND id != ? AND revoked_at IS NULL`,
+  ).bind(now, user.id, authRequest.clientId, actor);
+  await env.DB.batch(isCimdClient(authRequest.clientId) ? [upsert] : [retire, upsert]);
   approved.headers.set("location", redirectTo);
   return new Response(null, { status: 302, headers: approved.headers });
 }
+
+/** A Client ID Metadata Document client: an `https://` id with a path, the library's own test. */
+const isCimdClient = (clientId: string) => /^https:\/\/[^/?#]*\//i.test(clientId);
 
 /**
  * The Agent Actor id for this User, client id and redirect URI: the unrevoked one they already
@@ -247,7 +257,7 @@ function consentPage(client: ClientInfo, authRequest: AuthRequest, handle: strin
   // A client that asked for scopes but not write starts read-only; the person may still widen it.
   const readOnly = authRequest.scope.length > 0 && !authRequest.scope.includes(WRITE);
   const loopback = /^(localhost|127(\.\d{1,3}){3}|\[::1\])$/.test(host);
-  const origin = client.clientId.startsWith("https://")
+  const origin = isCimdClient(client.clientId)
     ? `Published by <strong>${escapeHtml(new URL(client.clientId).hostname)}</strong>.`
     : "This app registered itself, so its name is not verified.";
   return `<!doctype html>
