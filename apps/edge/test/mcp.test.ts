@@ -398,9 +398,15 @@ it("divides a square under a circle into the inside and outside pieces and delet
   const red = { fills: [{ color: "#FF0000" }] };
   expect(nodes).toMatchObject([
     { type: "path", fillRule: "evenodd", appearance: red, geometricBounds: { width: 100 } },
-    { type: "path", appearance: red, geometricBounds: { x: 20, y: 20, width: 60, height: 60 } },
+    {
+      type: "path",
+      fillRule: "evenodd",
+      appearance: red,
+      geometricBounds: { x: 20, y: 20, width: 60, height: 60 },
+    },
   ]);
   expect(nodes[0].d.match(/M /g)).toHaveLength(2);
+  expect(nodes[0].index < nodes[1].index).toBe(true);
 });
 
 it("splits a 200x100 rect 2x3 into six rects and cleans up, reporting how many", async () => {

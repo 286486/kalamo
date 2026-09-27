@@ -738,6 +738,9 @@ describe("pathOp divide_below", () => {
     expect(errorOf(() => pathOp(doc, both, geometry))).toMatchObject({ path: "nodeIds" });
     const one = { nodeIds: [other.id], op: "divide_below" as const };
     expect(errorOf(() => pathOp(doc, one, geometry))).toMatchObject({ code: "INVALID_PATH" });
+    doc.nodes.set(node.id, { ...node, locked: true } as Node);
+    const locked = { nodeIds: [node.id], op: "divide_below" as const };
+    expect(errorOf(() => pathOp(doc, locked, geometry))).toMatchObject({ path: "nodeIds" });
     expect(doc.nodes.has(other.id)).toBe(true);
   });
 });

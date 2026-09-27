@@ -642,8 +642,13 @@ const editable = (doc: Document, n: Node | undefined): boolean =>
   !n ||
   (n.visible && !n.locked && editable(doc, n.parentId ? doc.nodes.get(n.parentId) : undefined));
 
-const overlap = (a: Rect, b: Rect) =>
-  a.x <= b.x + b.width && b.x <= a.x + a.width && a.y <= b.y + b.height && b.y <= a.y + a.height;
+const overlap = (a: Rect | null, b: Rect | null) =>
+  !!a &&
+  !!b &&
+  a.x <= b.x + b.width &&
+  b.x <= a.x + a.width &&
+  a.y <= b.y + b.height &&
+  b.y <= a.y + a.height;
 
 /**
  * `path_op divide_below` (research §5): the one path or Live Shape named cuts each filled path and
@@ -654,8 +659,14 @@ const overlap = (a: Rect, b: Rect) =>
  */
 function divideBelow(doc: Document, nodeIds: string[], geometry: Geometry): PathOpResult {
   const [cutter, ...more] = allWithAnchors(doc, nodeIds);
-  if (!cutter || more.length > 0 || cutter.clipping) {
+  if (!cutter || more.length > 0) {
     throw invalid("nodeIds", "Divide Objects Below takes one cutter.", "Name one path or shape.");
+  }
+  if (cutter.clipping) {
+    throw invalid("nodeIds", "A Clipping Path cannot cut.", "Name a path or shape that paints.");
+  }
+  if (!editable(doc, cutter)) {
+    throw invalid("nodeIds", "The cutter is hidden or locked.", "Show and unlock it first.");
   }
   const fillOf = (n: WithAnchors): Filled => {
     const { path } = anchorsIn(n);
@@ -673,8 +684,7 @@ function divideBelow(doc: Document, nodeIds: string[], geometry: Geometry): Path
       n.appearance.fills.length > 0 &&
       !n.clipping &&
       editable(doc, n) &&
-      !!box &&
-      overlap(bounds(doc, n) as Rect, box),
+      overlap(bounds(doc, n), box),
   );
   const created: PathNode[] = [];
   const updated: PathNode[] = [];
