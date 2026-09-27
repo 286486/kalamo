@@ -231,6 +231,45 @@ it("rejects a move of a Node deleted meanwhile with NODE_GONE, and commits nothi
   expect((await call("zibel_doc_get_info", { docId })).structuredContent.rev).toBe(rev);
 });
 
+it("makes a Clipping Mask from a mask_make command and releases it with mask_release", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const [art, clip] = (
+    await call("zibel_node_create", { docId, nodes: [rect(defaultLayerId), rect(defaultLayerId)] })
+  ).structuredContent.createdIds;
+  const { ws, received } = await subscribe(docId);
+  await received(1);
+
+  ws.send(command("m1", { type: "mask_make", input: { clipNodeId: clip, contentIds: [art] } }));
+  const [, made] = await received(2);
+  expect(made).toMatchObject({ type: "tx", actor: "user", commandId: "m1" });
+  const group = made?.type === "tx" ? made.created[0] : undefined;
+  expect(group).toMatchObject({ type: "group", parentId: defaultLayerId });
+  expect(made?.type === "tx" && made.updated).toContainEqual(
+    expect.objectContaining({ id: clip, parentId: group?.id, clipping: true }),
+  );
+
+  ws.send(command("m2", { type: "mask_release", nodeIds: [group?.id] }));
+  const [, , released] = await received(3);
+  expect(released).toMatchObject({ type: "tx", actor: "user", commandId: "m2" });
+  expect(released?.type === "tx" && released.updated[0]).toMatchObject({ id: clip });
+  expect(released?.type === "tx" && released.updated[0]).not.toHaveProperty("clipping");
+});
+
+it("rejects a mask_make naming a Node deleted meanwhile with NODE_GONE", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const [art, clip] = (
+    await call("zibel_node_create", { docId, nodes: [rect(defaultLayerId), rect(defaultLayerId)] })
+  ).structuredContent.createdIds;
+  const { ws, received } = await subscribe(docId);
+  await received(1);
+  await call("zibel_node_delete", { docId, nodeIds: [art] });
+  await received(2);
+
+  ws.send(command("m3", { type: "mask_make", input: { clipNodeId: clip, contentIds: [art] } }));
+  const [, , rejected] = await received(3);
+  expect(rejected).toMatchObject({ type: "rejected", id: "m3", error: { code: "NODE_GONE" } });
+});
+
 it("closes the socket with 1007 on a message that is not a command", async () => {
   const { docId } = await newDoc();
   for (const data of ["nope", JSON.stringify({ type: "command" })]) {

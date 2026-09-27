@@ -2,6 +2,7 @@ import {
   type Artboard,
   type Document,
   type ErrorData,
+  MaskInput,
   type Node,
   TransformInput,
   Writable,
@@ -61,6 +62,9 @@ export const ClientMessage = z.object({
       // One Layers panel toggle (ADR-0012); an empty patch would commit a no-op Transaction.
       patch: Writable.pick({ visible: true }).or(Writable.pick({ locked: true })),
     }),
+    // Object > Clipping Mask > Make and Release (#52).
+    z.object({ type: z.literal("mask_make"), input: MaskInput }),
+    z.object({ type: z.literal("mask_release"), nodeIds: z.array(z.string()).min(1) }),
     z.object({ type: z.literal("undo") }),
     z.object({ type: z.literal("redo") }),
   ]),

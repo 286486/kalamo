@@ -1,7 +1,7 @@
 import { type Document, serializeDocument } from "@zibel/core";
 import { toSvg } from "@zibel/io/write";
 import { PLACEABLE, pasteClipboard, place } from "./place.ts";
-import { editable, inverse, objects } from "./selection.ts";
+import { editable, inverse, maskInput, masks, objects } from "./selection.ts";
 import { type State, send, useStore } from "./store.ts";
 import { OPENABLE } from "./tabs.ts";
 import { artboardsRect, fit, zoomAt, zoomStep } from "./viewport.ts";
@@ -181,6 +181,36 @@ export function documentMenus(tabs: { open: (file: File) => void; close: () => v
             const nodeIds = selection.filter((id) => editable(doc, doc.nodes.get(id)));
             if (nodeIds.length > 0) send({ type: "delete", nodeIds });
           },
+        },
+      ],
+    },
+    {
+      label: "Object",
+      items: [
+        {
+          label: "Clipping Mask",
+          items: [
+            {
+              label: "Make",
+              keys: "Ctrl+7",
+              enabled: ({ doc, selection }) => doc !== null && maskInput(doc, selection) !== null,
+              run: () => {
+                const { doc, selection } = useStore.getState();
+                const input = doc && maskInput(doc, selection);
+                if (input) send({ type: "mask_make", input });
+              },
+            },
+            {
+              label: "Release",
+              keys: "Alt+Ctrl+7",
+              enabled: ({ doc, selection }) => doc !== null && masks(doc, selection).length > 0,
+              run: () => {
+                const { doc, selection } = useStore.getState();
+                const nodeIds = doc ? masks(doc, selection) : [];
+                if (nodeIds.length > 0) send({ type: "mask_release", nodeIds });
+              },
+            },
+          ],
         },
       ],
     },

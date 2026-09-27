@@ -59,9 +59,16 @@ export function receive(
   const answered =
     msg.type === "document" || (!!msg.commandId && msg.commandId === s.drag?.commandId);
   const skipped = msg.type === "tx" ? (msg.skippedIds?.length ?? 0) : 0;
+  // A selected Node moved into a Group this tx made selects that Group, as Make Clipping Mask does.
+  const made = new Set(msg.type === "tx" ? msg.created.map((n) => n.id) : []);
+  const selection = s.selection.flatMap((id) => {
+    const parentId = doc.nodes.get(id)?.parentId;
+    if (parentId === undefined) return [];
+    return parentId && made.has(parentId) ? [parentId] : [id];
+  });
   return {
     doc,
-    selection: s.selection.filter((id) => doc.nodes.has(id)),
+    selection: [...new Set(selection)],
     ...(answered && { drag: null }),
     ...(skipped > 0 && { notice: `Skipped ${skipped} deleted object(s); they stay deleted.` }),
   };
