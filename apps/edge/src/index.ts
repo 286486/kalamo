@@ -2,6 +2,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { checkImage, IMAGE_ID, ZibelError } from "@zibel/core";
 import { createMcpServer } from "@zibel/mcp";
 import { actorFor, permissionDenied } from "./auth.ts";
+import { imageKey } from "./document-object.ts";
 import { documentService, listDocuments, unwrap } from "./service.ts";
 
 export { DocumentObject } from "./document-object.ts";
@@ -125,16 +126,16 @@ async function relinkBitmap(docId: string, request: Request, env: Env): Promise<
 }
 
 /**
- * An Image's file for the canvas (ADR-0023). An id always names the same bytes, so it is cached for
- * good. Unauthenticated like the WebSocket until M1 (ADR-0009).
+ * An Image's file for the canvas, streamed from R2 without the Document Durable Object (ADR-0046).
+ * An id always names the same bytes, so it is cached for good. Unauthenticated like the WebSocket
+ * until M1 (ADR-0009).
  */
 async function image(env: Env, docId: string, src: string): Promise<Response> {
-  if (!IMAGE_ID.test(src)) return new Response("not found", { status: 404 });
-  const result = await env.DOCUMENT.get(env.DOCUMENT.idFromName(docId)).image(src);
-  if ("error" in result) return Response.json(result.error, { status: 404 });
-  return new Response(result.bytes, {
+  const object = IMAGE_ID.test(src) ? await env.IMAGES.get(imageKey(docId, src)) : null;
+  if (!object) return new Response("not found", { status: 404 });
+  return new Response(object.body, {
     headers: {
-      "content-type": result.mime,
+      "content-type": object.httpMetadata?.contentType ?? "application/octet-stream",
       "cache-control": "public, max-age=31536000, immutable",
     },
   });

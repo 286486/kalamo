@@ -92,8 +92,28 @@ const USER = "user";
 /** Transactions the undo stack keeps (F-HIST-01). */
 const UNDO_DEPTH = 200;
 
-/** An image file is stored in rows of this many bytes, under SQLite's 2 MB row cap (ADR-0023). */
-const CHUNK = 1024 * 1024;
+/** The image files one Document may store: F-MCP-06c's 20 MB Document size (ADR-0046). */
+const MAX_DOCUMENT_IMAGE_BYTES = 20 * 1024 * 1024;
+
+/** An object with no row this old is a failed write's upload, not one whose write is in flight. */
+const ORPHAN_GRACE_MS = 60 * 60_000;
+
+/** How long after a change that may free image files the alarm sweeps, so a burst is swept once. */
+const SWEEP_DELAY_MS = 60_000;
+
+/** The storage.kv key of when the alarm next sweeps image files. */
+const SWEEP_AT = "sweepAt";
+
+/** A file's R2 key: one object per file per Document (ADR-0046). */
+export const imageKey = (docId: string, src: string) => `docs/${docId}/images/${src}`;
+
+/** Image files by id, as a write carries them before they are stored. */
+type Files = Map<string, ImageFile>;
+/** An image file's row. */
+type StoredImage = ImageInfo & { size: number };
+
+/** Thrown where a rehearsed write would commit, so its SQLite transaction rolls back. */
+const REHEARSED = Symbol("rehearsed");
 
 /**
  * How a commit moves the undo and redo stacks (ADR-0011): an edit pushes onto the undo stack and
@@ -116,6 +136,16 @@ interface Change {
   updated?: Node[];
   deletedIds?: string[];
 }
+
+/** One edit on a loaded Document, as `write` runs it. */
+type Edit = (doc: Document) => Change & {
+  keyMap?: Record<string, string>;
+  warnings?: WriteReceipt["warnings"];
+  failed: Failed[];
+  /** Replaces the summary made from `verb`. */
+  summary?: string;
+  skipped?: string[];
+};
 
 /**
  * The authoritative store for one Document (ADR-0003). Nodes and the Transaction log are SQLite rows.
@@ -156,14 +186,41 @@ export class DocumentObject extends DurableObject<Env> {
         PRIMARY KEY (rev, node_id)
       );
       CREATE TABLE IF NOT EXISTS history (rev INTEGER PRIMARY KEY, stack TEXT NOT NULL, label TEXT NOT NULL);
-      -- Image files by SHA-256 (ADR-0023). Never changed; not deleted yet.
+      -- Image files by SHA-256, their bytes in R2 (ADR-0046). A row never exists without its object.
       CREATE TABLE IF NOT EXISTS images (
-        id TEXT PRIMARY KEY, mime TEXT NOT NULL, width INTEGER NOT NULL, height INTEGER NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS image_chunks (
-        id TEXT NOT NULL, n INTEGER NOT NULL, bytes BLOB NOT NULL, PRIMARY KEY (id, n)
+        id TEXT PRIMARY KEY, mime TEXT NOT NULL, width INTEGER NOT NULL, height INTEGER NOT NULL,
+        size INTEGER NOT NULL
       );
     `);
+    const legacy = this.sql.exec("SELECT 1 FROM sqlite_master WHERE name = 'image_chunks'");
+    if (legacy.toArray().length > 0) void ctx.blockConcurrencyWhile(() => this.migrate());
+  }
+
+  /** Moves the files a Document stored in SQLite chunks (ADR-0023) to R2, before any request. */
+  private async migrate() {
+    const sized = this.sql.exec("SELECT 1 FROM pragma_table_info('images') WHERE name = 'size'");
+    if (sized.toArray().length === 0) {
+      this.sql.exec("ALTER TABLE images ADD COLUMN size INTEGER NOT NULL DEFAULT 0");
+    }
+    const docId = this.sql.exec<{ id: string }>("SELECT id FROM doc").toArray()[0]?.id;
+    const rows = this.sql.exec<{ id: string; mime: ImageInfo["mime"] }>(
+      "SELECT id, mime FROM images",
+    );
+    for (const { id, mime } of rows.toArray()) {
+      const chunks = this.sql
+        .exec<{ bytes: ArrayBuffer }>("SELECT bytes FROM image_chunks WHERE id = ? ORDER BY n", id)
+        .toArray()
+        .map((r) => new Uint8Array(r.bytes));
+      const bytes = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
+      let at = 0;
+      for (const c of chunks) {
+        bytes.set(c, at);
+        at += c.length;
+      }
+      if (docId) await this.upload(docId, new Map([[id, { mime, width: 0, height: 0, bytes }]]));
+      this.sql.exec("UPDATE images SET size = ? WHERE id = ?", bytes.length, id);
+    }
+    this.sql.exec("DROP TABLE image_chunks");
   }
 
   create(input: {
@@ -184,8 +241,11 @@ export class DocumentObject extends DurableObject<Env> {
     });
   }
 
-  /** A new Document from a parsed file, keeping its ids (ADR-0016) and its image files. */
-  open(input: {
+  /**
+   * A new Document from a parsed file, keeping its ids (ADR-0016) and its image files: rehearsed,
+   * so a file over the image quota uploads nothing, then its files uploaded and the Document stored.
+   */
+  async open(input: {
     docId: string;
     name: string;
     artboards: Artboard[];
@@ -193,27 +253,40 @@ export class DocumentObject extends DurableObject<Env> {
     images: Map<string, ImageFile>;
     actor: string;
     intent?: string;
-  }): Result<Omit<OpenedDocument, "warnings">> {
-    return guard(() => {
-      const doc: Document = {
-        id: input.docId,
-        name: input.name,
-        version: 1,
-        rev: 0,
-        artboards: input.artboards,
-        nodes: new Map(input.nodes.map((n) => [n.id, n])),
-        images: input.images,
-      };
-      this.storeImages(input.images);
-      const rev = this.init(doc, input.actor, `Open Document "${doc.name}"`, input.intent);
-      const nodes = outline(doc, { depth: 1 });
-      return { docId: doc.id, name: doc.name, artboards: doc.artboards, rev, nodes };
-    });
+  }): Promise<Result<Omit<OpenedDocument, "warnings">>> {
+    const run = (rehearse: boolean) =>
+      guard(() => {
+        const doc: Document = {
+          id: input.docId,
+          name: input.name,
+          version: 1,
+          rev: 0,
+          artboards: input.artboards,
+          nodes: new Map(input.nodes.map((n) => [n.id, n])),
+          images: input.images,
+        };
+        const summary = `Open Document "${doc.name}"`;
+        const files = sizes(input.images);
+        const rev = this.init(doc, input.actor, summary, input.intent, { files, rehearse });
+        const nodes = outline(doc, { depth: 1 });
+        return { docId: doc.id, name: doc.name, artboards: doc.artboards, rev, nodes };
+      });
+    const refused = rehearsal(() => run(true));
+    if (refused) return refused;
+    await this.upload(input.docId, input.images);
+    return run(false);
   }
 
-  /** Stores a new Document and commits its Nodes as rev 1. */
-  private init(doc: Document, actor: string, summary: string, intent: string | undefined) {
+  /** Stores a new Document, with rows for `files`, and commits its Nodes as rev 1. */
+  private init(
+    doc: Document,
+    actor: string,
+    summary: string,
+    intent: string | undefined,
+    { files, rehearse }: { files?: Map<string, StoredImage>; rehearse?: boolean } = {},
+  ) {
     return this.ctx.storage.transactionSync(() => {
+      if (files) this.addFiles(files);
       this.sql.exec(
         "INSERT INTO doc (id, name, rev, artboards) VALUES (?, ?, 0, ?)",
         doc.id,
@@ -221,7 +294,15 @@ export class DocumentObject extends DurableObject<Env> {
         JSON.stringify(doc.artboards),
       );
       // Not undoable: undo stops at the Document's creation (ADR-0011).
-      return this.commit(actor, summary, intent, { created: [...doc.nodes.values()] }, null);
+      const committed = this.commit(
+        actor,
+        summary,
+        intent,
+        { created: [...doc.nodes.values()] },
+        null,
+      );
+      if (rehearse) throw REHEARSED;
+      return committed;
     }).rev;
   }
 
@@ -401,23 +482,24 @@ export class DocumentObject extends DurableObject<Env> {
   }
 
   /**
-   * Stores the file of every Image given as a data URL first, so core sees only ids (ADR-0023).
-   * With `partial`, an item whose file is refused fails alone, under its own index.
+   * The file of every Image given as a data URL is stored with the write, so core sees only ids
+   * (ADR-0023). With `partial`, an item whose file is refused fails alone, under its own index.
    */
   async createNodes(
     inputs: NodeInput[],
     actor: string,
     opts: WriteOptions = {},
   ): Promise<Result<WriteReceipt>> {
+    const files: Files = new Map();
     const ingested = await this.ingestAll(
       inputs,
       "nodes",
       opts,
-      async (input, path) => (await this.ingest(input, path)) as NodeInput,
+      async (input, path) => (await this.ingest(input, path, files)) as NodeInput,
     );
     if ("error" in ingested) return ingested;
     const { ready, merge } = ingested;
-    return this.write(actor, opts, "Create", (doc) => {
+    return this.writeFiles(files, actor, opts, "Create", (doc) => {
       const { nodes, keyMap, failed } = createNodes(doc, ready, opts);
       return {
         created: nodes,
@@ -471,90 +553,121 @@ export class DocumentObject extends DurableObject<Env> {
     return { ready, merge };
   }
 
-  /** `input` with each Image's data URL, inline children's too, stored and replaced by its id. */
-  private async ingest(input: unknown, path: string): Promise<unknown> {
+  /** `input` with each Image's data URL, inline children's too, put in `files` and replaced by its id. */
+  private async ingest(input: unknown, path: string, files: Files): Promise<unknown> {
     if (typeof input !== "object" || input === null) return input;
     const item = input as { type?: unknown; src?: unknown; children?: unknown };
     if (item.type === "image" && typeof item.src === "string" && item.src.startsWith("data:")) {
-      return { ...item, src: await this.storeDataUrl(item.src, `${path}.src`) };
+      return { ...item, src: await hashed(readImage(item.src, `${path}.src`), files) };
     }
     if (Array.isArray(item.children)) {
       const children = [];
       for (const [k, c] of item.children.entries()) {
-        children.push(await this.ingest(c, `${path}.children[${k}]`));
+        children.push(await this.ingest(c, `${path}.children[${k}]`, files));
       }
       return { ...item, children };
     }
     return input;
   }
 
-  /** Stores a data URL's file and returns its id. */
-  private storeDataUrl(src: string, path: string): Promise<string> {
-    return this.storeFile(readImage(src, path));
+  /**
+   * A write that stores `files` (ADR-0046). It is rehearsed first, so a write that would fail
+   * uploads nothing (#66). Then the files go to R2, and their rows go in with the write that names
+   * them. A write that fails after all, since the Document changed during the upload, leaves
+   * objects without rows, which a later sweep deletes.
+   */
+  private async writeFiles(
+    files: Files,
+    actor: string,
+    opts: Options,
+    verb: string,
+    edit: Edit,
+  ): Promise<Result<WriteReceipt>> {
+    if (files.size === 0) return this.write(actor, opts, verb, edit);
+    const stored = sizes(files);
+    const refused = rehearsal(() =>
+      this.write(actor, opts, verb, edit, { files: stored, rehearse: true }),
+    );
+    if (refused) return refused;
+    this.inFlight.add(files);
+    let committed = false;
+    try {
+      await this.sweeping;
+      await this.upload(this.load().id, files);
+      const receipt = this.write(actor, opts, verb, edit, { files: stored });
+      committed = !("error" in receipt);
+      return receipt;
+    } finally {
+      this.inFlight.delete(files);
+      if (!committed) this.markSweep(Date.now() + ORPHAN_GRACE_MS);
+    }
   }
 
-  /** Stores a checked file and returns its id. */
-  private async storeFile(file: ImageFile): Promise<string> {
-    const id = await imageId(file.bytes);
-    this.storeImages(new Map([[id, file]]));
-    return id;
+  /** The files of writes between upload and commit, which the sweep keeps. */
+  private inFlight = new Set<Files>();
+  /** The sweep running now; an upload waits for its deletes, so it never lands before one. */
+  private sweeping: Promise<void> = Promise.resolve();
+
+  private async upload(docId: string, files: Files) {
+    await Promise.all(
+      [...files].map(([id, { mime, bytes }]) =>
+        this.env.IMAGES.put(imageKey(docId, id), bytes, { httpMetadata: { contentType: mime } }),
+      ),
+    );
   }
 
-  /** Stores files the Document does not hold yet; a stored id always names the same bytes. */
-  private storeImages(files: Map<string, ImageFile>) {
-    this.ctx.storage.transactionSync(() => {
-      for (const [id, { mime, width, height, bytes }] of files) {
-        const inserted = this.sql.exec(
-          "INSERT OR IGNORE INTO images (id, mime, width, height) VALUES (?, ?, ?, ?)",
-          id,
-          mime,
-          width,
-          height,
-        ).rowsWritten;
-        if (!inserted) continue;
-        for (let n = 0; n * CHUNK < bytes.length; n++) {
-          const chunk = bytes.slice(n * CHUNK, (n + 1) * CHUNK);
-          this.sql.exec("INSERT INTO image_chunks VALUES (?, ?, ?)", id, n, chunk.buffer);
-        }
-      }
+  /**
+   * Rows for the files the Document does not hold yet, within F-MCP-06c's 20 MB, which counts
+   * every stored file, live or held by undo history. Call inside transactionSync.
+   */
+  private addFiles(files: Map<string, StoredImage>) {
+    let adding = 0;
+    for (const [id, { mime, width, height, size }] of files) {
+      const inserted = this.sql.exec(
+        "INSERT OR IGNORE INTO images (id, mime, width, height, size) VALUES (?, ?, ?, ?, ?)",
+        id,
+        mime,
+        width,
+        height,
+        size,
+      ).rowsWritten;
+      if (inserted) adding += size;
+    }
+    const total = this.storedImageBytes();
+    if (adding === 0 || total <= MAX_DOCUMENT_IMAGE_BYTES) return;
+    throw new ZibelError({
+      code: "LIMIT_EXCEEDED",
+      message: `The Document stores ${total - adding} bytes of image files; ${adding} more would pass its limit of ${MAX_DOCUMENT_IMAGE_BYTES} (${MAX_DOCUMENT_IMAGE_BYTES / 1024 / 1024} MB).`,
+      hint: `Delete Images the Document no longer needs. A deleted Image's file keeps counting while undo history holds it: until ${UNDO_DEPTH} more Transactions push it out, or an edit after an undo clears the redo stack.`,
     });
   }
 
-  /** An image file's type and bytes, for the Worker to serve. */
-  image(id: string): Result<{ mime: string; bytes: Uint8Array }> {
-    return guard(() => this.bytesOf(id));
+  /** The bytes of the image files the Document stores, live or held by undo history (ADR-0046). */
+  storedImageBytes(): number {
+    return this.sql.exec<{ n: number }>("SELECT COALESCE(SUM(size), 0) AS n FROM images").one().n;
   }
 
-  private bytesOf(id: string): { mime: ImageInfo["mime"]; bytes: Uint8Array<ArrayBuffer> } {
-    const row = this.sql
-      .exec<{ mime: ImageInfo["mime"] }>("SELECT mime FROM images WHERE id = ?", id)
-      .toArray()[0];
-    if (!row) {
-      throw new ZibelError({
-        code: "INVALID_IMAGE",
-        message: `No image with id ${id} in the Document.`,
-        hint: "Use the src of an Image in this Document, as node_get returns it.",
-        path: "src",
-      });
-    }
-    const chunks = this.sql
-      .exec<{ bytes: ArrayBuffer }>("SELECT bytes FROM image_chunks WHERE id = ? ORDER BY n", id)
-      .toArray()
-      .map((r) => new Uint8Array(r.bytes));
-    const bytes = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
-    let at = 0;
-    for (const c of chunks) {
-      bytes.set(c, at);
-      at += c.length;
-    }
-    return { mime: row.mime, bytes };
+  /**
+   * The image files `doc`'s Images name, fetched from R2 in parallel, for the SVG and .zibel.json
+   * writers, which read them synchronously.
+   * ponytail: fetches every Image's file, in scope or not; collect from the scope if that bites.
+   */
+  private async images(doc: Document): Promise<ImageSource> {
+    const ids = new Set(
+      [...doc.nodes.values()].flatMap((n) => (n.type === "image" && n.src ? [n.src] : [])),
+    );
+    const urls = new Map(
+      await Promise.all(
+        [...ids].map(async (id) => {
+          const object = await this.env.IMAGES.get(imageKey(doc.id, id));
+          const info = doc.images.get(id);
+          const bytes = object && new Uint8Array(await object.arrayBuffer());
+          return [id, bytes && info ? dataUrl({ ...info, bytes }) : undefined] as const;
+        }),
+      ),
+    );
+    return (id) => urls.get(id);
   }
-
-  /** The Document's image files as data URLs, for the SVG and .zibel.json writers. */
-  private images: ImageSource = (id) => {
-    const { mime, bytes } = this.bytesOf(id);
-    return dataUrl({ mime, bytes, width: 0, height: 0 });
-  };
 
   /** Relink (ADR-0042): a patch's data URL `src` is stored first, as for createNodes. */
   async updateNodes(
@@ -562,17 +675,16 @@ export class DocumentObject extends DurableObject<Env> {
     actor: string,
     opts: Options = {},
   ): Promise<Result<WriteReceipt>> {
+    const files: Files = new Map();
     const ingested = await this.ingestAll(updates, "updates", opts, async (u, path) => {
       const src = (u.patch as { src?: unknown }).src;
       if (typeof src !== "string" || !src.startsWith("data:")) return u;
-      return {
-        ...u,
-        patch: { ...u.patch, src: await this.storeDataUrl(src, `${path}.patch.src`) },
-      };
+      const file = readImage(src, `${path}.patch.src`);
+      return { ...u, patch: { ...u.patch, src: await hashed(file, files) } };
     });
     if ("error" in ingested) return ingested;
     const { ready, merge } = ingested;
-    return this.write(actor, opts, "Update", (doc) => {
+    return this.writeFiles(files, actor, opts, "Update", (doc) => {
       const { nodes, failed } = updateNodes(doc, ready, opts);
       return {
         updated: nodes,
@@ -641,26 +753,25 @@ export class DocumentObject extends DurableObject<Env> {
   /**
    * Runs one edit on a freshly loaded Document and commits it as one Transaction, or with `txId`
    * stages it in that Transaction's overlay (ADR-0008). Core throws before changing anything it
-   * rejects, so a failure never reaches SQLite.
+   * rejects, so a failure never reaches SQLite. `files`, uploaded already, are the edit's to name
+   * and get their rows in the same SQLite transaction; `rehearse` rolls it all back at the end.
    */
   private write(
     actor: string,
     opts: Options,
     verb: string,
-    edit: (doc: Document) => Change & {
-      keyMap?: Record<string, string>;
-      warnings?: WriteReceipt["warnings"];
-      failed: Failed[];
-      /** Replaces the summary made from `verb`. */
-      summary?: string;
-      skipped?: string[];
-    },
-    step?: Step,
+    edit: Edit,
+    {
+      step,
+      files = new Map(),
+      rehearse,
+    }: { step?: Step; files?: Map<string, StoredImage>; rehearse?: boolean } = {},
   ): Result<WriteReceipt> {
     return guard(() => {
       const committed = this.load();
       const doc = this.view(committed, actor, opts.txId);
       this.checkRev(committed, opts.ifRev);
+      for (const [id, { size: _, ...info }] of files) doc.images.set(id, info);
       // Core edits store new Node objects in doc.nodes, so a copy of the Map keeps the Document before.
       const before = { ...doc, nodes: new Map(doc.nodes) };
       const {
@@ -674,12 +785,22 @@ export class DocumentObject extends DurableObject<Env> {
         ...rest
       } = edit(doc);
       const change = { created, updated, deletedIds };
-      const label = rest.summary ?? summary(verb, change);
-      const { txId, rev } = this.ctx.storage.transactionSync(() =>
-        opts.txId
-          ? this.stage(opts.txId, committed.rev, change)
-          : this.commit(actor, label, opts.intent, change, step),
+      // With `partial`, a file only failed items named gets no row; its object is swept.
+      const srcs = new Set(
+        [...created, ...updated].flatMap((n) => (n.type === "image" && n.src ? [n.src] : [])),
       );
+      const named = new Map([...files].filter(([id]) => srcs.has(id)));
+      if (named.size < files.size && !rehearse) this.markSweep(Date.now() + ORPHAN_GRACE_MS);
+      const label = rest.summary ?? summary(verb, change);
+      const { txId, rev, pruned } = this.ctx.storage.transactionSync(() => {
+        this.addFiles(named);
+        const written = opts.txId
+          ? { ...this.stage(opts.txId, committed.rev, change), pruned: false }
+          : this.commit(actor, label, opts.intent, change, step);
+        if (rehearse) throw REHEARSED;
+        return written;
+      });
+      if (pruned) this.markSweep();
       return this.receipt(before, doc, change, {
         txId,
         rev,
@@ -784,35 +905,39 @@ export class DocumentObject extends DurableObject<Env> {
   }
 
   /** The SVG of a Render Scope, as `export` returns it (ADR-0014). */
-  svg(actor: string, req: RenderRequest): Result<{ svg: string; docRect: Rect }> {
+  async svg(actor: string, req: RenderRequest): Promise<Result<{ svg: string; docRect: Rect }>> {
+    const doc = guard(() => this.view(this.load(), actor, req.txId));
+    if ("error" in doc) return doc;
+    const images = await this.images(doc);
     return guard(() => {
-      const doc = this.view(this.load(), actor, req.txId);
       const rect = svgRect(doc, req.scope);
       return {
-        svg: toSvg(doc, rect, {
-          scope: req.scope,
-          background: req.background,
-          images: this.images,
-        }),
+        svg: toSvg(doc, rect, { scope: req.scope, background: req.background, images }),
         docRect: rect,
       };
     });
   }
 
   /** The whole Document as `.zibel.json` text, as `export` returns it (ADR-0016). */
-  file(actor: string, txId?: string): Result<{ text: string }> {
-    return guard(() => ({
-      text: serializeDocument(this.view(this.load(), actor, txId), this.images),
-    }));
+  async file(actor: string, txId?: string): Promise<Result<{ text: string }>> {
+    const doc = guard(() => this.view(this.load(), actor, txId));
+    if ("error" in doc) return doc;
+    const images = await this.images(doc);
+    return guard(() => ({ text: serializeDocument(doc, images) }));
   }
 
   /**
    * The SVG to rasterise at `req.scale`: fitted to whole pixels and `maxSize`, with overlays.
    * The Worker rasterises it, so PNG encoding never blocks this Document's writes.
    */
-  raster(actor: string, req: RasterRequest): Result<{ svg: string; viewport: Viewport }> {
+  async raster(
+    actor: string,
+    req: RasterRequest,
+  ): Promise<Result<{ svg: string; viewport: Viewport }>> {
+    const doc = guard(() => this.view(this.load(), actor, req.txId));
+    if ("error" in doc) return doc;
+    const images = await this.images(doc);
     return guard(() => {
-      const doc = this.view(this.load(), actor, req.txId);
       const {
         rect: docRect,
         scale,
@@ -823,7 +948,7 @@ export class DocumentObject extends DurableObject<Env> {
         background: req.background,
         overlays: req.overlays,
         scale,
-        images: this.images,
+        images,
       });
       return { svg, viewport: { docRect, pixelSize, scale } };
     });
@@ -881,8 +1006,9 @@ export class DocumentObject extends DurableObject<Env> {
     },
   ): Promise<Result<WriteReceipt>> {
     const { name, ...image } = file;
-    const src = await this.storeFile(image);
-    return this.write(actor, opts, "Place", (doc) => ({
+    const files: Files = new Map();
+    const src = await hashed(image, files);
+    return this.writeFiles(files, actor, opts, "Place", (doc) => ({
       created: placeImage(doc, { src, name }, opts).created,
       failed: [],
     }));
@@ -898,8 +1024,9 @@ export class DocumentObject extends DurableObject<Env> {
     opts: Options & { nodeId: string },
   ): Promise<Result<WriteReceipt>> {
     const { name, ...image } = file;
-    const src = await this.storeFile(image);
-    return this.write(actor, opts, "Relink", (doc) => {
+    const files: Files = new Map();
+    const src = await hashed(image, files);
+    return this.writeFiles(files, actor, opts, "Relink", (doc) => {
       const node = doc.nodes.get(opts.nodeId);
       const refuse = (message: string, hint: string) =>
         new ZibelError({ code: "INVALID_IMAGE", message, hint, path: "nodeId" });
@@ -919,7 +1046,7 @@ export class DocumentObject extends DurableObject<Env> {
    * directly there (ADR-0030), all with new ids, in one Transaction. `nodes` is the outline of what
    * was put in the parent, to depth 2.
    */
-  place(
+  async place(
     file: OpenedFile,
     actor: string,
     opts: Options & {
@@ -928,16 +1055,15 @@ export class DocumentObject extends DurableObject<Env> {
       fit?: boolean;
       inPlace?: boolean;
     },
-  ): Result<WriteReceipt & { nodes: OutlineNode[] }> {
+  ): Promise<Result<WriteReceipt & { nodes: OutlineNode[] }>> {
     let nodes: OutlineNode[] = [];
-    this.storeImages(file.images);
-    const receipt = this.write(actor, opts, "Place", (doc) => {
+    const receipt = await this.writeFiles(file.images, actor, opts, "Place", (doc) => {
       // A Zibel copy's linked Images keep their pixels only in the Document that holds them.
-      file = resolveLinks(file, (id) => doc.images.get(id));
-      const { placedIds, created } = placeNodes(doc, file, opts);
+      const resolved = resolveLinks(file, (id) => doc.images.get(id));
+      const { placedIds, created } = placeNodes(doc, resolved, opts);
       const placed = new Set(placedIds);
       nodes = outline(doc, { rootId: opts.parentId, depth: 2 }).filter((n) => placed.has(n.id));
-      return { created, warnings: file.warnings, failed: [] };
+      return { created, warnings: resolved.warnings, failed: [] };
     });
     return "error" in receipt ? receipt : { ...receipt, nodes };
   }
@@ -995,7 +1121,7 @@ export class DocumentObject extends DurableObject<Env> {
           summary: `${verb} "${top.label}"${gone}`,
         };
       },
-      { label: top.label, stack, popped: top.rev },
+      { step: { label: top.label, stack, popped: top.rev } },
     );
   }
 
@@ -1008,13 +1134,87 @@ export class DocumentObject extends DurableObject<Env> {
     });
   }
 
-  /** Rolls back every Transaction past its deadline, then waits for the next one. */
+  /**
+   * Rolls back every Transaction past its deadline and sweeps the image files when a sweep is
+   * pending, even one not due yet, then waits for the next deadline or sweep.
+   */
   override async alarm(): Promise<void> {
     const due = this.sql
       .exec<{ id: string }>("SELECT id FROM tx WHERE ended IS NULL AND deadline <= ?", Date.now())
       .toArray();
     for (const { id } of due) this.end(id, "expired");
+    if (this.ctx.storage.kv.delete(SWEEP_AT)) {
+      const sweep = this.sweep();
+      this.sweeping = sweep.catch(() => {});
+      try {
+        await sweep;
+      } catch (e) {
+        // Swept again later, and the alarm still serves the Transaction deadlines.
+        console.error("Image sweep failed", e);
+        this.markSweep();
+      }
+    }
     await this.schedule();
+  }
+
+  /** Has the alarm sweep the image files at `at`, or earlier when a sweep is already due by then. */
+  private markSweep(at = Date.now() + SWEEP_DELAY_MS) {
+    const due = this.ctx.storage.kv.get<number>(SWEEP_AT);
+    if (due !== undefined && due <= at) return;
+    this.ctx.storage.kv.put(SWEEP_AT, at);
+    void this.schedule();
+  }
+
+  /**
+   * Deletes every image file that no Node, open Transaction, Delta Log row or write in flight
+   * names: its row, then its object. Then deletes the objects with no row that are older than the
+   * grace period, which failed writes left. A failed delete leaves an object with no row, which
+   * the next sweep deletes, so sweeping twice gives the same result.
+   */
+  private async sweep() {
+    const docId = this.sql.exec<{ id: string }>("SELECT id FROM doc").toArray()[0]?.id;
+    if (!docId) return;
+    const kept = new Set([...this.inFlight].flatMap((files) => [...files.keys()]));
+    const garbage = this.ctx.storage.transactionSync(() => {
+      const ids = this.sql
+        .exec<{ id: string }>(
+          `SELECT id FROM images WHERE id NOT IN (SELECT src FROM (
+             SELECT json_extract(json, '$.src') AS src FROM nodes
+             UNION SELECT json_extract(base, '$.src') FROM tx_nodes
+             UNION SELECT json_extract(working, '$.src') FROM tx_nodes
+             UNION SELECT json_extract(before, '$.src') FROM tx_delta
+             UNION SELECT json_extract(after, '$.src') FROM tx_delta
+           ) WHERE src IS NOT NULL)`,
+        )
+        .toArray()
+        .map((r) => r.id)
+        .filter((id) => !kept.has(id));
+      for (const id of ids) this.sql.exec("DELETE FROM images WHERE id = ?", id);
+      return ids;
+    });
+    const held = new Set(
+      this.sql
+        .exec<{ id: string }>("SELECT id FROM images")
+        .toArray()
+        .map((r) => r.id),
+    );
+    const prefix = imageKey(docId, "");
+    const cutoff = Date.now() - ORPHAN_GRACE_MS;
+    const keys = new Set(garbage.map((id) => imageKey(docId, id)));
+    for (let cursor: string | undefined; ; ) {
+      const page = await this.env.IMAGES.list({ prefix, cursor });
+      for (const { key, uploaded } of page.objects) {
+        const id = key.slice(prefix.length);
+        if (held.has(id) || kept.has(id)) continue;
+        if (uploaded.getTime() < cutoff) keys.add(key);
+        else this.markSweep(uploaded.getTime() + ORPHAN_GRACE_MS);
+      }
+      if (!page.truncated) break;
+      cursor = page.cursor;
+    }
+    const all = [...keys];
+    // R2 deletes at most 1000 keys per call.
+    for (let i = 0; i < all.length; i += 1000) await this.env.IMAGES.delete(all.slice(i, i + 1000));
   }
 
   /** Committed Transactions after `sinceRev`, oldest first, and the current `rev`. */
@@ -1140,15 +1340,23 @@ export class DocumentObject extends DurableObject<Env> {
 
   private end(txId: string, how: keyof typeof ENDED) {
     this.sql.exec("UPDATE tx SET ended = ? WHERE id = ?", how, txId);
-    this.sql.exec("DELETE FROM tx_nodes WHERE tx_id = ?", txId);
+    const dropped = this.sql.exec("DELETE FROM tx_nodes WHERE tx_id = ?", txId).rowsWritten;
+    // A dropped overlay may have named the only copy of a file; a committed one is in the Nodes.
+    if (dropped > 0 && how !== "committed") this.markSweep();
   }
 
-  /** Points the alarm at the earliest open deadline, or clears it. */
+  /** Points the alarm at the earliest open deadline or due sweep, or clears it. */
   private async schedule() {
-    const { next } = this.sql
-      .exec<{ next: number | null }>("SELECT MIN(deadline) AS next FROM tx WHERE ended IS NULL")
+    const { deadline } = this.sql
+      .exec<{ deadline: number | null }>(
+        "SELECT MIN(deadline) AS deadline FROM tx WHERE ended IS NULL",
+      )
       .one();
-    if (next === null) await this.ctx.storage.deleteAlarm();
+    const next = Math.min(
+      deadline ?? Infinity,
+      this.ctx.storage.kv.get<number>(SWEEP_AT) ?? Infinity,
+    );
+    if (next === Infinity) await this.ctx.storage.deleteAlarm();
     else await this.ctx.storage.setAlarm(next);
   }
 
@@ -1238,12 +1446,15 @@ export class DocumentObject extends DurableObject<Env> {
       JSON.stringify(deletedIds),
       intent ?? null,
     );
-    if (step) this.push(rev, step);
-    return { txId, rev };
+    const pruned = step ? this.push(rev, step) : false;
+    return { txId, rev, pruned };
   }
 
-  /** Moves the stacks for the Transaction just committed at `rev`, and drops unreachable deltas. */
-  private push(rev: number, { label, stack, popped }: Step) {
+  /**
+   * Moves the stacks for the Transaction just committed at `rev`, and drops unreachable deltas:
+   * true when it dropped any, which may free image files.
+   */
+  private push(rev: number, { label, stack, popped }: Step): boolean {
     if (popped === undefined) this.sql.exec("DELETE FROM history WHERE stack = 'redo'");
     else this.sql.exec("DELETE FROM history WHERE rev = ?", popped);
     this.sql.exec("INSERT INTO history VALUES (?, ?, ?)", rev, stack, label);
@@ -1252,13 +1463,40 @@ export class DocumentObject extends DurableObject<Env> {
          (SELECT rev FROM history WHERE stack = 'undo' ORDER BY rev DESC LIMIT ?)`,
       UNDO_DEPTH,
     );
-    this.sql.exec("DELETE FROM tx_delta WHERE rev NOT IN (SELECT rev FROM history)");
+    return (
+      this.sql.exec("DELETE FROM tx_delta WHERE rev NOT IN (SELECT rev FROM history)").rowsWritten >
+      0
+    );
   }
 }
 
 function summary(verb: string, { created = [], updated = [], deletedIds = [] }: Change) {
   const count = created.length + updated.length + deletedIds.length;
   return `${verb} ${count} ${count === 1 ? "Node" : "Nodes"}`;
+}
+
+/** `files` with each file's size in place of its bytes, as its row holds it. */
+const sizes = (files: Files) =>
+  new Map<string, StoredImage>(
+    [...files].map(([id, { bytes, ...info }]) => [id, { ...info, size: bytes.length }]),
+  );
+
+/** Puts a checked file in `files` and returns its id. */
+async function hashed(file: ImageFile, files: Files): Promise<string> {
+  const id = await imageId(file.bytes);
+  files.set(id, file);
+  return id;
+}
+
+/** A rehearsed write's refusal, or undefined when it reached REHEARSED, where it would commit. */
+function rehearsal(fn: () => Result<object>): { error: ErrorData } | undefined {
+  try {
+    const result = fn();
+    return "error" in result ? result : undefined;
+  } catch (e) {
+    if (e === REHEARSED) return undefined;
+    throw e;
+  }
 }
 
 function guard<T>(fn: () => T): Result<T> {

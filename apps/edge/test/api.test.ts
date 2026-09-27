@@ -666,6 +666,19 @@ describe("images through the Worker", () => {
     }
   });
 
+  it("stores nothing for a bitmap whose Place is refused, so its file answers 404 (#66)", async () => {
+    const { docId } = await newDoc();
+    const blue = readImage(BLUE_1x1_PNG, "src").bytes;
+    const refused = await exports.default.fetch(
+      `http://zibel/api/docs/${docId}/place-image?parentId=nope`,
+      { method: "POST", body: blue },
+    );
+    expect(await refused.json()).toMatchObject({ code: "NODE_NOT_FOUND" });
+    const missing = await get(`/api/docs/${docId}/images/${await imageId(blue)}`);
+    expect(missing.status).toBe(404);
+    await missing.body?.cancel();
+  });
+
   describe("Relink from a file POSTed to /api/docs/:docId/relink-image (ADR-0042)", () => {
     const relink = (docId: string, query: string, body: BodyInit) =>
       exports.default.fetch(`http://zibel/api/docs/${docId}/relink-image?${query}`, {
