@@ -176,6 +176,13 @@ describe("write tools pass the write and its options apart", () => {
     expect(service.pathOp.mock.calls[0]).toStrictEqual(["d", PathOpInput.parse(input), write]);
   });
 
+  it("path_edit: write options not given are absent, not undefined", async () => {
+    const out = { ...receipt, d: "M 0 0", subpaths: [] };
+    const { service, call } = await harness({ pathEdit: async () => out });
+    await call("zibel_path_edit", { docId: "d", nodeId: "p", ops: [{ op: "reverse" }] });
+    expect(service.pathEdit.mock.calls[0]?.[2]).toStrictEqual({});
+  });
+
   it("freehand_stroke: the fitted Ink as one path through createNodes", async () => {
     const { service, call } = await harness({ createNodes: async () => receipt });
     const { partial: _, ...write } = { ...opts, partial: false };
