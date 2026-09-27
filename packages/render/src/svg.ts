@@ -67,6 +67,8 @@ export function renderSvg(doc: Document, rect?: Rect, opts: RenderOptions = {}):
   const { overlays: on, scale = 1, ...svg } = opts;
   return toSvg(doc, rect, {
     ...svg,
+    linked: "draw",
+    hairline: 1 / scale,
     trailer: on?.length ? (drawn) => overlays(doc, drawn, new Set(on), scale) : undefined,
   });
 }

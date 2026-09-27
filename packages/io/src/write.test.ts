@@ -716,6 +716,36 @@ it("writes an Image as <image xlink:href>, which Inkscape 1.2 draws, with its fi
   );
 });
 
+it("writes a linked Image as its file, with zibel:src when it has pixels, never the pixels (ADR-0042)", () => {
+  const { doc, defaultLayerId: parentId } = newDoc();
+  const src = "a".repeat(64);
+  doc.images.set(src, { mime: "image/png", width: 2, height: 2 });
+  const [linked, missing] = createNodes(doc, [
+    { type: "image", parentId, src, file: "photos/a b.png", x: 10, y: 20, width: 30, height: 40 },
+    { type: "image", parentId, file: "gone.png", x: 0, y: 0, width: 8, height: 4 },
+  ]).nodes;
+  if (!missing) throw new Error("setup");
+  missing.opacity = 0.5;
+  missing.transform = [2, 0, 0, 2, 5, 0];
+  const url = "data:image/png;base64,AAAA";
+  const images = (id: string) => (id === src ? url : undefined);
+  // No images needed: export writes no pixels for a linked Image.
+  const svg = toSvg(doc);
+  expect(svg).toContain(
+    `<image x="10" y="20" width="30" height="40" preserveAspectRatio="none" xlink:href="photos/a b.png" zibel:src="${src}" id="z-${linked?.id}"/>`,
+  );
+  expect(svg).toContain(
+    `<image x="0" y="0" width="8" height="4" preserveAspectRatio="none" xlink:href="gone.png" id="z-${missing.id}" transform="matrix(2 0 0 2 5 0)" style="opacity:0.5"/>`,
+  );
+  // render draws the pixels, and a missing link's frame and diagonals in place, at the hairline.
+  const drawn = toSvg(doc, undefined, { images, linked: "draw", hairline: 0.5 });
+  expect(drawn).toContain(`xlink:href="${url}" id="z-${linked?.id}"/>`);
+  expect(drawn).not.toContain("zibel:src");
+  expect(drawn).toContain(
+    `<path d="M 5 0 L 21 0 L 21 8 L 5 8 Z M 5 0 L 21 8 M 21 0 L 5 8" id="z-${missing.id}" style="fill:none;stroke:#999999;stroke-width:0.5;opacity:0.5"/>`,
+  );
+});
+
 describe("gradients (ADR-0026)", () => {
   const stops = [
     { offset: 0, color: "#1F5FBF" },

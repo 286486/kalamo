@@ -161,7 +161,8 @@ function draw(
     }
     for (const c of childrenOf(doc, n.id)) if (c !== clip) draw(ctx, doc, c, images);
   } else if (n.type === "image") {
-    const file = images?.(n.src);
+    // ponytail: a missing link draws nothing here until the canvas draws its crossed frame (#100).
+    const file = n.src === undefined ? undefined : images?.(n.src);
     if (file) {
       if (n.preserveAspectRatio.endsWith("slice")) {
         ctx.beginPath();

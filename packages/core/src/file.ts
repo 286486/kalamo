@@ -5,6 +5,7 @@ import { assertParent, paint } from "./document.ts";
 import { zodPath } from "./edit.ts";
 import { ZibelError } from "./errors.ts";
 import {
+  fileProblem,
   IMAGE_ID,
   type ImageFile,
   type ImageSource,
@@ -53,7 +54,9 @@ function sortKeys(value: unknown): unknown {
  */
 export function serializeDocument(doc: Document, images?: ImageSource): string {
   const nodes = [...doc.nodes.values()].sort((a, b) => (a.id < b.id ? -1 : 1));
-  const ids = [...new Set(nodes.flatMap((n) => (n.type === "image" ? [n.src] : [])))].sort();
+  const ids = [
+    ...new Set(nodes.flatMap((n) => (n.type === "image" && n.src !== undefined ? [n.src] : []))),
+  ].sort();
   const files = ids.map((id) => {
     const url = images?.(id);
     if (url !== undefined) return [id, url];
@@ -92,7 +95,14 @@ const StoredNode = z.discriminatedUnion("type", [
   z.strictObject({
     ...base,
     type: z.literal("image"),
-    src: z.string(),
+    src: z.string().optional(),
+    file: z
+      .string()
+      .superRefine((f, ctx) => {
+        const message = fileProblem(f);
+        if (message) ctx.addIssue({ code: "custom", message });
+      })
+      .optional(),
     x: z.number(),
     y: z.number(),
     width: z.number().positive(),
@@ -242,6 +252,11 @@ export function parseDocument(
   const used = new Set<string>();
   nodes.forEach((n, i) => {
     if (n.type !== "image") return;
+    if (n.src === undefined) {
+      if (n.file === undefined)
+        throw invalid(`nodes[${i}].src`, "An Image has neither src nor file.");
+      return;
+    }
     if (!images.has(n.src))
       throw invalid(`nodes[${i}].src`, `No file for image ${n.src} in images.`);
     used.add(n.src);
@@ -328,7 +343,7 @@ export async function resolveImages<T extends { nodes: Node[]; images: Map<strin
     images.set(id, image);
   }
   const nodes = file.nodes.map((n) =>
-    n.type === "image" && renamed.get(n.src) !== n.src
+    n.type === "image" && n.src !== undefined && renamed.get(n.src) !== n.src
       ? { ...n, src: renamed.get(n.src) ?? n.src }
       : n,
   );

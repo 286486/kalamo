@@ -13,6 +13,7 @@ import { expect, it } from "vitest";
 import fixture from "../../../fixtures/documents/inkscape.zibel.json?raw";
 import { RED_2x2_PNG } from "../../../fixtures/images.ts";
 import { svgToPixels, svgToPng } from "./png.ts";
+import { renderSvg } from "./svg.ts";
 
 it("rasterises SVG with resvg-wasm inside workerd", async () => {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" width="10" height="10"><rect width="10" height="10" fill="#FF0000"/></svg>`;
@@ -375,6 +376,37 @@ it("draws an Image's pixels in its frame and nowhere else", async () => {
   const drawn = await ink(toSvg(doc, docRect(doc), { images: () => RED_2x2_PNG }));
   expect(drawn.length).toBe(400);
   expect(drawn.filter(([x, y]) => x < 10 || x >= 30 || y < 10 || y >= 30)).toEqual([]);
+});
+
+it("draws a linked Image's pixels, and a missing link as a thin grey crossed frame (ADR-0042)", async () => {
+  const { doc, defaultLayerId: parentId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 100, height: 40, background: "#FFFFFF" }],
+  });
+  const src = "a".repeat(64);
+  doc.images.set(src, { mime: "image/png", width: 2, height: 2 });
+  createNodes(doc, [
+    { type: "image", parentId, src, file: "red.png", x: 0, y: 0, width: 20, height: 20 },
+    // Scaled 2x, so a stroke that scaled with it would be 2 px wide.
+    { type: "image", parentId, file: "gone.png", x: 25, y: 5, width: 10, height: 10 },
+  ]);
+  const scaled = [...doc.nodes.values()].find((n) => n.type === "image" && !n.src);
+  if (!scaled) throw new Error("setup");
+  scaled.transform = [2, 0, 0, 2, 0, 0];
+  const { pixels, width } = await svgToPixels(
+    renderSvg(doc, docRect(doc), { images: () => RED_2x2_PNG }),
+    1,
+  );
+  const at = (x: number, y: number) => [
+    ...pixels.subarray((y * width + x) * 4, (y * width + x) * 4 + 3),
+  ];
+  expect(at(10, 10)).toEqual([255, 0, 0]);
+  // The frame is 50..70 by 10..30. Its edge on x = 50, one pixel wide, half-covers two columns.
+  expect([48, 49, 50, 51].map((x) => at(x, 20)[0])).toEqual([255, 204, 204, 255]);
+  // Both diagonals cross at the centre; between them and the edges is blank.
+  expect(at(60, 20)[0]).toBeLessThan(250);
+  expect(at(60, 13)).toEqual([255, 255, 255]);
 });
 
 it("draws a linear gradient from start to end, and a radial one's first stop at its focus", async () => {

@@ -512,11 +512,31 @@ describe("images", () => {
     expect(serializeDocument(reopened, provider)).toBe(text);
   });
 
+  it("keeps a linked Image's file, and a missing link with no src and no entry (ADR-0042)", () => {
+    const doc = withImages();
+    const layer = [...doc.nodes.values()].find((n) => n.type === "layer")?.id as string;
+    createNodes(doc, [
+      { type: "image", parentId: layer, src: ID, file: "a.png", x: 0, y: 0 },
+      { type: "image", parentId: layer, file: "../gone.png", x: 0, y: 0, width: 4, height: 2 },
+    ]);
+    // Only the pixels are asked for: the missing link names no id.
+    const text = serializeDocument(doc, provider);
+    const raw = JSON.parse(text);
+    expect(raw.version).toBe(1);
+    expect(raw.images).toEqual({ [ID]: RED_2x2_PNG });
+    expect(raw.nodes).toContainEqual(expect.objectContaining({ src: ID, file: "a.png" }));
+    const missing = raw.nodes.find((n: { file?: string }) => n.file === "../gone.png");
+    expect(missing).not.toHaveProperty("src");
+    const parsed = parseDocument(text);
+    const reopened = { ...doc, nodes: new Map(parsed.nodes.map((n) => [n.id, n])) };
+    expect(serializeDocument(reopened, provider)).toBe(text);
+  });
+
   it("needs the file of every Image to write", () => {
     expect(errorOf(() => serializeDocument(withImages()))).toMatchObject({ code: "INVALID_IMAGE" });
   });
 
-  it.each([
+  it.each<[string, (raw: Raw) => unknown, RegExp]>([
     ["an Image whose file is missing", (raw: Raw) => delete raw.images[ID], /^nodes\[\d+\]\.src$/],
     [
       "a file no Image uses",
@@ -532,6 +552,19 @@ describe("images", () => {
           `data:image/png;base64,${new Uint8Array(5 * 1024 * 1024 + 3).toBase64()}`),
       new RegExp(`^images\\.${ID}$`),
     ],
+    [
+      "an Image with neither src nor file",
+      (raw: Raw) => delete raw.nodes.find((n) => n.src)?.src,
+      /^nodes\[\d+\]\.src$/,
+    ],
+    ...["", " ", "data:image/png;base64,AAAA", "a".repeat(2049)].map(
+      (f) =>
+        [
+          `the file ${JSON.stringify(f.slice(0, 12))}`,
+          (raw: Raw) => Object.assign(raw.nodes.find((n) => n.src) ?? {}, { file: f }),
+          /^nodes\[\d+\]\.file$/,
+        ] satisfies [string, (raw: Raw) => unknown, RegExp],
+    ),
     [
       "an unspelled preserveAspectRatio",
       (raw: Raw) =>

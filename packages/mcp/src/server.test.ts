@@ -102,6 +102,31 @@ describe("write tools pass the write and its options apart", () => {
     expect(service.createNodes.mock.calls[1]?.[2]).toEqual({ partial: false });
   });
 
+  it("node_create: a linked image arrives with file, and src only when sent (ADR-0042)", async () => {
+    const { service, call } = await harness({ createNodes: async () => receipt });
+    const frame = { parentId: "p", x: 0, y: 0, width: 4, height: 2 };
+    await call("zibel_node_create", {
+      docId: "d",
+      nodes: [
+        { type: "image", file: "a.png", ...frame },
+        {
+          type: "image",
+          file: "b.png",
+          src: "data:image/png;base64,AAAA",
+          parentId: "p",
+          x: 0,
+          y: 0,
+        },
+      ],
+    });
+    const sent = service.createNodes.mock.calls[0]?.[1];
+    expect(sent).toMatchObject([
+      { type: "image", file: "a.png", width: 4, height: 2 },
+      { type: "image", file: "b.png", src: "data:image/png;base64,AAAA" },
+    ]);
+    expect(sent?.[0]).not.toHaveProperty("src");
+  });
+
   it("node_update: each patch arrives as sent, with no Node or Stroke defaults", async () => {
     const { service, call } = await harness({ updateNodes: async () => receipt });
     const updates = [
@@ -405,6 +430,11 @@ describe("reads pass their filters and txId, and bad arguments never reach the s
     ["zibel_node_transform", { docId: "d", nodeIds: ["a"] }],
     ["zibel_node_transform", { docId: "d", nodeIds: ["a"], matrix: [1, 0, 0, 1, 0, 0], rotate: 9 }],
     ["zibel_node_transform", { docId: "d", nodeIds: ["a"], matrix: [1, 1, 1, 1, 0, 0] }],
+    [
+      "zibel_node_create",
+      { docId: "d", nodes: [{ type: "image", parentId: "p", file: "a.png", x: 0, y: 0 }] },
+    ],
+    ["zibel_node_create", { docId: "d", nodes: [{ type: "image", parentId: "p", x: 0, y: 0 }] }],
     ["zibel_render", { docId: "d", scale: 5 }],
     ["zibel_export", { docId: "d", format: "pdf" }],
   ])("%s refuses %j by its published schema", async (name, args) => {
@@ -412,7 +442,15 @@ describe("reads pass their filters and txId, and bad arguments never reach the s
     const result = await call(name, args);
     expect(result.isError).toBe(true);
     expect(JSON.stringify(result.content)).toContain("Input validation error");
-    for (const method of ["create", "get", "query", "transformNodes", "render", "svg"] as const) {
+    for (const method of [
+      "create",
+      "createNodes",
+      "get",
+      "query",
+      "transformNodes",
+      "render",
+      "svg",
+    ] as const) {
       expect(service[method]).not.toHaveBeenCalled();
     }
   });
@@ -685,6 +723,7 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
   expect(described("zibel_node_update")).toContain("ranges");
   expect(described("zibel_node_update")).toContain("clears");
   expect(described("zibel_node_create")).toContain("image {");
+  expect(described("zibel_node_create")).toContain("missing link");
   expect(described("zibel_node_update")).toContain("preserveAspectRatio");
   for (const param of [
     "angle",

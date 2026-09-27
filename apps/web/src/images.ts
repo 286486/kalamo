@@ -30,7 +30,11 @@ const browserIO: ImageIO = {
 };
 
 const srcs = (doc: Document) =>
-  new Set([...doc.nodes.values()].flatMap((n) => (n.type === "image" ? [n.src] : [])));
+  new Set(
+    [...doc.nodes.values()].flatMap((n) =>
+      n.type === "image" && n.src !== undefined ? [n.src] : [],
+    ),
+  );
 
 export type ImageCache = ReturnType<typeof imageCache>;
 

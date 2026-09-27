@@ -496,6 +496,21 @@ it("places a PNG as an Image: node_get has its id, render draws it, export and o
   expect(back.nodes[0]).toMatchObject({ src: nodes[0].src });
 });
 
+it("creates a missing link from file and a frame (ADR-0042)", async () => {
+  const { docId, defaultLayerId: parentId } = await newDoc();
+  const missing = {
+    type: "image",
+    parentId,
+    file: "photo.png",
+    x: 10,
+    y: 10,
+    width: 30,
+    height: 20,
+  };
+  const result = await call("zibel_node_create", { docId, nodes: [missing] });
+  expect(result.structuredContent.createdIds).toHaveLength(1);
+});
+
 it("keeps a style Zibel lacks and warns FONT_MISSING naming the face it renders in", async () => {
   const doc = await newDoc();
   const created = await call("zibel_node_create", {

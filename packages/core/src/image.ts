@@ -14,6 +14,19 @@ export interface ImageInfo {
 export interface ImageFile extends ImageInfo {
   bytes: Uint8Array<ArrayBuffer>;
 }
+/** The most characters a linked Image's `file` holds. */
+export const MAX_FILE_LENGTH = 2048;
+
+/** Why `file` cannot name a linked Image's file, or undefined when it can (ADR-0042). */
+export function fileProblem(file: string): string | undefined {
+  if (file.trim() === "") return "A linked Image's file is empty.";
+  if (/^\s*data:/i.test(file))
+    return "A linked Image's file is a data: URL; pass it as src instead.";
+  if (file.length > MAX_FILE_LENGTH)
+    return `A linked Image's file is ${file.length} characters; the limit is ${MAX_FILE_LENGTH}.`;
+  return undefined;
+}
+
 /** An image's file as a data URL, by id; the bytes stay out of the Document (ADR-0023). */
 export type ImageSource = (id: string) => string | undefined;
 
