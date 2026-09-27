@@ -235,7 +235,8 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         "Place an SVG into a Document, as Illustrator's File > Place: one new Group under parentId (a Layer or Group), above its other children, named from the SVG's sodipodi:docname or <title>, else Untitled (rename it with zibel_node_update). Pass the file's content, not a path; at most 5 MB outside its embedded images, each image at most 5 MB.",
         "SVG layers become Groups, pages and page backgrounds are dropped, and every Node gets a new id, so placing a file twice, or one exported from this Document, never collides. Units become pt, with px counting as pt.",
         "position is where the centre of the Group's geometricBounds lands, in document coordinates; default the centre of the parent's Artboard, the one the parent overlaps most, else the first. fit: true first scales the Group uniformly, Strokes included, to fit that Artboard.",
-        "One Transaction. createdIds starts with the Group, and nodes is its outline to depth 2. Embedded images become Images; warnings lists once per kind what Zibel cannot hold yet, as zibel_doc_open does. A .zibel.json is INVALID_DOCUMENT.",
+        "A Zibel copy, the SVG zibel_export writes at scope {nodeIds}, is pasted instead, as Illustrator's Edit > Paste: the Nodes it lists, and anything added beside them since, go directly under parentId in stacking order without the Group, with the Layers and Groups that only held them dropped.",
+        "One Transaction. createdIds starts with what went under parentId, the Group or the pasted Nodes, and nodes is their outline to depth 2. Embedded images become Images; warnings lists once per kind what Zibel cannot hold yet, as zibel_doc_open does. A .zibel.json is INVALID_DOCUMENT.",
       ].join(" "),
       inputSchema: {
         docId,

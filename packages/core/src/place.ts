@@ -1,7 +1,7 @@
-import { generateKeyBetween } from "fractional-indexing";
-import { assertParent, bounds, childrenOf, createNodes, newId } from "./document.ts";
+import { generateKeyBetween, generateNKeysBetween } from "fractional-indexing";
+import { assertParent, bounds, childrenOf, createNodes, newId, union } from "./document.ts";
 import { transformNodes } from "./edit.ts";
-import type { Artboard, Document, Node, Rect } from "./schema.ts";
+import type { Artboard, Document, Node, Rect, RenderScope } from "./schema.ts";
 
 const overlap = (a: Rect, b: Rect) =>
   Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x)) *
@@ -22,32 +22,66 @@ function artboardOf(doc: Document, node: Node): Artboard | undefined {
 /**
  * Place (ADR-0017): a file's Nodes as one new Group above `parentId`'s children. Layers become
  * Groups, every id is new, and the Group is centred on `position`, by default the parent's
- * Artboard, after `fit` scales it to that Artboard. Returns the new Nodes, the Group first.
+ * Artboard, after `fit` scales it to that Artboard; `inPlace` keeps the file's coordinates.
+ *
+ * A Zibel copy, whose `scope` lists Nodes it holds, pastes without the Group (ADR-0030): its Nodes
+ * land directly in the parent, in stacking order, less the Layers and Groups that only lead to a
+ * listed Node. `placedIds` are the Nodes put in the parent, the Group or those, and `created`
+ * starts with them.
  */
 export function placeNodes(
   doc: Document,
-  file: { name: string; nodes: Node[] },
-  opts: { parentId: string; position?: { x: number; y: number }; fit?: boolean },
-): { groupId: string; created: Node[] } {
-  const [group] = createNodes(doc, [
-    { type: "group", parentId: opts.parentId, name: file.name, children: [] },
-  ]).nodes as [Node];
-  // Chosen while the Group is empty, before the file's Nodes move the parent's bounds.
+  file: { name: string; nodes: Node[]; scope?: RenderScope },
+  opts: { parentId: string; position?: { x: number; y: number }; fit?: boolean; inPlace?: boolean },
+): { placedIds: string[]; created: Node[] } {
+  assertParent(doc, { type: "group" }, opts.parentId, "parentId");
+  // Chosen before the file's Nodes move the parent's bounds.
   const artboard = artboardOf(doc, doc.nodes.get(opts.parentId) as Node);
-  const ids = new Map(file.nodes.map((n) => [n.id, newId()]));
-  for (const n of file.nodes) {
-    const id = ids.get(n.id) as string;
-    const parentId = n.parentId === null ? group.id : (ids.get(n.parentId) as string);
-    doc.nodes.set(id, { ...n, id, parentId, ...(n.type === "layer" && { type: "group" }) });
-  }
+  const kids = new Map<string | null, Node[]>();
+  for (const n of file.nodes) kids.set(n.parentId, [...(kids.get(n.parentId) ?? []), n]);
+  for (const list of kids.values()) list.sort((a, b) => (a.index < b.index ? -1 : 1));
+  const childrenIn = (id: string | null) => kids.get(id) ?? [];
+  const has = new Set(file.nodes.map((n) => n.id));
+  const listed = new Set(
+    file.scope && "nodeIds" in file.scope ? file.scope.nodeIds.filter((id) => has.has(id)) : [],
+  );
+  const leads = (n: Node): boolean =>
+    !listed.has(n.id) && childrenIn(n.id).some((c) => listed.has(c.id) || leads(c));
+  const tops = (id: string | null): Node[] =>
+    childrenIn(id).flatMap((n) => (leads(n) ? tops(n.id) : [n]));
 
-  const b = bounds(doc, group);
+  const group =
+    listed.size === 0
+      ? (createNodes(doc, [
+          { type: "group", parentId: opts.parentId, name: file.name, children: [] },
+        ]).nodes[0] as Node)
+      : undefined;
+  const roots = group ? childrenIn(null) : tops(null);
+  const keys = group
+    ? roots.map((n) => n.index)
+    : generateNKeysBetween(
+        childrenOf(doc, opts.parentId).at(-1)?.index ?? null,
+        null,
+        roots.length,
+      );
+  const ids = new Map<string, string>();
+  const copy = (n: Node, parentId: string, index: string): string => {
+    const id = newId();
+    ids.set(n.id, id);
+    doc.nodes.set(id, { ...n, id, parentId, index, ...(n.type === "layer" && { type: "group" }) });
+    for (const c of childrenIn(n.id)) copy(c, id, c.index);
+    return id;
+  };
+  const copied = roots.map((n, i) => copy(n, group?.id ?? opts.parentId, keys[i] as string));
+  const placedIds = group ? [group.id] : copied;
+
+  const b = union(placedIds.map((id) => bounds(doc, doc.nodes.get(id) as Node)));
   const target = opts.position ??
     (artboard && {
       x: artboard.frame.x + artboard.frame.width / 2,
       y: artboard.frame.y + artboard.frame.height / 2,
     }) ?? { x: 0, y: 0 };
-  if (b) {
+  if (b && !opts.inPlace) {
     const centre = { x: b.x + b.width / 2, y: b.y + b.height / 2 };
     // A file flat in one direction fits by the other; a single point keeps its size.
     const ratios = artboard
@@ -58,16 +92,15 @@ export function placeNodes(
       : [];
     const s = Math.min(...ratios);
     transformNodes(doc, {
-      nodeIds: [group.id],
+      nodeIds: placedIds,
       pivot: centre,
       ...(opts.fit && Number.isFinite(s) && { scale: s }),
       translate: { x: target.x - centre.x, y: target.y - centre.y },
     });
   }
-  return {
-    groupId: group.id,
-    created: [group.id, ...ids.values()].map((id) => doc.nodes.get(id) as Node),
-  };
+  const placed = new Set(placedIds);
+  const rest = [...ids.values()].filter((id) => !placed.has(id));
+  return { placedIds, created: [...placedIds, ...rest].map((id) => doc.nodes.get(id) as Node) };
 }
 
 /**

@@ -56,7 +56,8 @@ async function openFile(request: Request, env: Env): Promise<Response> {
 
 /**
  * The browser's paste or drop of an SVG (Place, ADR-0017): the SVG as the body; `parentId`, the
- * centre `x`, `y` and the file's `name` in the query. By the user, like Open.
+ * centre `x`, `y`, `inPlace` for Paste in Place (ADR-0030) and the file's `name` in the query. By
+ * the user, like Open.
  */
 async function placeFile(docId: string, request: Request, env: Env): Promise<Response> {
   const q = new URL(request.url).searchParams;
@@ -67,6 +68,7 @@ async function placeFile(docId: string, request: Request, env: Env): Promise<Res
       svg: await request.text(),
       parentId: q.get("parentId") ?? "",
       ...(Number.isFinite(x) && Number.isFinite(y) && { position: { x, y } }),
+      inPlace: q.has("inPlace"),
       name: q.get("name") ?? undefined,
     }),
   );
