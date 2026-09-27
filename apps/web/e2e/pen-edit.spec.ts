@@ -65,3 +65,48 @@ test("the Pen continues a path onto another, and +, - and Shift+C edit an Agent'
   await page.mouse.click(...at(100, 80));
   await expect.poll(async () => (await get(curve))?.d).toBe("M 60 80 L 100 80 L 140 80");
 });
+
+// #115: Shift+C bends a Rectangle's segment, converting it in place, and a click retracts a Handle.
+test("Shift+C reshapes a Rectangle's segment and retracts a Handle", async ({ page, request }) => {
+  const { docId, defaultLayerId: parentId } = (
+    await call(request, "zibel_doc_create", {
+      name: "Anchor Point",
+      artboards: [{ width: 200, height: 100 }],
+    })
+  ).structuredContent;
+  const created = await call(request, "zibel_node_create", {
+    docId,
+    nodes: [{ type: "rect", parentId, x: 40, y: 30, width: 120, height: 60 }],
+  });
+  const [rect] = created.structuredContent.createdIds as [string];
+  const get = async () =>
+    (await call(request, "zibel_node_get", { docId, nodeIds: [rect], detail: "full" }))
+      .structuredContent?.nodes[0];
+
+  await page.goto(`/docs/${docId}`);
+  await expect(page.getByTestId("status-bar")).toContainText(/\d+%/);
+  await page.keyboard.press("Control+1");
+  await expect(page.getByTestId("status-bar")).toContainText("100%");
+  const box = await page.getByTestId("canvas").boundingBox();
+  if (!box) throw new Error("no canvas");
+  const at = (x: number, y: number) =>
+    [box.x + box.width / 2 + x - 100, box.y + box.height / 2 + y - 50] as const;
+
+  // Dragging the top segment's middle up by 20 pulls out Handles 80/3 above both its Anchors.
+  const { rev } = created.structuredContent;
+  await page.keyboard.press("Shift+C");
+  await page.mouse.move(...at(100, 30));
+  await page.mouse.down();
+  await page.mouse.move(...at(100, 10), { steps: 5 });
+  await page.mouse.up();
+  await expect.poll(async () => (await get())?.type).toBe("path");
+  const bent = await get();
+  expect(bent?.d).toMatch(/^M 40 30 C 40 3\.33\d* 160 3\.33\d* 160 30 L/);
+  const { changes } = (await call(request, "zibel_doc_changes", { docId, sinceRev: rev }))
+    .structuredContent;
+  expect(changes).toHaveLength(1);
+
+  // A click on the start's Handle retracts it; the end's stays.
+  await page.mouse.click(...at(40, 3.33));
+  await expect.poll(async () => (await get())?.d).toMatch(/^M 40 30 C 40 30 160 3\.33\d* 160 30 L/);
+});

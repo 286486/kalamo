@@ -246,8 +246,8 @@ export function moveHandle(
 }
 
 /**
- * Dragging a segment grabbed at `t` by (dx, dy): a straight one moves both its Anchors; a curved
- * one bends, its Handles moving so the grabbed point follows the pointer, weighted as Inkscape does.
+ * Dragging a segment grabbed at `t` by (dx, dy) with Direct Selection: a straight one moves both
+ * its Anchors; a curved one bends, as `bendSegment`.
  */
 export function moveSegment(
   doc: Document,
@@ -262,19 +262,64 @@ export function moveSegment(
   const s = hasAnchors(n) ? localAnchors(n)[subpath] : undefined;
   if (!n || !s || segment >= segmentCount(s)) return null;
   const [a, b] = segmentEnds(s, segment);
+  if (a.handleOut || b.handleIn) return bendSegment(doc, nodeId, subpath, segment, t, dx, dy);
   const next = (segment + 1) % s.anchors.length;
   const d = localDelta(doc, n, dx, dy);
-  if (!a.handleOut && !b.handleIn) {
-    return {
-      nodeId,
-      ops: [
-        { op: "move_anchor", subpath, index: segment, to: plus(a.anchor, d) },
-        { op: "move_anchor", subpath, index: next, to: plus(b.anchor, d) },
-      ],
-    };
-  }
+  return {
+    nodeId,
+    ops: [
+      { op: "move_anchor", subpath, index: segment, to: plus(a.anchor, d) },
+      { op: "move_anchor", subpath, index: next, to: plus(b.anchor, d) },
+    ],
+  };
+}
+
+/**
+ * Bending a segment grabbed at `t` by (dx, dy): its inner Handles move so the grabbed point
+ * follows the pointer, weighted as Inkscape does; a straight one pulls them out of its Anchors.
+ * `semicircle` (Shift with the Anchor Point tool) keeps them perpendicular to the segment and of
+ * equal length instead, the grabbed point following the pointer across it.
+ */
+export function bendSegment(
+  doc: Document,
+  nodeId: string,
+  subpath: number,
+  segment: number,
+  t: number,
+  dx: number,
+  dy: number,
+  semicircle = false,
+): PathEditInput | null {
+  const n = doc.nodes.get(nodeId);
+  const s = hasAnchors(n) ? localAnchors(n)[subpath] : undefined;
+  if (!n || !s || segment >= segmentCount(s)) return null;
+  const [a, b] = segmentEnds(s, segment);
+  const next = (segment + 1) % s.anchors.length;
+  const d = localDelta(doc, n, dx, dy);
   // Near an end the weights blow up; that end's Anchor is grabbed there instead.
   const u = Math.max(0.05, Math.min(0.95, t));
+  const c1 = a.handleOut ?? a.anchor;
+  const c2 = b.handleIn ?? b.anchor;
+  const set = (p: Point, q: Point): PathEditInput => ({
+    nodeId,
+    ops: [
+      { op: "set_handles", subpath, index: segment, handleOut: p },
+      { op: "set_handles", subpath, index: next, handleIn: q },
+    ],
+  });
+  if (semicircle) {
+    const [cx, cy] = [b.anchor[0] - a.anchor[0], b.anchor[1] - a.anchor[1]];
+    const l = Math.hypot(cx, cy);
+    if (!l) return null;
+    const normal: Point = [-cy / l, cx / l];
+    const at = bezier(a, b, u);
+    const across =
+      (at[0] + d[0] - a.anchor[0]) * normal[0] + (at[1] + d[1] - a.anchor[1]) * normal[1];
+    // Equal perpendicular Handles h put the point at t 3t(1-t)h across the segment.
+    const h = across / (3 * u * (1 - u));
+    const off: Point = [normal[0] * h, normal[1] * h];
+    return set(plus(a.anchor, off), plus(b.anchor, off));
+  }
   const w =
     u <= 1 / 6
       ? 0
@@ -285,15 +330,7 @@ export function moveSegment(
           : 1;
   const k0 = (1 - w) / (3 * u * (1 - u) * (1 - u));
   const k1 = w / (3 * u * u * (1 - u));
-  const c1 = a.handleOut ?? a.anchor;
-  const c2 = b.handleIn ?? b.anchor;
-  return {
-    nodeId,
-    ops: [
-      { op: "set_handles", subpath, index: segment, handleOut: plus(c1, [k0 * d[0], k0 * d[1]]) },
-      { op: "set_handles", subpath, index: next, handleIn: plus(c2, [k1 * d[0], k1 * d[1]]) },
-    ],
-  };
+  return set(plus(c1, [k0 * d[0], k0 * d[1]]), plus(c2, [k1 * d[0], k1 * d[1]]));
 }
 
 /**

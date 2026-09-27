@@ -1,7 +1,9 @@
 import type { Document, PathEditInput } from "@zibel/core";
 import { cancelDrag, commitDrag, dragged, type Press } from "./canvas.ts";
 import {
+  anchorKey,
   anchorsOf,
+  bendSegment,
   hasAnchors,
   localAnchors,
   localDelta,
@@ -111,14 +113,8 @@ export const deleteAnchorTool: CanvasTool = {
   drawSelected,
 };
 
-/** An Anchor Point tool press: on an Anchor, or on a selected Anchor's Handle. */
-let gesture:
-  | (Press &
-      (
-        | { kind: "anchor"; key: string }
-        | { kind: "handle"; key: string; which: "handleIn" | "handleOut" }
-      ))
-  | null = null;
+/** An Anchor Point tool press: on an Anchor, a Handle it shows, or a segment. */
+let gesture: (Press & Target) | null = null;
 
 /**
  * Dragging out of the Anchor `key` by (dx, dy) in document coordinates: Smooth, its outgoing
@@ -149,7 +145,7 @@ export function pullHandles(
 /**
  * Anchor Point (Shift+C): clicking an Anchor retracts its Handles, making it Corner; dragging out
  * of one pulls out Smooth Handles; dragging a selected Anchor's Handle moves it alone, breaking
- * the pair.
+ * the pair, and clicking its end retracts it; dragging a segment bends it, Shift into a semicircle.
  */
 export const anchorPointTool: CanvasTool = {
   title: "Anchor Point Tool",
@@ -157,16 +153,22 @@ export const anchorPointTool: CanvasTool = {
   icon: "M2 13 L8 3 L14 13 M5 3 H11",
   cursor: "default",
   down(e) {
-    const { selection, anchors } = useStore.getState();
+    const { selection, anchors, segments } = useStore.getState();
     useStore.setState({ notice: null });
-    const target = pick(e.doc, selection, anchors, e.x, e.y, 3 / e.viewport.scale);
-    if (!target || target.kind === "segment") return;
+    const target = pick(e.doc, selection, anchors, e.x, e.y, 3 / e.viewport.scale, segments);
+    if (!target) return;
     e.capture();
     const g = { start: { x: e.x, y: e.y }, moved: false };
     gesture = { ...g, ...target };
-    // Its Handles show while it is pulled out, as Direct Selection shows a selected Anchor's.
-    const { nodeId } = parseKey(target.key);
-    if (target.kind === "anchor") useStore.setState({ selection: [nodeId], anchors: [target.key] });
+    // Its Handles show while they are pulled out, as Direct Selection shows a selected Anchor's
+    // or segment's.
+    if (target.kind === "anchor") {
+      const { nodeId } = parseKey(target.key);
+      useStore.setState({ selection: [nodeId], anchors: [target.key], segments: [] });
+    } else if (target.kind === "segment") {
+      const key = anchorKey(target.nodeId, target.subpath, target.segment);
+      useStore.setState({ selection: [target.nodeId], anchors: [], segments: [key] });
+    }
   },
   move(e) {
     const g = gesture;
@@ -175,7 +177,9 @@ export const anchorPointTool: CanvasTool = {
     const input =
       g.kind === "anchor"
         ? pullHandles(e.doc, g.key, ...d)
-        : moveHandle(e.doc, g.key, g.which, ...d, true);
+        : g.kind === "handle"
+          ? moveHandle(e.doc, g.key, g.which, ...d, true)
+          : bendSegment(e.doc, g.nodeId, g.subpath, g.segment, g.t, ...d, e.shift);
     useStore.setState({ edit: input && { inputs: [input], commandIds: null } });
   },
   up(e) {
@@ -186,14 +190,18 @@ export const anchorPointTool: CanvasTool = {
       commitDrag();
       return;
     }
-    if (g.kind !== "anchor") return;
+    if (g.kind === "segment") return;
     const { nodeId, subpath, index } = parseKey(g.key);
     const n = e.doc.nodes.get(nodeId);
     const a = hasAnchors(n) ? localAnchors(n)[subpath]?.anchors[index] : undefined;
     if (!a?.handleIn && !a?.handleOut) return;
     const input: PathEditInput = {
       nodeId,
-      ops: [{ op: "set_point_type", subpath, index, type: "corner" }],
+      ops: [
+        g.kind === "anchor"
+          ? { op: "set_point_type", subpath, index, type: "corner" }
+          : { op: "set_handles", subpath, index, [g.which]: null },
+      ],
     };
     useStore.setState({
       edit: { inputs: [input], commandIds: [send({ type: "path_edit", input })] },
