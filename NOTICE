@@ -12,3 +12,9 @@ Source Sans 3 Regular (packages/render/fonts/SourceSans3-Regular.ttf)
 Copyright 2010-2024 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'.
 Licensed under the SIL Open Font License, Version 1.1; the full text is in
 packages/render/fonts/LICENSE.md. Shipped unmodified.
+
+PathKit (pathkit-wasm 1.0.0, Skia PathOps and stroker compiled to WebAssembly;
+used by packages/geometry)
+Copyright (c) 2011 Google Inc. All rights reserved.
+Licensed under the BSD 3-Clause License; the full text ships in the package's
+LICENSE file. Shipped unmodified.

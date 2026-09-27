@@ -18,7 +18,8 @@ export type ErrorCode =
   | "TX_NOT_FOUND"
   | "TX_EXPIRED"
   | "NOTHING_TO_UNDO"
-  | "NOTHING_TO_REDO";
+  | "NOTHING_TO_REDO"
+  | "BOOLEAN_FAILED";
 
 /** What an Agent sees for a failed call: enough to fix the call without a stack trace. */
 export interface ErrorData {
