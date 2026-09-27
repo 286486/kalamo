@@ -1748,6 +1748,47 @@ describe("container Appearance (ADR-0043)", () => {
       expect(uneven.warnings).toEqual(["UNSUPPORTED_ATTRIBUTE"]);
     });
 
+    it.each([
+      [
+        "Inkscape 1.2.2's nested rotations and scales",
+        "matrix(0.99585779,0.8356239,-0.8356239,0.99585779,0,0)",
+        "matrix(0.46839142,0.52020138,-0.52020138,0.46839142,0,0)",
+        3.64,
+      ],
+      [
+        "a rotation off by 1e-7 in one entry",
+        "rotate(17)",
+        "matrix(0.8660254,0.5,-0.5,0.8660255,0,0)",
+        4,
+      ],
+      [
+        "a flip and a rotation rounded unevenly",
+        "rotate(40)",
+        "matrix(-0.8660254,0.5,0.5,0.8660255,0,0)",
+        4,
+      ],
+      [
+        "a rotation and a scale written with 7 digits",
+        "rotate(11)",
+        "matrix(0.5870694,0.3812473,-0.3812473,0.5870695,0,0)",
+        2.8,
+      ],
+    ])("keeps %s silent, with the Stroke scaled", (_, outer, inner, width) => {
+      const { looks, warnings } = open(`<g transform="${outer}">${group(inner)}</g>`);
+      expect(looks[0]?.strokes[0]?.width).toBeCloseTo(width, 3);
+      expect(warnings).toEqual([]);
+    });
+
+    it.each([
+      ["100% × 100.01%", "scale(1,1.0001)", 4 * Math.sqrt(1.0001)],
+      ["a skew of 0.01°", "skewX(0.01)", 4],
+      ["100.001% × 100%", "scale(1.00001,1)", 4 * Math.sqrt(1.00001)],
+    ])("still warns once about %s, with the Stroke at √|det|", (_, transform, width) => {
+      const { looks, warnings } = open(group(transform));
+      expect(looks[0]?.strokes[0]?.width).toBeCloseTo(width, 3);
+      expect(warnings).toEqual(["UNSUPPORTED_ATTRIBUTE"]);
+    });
+
     it("drops a paint group its own transform flattens, and does not count it in Contents", () => {
       const { looks, warnings } = open(
         `<g><g zibel:paint="true" fill="red" transform="scale(0,1)"/>${PAINT}<rect width="5" height="5"/></g>`,
