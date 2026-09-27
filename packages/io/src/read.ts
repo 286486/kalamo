@@ -487,7 +487,10 @@ class Reader {
    * other child. The outline copies inside are derived from the children and ignored.
    */
   private containerAppearance(kids: Element[], matrix: Matrix, style: Style) {
-    const drawn = kids.filter((c) => !SILENT.has(c.localName ?? ""));
+    // What walk reads: an element it drops without a Node does not end the paints below Contents.
+    const drawn = kids.filter(
+      (c) => (c.namespaceURI === NS.svg || c.namespaceURI === null) && DRAWN.has(c.localName ?? ""),
+    );
     const below = drawn.findIndex((c) => !isPaint(c));
     const appearance: ContainerAppearance = { fills: [], strokes: [], contents: 0 };
     drawn.forEach((c, i) => {
@@ -495,7 +498,9 @@ class Reader {
       const s = computeStyle(c, style, this.rules);
       // Hidden in the editor, it draws nothing.
       if (s.display === "none") return;
-      const m = multiply(matrix, parseTransform(c.getAttribute("transform")));
+      const own = parseTransform(c.getAttribute("transform"));
+      // An unreadable transform is ignored, as walk ignores a leaf's.
+      const m = own.every(Number.isFinite) ? multiply(matrix, own) : matrix;
       const look = this.appearance(s, c, m);
       const fill = look.fills[0];
       const stroke = look.strokes[0];
@@ -509,6 +514,13 @@ class Reader {
           "A Layer's or Group's gradient paint is not supported yet and was dropped.",
         );
         return;
+      }
+      if (fill && appearance.strokes.length) {
+        this.warn(
+          "UNSUPPORTED_ATTRIBUTE",
+          "paint order",
+          "A Layer's or Group's Fill above one of its Strokes moved below every Stroke: a Fill cannot sit above a Stroke.",
+        );
       }
       if (fill) appearance.fills.push(fill);
       else if (stroke) appearance.strokes.push(stroke);

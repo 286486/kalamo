@@ -1646,6 +1646,33 @@ describe("container Appearance (ADR-0043)", () => {
     expect(again).not.toContain('<path d="M 0 0 L 10 0 L 10 10 L 0 10 Z"/>');
   });
 
+  it("counts Contents past what the walk drops, and ignores a paint's unreadable transform", () => {
+    const file = parseSvg(
+      svg(
+        'viewBox="0 0 10 10"',
+        '<g><g zibel:paint="true" fill="red"/><foreignObject/><g zibel:paint="true" fill="none" stroke="blue" transform="matrix(1,NaN)"/><rect width="5" height="5"/></g>',
+      ),
+    );
+    const group = file.nodes.find((n) => n.type === "group");
+    expect(group && "appearance" in group && group.appearance).toMatchObject({
+      fills: [{ color: "#FF0000" }],
+      strokes: [{ color: "#0000FF", width: 1 }],
+      contents: 2,
+    });
+  });
+
+  it("warns when a Fill group sits above a Stroke group, which the model cannot hold", () => {
+    const file = parseSvg(
+      svg(
+        'viewBox="0 0 10 10"',
+        '<g><g zibel:paint="true" fill="none" stroke="blue"/><rect width="5" height="5"/><g zibel:paint="true" fill="red"/></g>',
+      ),
+    );
+    const group = file.nodes.find((n) => n.type === "group");
+    expect(group && "appearance" in group && group.appearance).toMatchObject({ contents: 1 });
+    expect(file.warnings).toEqual([expect.objectContaining({ code: "UNSUPPORTED_ATTRIBUTE" })]);
+  });
+
   it("drops a paint group outside a Layer or Group with a warning", () => {
     const file = parseSvg(
       svg(

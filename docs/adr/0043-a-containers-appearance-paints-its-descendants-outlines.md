@@ -38,7 +38,7 @@ This amends ADR-0017's mapping table with a row:
 Why one copy per leaf and not one combined `d`: under nonzero, one path of every outline leaves holes where outlines of opposite winding overlap, and Illustrator paints each object on its own. The copies are locked and labelled so a designer in Inkscape sees what they are and cannot move them. They are derived, so import (#104) reads the paint from each group and ignores the copies:
 
 - In a `<g>` read as a Layer or Group, each direct child `<g zibel:paint>` is one Fill, or when its fill is none one Stroke, resolved like a leaf's paint; a hidden one is no paint. `contents` is the number of paints before the first other drawn child. A designer who deletes a paint group removes that paint, and one who moves a child leaves no stale outline, since export redraws the copies from the children.
-- A paint group anywhere else (at the root, outside every Layer) is dropped with `UNSUPPORTED_ELEMENT`. A gradient paint is dropped with `UNSUPPORTED_PAINT` until #107.
+- A paint group anywhere else (at the root, outside every Layer) is dropped with `UNSUPPORTED_ELEMENT`. A gradient paint is dropped with `UNSUPPORTED_PAINT` until #107. A Fill group above a Stroke group reads in fills-then-strokes order with `UNSUPPORTED_ATTRIBUTE`, since a Fill cannot sit above a Stroke.
 - A plain `<g fill>` from another editor is SVG inheritance, not a container Appearance, and imports as before: its children inherit the paint.
 
 Open and Place both read them, so Place and paste keep container Appearance on the Groups they make, Layers that become Groups included.
