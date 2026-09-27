@@ -217,3 +217,43 @@ test("Offset Path previews the copy, adds it below on OK, and one Undo takes it 
   await page.keyboard.press("Control+z");
   await expect.poll(async () => (await layer()).length).toBe(1);
 });
+
+// #89: Object > Path > Split Into Grid… and Clean Up….
+test("Split Into Grid replaces the rect with a grid, and Clean Up says how many it removed", async ({
+  page,
+  request,
+}) => {
+  const { docId, defaultLayerId: parentId } = (
+    await call(request, "zibel_doc_create", {
+      name: "Grid",
+      artboards: [{ width: 200, height: 100 }],
+    })
+  ).structuredContent;
+  await call(request, "zibel_node_create", {
+    docId,
+    nodes: [
+      { type: "rect", parentId, x: 0, y: 0, width: 200, height: 100 },
+      { type: "path", parentId, d: "M 5 5" },
+    ],
+  });
+  const layer = async () =>
+    (await call(request, "zibel_doc_outline", { docId, rootId: parentId, depth: 1 }))
+      .structuredContent?.nodes as { type: string }[];
+
+  await page.goto(`/docs/${docId}`);
+  await expect(page.getByTestId("status-bar")).toContainText(/\d+%/);
+  await page.keyboard.press("Control+a");
+  await choose(page, "Object", "Path", "Split Into Grid…");
+  const dialog = page.getByRole("dialog", { name: "Split Into Grid" });
+  await dialog.getByLabel("Columns:", { exact: true }).fill("3");
+  await dialog.getByLabel("Gutter").fill("10");
+  await dialog.getByRole("button", { name: "OK" }).click();
+  await expect
+    .poll(async () => (await layer()).map((n) => n.type))
+    .toEqual(["rect", "rect", "rect", "rect", "rect", "rect", "path"]);
+
+  await choose(page, "Object", "Path", "Clean Up…");
+  await page.getByRole("dialog", { name: "Clean Up" }).getByRole("button", { name: "OK" }).click();
+  await expect(page.getByText("Clean Up removed 1 object(s).")).toBeVisible();
+  await expect.poll(async () => (await layer()).length).toBe(6);
+});

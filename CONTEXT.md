@@ -55,7 +55,7 @@ _Avoid_: Control point、Direction point、Bezier point
 _Avoid_: End point、Tip、Terminal
 
 **Stray Point（游离点）**：
-只有一个 Anchor、没有线段的 Path。它不可见也无法打印，Object > Path > Clean Up 删除它。
+只有一个 Anchor、没有线段的 Path，或 Path 中这样的一条子路径（Illustrator 的 compound path 由多个 PathItem 组成，每个子路径各算一个）。它不可见也无法打印，Object > Path > Clean Up 删除它。
 _Avoid_: Orphan point、Lone anchor
 
 **Live Shape（实时形状）**：

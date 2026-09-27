@@ -1,4 +1,4 @@
-import { generateKeyBetween } from "fractional-indexing";
+import { generateKeyBetween, generateNKeysBetween } from "fractional-indexing";
 import { z } from "zod";
 import {
   type Anchor,
@@ -14,22 +14,44 @@ import {
   toPath,
   withAnchors,
 } from "./anchor.ts";
-import { childrenOf, createNodes, newId, worldTransform } from "./document.ts";
+import {
+  bounds,
+  childrenOf,
+  createNodes,
+  MAX_NODES_PER_CREATE,
+  newId,
+  worldTransform,
+} from "./document.ts";
 import { ZibelError } from "./errors.ts";
 import { simplifySubpath } from "./fit.ts";
 import { applyTo, IDENTITY, invert, multiply, scaleOf, transformSegments } from "./matrix.ts";
 import { formatPath, parsePath, type Segment } from "./path.ts";
-import type { Document, Fill, GroupNode, Matrix, Node, Stroke, WriteReceipt } from "./schema.ts";
+import type {
+  Document,
+  Fill,
+  GroupNode,
+  Matrix,
+  Node,
+  Rect,
+  ShapeNode,
+  Stroke,
+  WriteReceipt,
+} from "./schema.ts";
 
 type Point = [number, number];
 
 /**
  * `path_op` (REQUIREMENTS §6.4) so far: convert_to_path (Object > Shape > Expand Shape), reverse
  * (Reverse Path Direction), add_anchors (Add Anchor Points), join (Join), average (Average),
- * simplify (Simplify), outline_stroke (Outline Stroke) and offset (Offset Path).
+ * simplify (Simplify), outline_stroke (Outline Stroke), offset (Offset Path), split_into_grid
+ * (Split Into Grid) and clean_up (Clean Up).
  */
 export const PathOpInput = z.object({
-  nodeIds: z.array(z.string()).min(1).max(1000),
+  nodeIds: z
+    .array(z.string())
+    .max(1000)
+    .default([])
+    .describe("Every op but clean_up, which acts on the whole Document, needs at least one."),
   op: z.enum([
     "convert_to_path",
     "reverse",
@@ -39,6 +61,8 @@ export const PathOpInput = z.object({
     "simplify",
     "outline_stroke",
     "offset",
+    "split_into_grid",
+    "clean_up",
   ]),
   tolerance: z
     .number()
@@ -85,6 +109,39 @@ export const PathOpInput = z.object({
     .describe(
       "offset: past this many times the distance, a miter corner is beveled instead, as a Stroke's.",
     ),
+  rows: z.number().int().min(1).default(2).describe("split_into_grid: rows of rectangles."),
+  cols: z.number().int().min(1).default(2).describe("split_into_grid: columns of rectangles."),
+  gutter: z
+    .number()
+    .min(0)
+    .default(0)
+    .describe("split_into_grid: the gap between rows and between columns, in document units."),
+  totalWidth: z
+    .number()
+    .positive()
+    .optional()
+    .describe(
+      "split_into_grid: Illustrator's Columns Total, the grid's width from the shape's left; default the shape's width.",
+    ),
+  totalHeight: z
+    .number()
+    .positive()
+    .optional()
+    .describe(
+      "split_into_grid: Illustrator's Rows Total, the grid's height from the shape's top; default the shape's height.",
+    ),
+  strayPoints: z
+    .boolean()
+    .default(true)
+    .describe("clean_up: remove Stray Points, subpaths of one Anchor."),
+  unpainted: z
+    .boolean()
+    .default(true)
+    .describe("clean_up: remove Live Shapes and paths with no Fill and no Stroke."),
+  emptyText: z
+    .boolean()
+    .default(true)
+    .describe("clean_up: remove texts whose content is only spaces and hard returns."),
   anchors: z
     .array(AnchorRef)
     .max(10000)
@@ -108,6 +165,8 @@ export const PATH_OP_TEXT: Record<PathOpInput["op"], { menu: string; summary: st
   simplify: { menu: "Simplify…", summary: "Simplify" },
   outline_stroke: { menu: "Outline Stroke", summary: "Outline Stroke" },
   offset: { menu: "Offset Path…", summary: "Offset Path" },
+  split_into_grid: { menu: "Split Into Grid…", summary: "Split Into Grid" },
+  clean_up: { menu: "Clean Up…", summary: "Clean Up" },
 };
 
 /** How a Stroke is drawn along its path, without its paint. */
@@ -518,6 +577,98 @@ function offset(
 }
 
 /**
+ * `path_op split_into_grid` (research §5): each closed path or Live Shape becomes rows × cols rects
+ * over its geometric bounds in document coordinates, in its place, all with the topmost shape's
+ * appearance (research §5). Containers
+ * carry no transform (ADR-0007), so the rects need none either. A Clipping Path is left as it is.
+ */
+function splitIntoGrid(doc: Document, input: z.output<typeof PathOpInput>): PathOpResult {
+  const { rows, cols, gutter } = input;
+  const shapes = allWithAnchors(doc, input.nodeIds).filter((n) => {
+    const { subpaths } = anchorsIn(n);
+    return !n.clipping && subpaths.length > 0 && subpaths.every((s) => s.closed);
+  });
+  if (shapes.length === 0) {
+    throw invalid("nodeIds", "No closed shape to split.", "Name a closed path or Live Shape.");
+  }
+  if (shapes.length * rows * cols > MAX_NODES_PER_CREATE) {
+    throw invalid(
+      "rows",
+      `The grids would make more than ${MAX_NODES_PER_CREATE} rects.`,
+      "Use fewer rows or columns.",
+    );
+  }
+  // Adobe: several objects' grids take the topmost one's appearance.
+  const order = paintOrder(doc);
+  const { appearance } = shapes.reduce((a, b) =>
+    (order.get(b.id) ?? 0) > (order.get(a.id) ?? 0) ? b : a,
+  );
+  const created: ShapeNode[] = [];
+  for (const found of shapes) {
+    const b = bounds(doc, found) as Rect;
+    const width = ((input.totalWidth ?? b.width) - gutter * (cols - 1)) / cols;
+    const height = ((input.totalHeight ?? b.height) - gutter * (rows - 1)) / rows;
+    if (width <= 0 || height <= 0) {
+      throw invalid("gutter", "The gutters leave no room for the rects.", "Use a smaller gutter.");
+    }
+    const below = childrenOf(doc, found.parentId).findLast((n) => n.index < found.index);
+    const keys = generateNKeysBetween(below?.index ?? null, found.index, rows * cols);
+    const { name, parentId, visible, locked, opacity, blendMode, tags, meta } = found;
+    for (const [k, index] of keys.entries()) {
+      const [r, c] = [Math.floor(k / cols), k % cols];
+      created.push({
+        ...{ id: newId(), name, parentId, index, visible, locked, opacity, blendMode, tags, meta },
+        ...{ transform: IDENTITY, appearance, type: "rect", radius: 0, width, height },
+        x: b.x + c * (width + gutter),
+        y: b.y + r * (height + gutter),
+      });
+    }
+  }
+  const deletedIds = shapes.map((n) => n.id);
+  for (const id of deletedIds) doc.nodes.delete(id);
+  for (const n of created) doc.nodes.set(n.id, n);
+  return { created, updated: [], deletedIds, warnings: [] };
+}
+
+/**
+ * `path_op clean_up` (research §5), over the whole Document: removes Stray Points, a path left
+ * with none being deleted; Live Shapes and paths with no Fill and no Stroke; and texts of only
+ * spaces and hard returns, the nearest a text gets to Illustrator's empty text path. Hidden and
+ * locked Nodes, and Clipping Paths, are left as they are.
+ */
+function cleanUp(doc: Document, input: z.output<typeof PathOpInput>): PathOpResult {
+  const editable = (n: Node | undefined): boolean =>
+    !n || (n.visible && !n.locked && editable(n.parentId ? doc.nodes.get(n.parentId) : undefined));
+  const deletedIds: string[] = [];
+  const updated: PathNode[] = [];
+  for (const n of doc.nodes.values()) {
+    if (n.type === "layer" || n.type === "group" || n.type === "image" || !editable(n)) continue;
+    if (n.type === "text") {
+      if (input.emptyText && n.content.trim() === "") deletedIds.push(n.id);
+      continue;
+    }
+    if (n.clipping) continue;
+    const { fills, strokes } = n.appearance;
+    if (input.unpainted && fills.length === 0 && strokes.length === 0) {
+      deletedIds.push(n.id);
+    } else if (input.strayPoints && n.type === "path") {
+      const subpaths = toAnchors(parsePath(n.d, "d"));
+      const kept = subpaths.filter((s) => s.anchors.length > 1);
+      if (kept.length === 0) deletedIds.push(n.id);
+      else if (kept.length < subpaths.length) {
+        updated.push({ ...n, d: formatPath(fromAnchors(kept)) });
+      }
+    }
+  }
+  if (deletedIds.length === 0 && updated.length === 0) {
+    throw invalid("op", "Nothing to clean up.", "Clean Up found no object to remove.");
+  }
+  for (const id of deletedIds) doc.nodes.delete(id);
+  for (const n of updated) doc.nodes.set(n.id, n);
+  return { updated, deletedIds, warnings: [] };
+}
+
+/**
  * `path_op` (REQUIREMENTS §6.4) on each path or Live Shape; every op but convert_to_path and
  * offset converts a Live Shape first (F-PATH-07), with a warning. outline_stroke and offset need
  * `geometry`.
@@ -525,6 +676,10 @@ function offset(
 export function pathOp(doc: Document, raw: PathOpInput, geometry?: Geometry): PathOpResult {
   const input = PathOpInput.parse(raw);
   const { nodeIds, op } = input;
+  if (op === "clean_up") return cleanUp(doc, input);
+  if (nodeIds.length === 0) {
+    throw invalid("nodeIds", "The op needs at least one Node.", "List the paths in nodeIds.");
+  }
   if (op === "convert_to_path") {
     return { ...convertToPath(doc, nodeIds), deletedIds: [], warnings: [] };
   }
@@ -536,6 +691,7 @@ export function pathOp(doc: Document, raw: PathOpInput, geometry?: Geometry): Pa
     if (!geometry) throw new Error("offset needs the path geometry (ADR-0034).");
     return offset(doc, input, geometry);
   }
+  if (op === "split_into_grid") return splitIntoGrid(doc, input);
   if (op === "join") return join(doc, input);
   if (op === "average") return average(doc, input);
   const unique = allWithAnchors(doc, nodeIds);

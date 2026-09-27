@@ -1,6 +1,7 @@
 import { type Document, PATH_OP_TEXT, type PathOpInput, serializeDocument } from "@zibel/core";
 import { toSvg } from "@zibel/io/write";
 import { sendAnchorEdits } from "./anchorTools.ts";
+import { cleanUpDialog } from "./cleanUp.ts";
 import { curvatureClearInputs, removeCurveAnchor } from "./curvature.ts";
 import { anchorOpTargets, clearInputs, inRange, removeAnchorInputs } from "./direct.ts";
 import { offsetDialog } from "./offset.ts";
@@ -15,6 +16,7 @@ import {
   releasable,
 } from "./selection.ts";
 import { startSimplify } from "./simplify.ts";
+import { splitGridDialog } from "./splitGrid.ts";
 import { type State, send, useStore } from "./store.ts";
 import { OPENABLE } from "./tabs.ts";
 import { drawing, undoAnchor } from "./tools.ts";
@@ -81,7 +83,9 @@ const hasPathTargets = ({ doc, selection }: State) =>
   doc !== null && pathTargets(doc, selection).length > 0;
 
 /** An Object > Path item that runs `op` on the Selection's paths and Live Shapes (pathTargets). */
-const pathOp = (op: Exclude<PathOpInput["op"], "convert_to_path" | "offset">): MenuItem => ({
+const pathOp = (
+  op: Exclude<PathOpInput["op"], "convert_to_path" | "offset" | "split_into_grid" | "clean_up">,
+): MenuItem => ({
   label: PATH_OP_TEXT[op].menu,
   enabled: hasPathTargets,
   run: () => {
@@ -311,6 +315,12 @@ export function documentMenus(tabs: { open: (file: File) => void; close: () => v
                 if (doc) sendAnchorEdits(removeAnchorInputs(doc, anchors));
               },
             },
+            {
+              label: PATH_OP_TEXT.split_into_grid.menu,
+              enabled: hasPathTargets,
+              run: splitGridDialog,
+            },
+            { label: PATH_OP_TEXT.clean_up.menu, enabled: hasDoc, run: cleanUpDialog },
           ],
         },
         {

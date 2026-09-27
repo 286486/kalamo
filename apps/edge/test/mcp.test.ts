@@ -357,6 +357,49 @@ it("offsets a 100 pt square by 10 pt into a 120 pt copy below it, in one Transac
   expect(nodes[1].index < nodes[0].index).toBe(true);
 });
 
+it("splits a 200x100 rect 2x3 into six rects and cleans up, reporting how many", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const [rect] = (
+    await call("zibel_node_create", {
+      docId,
+      nodes: [
+        { type: "rect", parentId: defaultLayerId, x: 0, y: 0, width: 200, height: 100 },
+        { type: "path", parentId: defaultLayerId, d: "M 5 5" },
+        {
+          type: "rect",
+          parentId: defaultLayerId,
+          x: 0,
+          y: 0,
+          width: 10,
+          height: 10,
+          appearance: {},
+        },
+      ],
+    })
+  ).structuredContent.createdIds as string[];
+  const split = (
+    await call("zibel_path_op", {
+      docId,
+      nodeIds: [rect],
+      op: "split_into_grid",
+      rows: 2,
+      cols: 3,
+      gutter: 10,
+    })
+  ).structuredContent;
+  expect(split).toMatchObject({ deletedIds: [rect] });
+  expect(split.createdIds).toHaveLength(6);
+  expect(split.bounds).toEqual({ x: 0, y: 0, width: 200, height: 100 });
+  const cleaned = (await call("zibel_path_op", { docId, op: "clean_up" })).structuredContent;
+  expect(cleaned.deletedIds).toHaveLength(2);
+  const { changes } = (await call("zibel_doc_changes", { docId, sinceRev: split.rev - 1 }))
+    .structuredContent;
+  expect(changes.map((c: { summary: string }) => c.summary)).toEqual([
+    "Split Into Grid",
+    "Clean Up",
+  ]);
+});
+
 it("draws a freehand_stroke as one smooth closed path", async () => {
   const { docId, defaultLayerId } = await newDoc();
   const points = Array.from({ length: 61 }, (_, k) => ({

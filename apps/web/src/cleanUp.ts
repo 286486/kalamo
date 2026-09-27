@@ -1,0 +1,41 @@
+import { type PathOpInput, pathOp } from "@zibel/core";
+import { send, useStore } from "./store.ts";
+
+/**
+ * Object > Path > Clean Up… (research 06 §5): Stray Points, Unpainted Objects and Empty Text Paths,
+ * all on by default, over the whole Document. The count comes from core run on a copy, so the
+ * notice can say how many objects go, or that there is nothing to clean up without a round trip.
+ */
+export function cleanUpDialog() {
+  const dialog = Object.assign(document.createElement("dialog"), { ariaLabel: "Clean Up" });
+  dialog.style.font = "13px system-ui, sans-serif";
+  const box = (name: string, label: string) =>
+    `<label style="display:block;margin:6px 0"><input type="checkbox" name="${name}" checked> ${label}</label>`;
+  dialog.innerHTML = `<form method="dialog">
+${box("strayPoints", "Stray Points")}${box("unpainted", "Unpainted Objects")}${box("emptyText", "Empty Text Paths")}
+<p style="text-align:right;margin-bottom:0"><button value="ok">OK</button> <button value="cancel">Cancel</button></p>
+</form>`;
+  const form = dialog.querySelector("form") as HTMLFormElement;
+  const checked = (name: string) => (form.elements.namedItem(name) as HTMLInputElement).checked;
+  dialog.onclose = () => {
+    dialog.remove();
+    const { doc } = useStore.getState();
+    if (dialog.returnValue !== "ok" || !doc) return;
+    const input: PathOpInput = {
+      op: "clean_up",
+      strayPoints: checked("strayPoints"),
+      unpainted: checked("unpainted"),
+      emptyText: checked("emptyText"),
+    };
+    try {
+      const { deletedIds, updated } = pathOp({ ...doc, nodes: new Map(doc.nodes) }, input);
+      send({ type: "path_op", input });
+      const trimmed = updated.length > 0 ? `, and Stray Points from ${updated.length} path(s)` : "";
+      useStore.setState({ notice: `Clean Up removed ${deletedIds.length} object(s)${trimmed}.` });
+    } catch (e) {
+      useStore.setState({ notice: e instanceof Error ? e.message : String(e) });
+    }
+  };
+  document.body.append(dialog);
+  dialog.showModal();
+}
