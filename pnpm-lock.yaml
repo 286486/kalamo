@@ -196,6 +196,9 @@ importers:
 
   apps/edge:
     dependencies:
+      '@cloudflare/workers-oauth-provider':
+        specifier: 1.1.0
+        version: 1.1.0
       '@modelcontextprotocol/sdk':
         specifier: 1.30.0
         version: 1.30.0(supports-color@10.2.2)(zod@4.4.3)
@@ -439,6 +442,9 @@ packages:
     engines: {node: '>=16'}
     cpu: [x64]
     os: [win32]
+
+  '@cloudflare/workers-oauth-provider@1.1.0':
+    resolution: {integrity: sha512-J3J7AZ/Iok8DyIeXobc6zk9vSj5oeQB1I6Jxe8OqgvlhTq6nm/9fKhdyjKba82tLzLCfEc0w8yy8s715TeNe6Q==}
 
   '@cloudflare/workers-types@5.20260922.1':
     resolution: {integrity: sha512-zZVBBFJan5Kw+flEgSHqqCZ0LvHPv5LvfP2igmQiLvZ4fFQYsI4epN9cGiCQqaCyhCzQuqWEyK1Lamzm3QJAmw==}
@@ -1829,6 +1835,8 @@ snapshots:
 
   '@cloudflare/workerd-windows-64@1.20260921.1':
     optional: true
+
+  '@cloudflare/workers-oauth-provider@1.1.0': {}
 
   '@cloudflare/workers-types@5.20260922.1': {}
 

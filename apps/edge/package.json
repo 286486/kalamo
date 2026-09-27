@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@cloudflare/workers-oauth-provider": "1.1.0",
     "@modelcontextprotocol/sdk": "1.30.0",
     "@zibel/core": "workspace:*",
     "@zibel/geometry": "workspace:*",
