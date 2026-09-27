@@ -152,9 +152,9 @@ const bakes = ([a, b, c, d]: Matrix) =>
 /** A matrix that flattens to a line or point, which draws nothing. */
 const flat = ([a, b, c, d]: Matrix) => Math.abs(a * d - b * c) < 1e-12;
 
-/** Rotation, uniform scale and reflection: a Stroke of one width draws them exactly (ADR-0043). */
+/** Rotation, uniform scale and reflection, up to a writer's rounding: a Stroke of one width draws them exactly (ADR-0043). */
 const similar = ([a, b, c, d]: Matrix) => {
-  const tolerance = 1e-9 * (a * a + b * b + c * c + d * d);
+  const tolerance = 1e-6 * (a * a + b * b + c * c + d * d);
   return Math.abs(a * c + b * d) < tolerance && Math.abs(a * a + b * b - c * c - d * d) < tolerance;
 };
 
