@@ -384,7 +384,8 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       ),
   );
 
-  const maskWrite = { intent, txId: writeFields.txId, ifRev };
+  /** The write options of a tool without partial. */
+  const txWrite = { intent, txId: writeFields.txId, ifRev };
   server.registerTool(
     "zibel_mask_make",
     {
@@ -394,7 +395,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         "The clip Node is a Live Shape or path (not a text), and every Node listed shares its parent. The Group's geometricBounds are the Clipping Path's. Move the clip or the content with zibel_node_transform; zibel_mask_release undoes the clip.",
         "One Transaction. createdIds is the Group; updatedIds the Nodes moved into it.",
       ].join(" "),
-      inputSchema: { docId, ...MaskInput.shape, ...maskWrite },
+      inputSchema: { docId, ...MaskInput.shape, ...txWrite },
       outputSchema: WriteReceipt.shape,
       annotations: {
         readOnlyHint: false,
@@ -415,7 +416,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       title: "Release Clipping Mask",
       description:
         "Stop Clipping Masks clipping, as Illustrator's Object > Clipping Mask > Release. List each by its Group id or its Clipping Path's id. The Group and its Nodes stay; the former Clipping Path keeps no Fill or Stroke until you give it an appearance with zibel_node_update.",
-      inputSchema: { docId, nodeIds: z.array(z.string()).min(1).max(1000), ...maskWrite },
+      inputSchema: { docId, nodeIds: z.array(z.string()).min(1).max(1000), ...txWrite },
       outputSchema: WriteReceipt.shape,
       annotations: {
         readOnlyHint: false,
@@ -440,7 +441,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         "A Live Shape (rect, ellipse, line, polygon, star) is converted to a path first, as zibel_path_op convert_to_path does, and warnings says so (CONVERTED_TO_PATH); its Anchors are those of the d zibel_node_get shows for it. To keep it live, edit its parameters with zibel_node_update instead.",
         "Returns the receipt, the new d and every subpath's Anchors as stored, with at most 3 decimals.",
       ].join(" "),
-      inputSchema: { docId, ...PathEditInput.shape, ...maskWrite },
+      inputSchema: { docId, ...PathEditInput.shape, ...txWrite },
       outputSchema: PathEditOutput.shape,
       annotations: edit,
     },
@@ -458,7 +459,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         "Run a path operation on Nodes, in one Transaction.",
         "op convert_to_path turns each Live Shape (rect, ellipse, line, polygon, star) into a path with the same outline, as Illustrator's Object > Shape > Expand Shape: it keeps its id, parent, stacking order, name, transform and appearance, and its parameters give way to d and fillRule. A path is left as it is; any other Node fails the call. zibel_path_edit converts a Live Shape by itself, so convert first only to keep the shape as a path without editing it.",
       ].join(" "),
-      inputSchema: { docId, ...PathOpInput.shape, ...maskWrite },
+      inputSchema: { docId, ...PathOpInput.shape, ...txWrite },
       outputSchema: WriteReceipt.shape,
       annotations: edit,
     },
@@ -472,11 +473,11 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       title: "Freehand Stroke",
       description: [
         "Draw with Illustrator's Pencil: points is the Ink in drawing order, in document coordinates, and it is fitted with cubic Béziers into one new path under parentId (a Layer or Group), above its other children, in one Transaction.",
-        "fidelity is the Pencil's Fidelity, 0 Accurate to 100 Smooth (default 50): every point lies within 0.1 pt of the path at 0, 1 pt at 50 and 10 pt at 100, so a higher value gives fewer Anchors. A turn sharper than 60° becomes a Corner Anchor, a straight run between corners a line, and every other Anchor is Smooth. Ends within that distance of each other close the path: repeat the first point to close it.",
+        "fidelity is the Pencil's Fidelity, 0 Accurate to 100 Smooth (default 50): every point lies within 0.1 pt of the path at 0, 1 pt at 50 and 10 pt at 100, so a higher value gives fewer Anchors. A turn sharper than 60° becomes a Corner Anchor, a straight run between corners a line, and every other Anchor is Smooth. The path closes only when the last point repeats the first (within 0.001 pt).",
         "pressure is accepted and ignored, as the Pencil draws at a fixed width. appearance is as zibel_node_create takes it; omitted, a 1 pt black Stroke and no Fill.",
         "createdIds is the path; read its d and Anchors with zibel_node_get or zibel_path_edit.",
       ].join(" "),
-      inputSchema: { docId, ...FreehandStrokeInput.shape, ...maskWrite },
+      inputSchema: { docId, ...FreehandStrokeInput.shape, ...txWrite },
       outputSchema: WriteReceipt.shape,
       annotations: {
         readOnlyHint: false,

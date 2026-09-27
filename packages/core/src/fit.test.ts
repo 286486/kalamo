@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { toAnchors } from "./anchor.ts";
 import type { ZibelError } from "./errors.ts";
-import { fidelityTolerance, fitInk, freehandPath } from "./fit.ts";
+import { FreehandStrokeInput, fidelityTolerance, fitInk, freehandPath } from "./fit.ts";
 import { formatPath, parsePath, type Segment } from "./path.ts";
 
 type Point = [number, number];
@@ -129,6 +129,41 @@ describe("fitInk", () => {
     expect(counts[0]).toBeGreaterThan(counts.at(-1) ?? 0);
   });
 
+  it("keeps a small closed loop a loop at Smooth", () => {
+    const points = Array.from(
+      { length: 41 },
+      (_, k): Point => [5 * Math.cos((Math.PI * k) / 20), 5 * Math.sin((Math.PI * k) / 20)],
+    );
+    const segments = fitInk(points, 10);
+    expect(segments.at(-1)?.cmd).toBe("Z");
+    expect(curves(segments).length).toBeGreaterThanOrEqual(2);
+    expect(maxError(points, segments)).toBeLessThanOrEqual(10);
+  });
+
+  it("closes only when the last point is the first, whatever the tolerance", () => {
+    const c = Array.from(
+      { length: 31 },
+      (_, k): Point => [
+        50 * Math.cos((1.9 * Math.PI * k) / 30),
+        50 * Math.sin((1.9 * Math.PI * k) / 30),
+      ],
+    );
+    expect(fitInk(c, 10).at(-1)?.cmd).not.toBe("Z");
+    expect(
+      formatPath(
+        fitInk(
+          [
+            [0, 0],
+            [10, 0],
+            [0, 0],
+          ],
+          1,
+        ),
+      ),
+    ).not.toMatch(/Z/);
+    expect(fitInk([...c, [50.0005, 0]], 1).at(-1)?.cmd).toBe("Z");
+  });
+
   it("drops repeated points", () => {
     expect(
       formatPath(
@@ -181,6 +216,15 @@ describe("freehandPath", () => {
     expect(freehandPath({ parentId: "p", points, tool: "pencil", appearance }).appearance).toEqual(
       appearance,
     );
+  });
+
+  it("refuses a coordinate out of range at its point", () => {
+    const points = [
+      { x: 0, y: 0 },
+      { x: 1e308, y: 0 },
+    ];
+    const r = FreehandStrokeInput.safeParse({ parentId: "p", points, tool: "pencil" });
+    expect(r.error?.issues[0]?.path).toEqual(["points", 1, "x"]);
   });
 
   it("refuses Ink without two distinct points", () => {

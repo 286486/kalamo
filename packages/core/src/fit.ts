@@ -17,6 +17,9 @@ const unit = (a: Point): Point => scale(a, 1 / (Math.hypot(a[0], a[1]) || 1));
 /** Fidelity 0 (Accurate) to 100 (Smooth) as the fit's largest error in pt: 0.1, 1 and 10 (ADR-0033). */
 export const fidelityTolerance = (fidelity: number) => 10 ** ((fidelity - 50) / 50);
 
+/** Ends this close, in pt, close the path, whatever the tolerance (ADR-0033). */
+const CLOSE = 1e-3;
+
 /** A turn sharper than this, seen over twice the tolerance, is a Corner Anchor (ADR-0033). */
 const CORNER = (60 * Math.PI) / 180;
 
@@ -37,7 +40,7 @@ const bezier = ([p0, c1, c2, p3]: Cubic, t: number): Point => {
  */
 export function fitInk(ink: Point[], tolerance: number): Segment[] {
   const pts = ink.filter((p, i) => i === 0 || dist(p, ink[i - 1] as Point) > 1e-9);
-  const closed = pts.length > 2 && dist(pts[0] as Point, pts.at(-1) as Point) <= tolerance;
+  const closed = pts.length > 3 && dist(pts[0] as Point, pts.at(-1) as Point) <= CLOSE;
   if (closed) pts.pop();
   const n = pts.length;
   const at = (i: number) => pts[closed ? (i + n) % n : i] as Point;
@@ -75,8 +78,25 @@ export function fitInk(ink: Point[], tolerance: number): Segment[] {
   const cuts = closed ? corners : [0, ...corners, n - 1];
   let pieces: [number, number][] = cuts.slice(1).map((c, k) => [cuts[k] as number, c]);
   if (closed)
-    pieces = cuts.length ? [...pieces, [cuts.at(-1) as number, cuts[0] as number]] : [[0, 0]];
+    pieces = cuts.length ? [...pieces, [cuts.at(-1) as number, cuts[0] as number]] : halves();
   pieces = pieces.map(([a, b]) => [a, b > a ? b : b + n]);
+
+  /** A smooth loop splits at the point farthest from its start, so no piece has coincident ends. */
+  function halves(): [number, number][] {
+    const d = pts.map((p) => dist(p, pts[0] as Point));
+    const far = d.indexOf(Math.max(...d));
+    return [
+      [0, far],
+      [far, 0],
+    ];
+  }
+  const loop = closed && !corners.length;
+  /** The tangent through point i of a smooth loop, pointing back along it. */
+  const center = (i: number) => {
+    const back = toward(i, -1, i + 1 - n);
+    const ahead = toward(i, 1, i + n - 1);
+    return back && ahead ? unit(sub(back, ahead)) : null;
+  };
 
   const cubics: Cubic[] = [];
   for (const [first, last] of pieces) {
@@ -84,16 +104,14 @@ export function fitInk(ink: Point[], tolerance: number): Segment[] {
     const [p0, p3] = [run[0] as Point, run.at(-1) as Point];
     const chord = unit(sub(p3, p0));
     const off = (p: Point) => Math.abs((p[0] - p0[0]) * chord[1] - (p[1] - p0[1]) * chord[0]);
-    if (dist(p0, p3) > 0 && run.every((p) => off(p) <= tolerance)) {
+    if (!loop && run.every((p) => off(p) <= tolerance)) {
       cubics.push([p0, null, null, p3]);
       continue;
     }
-    // A smooth loop's ends share one tangent.
-    const back = closed && !corners.length && toward(0, -1, 1 - n);
-    const ahead = back && toward(0, 1, n - 1);
-    const center = back && ahead ? unit(sub(back, ahead)) : null;
-    const t1 = center ? scale(center, -1) : (toward(first, 1, last) ?? chord);
-    const t2 = center ?? toward(last, -1, first) ?? scale(chord, -1);
+    // A smooth loop's pieces share a tangent where they meet.
+    const c1 = loop ? center(first) : null;
+    const t1 = c1 ? scale(c1, -1) : (toward(first, 1, last) ?? chord);
+    const t2 = (loop ? center(last) : null) ?? toward(last, -1, first) ?? scale(chord, -1);
     fitCubic(run, t1, t2, cubics);
   }
 
@@ -197,14 +215,16 @@ function newton(cubic: Cubic, p: Point, t: number): number {
   return den ? t - dot(diff, d1) / den : t;
 }
 
+const coordinate = z.number().min(-1e6).max(1e6).describe("In pt, within ±1,000,000.");
+
 /** `freehand_stroke` (REQUIREMENTS §6.4, F-FREE-06): Ink an Agent draws, fitted as the Pencil does. */
 export const FreehandStrokeInput = z.object({
   parentId: z.string().describe("A Layer or Group id to draw the path in."),
   points: z
     .array(
       z.object({
-        x: z.number(),
-        y: z.number(),
+        x: coordinate,
+        y: coordinate,
         pressure: z.number().min(0).max(1).optional().describe("0 to 1; the Pencil ignores it."),
       }),
     )
