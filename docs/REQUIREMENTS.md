@@ -251,6 +251,7 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 - **F-VIEW-07** 多视口 / 导航器面板。（P2）
 - **F-VIEW-08** 性能：10k 节点平移缩放 ≥ 55 fps；视口裁剪；脏矩形或瓦片渲染。（P0 目标，P1 验收）
 - **F-VIEW-09** 多文档标签页：每个打开的 Document 一个标签页（Illustrator 的文档标签页），显示名称、可关闭；标签栏首项回到文档列表、末项"打开文件…"；激活的标签页即 URL，打开的标签页按浏览器记住；关闭标签页不删除 Document；撤销 / 重做作用于当前标签页的 Document。标签页只是浏览器状态，MCP 不感知（ADR-0030）。（P0）
+- **F-VIEW-10** 菜单栏：顶部桌面软件式菜单栏，位于文档标签页之上，按 Illustrator 的顺序（File / Edit / Object / Type / Select / Effect / View / Window / Help）与名称；只列出已实现的功能，暂不适用的项置灰；菜单项与快捷键出自同一张表，快捷键按 Illustrator 键位，浏览器保留的（Ctrl+N / T / W、Ctrl+Tab）不标；键盘可操作（F10、方向键、Enter、Esc）；原画布上的浮动按钮并入菜单，缩放比例移到左下状态栏（ADR-0031）。（P0）
 
 ### 5.3 选择
 
@@ -978,6 +979,7 @@ zibel/
 | 43 | 渐变（2026-09-25） | 线性与径向渐变内联在 Fill / Stroke 中，不设 `gradientId` 与 `assets.gradients[]`（几何本就逐个 Fill；渐变色板施加即复制）；位置在 Node 自身坐标中、随 `transform` 移动，改参数不移动；只有 pad；中点随 Gradient 面板加入；SVG 中为元素前 `<defs>` 里自包含的 `userSpaceOnUse` 渐变，导入折叠 `gradientTransform`、`objectBoundingBox` 与 `href` 链，reflect / repeat 展开为色标 | ADR-0026、#22 |
 | 44 | 从 URL 置入图像（2026-09-25） | `image_place` 由 Worker 拉取 http(s) URL（20 MB、10 秒、SSRF 防护、手动重定向逐跳检查），`FETCH_FAILED` 新错误码，`openWorldHint: true`；`embed` 与本地路径去掉；`asTemplate` 在父级 Layer 下方建锁定的 Template Layer，Image 不透明度 50%，不打印待 `template` 标志 | ADR-0027、#61 |
 | 45 | 多文档标签页，删除替换（2026-09-26） | 三方合并的替换（`doc_replace`）复杂度过高，删除：编辑过的文件经打开成为新 Document，在新标签页中显示；一个标签页就是一个 Document（不设 Sheet 容器）；图稿经系统剪贴板以 Node 范围的 Inkscape 方言 SVG 剪切 / 复制 / 粘贴，Zibel 的拷贝粘贴时不包 Group；30 天 Delta Log 与 `zibel:doc` / `zibel:rev` 一并删除 | ADR-0030、#68、#69、#70 |
+| 46 | 菜单栏（2026-09-27） | 顶部 Illustrator 式菜单栏，在文档标签页之上；菜单项是一张数据表，菜单与快捷键都从中读取；只列已实现的项；浏览器保留快捷键不标；原生 `popover` 实现，不引入菜单库 | ADR-0031、F-VIEW-10 |
 
 **剩余开放问题**
 
