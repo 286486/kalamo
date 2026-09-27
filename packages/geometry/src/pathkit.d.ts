@@ -32,3 +32,8 @@ declare module "pathkit-wasm/bin/pathkit.js" {
     ): WebAssembly.Exports;
   }): Promise<PathKit>;
 }
+
+declare module "pathkit-wasm/bin/pathkit.wasm" {
+  const module: WebAssembly.Module;
+  export default module;
+}

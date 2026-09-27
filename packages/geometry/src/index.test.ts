@@ -27,7 +27,7 @@ const bounds = (s: Segment[]) =>
 const cmds = (s: Segment[]) => new Set(s.map((x) => x.cmd));
 const square = parsePath("M 0 0 L 100 0 L 100 100 L 0 100 Z", "d");
 
-describe("offsetPath in workerd (ADR-0033)", () => {
+describe("offsetPath in workerd (ADR-0034)", () => {
   it("grows a circle and keeps it curved", async () => {
     const out = await offsetPath(circle(50, 50, 40), { distance: 10, join: "round" });
     expect(bounds(out)).toEqual({ x: "0", y: "0", width: "100", height: "100" });
@@ -56,6 +56,10 @@ describe("offsetPath in workerd (ADR-0033)", () => {
     const out = await offsetPath(square, { distance: 5, join: "round" });
     expect(cmds(out).has("C")).toBe(true);
     expect(formatPath(out)).toMatch(/^M /);
+  });
+
+  it("returns the path unchanged for a zero distance", async () => {
+    expect(await offsetPath(square, { distance: 0, join: "miter" })).toEqual(square);
   });
 
   it("returns no segments when the shape shrinks away", async () => {

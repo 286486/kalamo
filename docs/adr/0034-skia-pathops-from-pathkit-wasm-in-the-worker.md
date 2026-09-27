@@ -11,10 +11,10 @@ Outline Stroke, Offset Path and Divide Objects Below (F-PATH-03), and later Path
 
 **`packages/geometry` wraps `pathkit-wasm` 1.0.0**: Skia's PathOps, stroker and simplifier compiled to WebAssembly (BSD-3-Clause, the same code CanvasKit ships).
 
-- **It runs in the Worker, in the Document Durable Object.** Path commands are core edits the Durable Object commits, and the browser does not apply edits locally (ADR-0010). The web app does not import `packages/geometry`, and `check:bundle` now fails if PathKit reaches the web bundle. If a browser preview later needs the geometry (the Offset Path dialog's Preview, a `compound_shape` recomputed during a drag), the same package loads there as a lazy chunk of about 147 KB gzipped. That change updates this ADR and `check:bundle`.
+- **It runs in the Worker, in the Document Durable Object.** Path commands are core edits the Durable Object commits, and the browser does not apply edits locally (ADR-0010). The web app does not import `packages/geometry`. If it did, the Vite build would already fail on the `.wasm` import; `check:bundle` also greps the web bundle for PathKit, as a backstop for `pathkit.js`. If a browser preview later needs the geometry (the Offset Path dialog's Preview, a `compound_shape` recomputed during a drag), the same package loads there as a lazy chunk of about 147 KB gzipped. That change updates this ADR and `check:bundle`.
 - **Loading.** The `.wasm` is imported statically and passed to Emscripten's `instantiateWasm` hook, as `render` does for resvg. Workers refuse to compile WebAssembly from bytes. The module is instantiated on the first geometry call, not at import, because its heap starts at 32 MiB of the isolate's 128 MB.
 - **Interface.** `Segment[]` in and `Segment[]` out, in core's absolute M, L, C, Q and Z. Skia emits quadratics, which stay `Q`. Round joins and caps come out as conics, which become cubics (`4w / 3(1 + w)` along each handle, which gives the usual 0.5523 for a quarter circle). When Skia reports a failure, the op throws `BOOLEAN_FAILED` (F-MCP-15) rather than returning bad geometry (F-BOOL-06).
-- **Offset Path** is the op wired first. For a positive distance it is the fill united with a stroke of twice the distance, and for a negative one the fill minus that stroke, with the join and miter limit passed through. Illustrator's Offset Path has the same parameters.
+- **Offset Path** is the op wired first. For a positive distance it is the fill united with a stroke of twice the distance, and for a negative one the fill minus that stroke, with the join and miter limit passed through. Illustrator's Offset Path has the same parameters. A zero distance returns the path unchanged. Offset on an open path is unspecified for now: the input is filled as if closed.
 
 ## Measurements
 
@@ -51,6 +51,6 @@ PathKit on the fixtures:
 - PathKit computes in float32. A coordinate stays within 0.0005 pt, so exact at `d`'s 3 decimals, up to ±4,096 pt, and within 0.001 pt up to ±16,384 pt, about Illustrator's largest canvas. Far from the origin the third decimal can be off by one. This is the first gap in "geometry in float64" (REQUIREMENTS §7), and a reason for the fresh build if it matters.
 - `pathkit-wasm` will get no more releases. A PathOps bug we hit is worked around in `packages/geometry` or triggers the fresh build described above, and the version stays pinned.
 - Output has more Anchors than Illustrator's: Skia approximates an offset circle with 8 quadratics where Illustrator uses 4 cubics, and contours can keep a collinear point. Simplify (F-PATH-03) or a later refit can reduce them. The geometry itself is correct.
-- `BOOLEAN_FAILED` is added to core's error codes.
+- `BOOLEAN_FAILED` is added to core's error codes. It does not yet carry the geometric diagnostics F-MCP-15 asks for, only a message and a hint.
 - The Worker bundle grows by 357 KB once `apps/edge` imports `packages/geometry`, well under the 64 MiB limit (research 04). An isolate that runs a geometry op holds PathKit's 32 MiB heap next to resvg's.
 - NOTICE lists PathKit.

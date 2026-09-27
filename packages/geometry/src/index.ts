@@ -2,7 +2,7 @@ import { type Segment, ZibelError } from "@zibel/core";
 import PathKitInit, { type PathKit, type SkPath } from "pathkit-wasm/bin/pathkit.js";
 import wasm from "pathkit-wasm/bin/pathkit.wasm";
 
-// Skia PathOps and stroker (ADR-0033). Workers forbid compiling wasm from bytes, so the module is
+// Skia PathOps and stroker (ADR-0034). Workers forbid compiling wasm from bytes, so the module is
 // imported statically and handed to Emscripten's instantiateWasm hook. Instantiated on first use:
 // its heap starts at 32 MiB of the isolate's 128 MB.
 let ready: Promise<PathKit> | undefined;
@@ -13,6 +13,9 @@ const pathKit = () =>
       done(instance, wasm);
       return instance.exports;
     },
+  }).catch((e: unknown) => {
+    ready = undefined; // the next call retries
+    throw e;
   }));
 
 export interface OffsetOptions {
@@ -28,6 +31,7 @@ export interface OffsetOptions {
  * united with (or minus) a stroke twice as wide, so self-overlaps resolve as Skia resolves them.
  */
 export async function offsetPath(segments: Segment[], opts: OffsetOptions): Promise<Segment[]> {
+  if (opts.distance === 0) return segments; // Skia would stroke a hairline and shrink the path.
   const pk = await pathKit();
   const V = {
     M: pk.MOVE_VERB,
