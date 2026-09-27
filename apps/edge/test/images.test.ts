@@ -3,7 +3,7 @@ import { env } from "cloudflare:workers";
 import { imageId, readImage } from "@zibel/core";
 import { parseFile } from "@zibel/io";
 import { describe, expect, it } from "vitest";
-import { RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
+import { BLUE_1x1_PNG, RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
 
 const stub = (docId: string) => env.DOCUMENT.get(env.DOCUMENT.idFromName(docId));
 
@@ -162,5 +162,118 @@ describe("linked Images (ADR-0042)", () => {
     expect(await s.createNodes([missing], "agent")).toMatchObject({
       error: { code: "INVALID_IMAGE", path: "nodes[0].file" },
     });
+  });
+});
+
+describe("Relink and Embed through node_update (ADR-0042)", () => {
+  const blueId = () => imageId(readImage(BLUE_1x1_PNG, "src").bytes);
+
+  it("Relinks an embedded Image by data URL, keeping everything but its pixels; undo and redo restore it", async () => {
+    const { s, image } = await setup("images-relink");
+    const extra = { width: 40, height: 20, preserveAspectRatio: "xMidYMid slice", name: "Photo" };
+    const { createdIds } = ok(await s.createNodes([image(RED_2x2_PNG, extra)], "agent"));
+    const [nodeId] = createdIds as [string];
+    ok(await s.updateNodes([{ nodeId, patch: { opacity: 0.5 } }], "agent"));
+    ok(await s.transformNodes({ nodeIds: [nodeId], rotate: 30 }, "agent"));
+    const [before] = ok(await s.get([nodeId], "full", "agent")).nodes;
+
+    ok(await s.updateNodes([{ nodeId, patch: { src: BLUE_1x1_PNG } }], "agent"));
+    const [after] = ok(await s.get([nodeId], "full", "agent")).nodes;
+    expect(after).toEqual({ ...before, src: await blueId() });
+    expect(ok(await s.raster("agent", { scale: 1 })).svg).toContain(BLUE_1x1_PNG);
+
+    ok(await s.undo("agent"));
+    expect(ok(await s.get([nodeId], "full", "agent")).nodes[0]).toEqual(before);
+    ok(await s.redo("agent"));
+    expect(ok(await s.get([nodeId], "full", "agent")).nodes[0]).toEqual(after);
+  });
+
+  it("Relinks a missing link by id and file, and a new preserveAspectRatio in the same patch lands", async () => {
+    const { s, image } = await setup("images-relink-missing");
+    ok(await s.createNodes([image(BLUE_1x1_PNG)], "agent"));
+    const missing = { ...image("", { file: "gone.png", width: 40, height: 20 }), src: undefined };
+    const [nodeId] = ok(await s.createNodes([missing], "agent")).createdIds as [string];
+    const patch = { src: await blueId(), file: "found.png", preserveAspectRatio: "xMidYMid meet" };
+    ok(await s.updateNodes([{ nodeId, patch }], "agent"));
+    expect(ok(await s.get([nodeId], "full", "agent")).nodes[0]).toMatchObject({
+      ...patch,
+      width: 40,
+      height: 20,
+    });
+  });
+
+  it("links an embedded Image with file, and Embeds a linked one with file: null; undo and redo restore it", async () => {
+    const { s, image } = await setup("images-embed");
+    const [nodeId] = ok(await s.createNodes([image(RED_2x2_PNG)], "agent")).createdIds as [string];
+    ok(await s.updateNodes([{ nodeId, patch: { file: "photos/red.png" } }], "agent"));
+    const [linked] = ok(await s.get([nodeId], "full", "agent")).nodes;
+    expect(linked).toMatchObject({ src: await redId(), file: "photos/red.png" });
+
+    ok(await s.updateNodes([{ nodeId, patch: { file: null } }], "agent"));
+    const [embedded] = ok(await s.get([nodeId], "full", "agent")).nodes;
+    expect(embedded).not.toHaveProperty("file");
+    expect({ ...embedded, file: "photos/red.png" }).toEqual(linked);
+    expect(ok(await s.svg("agent", {})).svg).toContain(`xlink:href="${RED_2x2_PNG}"`);
+
+    ok(await s.undo("agent"));
+    expect(ok(await s.get([nodeId], "full", "agent")).nodes[0]).toEqual(linked);
+    ok(await s.redo("agent"));
+    expect(ok(await s.get([nodeId], "full", "agent")).nodes[0]).toEqual(embedded);
+  });
+
+  it("refuses to Embed a missing link unless the same patch sets src", async () => {
+    const { s, image } = await setup("images-embed-missing");
+    const missing = { ...image("", { file: "gone.png", width: 40, height: 20 }), src: undefined };
+    const [nodeId] = ok(await s.createNodes([missing], "agent")).createdIds as [string];
+    expect(await s.updateNodes([{ nodeId, patch: { file: null } }], "agent")).toMatchObject({
+      error: {
+        code: "INVALID_IMAGE",
+        path: "updates[0].patch.file",
+        hint: expect.stringContaining("src"),
+      },
+    });
+    ok(await s.updateNodes([{ nodeId, patch: { file: null, src: RED_2x2_PNG } }], "agent"));
+    const [node] = ok(await s.get([nodeId], "full", "agent")).nodes;
+    expect(node).toMatchObject({ src: await redId(), width: 40, height: 20 });
+    expect(node).not.toHaveProperty("file");
+  });
+
+  it.each([
+    ["src: null", { src: null }, "INVALID_PATCH", "src"],
+    ["a WebP", { src: WEBP_HEADER }, "INVALID_IMAGE", "src"],
+    ["an id the Document does not hold", { src: "b".repeat(64) }, "INVALID_IMAGE", "src"],
+    ["an empty file", { file: "" }, "INVALID_IMAGE", "file"],
+    ["a data: URL as file", { file: RED_2x2_PNG }, "INVALID_IMAGE", "file"],
+    ["a file over 2048 characters", { file: "a".repeat(2049) }, "INVALID_IMAGE", "file"],
+  ])("refuses %s", async (label, patch, code, key) => {
+    const { s, image } = await setup(`images-update-refuse ${label}`);
+    const [nodeId] = ok(await s.createNodes([image(RED_2x2_PNG)], "agent")).createdIds as [string];
+    const { rev } = ok(await s.info());
+    expect(await s.updateNodes([{ nodeId, patch }], "agent")).toMatchObject({
+      error: { code, path: `updates[0].patch.${key}` },
+    });
+    expect(ok(await s.info()).rev).toBe(rev);
+  });
+
+  it("with partial, a refused file fails alone under its own index", async () => {
+    const { s, image } = await setup("images-update-partial");
+    const { createdIds } = ok(await s.createNodes([image(RED_2x2_PNG), image(RED_2x2_PNG)], "a"));
+    const [a, b] = createdIds as [string, string];
+    const receipt = ok(
+      await s.updateNodes(
+        [
+          { nodeId: a, patch: { src: WEBP_HEADER } },
+          { nodeId: b, patch: { src: BLUE_1x1_PNG } },
+          { nodeId: "nope", patch: {} },
+        ],
+        "a",
+        { partial: true },
+      ),
+    );
+    expect(receipt.updatedIds).toEqual([b]);
+    expect(receipt.failed).toMatchObject([
+      { index: 0, code: "INVALID_IMAGE", path: "updates[0].patch.src" },
+      { index: 2, code: "NODE_NOT_FOUND", path: "updates[2].nodeId" },
+    ]);
   });
 });

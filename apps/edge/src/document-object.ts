@@ -400,12 +400,41 @@ export class DocumentObject extends DurableObject<Env> {
     actor: string,
     opts: WriteOptions = {},
   ): Promise<Result<WriteReceipt>> {
+    const ingested = await this.ingestAll(
+      inputs,
+      "nodes",
+      opts,
+      async (input, path) => (await this.ingest(input, path)) as NodeInput,
+    );
+    if ("error" in ingested) return ingested;
+    const { ready, refused, own } = ingested;
+    return this.write(actor, opts, "Create", (doc) => {
+      const { nodes, keyMap, failed } = createNodes(doc, ready, opts);
+      return {
+        created: nodes,
+        keyMap,
+        warnings: [...fontWarnings(nodes), ...overflowWarnings(nodes)],
+        failed: [...refused, ...failed.map(own)].sort((a, b) => a.index - b.index),
+      };
+    });
+  }
+
+  /**
+   * Runs `ingest` on each item; with `partial`, an item it refuses fails alone. `own` puts back an
+   * item's own index in what core, numbering only the ready items, reports.
+   */
+  private async ingestAll<T>(
+    items: T[],
+    key: "nodes" | "updates",
+    opts: WriteOptions,
+    ingest: (item: T, path: string) => Promise<T>,
+  ): Promise<{ ready: T[]; refused: Failed[]; own: (f: Failed) => Failed } | { error: ErrorData }> {
     const kept: number[] = [];
     const refused: Failed[] = [];
-    const ready: NodeInput[] = [];
-    for (const [i, input] of inputs.entries()) {
+    const ready: T[] = [];
+    for (const [i, item] of items.entries()) {
       try {
-        ready.push((await this.ingest(input, `nodes[${i}]`)) as NodeInput);
+        ready.push(await ingest(item, `${key}[${i}]`));
         kept.push(i);
       } catch (e) {
         if (!(e instanceof ZibelError)) throw e;
@@ -418,24 +447,17 @@ export class DocumentObject extends DurableObject<Env> {
       const { index: _, ...error } = first;
       return { error };
     }
-    // Core numbers what it was given; put back each item's own index.
     const own = (f: Failed): Failed => {
       const index = kept[f.index] ?? f.index;
       return {
         ...f,
         index,
-        ...(f.path && { path: f.path.replace(/^nodes\[\d+\]/, `nodes[${index}]`) }),
+        ...(f.path && {
+          path: f.path.replace(new RegExp(`^${key}\\[\\d+\\]`), `${key}[${index}]`),
+        }),
       };
     };
-    return this.write(actor, opts, "Create", (doc) => {
-      const { nodes, keyMap, failed } = createNodes(doc, ready, opts);
-      return {
-        created: nodes,
-        keyMap,
-        warnings: [...fontWarnings(nodes), ...overflowWarnings(nodes)],
-        failed: [...refused, ...failed.map(own)].sort((a, b) => a.index - b.index),
-      };
-    });
+    return { ready, refused, own };
   }
 
   /** `input` with each Image's data URL, inline children's too, stored and replaced by its id. */
@@ -443,10 +465,7 @@ export class DocumentObject extends DurableObject<Env> {
     if (typeof input !== "object" || input === null) return input;
     const item = input as { type?: unknown; src?: unknown; children?: unknown };
     if (item.type === "image" && typeof item.src === "string" && item.src.startsWith("data:")) {
-      const file = readImage(item.src, `${path}.src`);
-      const id = await imageId(file.bytes);
-      this.storeImages(new Map([[id, file]]));
-      return { ...item, src: id };
+      return { ...item, src: await this.store(item.src, `${path}.src`) };
     }
     if (Array.isArray(item.children)) {
       const children = [];
@@ -456,6 +475,14 @@ export class DocumentObject extends DurableObject<Env> {
       return { ...item, children };
     }
     return input;
+  }
+
+  /** Stores a data URL's file and returns its id. */
+  private async store(src: string, path: string): Promise<string> {
+    const file = readImage(src, path);
+    const id = await imageId(file.bytes);
+    this.storeImages(new Map([[id, file]]));
+    return id;
   }
 
   /** Stores files the Document does not hold yet; a stored id always names the same bytes. */
@@ -514,13 +541,25 @@ export class DocumentObject extends DurableObject<Env> {
     return dataUrl({ mime, bytes, width: 0, height: 0 });
   };
 
-  updateNodes(updates: UpdateInput[], actor: string, opts: Options = {}): Result<WriteReceipt> {
+  /** Relink (ADR-0042): a patch's data URL `src` is stored first, as for createNodes. */
+  async updateNodes(
+    updates: UpdateInput[],
+    actor: string,
+    opts: Options = {},
+  ): Promise<Result<WriteReceipt>> {
+    const ingested = await this.ingestAll(updates, "updates", opts, async (u, path) => {
+      const src = (u.patch as { src?: unknown }).src;
+      if (typeof src !== "string" || !src.startsWith("data:")) return u;
+      return { ...u, patch: { ...u.patch, src: await this.store(src, `${path}.patch.src`) } };
+    });
+    if ("error" in ingested) return ingested;
+    const { ready, refused, own } = ingested;
     return this.write(actor, opts, "Update", (doc) => {
-      const { nodes, failed } = updateNodes(doc, updates, opts);
+      const { nodes, failed } = updateNodes(doc, ready, opts);
       return {
         updated: nodes,
         warnings: [...fontWarnings(nodes), ...overflowWarnings(nodes)],
-        failed,
+        failed: [...refused, ...failed.map(own)].sort((a, b) => a.index - b.index),
       };
     });
   }

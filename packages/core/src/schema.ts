@@ -589,8 +589,18 @@ const parameters = Object.fromEntries(
     .filter(([k]) => k !== "type" && k !== "kind")
     .map(([k, t]) => [k, unwrapDefault(t as z.ZodType)]),
 );
-// An Image's frame reuses the keys above; its src is read-only (ADR-0023).
+// An Image's frame reuses the keys above; src Relinks and file links, relinks or Embeds (ADR-0042).
 parameters.preserveAspectRatio = unwrapDefault(ImageShape.shape.preserveAspectRatio);
+parameters.src = ImageShape.shape.src
+  .unwrap()
+  .describe(
+    "An image's new pixels (Relink): a data: URL of a PNG, JPEG or GIF, or the id of an image already in the Document. The frame and preserveAspectRatio stay.",
+  );
+parameters.file = ImageShape.shape.file
+  .unwrap()
+  .describe(
+    "An image's linked file: a string links or relinks it; null Embeds a linked Image, which needs src.",
+  );
 
 /**
  * The published `node_update` patch. Nothing here has a default, or the MCP SDK would insert it into
