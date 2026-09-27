@@ -3,6 +3,7 @@ import {
   applyTo,
   childrenOf,
   type Document,
+  editSubpaths,
   formatPath,
   fromAnchors,
   invert,
@@ -451,4 +452,56 @@ export function splitWhole(doc: Document, keys: string[]) {
     else partial.push(...mine);
   }
   return { whole, partial };
+}
+
+/**
+ * What the Anchors bar converts (research 06 §4): the selected Anchors and each selected segment's
+ * two ends, on paths partly selected. A path with every Anchor selected is selected whole, and
+ * keys out of range are ignored.
+ */
+export function convertTargets(doc: Document, anchors: string[], segments: string[]) {
+  const live = anchors.filter((k) => inRange(doc, k));
+  const { whole } = splitWhole(doc, live);
+  const keys = [...live, ...segments.flatMap((k) => segmentHandles(doc, k).map((h) => h.key))];
+  return [...byNode([...new Set(keys)])].flatMap(([nodeId, refs]) =>
+    whole.includes(nodeId) || !editable(doc, doc.nodes.get(nodeId))
+      ? []
+      : [{ nodeId, refs: refs.map(({ subpath, index }) => ({ subpath, index })) }],
+  );
+}
+
+/**
+ * Convert selected anchor points to corner or smooth: one `path_edit` of `set_point_type` per
+ * path. An Anchor already that type is left out, and so is one smooth cannot turn: an open
+ * subpath's Endpoint, or one with no direction to smooth along, which would fail the whole edit.
+ */
+export function convertInputs(
+  doc: Document,
+  anchors: string[],
+  segments: string[],
+  type: Anchor["type"],
+): PathEditInput[] {
+  return convertTargets(doc, anchors, segments).flatMap(({ nodeId, refs }) => {
+    const subpaths = localAnchors(doc.nodes.get(nodeId) as ShapeNode);
+    const ops = refs
+      .filter(({ subpath, index }) => {
+        const s = subpaths[subpath] as Subpath;
+        const a = s.anchors[index] as Anchor;
+        if (type === "corner") return !!(a.handleIn || a.handleOut);
+        if (a.type === "smooth") return false;
+        try {
+          editSubpaths(
+            structuredClone(subpaths),
+            { op: "set_point_type", subpath, index, type },
+            "",
+          );
+          return true;
+        } catch {
+          return false;
+        }
+      })
+      .sort((x, y) => x.subpath - y.subpath || x.index - y.index)
+      .map((r): PathOp => ({ op: "set_point_type", ...r, type }));
+    return ops.length > 0 ? [{ nodeId, ops }] : [];
+  });
 }

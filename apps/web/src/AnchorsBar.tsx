@@ -1,0 +1,59 @@
+import type { Anchor } from "@zibel/core";
+import { convertInputs, convertTargets } from "./direct.ts";
+import { send, useStore } from "./store.ts";
+
+/** One `path_edit` per path, previewed until each is answered, as a Direct Selection drag is. */
+function convert(type: Anchor["type"]) {
+  const { doc, anchors, segments } = useStore.getState();
+  const inputs = doc ? convertInputs(doc, anchors, segments, type) : [];
+  if (inputs.length === 0) return;
+  const commandIds = inputs.map((input) => send({ type: "path_edit", input }));
+  useStore.setState({ edit: { inputs, commandIds } });
+}
+
+/**
+ * Illustrator's Control panel Convert buttons under Direct Selection (research 06 §4), an on-canvas
+ * bar like Simplify's (ADR-0035) while some path is partly selected. It stays at the canvas's top
+ * where the Control panel is, not under the paths, so it never covers the next segment clicked.
+ */
+export function AnchorsBar() {
+  const doc = useStore((s) => s.doc);
+  const anchors = useStore((s) => s.anchors);
+  const segments = useStore((s) => s.segments);
+  const tool = useStore((s) => s.tool);
+  if (tool !== "direct" || !doc || convertTargets(doc, anchors, segments).length === 0) return null;
+  const button = (type: Anchor["type"], label: string) => {
+    const name = `Convert selected anchor points to ${type}`;
+    return (
+      <button type="button" aria-label={name} title={name} onClick={() => convert(type)}>
+        {label}
+      </button>
+    );
+  };
+  return (
+    <div
+      role="toolbar"
+      aria-label="Anchors"
+      // A click must not leave focus on a button, where Enter and Space would press it again.
+      onMouseDown={(e) => (e.target as Element).closest("button") && e.preventDefault()}
+      style={{
+        position: "absolute",
+        top: 8,
+        left: "50%",
+        transform: "translateX(-50%)",
+        display: "flex",
+        gap: 6,
+        alignItems: "center",
+        padding: "4px 8px",
+        background: "#FFFFFF",
+        border: "1px solid #999",
+        borderRadius: 4,
+        font: "12px system-ui, sans-serif",
+        zIndex: 10,
+      }}
+    >
+      Convert: {button("corner", "Corner")}
+      {button("smooth", "Smooth")}
+    </div>
+  );
+}

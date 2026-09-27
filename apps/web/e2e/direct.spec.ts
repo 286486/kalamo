@@ -134,3 +134,76 @@ test("Direct Selection deletes selected segments, then the path", async ({ page,
   await expect.poll(() => get(line)).toBe("NODE_NOT_FOUND");
   await expect.poll(() => get(rect)).toBe("NODE_NOT_FOUND");
 });
+
+// #116: the Anchors bar converts the selected segments' ends to Smooth, then to Corner.
+test("the Anchors bar converts selected segments to smooth and corner", async ({
+  page,
+  request,
+}) => {
+  const { docId, defaultLayerId: parentId } = (
+    await call(request, "zibel_doc_create", {
+      name: "Convert",
+      artboards: [{ width: 200, height: 100 }],
+    })
+  ).structuredContent;
+  const created = await call(request, "zibel_node_create", {
+    docId,
+    nodes: [
+      { type: "rect", parentId, x: 20, y: 60, width: 40, height: 30 },
+      { type: "path", parentId, d: "M 100 40 C 100 20 140 20 140 40 C 140 60 180 60 180 40" },
+    ],
+  });
+  const [rect, curve] = created.structuredContent.createdIds as [string, string];
+  const get = async (id: string) =>
+    (await call(request, "zibel_node_get", { docId, nodeIds: [id], detail: "full" }))
+      .structuredContent?.nodes[0];
+  const changesSince = async (sinceRev: number) =>
+    (await call(request, "zibel_doc_changes", { docId, sinceRev })).structuredContent;
+
+  await page.goto(`/docs/${docId}`);
+  await expect(page.getByTestId("status-bar")).toContainText(/\d+%/);
+  await page.keyboard.press("Control+1");
+  await expect(page.getByTestId("status-bar")).toContainText("100%");
+  const box = await page.getByTestId("canvas").boundingBox();
+  if (!box) throw new Error("no canvas");
+  const at = (x: number, y: number) =>
+    [box.x + box.width / 2 + x - 100, box.y + box.height / 2 + y - 50] as const;
+  const bar = page.getByRole("toolbar", { name: "Anchors" });
+  await page.keyboard.press("a");
+
+  // A segment shows the bar; a path selected whole is no target.
+  await page.mouse.click(...at(120, 25));
+  await expect(bar).toBeVisible();
+  await page.mouse.move(...at(95, 10));
+  await page.mouse.down();
+  await page.mouse.move(...at(190, 55), { steps: 5 });
+  await page.mouse.up();
+  await expect(bar).toHaveCount(0);
+  // The curve's first segment and the rect's top one.
+  await page.mouse.click(...at(120, 25));
+  await page.keyboard.down("Shift");
+  await page.mouse.click(...at(40, 60));
+  await page.keyboard.up("Shift");
+  await expect(bar).toBeVisible();
+
+  // Smooth: the rect converts in place and curves; the curve's ends are an Endpoint and a Smooth
+  // Anchor already, so it sends nothing.
+  const { rev } = created.structuredContent;
+  await bar.getByRole("button", { name: "Convert selected anchor points to smooth" }).click();
+  await expect.poll(async () => (await get(rect))?.d ?? "").toContain("C");
+  expect(await get(rect)).toMatchObject({ id: rect, type: "path" });
+  const smoothed = await changesSince(rev);
+  expect(smoothed.changes).toMatchObject([{ updatedIds: [rect] }]);
+
+  // Corner: both paths' ends lose their Handles, one Transaction per path.
+  await bar.getByRole("button", { name: "Convert selected anchor points to corner" }).click();
+  await expect.poll(async () => (await get(rect))?.d).toBe("M 20 60 L 60 60 L 60 90 L 20 90 Z");
+  await expect
+    .poll(async () => (await get(curve))?.d)
+    .toBe("M 100 40 L 140 40 C 140 40 180 60 180 40");
+  const cornered = await changesSince(smoothed.rev);
+  expect(cornered.changes).toHaveLength(2);
+
+  await page.keyboard.press("v");
+  await expect(bar).toHaveCount(0);
+});
