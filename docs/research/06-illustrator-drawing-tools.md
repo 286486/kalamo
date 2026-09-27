@@ -250,7 +250,7 @@ Sources:
 | 7 | Smooth | none | On-canvas slider from Minimum to Maximum smoothing, plus Auto-Smooth. Applies to the whole path or to the anchors selected with Direct Selection. [A] Position in the menu [U]. |
 | 8 | Add Anchor Points | none | Adds one anchor at the middle of **every** segment of the selected paths, doubling the anchor count without changing the shape. Repeating keeps subdividing. [C/U] |
 | 9 | Remove Anchor Points | none | Removes the **selected** anchors and keeps the path connected, with the neighbouring segments refitted like the Delete Anchor Point tool. It is the same as the Control panel's "Remove selected anchor points" and unlike the Delete key. [C] |
-| 10 | Divide Objects Below | none | Cookie cutter: the selected object cuts through every object below it that it overlaps, and the cutter is then discarded. [A] |
+| 10 | Divide Objects Below | none | Cookie cutter: the selected object cuts through every object below it that it overlaps, and the cutter is then discarded. [A] Which objects are cut and how the pieces are stored is [U]; Zibel cuts filled shapes in two (ADR-0041). |
 | 11 | Split Into Grid… | none | Dialog: Rows (Number, Height, Gutter, Total), Columns (Number, Width, Gutter, Total), Add Guides, Preview. Replaces the selected objects with a grid of rectangles. With several objects selected, the grid uses the topmost object's appearance. [A] |
 | 12 | Clean Up… | none | Dialog with three checkboxes, all on by default: Stray Points, Unpainted Objects (no fill and no stroke, and not a mask), Empty Text Paths. Deletes matching objects document-wide. [C] The Adobe page on stray points documents only Select > Object > Stray Points, then Delete. [A] |
 

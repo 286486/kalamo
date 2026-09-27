@@ -7,6 +7,7 @@ import { formatPath, parsePath, type Segment } from "./path.ts";
 import {
   closestEnds,
   convertToPath,
+  type Filled,
   type Geometry,
   type OffsetStyle,
   pathOp,
@@ -432,6 +433,7 @@ describe("pathOp outline_stroke", () => {
         return parsePath(`M 0 0 L ${w} 0 L ${w} ${w} Z`, "d");
       },
       offsetPath: () => [],
+      divide: () => ({ inside: [], outside: [] }),
     };
     return { calls, geometry };
   };
@@ -573,6 +575,7 @@ describe("pathOp offset", () => {
           args: args.map((v, k) => (k % 2 ? v : v + style.distance)),
         }));
       },
+      divide: () => ({ inside: [], outside: [] }),
     };
     return { calls, geometry };
   };
@@ -655,6 +658,87 @@ describe("pathOp offset", () => {
     expect(
       errorOf(() => pathOp(doc, { nodeIds: [node.id], op: "offset" }, stub().geometry)),
     ).toMatchObject({ code: "INVALID_PATH", path: "distance" });
+  });
+});
+
+describe("pathOp divide_below", () => {
+  /** The inside is the cutter, the outside the target unless it is in `within`. */
+  const stub = (within: string[] = []) => {
+    const calls: { target: Filled; cutter: Filled }[] = [];
+    const geometry: Geometry = {
+      outlineStroke: () => [],
+      offsetPath: () => [],
+      divide(target, cutter) {
+        calls.push({ target, cutter });
+        const inner = within.includes(formatPath(target.segments));
+        return { inside: cutter.segments, outside: inner ? [] : target.segments };
+      },
+    };
+    return { calls, geometry };
+  };
+  const red = { fills: [{ color: "#FF0000" }] };
+
+  it("cuts each filled shape below that it overlaps in two and deletes the cutter", () => {
+    const { doc, node: under, defaultLayerId: layer } = setup("M 0 0 L 100 0 L 100 100 Z");
+    const [square, cutter, over] = createNodes(doc, [
+      { type: "rect", parentId: layer, x: 0, y: 0, width: 100, height: 100, appearance: red },
+      { type: "ellipse", parentId: layer, x: 20, y: 20, width: 60, height: 60 },
+      { type: "rect", parentId: layer, x: 0, y: 0, width: 100, height: 100, appearance: red },
+    ]).nodes as [Node, Node, Node];
+    doc.nodes.set(under.id, { ...under, locked: true } as Node);
+    const { calls, geometry } = stub();
+    const result = pathOp(doc, { nodeIds: [cutter.id], op: "divide_below" }, geometry);
+    expect(calls).toHaveLength(1);
+    expect(result.deletedIds).toEqual([cutter.id]);
+    expect(doc.nodes.has(cutter.id)).toBe(false);
+    const [outside] = result.updated as [PathNode];
+    const [inside] = result.created as [PathNode];
+    expect(outside).toMatchObject({
+      id: square.id,
+      type: "path",
+      d: "M 0 0 L 100 0 L 100 100 L 0 100 Z",
+      fillRule: "evenodd",
+      appearance: { fills: [{ color: "#FF0000" }] },
+    });
+    expect(inside).toMatchObject({ type: "path", appearance: { fills: [{ color: "#FF0000" }] } });
+    expect(inside.d).toBe(formatPath(calls[0]?.cutter.segments ?? []));
+    expect(result.warnings).toMatchObject([{ code: "CONVERTED_TO_PATH" }]);
+    const order = childrenOf(doc, layer).map((n) => n.id);
+    expect(order).toEqual([under.id, square.id, inside.id, over.id]);
+  });
+
+  it("cuts in document coordinates and leaves unfilled, clipping and distant shapes", () => {
+    const { doc, defaultLayerId: layer } = setup("M 0 0 L 1 0 L 1 1 Z");
+    const [scaled, bare, clip, far, cutter] = createNodes(doc, [
+      { type: "path", parentId: layer, d: "M 0 0 L 10 0 L 10 10 Z", appearance: red },
+      { type: "path", parentId: layer, d: "M 0 0 L 10 0 L 10 10 Z", appearance: {} },
+      { type: "path", parentId: layer, d: "M 0 0 L 10 0 L 10 10 Z", appearance: red },
+      { type: "path", parentId: layer, d: "M 500 0 L 510 0 L 510 10 Z", appearance: red },
+      { type: "path", parentId: layer, d: "M 5 5 L 15 5 L 15 15 Z" },
+    ]).nodes as [PathNode, Node, Node, Node, Node];
+    doc.nodes.set(scaled.id, { ...scaled, transform: [2, 0, 0, 2, 0, 0] });
+    doc.nodes.set(clip.id, { ...clip, clipping: true } as Node);
+    const kept = [bare, clip, far].map((n) => doc.nodes.get(n.id));
+    const { calls, geometry } = stub([formatPath(parsePath("M 0 0 L 20 0 L 20 20 Z", "d"))]);
+    const result = pathOp(doc, { nodeIds: [cutter.id], op: "divide_below" }, geometry);
+    expect(calls.map((c) => formatPath(c.target.segments))).toEqual(["M 0 0 L 20 0 L 20 20 Z"]);
+    // Wholly inside, the path is its inside piece, back in its own units.
+    expect(result.created).toEqual([]);
+    expect(result.updated).toMatchObject([{ id: scaled.id, d: "M 2.5 2.5 L 7.5 2.5 L 7.5 7.5 Z" }]);
+    expect([bare, clip, far].map((n) => doc.nodes.get(n.id))).toEqual(kept);
+  });
+
+  it("takes one cutter and fails when it overlaps nothing below", () => {
+    const { doc, node, defaultLayerId: layer } = setup("M 0 0 L 1 0 L 1 1 Z");
+    const [other] = createNodes(doc, [
+      { type: "path", parentId: layer, d: "M 50 50 L 60 50 L 60 60 Z" },
+    ]).nodes as [Node];
+    const { geometry } = stub();
+    const both = { nodeIds: [node.id, other.id], op: "divide_below" as const };
+    expect(errorOf(() => pathOp(doc, both, geometry))).toMatchObject({ path: "nodeIds" });
+    const one = { nodeIds: [other.id], op: "divide_below" as const };
+    expect(errorOf(() => pathOp(doc, one, geometry))).toMatchObject({ code: "INVALID_PATH" });
+    expect(doc.nodes.has(other.id)).toBe(true);
   });
 });
 

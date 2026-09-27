@@ -26,7 +26,7 @@ declare module "pathkit-wasm/bin/pathkit.js" {
     CONIC_VERB: number;
     CUBIC_VERB: number;
     CLOSE_VERB: number;
-    PathOp: { UNION: Enum; DIFFERENCE: Enum };
+    PathOp: { UNION: Enum; DIFFERENCE: Enum; INTERSECT: Enum };
     StrokeJoin: { MITER: Enum; ROUND: Enum; BEVEL: Enum };
     StrokeCap: { BUTT: Enum; ROUND: Enum; SQUARE: Enum };
     FillType: { WINDING: Enum; EVENODD: Enum };

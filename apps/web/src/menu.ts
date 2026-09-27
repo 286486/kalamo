@@ -316,6 +316,12 @@ export function documentMenus(tabs: { open: (file: File) => void; close: () => v
               },
             },
             {
+              ...pathOp("divide_below"),
+              // Illustrator's needs one object selected.
+              enabled: ({ doc, selection }) =>
+                doc !== null && pathTargets(doc, selection).length === 1,
+            },
+            {
               label: PATH_OP_TEXT.split_into_grid.menu,
               enabled: hasPathTargets,
               run: splitGridDialog,

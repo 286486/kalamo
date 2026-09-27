@@ -357,6 +357,52 @@ it("offsets a 100 pt square by 10 pt into a 120 pt copy below it, in one Transac
   expect(nodes[1].index < nodes[0].index).toBe(true);
 });
 
+it("divides a square under a circle into the inside and outside pieces and deletes the circle", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const [square, circle] = (
+    await call("zibel_node_create", {
+      docId,
+      nodes: [
+        {
+          type: "rect",
+          parentId: defaultLayerId,
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100,
+          appearance: { fills: [{ color: "#FF0000" }] },
+        },
+        { type: "ellipse", parentId: defaultLayerId, x: 20, y: 20, width: 60, height: 60 },
+      ],
+    })
+  ).structuredContent.createdIds as [string, string];
+  const receipt = (await call("zibel_path_op", { docId, nodeIds: [circle], op: "divide_below" }))
+    .structuredContent;
+  expect(receipt).toMatchObject({
+    updatedIds: [square],
+    createdIds: [expect.any(String)],
+    deletedIds: [circle],
+  });
+  const { changes } = (await call("zibel_doc_changes", { docId, sinceRev: receipt.rev - 1 }))
+    .structuredContent;
+  expect(changes).toEqual([
+    expect.objectContaining({ rev: receipt.rev, summary: "Divide Objects Below" }),
+  ]);
+  const { nodes } = (
+    await call("zibel_node_get", {
+      docId,
+      nodeIds: [square, ...(receipt.createdIds as string[])],
+      detail: "full",
+    })
+  ).structuredContent;
+  const red = { fills: [{ color: "#FF0000" }] };
+  expect(nodes).toMatchObject([
+    { type: "path", fillRule: "evenodd", appearance: red, geometricBounds: { width: 100 } },
+    { type: "path", appearance: red, geometricBounds: { x: 20, y: 20, width: 60, height: 60 } },
+  ]);
+  expect(nodes[0].d.match(/M /g)).toHaveLength(2);
+});
+
 it("splits a 200x100 rect 2x3 into six rects and cleans up, reporting how many", async () => {
   const { docId, defaultLayerId } = await newDoc();
   const [rect] = (

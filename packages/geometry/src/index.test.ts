@@ -165,3 +165,22 @@ describe("outlineStroke in workerd", () => {
     expect((await diff(ring, {}, "evenodd")).share).toBeLessThan(0.01);
   });
 });
+
+describe("divide in workerd (ADR-0034)", () => {
+  const fill = (segments: Segment[]) => ({ segments, fillRule: "nonzero" as const });
+
+  it("cuts a square into the circle over it and the square with a hole", async () => {
+    const { divide } = await loadGeometry();
+    const { inside, outside } = divide(fill(square), fill(circle(50, 50, 30)));
+    expect(bounds(inside)).toEqual({ x: "20", y: "20", width: "60", height: "60" });
+    expect(cmds(inside).has("C")).toBe(true);
+    expect(bounds(outside)).toEqual({ x: "0", y: "0", width: "100", height: "100" });
+    expect(outside.filter((s) => s.cmd === "M")).toHaveLength(2);
+  });
+
+  it("returns no inside when they do not overlap, and no outside when it is covered", async () => {
+    const { divide } = await loadGeometry();
+    expect(divide(fill(square), fill(circle(300, 50, 30))).inside).toEqual([]);
+    expect(divide(fill(circle(50, 50, 30)), fill(square)).outside).toEqual([]);
+  });
+});
