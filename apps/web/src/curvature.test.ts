@@ -58,6 +58,7 @@ beforeEach(() => {
     doc: created.doc,
     selection: [],
     anchors: [],
+    segments: [],
     pen: null,
     tool: "curvature",
     fillStroke: DEFAULT_FILL_STROKE,

@@ -45,6 +45,7 @@ it("keeps the drag preview until the tx answering its command arrives", () => {
     notice: null,
     edit: null,
     anchors: [],
+    segments: [],
   };
   const other = { ...state, ...receive(state, tx(doc, { actor: "agent-a" }), "d") };
   expect(other.drag).toBe(state.drag);
@@ -64,6 +65,7 @@ it("snaps back and shows a notice when its command is rejected", () => {
     notice: null,
     edit: null,
     anchors: [],
+    segments: [],
   };
   const error = { code: "NODE_GONE" as const, message: "gone", hint: "", nodeIds: [a.id] };
   const next = receive(state, { type: "rejected", id: "c1", error }, "d");
@@ -81,6 +83,7 @@ it("drops deleted Nodes from the Selection", () => {
     notice: null,
     edit: null,
     anchors: [],
+    segments: [],
   };
   expect(receive(state, tx(doc, { deletedIds: [a.id] }), "d")).toMatchObject({
     selection: [b.id],
@@ -98,6 +101,7 @@ it("asks to reconnect on a missed rev, and drops an unanswered drag on a new Doc
     notice: null,
     edit: null,
     anchors: [],
+    segments: [],
   };
   expect(receive(state, tx(doc, { rev: doc.rev + 2 }), "d")).toBeNull();
   const msg = { type: "document" as const, rev: 9, name: "N", artboards: [], nodes: [a] };
@@ -123,6 +127,7 @@ it("tells the person when an undo skipped Nodes deleted meanwhile", () => {
     notice: null,
     edit: null,
     anchors: [],
+    segments: [],
   };
   expect(receive(state, tx(doc, { skippedIds: [a.id] }), "d")).toMatchObject({
     notice: expect.stringContaining("Skipped 1"),
@@ -141,6 +146,7 @@ it("selects the Group a selected Node was just moved into, as Make Clipping Mask
     notice: null,
     edit: null,
     anchors: [],
+    segments: [],
   };
   const group = { ...a, id: "g", type: "group" } as unknown as Node;
   const moved = [a, b].map((n) => ({ ...n, parentId: "g" }));
@@ -171,6 +177,7 @@ it("keeps the Pen's path until its create is answered, then selects what it made
     notice: null,
     edit: null,
     anchors: [],
+    segments: [],
   };
   const other = receive(state, tx(doc, { actor: "agent-a" }), "d");
   expect(other).not.toHaveProperty("pen");
@@ -196,6 +203,7 @@ it("keeps a path the Pen is still drawing across a reconnect", () => {
     notice: null,
     edit: null,
     anchors: [],
+    segments: [],
   };
   const msg = { type: "document" as const, rev: 9, name: "N", artboards: [], nodes: [a] };
   expect(receive(state, msg, "d")).not.toHaveProperty("pen");
@@ -219,6 +227,7 @@ it("keeps a Direct Selection drag's preview until every path_edit is answered", 
     notice: null,
     edit,
     anchors: [],
+    segments: [],
   };
   expect(receive(state, tx(doc, { actor: "agent-a" }), "d")).not.toHaveProperty("edit");
   const first = { ...state, ...receive(state, tx(doc, { commandId: "c1" }), "d") };
@@ -251,6 +260,7 @@ it("drops selected Anchors of a Node someone else changed, and keeps ours still 
     notice: null,
     edit: null,
     anchors,
+    segments: [],
   };
   const other = receive(state, tx(doc, { updated: [a] }), "d");
   expect(other?.anchors).toEqual([anchorKey(b.id, 0, 1)]);
@@ -268,6 +278,15 @@ it("drops selected Anchors of a Node someone else changed, and keeps ours still 
   expect(receive(state, tx(doc, { deletedIds: [b.id] }), "d")?.anchors).toEqual([
     anchorKey(a.id, 0, 3),
   ]);
+  // Selected segments follow the same rule: the rect's closing segment 3 is past the triangle's.
+  const segments = [anchorKey(a.id, 0, 3), anchorKey(b.id, 0, 3)];
+  const cut = { ...state, anchors: [], segments };
+  expect(receive(cut, tx(doc, { updated: [a] }), "d")?.segments).toEqual([anchorKey(b.id, 0, 3)]);
+  const ours = { ...cut, segments: [...segments, anchorKey(a.id, 0, 2)], edit };
+  expect(receive(ours, tx(doc, { commandId: "c1", updated: [triangle] }), "d")?.segments).toEqual([
+    anchorKey(b.id, 0, 3),
+    anchorKey(a.id, 0, 2),
+  ]);
 });
 
 it("keeps a Simplify preview until the answer to its path_op, and previews it with core", () => {
@@ -283,7 +302,7 @@ it("keeps a Simplify preview until the answer to its path_op, and previews it wi
     notice: null,
     edit: null,
   };
-  const open = { ...base, opPreview, anchors: [] };
+  const open = { ...base, opPreview, anchors: [], segments: [] };
   // Not yet sent: nothing answers it, a reconnect included.
   expect(receive(open, tx(doc, { commandId: "c1" }), "d")).not.toHaveProperty("simplify");
   const msg = { type: "document" as const, rev: 9, name: "N", artboards: [], nodes: [a] };

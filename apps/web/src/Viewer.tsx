@@ -74,6 +74,7 @@ export function Viewer({ docId }: { docId: string }) {
     viewport,
     selection,
     anchors,
+    segments,
     drag,
     edit,
     opPreview,
@@ -191,7 +192,7 @@ export function Viewer({ docId }: { docId: string }) {
   }, [doc, shown, docId, viewport, size, fontReady, images, imagesLoaded]);
 
   // The overlay redraws on its own canvas, without repainting the Document's Nodes.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: anchors, pen, fillStroke and overlay redraw the tools' overlays
+  // biome-ignore lint/correctness/useExhaustiveDependencies: anchors, segments, pen, fillStroke and overlay redraw the tools' overlays
   useEffect(() => {
     if (!doc || !shown || doc.id !== docId || !viewport) return;
     const ctx = sized(overlayCanvas.current, size, viewport);
@@ -224,6 +225,7 @@ export function Viewer({ docId }: { docId: string }) {
     size,
     selection,
     anchors,
+    segments,
     tool,
     pen,
     fillStroke,

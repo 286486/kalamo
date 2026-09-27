@@ -254,7 +254,7 @@ export function documentMenus(tabs: { open: (file: File) => void; close: () => v
             return doc !== null && s.selection.some((id) => editable(doc, doc.nodes.get(id)));
           },
           run: () => {
-            const { doc, selection, anchors, tool } = useStore.getState();
+            const { doc, selection, anchors, segments, tool } = useStore.getState();
             // The Curvature tool removes an Anchor and keeps the curve connected (research 06 §2).
             if (tool === "curvature" && removeCurveAnchor()) return;
             if (!doc) return;
@@ -262,10 +262,11 @@ export function documentMenus(tabs: { open: (file: File) => void; close: () => v
               sendAnchorEdits(curvatureClearInputs(doc, selection, anchors));
               return;
             }
-            if (anchors.length > 0) {
-              // Selected Anchors go with their segments, opening the path (research §4), and
-              // selected objects without a selected Anchor go whole: one command per path.
-              sendAnchorEdits(clearInputs(doc, selection, anchors));
+            if (anchors.length > 0 || segments.length > 0) {
+              // Selected Anchors go with their segments and selected segments alone, opening the
+              // path (research §4), and selected objects with neither go whole: one command per
+              // path.
+              sendAnchorEdits(clearInputs(doc, selection, anchors, segments));
               return;
             }
             // The answering tx prunes the Selection; a rejection keeps it for another press.

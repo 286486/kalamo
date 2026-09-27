@@ -374,8 +374,8 @@ export function undoAnchor(): boolean {
   return true;
 }
 
-/** Switching tools finishes the path the Pen is drawing, as in Illustrator, and drops selected Anchors. */
+/** Switching tools finishes the path the Pen is drawing, as in Illustrator, and drops selected Anchors and segments. */
 export function setTool(tool: Tool) {
   finishPen();
-  useStore.setState({ tool, anchors: [] });
+  useStore.setState({ tool, anchors: [], segments: [] });
 }
