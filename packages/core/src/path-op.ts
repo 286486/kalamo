@@ -2,7 +2,7 @@ import { z } from "zod";
 import {
   type Anchor,
   AnchorRef,
-  converted,
+  convertedWarning,
   editSubpaths,
   fromAnchors,
   isLiveShape,
@@ -206,7 +206,7 @@ function closeWithin(s: Subpath, tolerance: number): Subpath {
 }
 
 /**
- * The two open subpaths of `chains` whose Endpoints lie closest, `aEnd` and `bEnd` telling whether
+ * The two subpaths of `chains`, open ones, whose Endpoints lie closest, `aEnd` and `bEnd` telling whether
  * that is the end (else the start) of `chains[i]` and `chains[j]`, with `i < j`. The first pair
  * wins a tie.
  */
@@ -251,7 +251,11 @@ function join(doc: Document, input: z.output<typeof PathOpInput>): PathOpResult 
     const deletedIds = nodes.filter((n) => n !== top).map((n) => n.id);
     for (const id of deletedIds) doc.nodes.delete(id);
     doc.nodes.set(next.id, next);
-    return { updated: [next], deletedIds, warnings: isLiveShape(top) ? [converted(top)] : [] };
+    return {
+      updated: [next],
+      deletedIds,
+      warnings: isLiveShape(top) ? [convertedWarning(top)] : [],
+    };
   };
 
   if (refs) {
@@ -343,7 +347,7 @@ function average(doc: Document, input: z.output<typeof PathOpInput>): PathOpResu
     d: formatPath(fromAnchors(subpaths)),
   }));
   for (const node of updated) doc.nodes.set(node.id, node);
-  return { updated, deletedIds: [], warnings: nodes.filter(isLiveShape).map(converted) };
+  return { updated, deletedIds: [], warnings: nodes.filter(isLiveShape).map(convertedWarning) };
 }
 
 /**
@@ -378,5 +382,5 @@ export function pathOp(doc: Document, raw: PathOpInput): PathOpResult {
     return { ...node, d: formatPath(fromAnchors(next)) };
   });
   for (const node of updated) doc.nodes.set(node.id, node);
-  return { updated, deletedIds: [], warnings: unique.filter(isLiveShape).map(converted) };
+  return { updated, deletedIds: [], warnings: unique.filter(isLiveShape).map(convertedWarning) };
 }

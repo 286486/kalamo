@@ -427,7 +427,8 @@ export function withAnchors(doc: Document, id: string, at: string): PathNode | L
   throw invalid(at, `A ${node.type} has no Anchors.`, "Name a path or a Live Shape.");
 }
 
-export const converted = (node: LiveShape) => ({
+/** The warning that a Live Shape became a path before an edit (F-PATH-07). */
+export const convertedWarning = (node: LiveShape) => ({
   code: "CONVERTED_TO_PATH",
   nodeId: node.id,
   message: `The ${node.type} was converted to a path first: it keeps its id, and its parameters are gone.`,
@@ -463,6 +464,6 @@ export function editPath(
       ...s,
       anchors: s.anchors.map((a, index) => ({ index, ...a })),
     })),
-    warnings: isLiveShape(found) ? [converted(found)] : [],
+    warnings: isLiveShape(found) ? [convertedWarning(found)] : [],
   };
 }
