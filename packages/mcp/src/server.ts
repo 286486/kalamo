@@ -3,6 +3,8 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import {
   ArtboardInput,
   Color,
+  FreehandStrokeInput,
+  freehandPath,
   imageFrame,
   MaskInput,
   NodeInput,
@@ -462,6 +464,37 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
     },
     ({ docId, nodeIds, op, ...opts }) =>
       run("zibel_path_op", async () => json(await service.pathOp(docId, { nodeIds, op }, opts))),
+  );
+
+  server.registerTool(
+    "zibel_freehand_stroke",
+    {
+      title: "Freehand Stroke",
+      description: [
+        "Draw with Illustrator's Pencil: points is the Ink in drawing order, in document coordinates, and it is fitted with cubic Béziers into one new path under parentId (a Layer or Group), above its other children, in one Transaction.",
+        "fidelity is the Pencil's Fidelity, 0 Accurate to 100 Smooth (default 50): every point lies within 0.1 pt of the path at 0, 1 pt at 50 and 10 pt at 100, so a higher value gives fewer Anchors. A turn sharper than 60° becomes a Corner Anchor, a straight run between corners a line, and every other Anchor is Smooth. Ends within that distance of each other close the path: repeat the first point to close it.",
+        "pressure is accepted and ignored, as the Pencil draws at a fixed width. appearance is as zibel_node_create takes it; omitted, a 1 pt black Stroke and no Fill.",
+        "createdIds is the path; read its d and Anchors with zibel_node_get or zibel_path_edit.",
+      ].join(" "),
+      inputSchema: { docId, ...FreehandStrokeInput.shape, ...maskWrite },
+      outputSchema: WriteReceipt.shape,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    ({ docId, intent, txId, ifRev, ...input }) =>
+      run("zibel_freehand_stroke", async () => {
+        const item = freehandPath(input);
+        try {
+          return json(await service.createNodes(docId, [item], { intent, txId, ifRev }));
+        } catch (e) {
+          if (!(e instanceof ZibelError)) throw e;
+          throw new ZibelError({ ...e.data, path: e.data.path?.replace(/^nodes\[0\]\./, "") });
+        }
+      }),
   );
 
   server.registerTool(

@@ -176,6 +176,63 @@ describe("write tools pass the write and its options apart", () => {
     expect(service.pathOp).toHaveBeenCalledWith("d", input, write);
   });
 
+  it("freehand_stroke: the fitted Ink as one path through createNodes", async () => {
+    const { service, call } = await harness({ createNodes: async () => receipt });
+    const { partial: _, ...write } = { ...opts, partial: false };
+    const points = [
+      { x: 0, y: 0, pressure: 0.5 },
+      { x: 5, y: 0 },
+      { x: 10, y: 0 },
+    ];
+    const result = await call("zibel_freehand_stroke", {
+      docId: "d",
+      parentId: "p",
+      points,
+      tool: "pencil",
+      ...write,
+    });
+    expect(result.structuredContent).toEqual(receipt);
+    expect(service.createNodes).toHaveBeenCalledWith(
+      "d",
+      [
+        {
+          type: "path",
+          parentId: "p",
+          d: "M 0 0 L 10 0",
+          appearance: { fills: [], strokes: [{ color: "#000000" }] },
+        },
+      ],
+      write,
+    );
+  });
+
+  it("freehand_stroke names its own parentId in an error", async () => {
+    const { call } = await harness({
+      createNodes: async () => {
+        throw new ZibelError({
+          code: "NODE_NOT_FOUND",
+          message: "No Node with id p.",
+          hint: "List ids.",
+          path: "nodes[0].parentId",
+        });
+      },
+    });
+    const points = [
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+    ];
+    const result = await call("zibel_freehand_stroke", {
+      docId: "d",
+      parentId: "p",
+      points,
+      tool: "pencil",
+    });
+    expect(JSON.parse((result.content as { text: string }[])[0]?.text ?? "")).toMatchObject({
+      code: "NODE_NOT_FOUND",
+      path: "parentId",
+    });
+  });
+
   it("mask_release", async () => {
     const { service, call } = await harness({ releaseMask: async () => receipt });
     const { partial: _, ...write } = { ...opts, partial: false };
@@ -531,6 +588,7 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
     "zibel_doc_open",
     "zibel_doc_outline",
     "zibel_export",
+    "zibel_freehand_stroke",
     "zibel_image_place",
     "zibel_mask_make",
     "zibel_mask_release",
@@ -573,6 +631,7 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
     ["asTemplate", "docId", "frame", "ifRev", "intent", "parentId", "src", "txId"].sort(),
   );
   for (const name of [
+    "zibel_freehand_stroke",
     "zibel_mask_make",
     "zibel_mask_release",
     "zibel_path_edit",
