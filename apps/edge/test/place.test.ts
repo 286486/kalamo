@@ -38,8 +38,14 @@ it("places a two-layer Inkscape file as one Group of two Groups, all new ids, in
   expect(receipt.createdIds).toHaveLength(5);
   expect(receipt.createdIds.some((id) => /^(layer|rect)\d$/.test(id))).toBe(false);
   expect(receipt.nodes).toMatchObject([
-    { type: "group", name: "Back", childCount: 1, children: [{ type: "rect" }] },
-    { type: "group", name: "Front", childCount: 1, children: [{ type: "rect" }] },
+    {
+      type: "group",
+      name: "logo",
+      children: [
+        { type: "group", name: "Back", childCount: 1 },
+        { type: "group", name: "Front", childCount: 1 },
+      ],
+    },
   ]);
   const [groupId] = receipt.createdIds;
   const outline = ok(await s.outline({ rootId: layer, depth: 1 }, "user")).nodes;
@@ -72,6 +78,40 @@ it("places the same file twice, and a file exported from the same Document, with
   expect(again.createdIds).toHaveLength(before + 1);
   expect(ok(await s.info()).nodeCount).toBe(before * 2 + 1);
   expect(ok(await s.get(a.createdIds, "concise", "user")).nodes).toHaveLength(5);
+});
+
+it("pastes a Zibel copy's Nodes ungrouped, in place or centred, and undoes it", async () => {
+  const { s, layer } = await setup("place-copy");
+  const [rect] = ok(await s.outline({ rootId: layer }, "user")).nodes;
+  const text = {
+    type: "text" as const,
+    parentId: layer,
+    x: 50,
+    y: 60,
+    content: "Hi",
+    appearance: { fills: [{ color: "#FF0000" }], strokes: [] },
+  };
+  const [textId] = ok(await s.createNodes([text], "user")).createdIds;
+  const ids = [rect?.id as string, textId as string];
+  const { svg } = ok(await s.svg("user", { scope: { nodeIds: ids } }));
+  const { rev, nodeCount } = ok(await s.info());
+
+  const pasted = ok(await place(s, svg, { parentId: layer, inPlace: true }));
+  expect(pasted.nodes.map((n) => n.type)).toEqual(["rect", "text"]);
+  expect(pasted.createdIds).toEqual(pasted.nodes.map((n) => n.id));
+  // The same geometry and Appearance, above the originals.
+  const [before, after] = [ids, pasted.createdIds].map(async (list) =>
+    ok(await s.get(list, "full", "user")).nodes.map(({ id, ...n }) => ({ ...n, index: "" })),
+  );
+  expect(await after).toEqual(await before);
+  expect(ok(await s.info()).nodeCount).toBe(nodeCount + 2);
+
+  const centred = ok(await place(s, svg, { parentId: layer, position: { x: 0, y: 0 } }));
+  const b = centred.bounds as { x: number; y: number; width: number; height: number };
+  expect(b.x + b.width / 2).toBeCloseTo(0, 3);
+  ok(await s.undo("user"));
+  ok(await s.undo("user"));
+  expect(ok(await s.info())).toMatchObject({ rev: rev + 4, nodeCount });
 });
 
 it("centres on position, and fit scales to the parent's Artboard", async () => {

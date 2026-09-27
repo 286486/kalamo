@@ -91,8 +91,9 @@ export interface DocumentService {
   open(input: { content: string; name?: string; intent?: string }): Promise<OpenedDocument>;
   /**
    * Place (ADR-0017): an SVG as one new Group under `parentId`, every id new, centred on
-   * `position` (default the parent's Artboard) after `fit` scales it to that Artboard. `name` is
-   * the file's name. `nodes` is the Group's outline to depth 2.
+   * `position` (default the parent's Artboard) after `fit` scales it to that Artboard, or where it
+   * is with `inPlace`. A Zibel copy's Nodes go into `parentId` without the Group (ADR-0030).
+   * `name` is the file's name. `nodes` is the outline of what went into `parentId`, to depth 2.
    */
   place(
     docId: string,
@@ -101,6 +102,7 @@ export interface DocumentService {
       parentId: string;
       position?: { x: number; y: number };
       fit?: boolean;
+      inPlace?: boolean;
       name?: string;
     } & Pick<WriteOptions, "txId" | "ifRev" | "intent">,
   ): Promise<WriteReceipt & { nodes: OutlineNode[] }>;

@@ -729,13 +729,19 @@ export class DocumentObject extends DurableObject<Env> {
   }
 
   /**
-   * Place (ADR-0017): an SVG's Nodes as one new Group under `opts.parentId`, all with new ids, in
-   * one Transaction. `nodes` is the Group's outline to depth 2.
+   * Place (ADR-0017): an SVG's Nodes as one new Group under `opts.parentId`, or a Zibel copy's Nodes
+   * directly there (ADR-0030), all with new ids, in one Transaction. `nodes` is the outline of what
+   * was put in the parent, to depth 2.
    */
   place(
     file: OpenedFile & { format: "svg" | "zibel_json" },
     actor: string,
-    opts: Options & { parentId: string; position?: { x: number; y: number }; fit?: boolean },
+    opts: Options & {
+      parentId: string;
+      position?: { x: number; y: number };
+      fit?: boolean;
+      inPlace?: boolean;
+    },
   ): Result<WriteReceipt & { nodes: OutlineNode[] }> {
     let nodes: OutlineNode[] = [];
     if (file.format === "svg") this.storeImages(file.images);
@@ -748,8 +754,9 @@ export class DocumentObject extends DurableObject<Env> {
           path: "svg",
         });
       }
-      const { groupId, created } = placeNodes(doc, file, opts);
-      nodes = outline(doc, { rootId: groupId, depth: 2 });
+      const { placedIds, created } = placeNodes(doc, file, opts);
+      const placed = new Set(placedIds);
+      nodes = outline(doc, { rootId: opts.parentId, depth: 2 }).filter((n) => placed.has(n.id));
       return { created, warnings: file.warnings, failed: [] };
     });
     return "error" in receipt ? receipt : { ...receipt, nodes };
