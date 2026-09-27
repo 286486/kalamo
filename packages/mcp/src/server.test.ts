@@ -183,9 +183,9 @@ describe("write tools pass the write and its options apart", () => {
     expect(service.pathEdit.mock.calls[0]?.[2]).toStrictEqual({});
   });
 
-  it("freehand_stroke: the fitted Ink as one path through createNodes", async () => {
+  it("freehand_stroke: the fitted Ink as one path through createNodes, only the write options given", async () => {
     const { service, call } = await harness({ createNodes: async () => receipt });
-    const { partial: _, ...write } = { ...opts, partial: false };
+    const write = { intent: opts.intent };
     const points = [
       { x: 0, y: 0, pressure: 0.5 },
       { x: 5, y: 0 },
@@ -199,7 +199,7 @@ describe("write tools pass the write and its options apart", () => {
       ...write,
     });
     expect(result.structuredContent).toEqual(receipt);
-    expect(service.createNodes).toHaveBeenCalledWith(
+    expect(service.createNodes.mock.calls[0]).toStrictEqual([
       "d",
       [
         {
@@ -210,7 +210,7 @@ describe("write tools pass the write and its options apart", () => {
         },
       ],
       write,
-    );
+    ]);
   });
 
   it("freehand_stroke names its own parentId in an error", async () => {

@@ -486,11 +486,12 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         openWorldHint: false,
       },
     },
-    ({ docId, intent, txId, ifRev, ...input }) =>
+    (args) =>
       run("zibel_freehand_stroke", async () => {
+        const [docId, input, write] = splitTxWrite(args);
         const item = freehandPath(input);
         try {
-          return json(await service.createNodes(docId, [item], { intent, txId, ifRev }));
+          return json(await service.createNodes(docId, [item], write));
         } catch (e) {
           if (!(e instanceof ZibelError)) throw e;
           throw new ZibelError({ ...e.data, path: e.data.path?.replace(/^nodes\[0\]\./, "") });
