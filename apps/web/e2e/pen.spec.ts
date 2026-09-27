@@ -107,5 +107,5 @@ test("the Pen drags out Smooth Anchors into one curved path", async ({ page, req
     .structuredContent.nodes;
   const [path] = (await call(request, "zibel_node_get", { docId, nodeIds: [id], detail: "full" }))
     .structuredContent.nodes;
-  expect(path.d).toMatch(/^M [\d.]+ [\d.]+ C( [\d.]+){6} C( [\d.]+){6}$/);
+  expect(path.d).toMatch(/^M [\d.-]+ [\d.-]+ C( [\d.-]+){6} C( [\d.-]+){6}$/);
 });

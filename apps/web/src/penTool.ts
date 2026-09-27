@@ -7,6 +7,7 @@ import {
   finishPen,
   pathD,
   penCancel,
+  penClosing,
   penDown,
   penDrag,
   penPressed,
@@ -32,6 +33,8 @@ export const penTool: CanvasTool = {
   },
   move(e) {
     pointer = { at: [e.x, e.y], shift: e.shift };
+    // ponytail: a modifier pressed or released applies at the next move, where Illustrator
+    // applies it at once; replay the last move from Viewer's key handler if that shows.
     if (gesture && dragged(gesture, e)) penDrag([e.x, e.y], e);
     e.redraw();
   },
@@ -85,7 +88,7 @@ export const penTool: CanvasTool = {
       const [x, y] = a.anchor;
       if (a === last) ctx.fillRect(x - r, y - r, 2 * r, 2 * r);
       else ctx.strokeRect(x - r, y - r, 2 * r, 2 * r);
-      if (a !== last && !(a === pen.anchors[0] && penPressed())) continue;
+      if (a !== last && !(a === pen.anchors[0] && penClosing())) continue;
       for (const h of [a.handleIn, a.handleOut]) {
         if (!h) continue;
         ctx.beginPath();

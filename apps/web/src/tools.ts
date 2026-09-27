@@ -8,7 +8,7 @@ import {
 import type { PenPath } from "./receive.ts";
 import { editable, placeParent } from "./selection.ts";
 import { DEFAULT_FILL_STROKE, type State, send, useStore } from "./store.ts";
-import type { Tool } from "./toolbox.ts";
+import type { Tool, ToolEvent } from "./toolbox.ts";
 
 /** The Fill and Stroke boxes (F-DRAW-12): what new art is painted with; null is None. */
 export interface FillStroke {
@@ -96,27 +96,29 @@ export function finishPen(closed = false) {
   useStore.setState({ pen: { ...done, commandId } });
 }
 
-/** The Pen's modifiers while its button is down. Ctrl is Cmd on macOS. */
-export interface PenMods {
-  shift: boolean;
-  alt: boolean;
-  ctrl: boolean;
-  space: boolean;
-}
+/** The Pen's modifiers while its button is down. */
+export type PenMods = Pick<ToolEvent, "shift" | "alt" | "ctrl" | "space">;
 
 /**
  * The Anchor the Pen's button is down on, at `index`, and the pointer's last position. It is one
  * just placed, the last Anchor pressed again, or the first Anchor, which closes the path on release.
+ * `broken` is set once Alt broke the Handles, which stay broken for the rest of the press.
  */
-let press: { kind: "place" | "last" | "close"; index: number; at: Point } | null = null;
+let press: {
+  kind: "place" | "last" | "close";
+  index: number;
+  at: Point;
+  broken?: boolean;
+} | null = null;
 
 export const penPressed = () => press !== null;
+export const penClosing = () => press?.kind === "close";
 
 const near = (a: Point, b: Point, tolerance: number) =>
   Math.hypot(a[0] - b[0], a[1] - b[1]) <= tolerance;
 
 /**
- * A Pen press (research §1): on the first Anchor it will close the path, on the last it removes
+ * A Pen press (research 06 §1): on the first Anchor it will close the path, on the last it removes
  * that Anchor's outgoing Handle, and anywhere else it places a Corner Anchor, which a drag then
  * makes Smooth. Shift constrains the new segment to 45°.
  */
@@ -145,7 +147,7 @@ export function penDown(p: Point, tolerance: number, shift = false) {
 
 /**
  * A drag of the press to `p`. It pulls the outgoing Handle and the incoming one mirrors it: Alt
- * leaves the incoming Handle where it is (a cusp), Ctrl keeps its length, and Shift constrains
+ * leaves the incoming Handle where it is (a Corner, Illustrator's cusp), Ctrl keeps its length, and Shift constrains
  * the Handle to 45°. Space moves the Anchor with its Handles instead. On the last Anchor only the
  * outgoing Handle moves; closing, Alt leaves the outgoing one and shapes the closing segment.
  */
@@ -155,6 +157,9 @@ export function penDrag(p: Point, mods: PenMods) {
   if (!press || !pen || !a) return;
   const [dx, dy] = [p[0] - press.at[0], p[1] - press.at[1]];
   press.at = p;
+  // Illustrator's documented order is to release Alt, then the button: the cusp stays.
+  press.broken ||= mods.alt;
+  const alt = press.broken;
   const [x, y] = a.anchor;
   const out = mods.shift ? constrain(a.anchor, p) : p;
   const [ox, oy] = [out[0] - x, out[1] - y];
@@ -163,8 +168,8 @@ export function penDrag(p: Point, mods: PenMods) {
   if (mods.space) {
     const by = (h: Point | null): Point | null => h && [h[0] + dx, h[1] + dy];
     next = { anchor: [x + dx, y + dy], handleIn: by(a.handleIn), handleOut: by(a.handleOut) };
-  } else if (press.kind === "close" && mods.alt) next = { ...a, handleIn: mirror };
-  else if (press.kind === "last" || mods.alt) next = { ...a, handleOut: out };
+  } else if (press.kind === "close" && alt) next = { ...a, handleIn: mirror };
+  else if (press.kind === "last" || alt) next = { ...a, handleOut: out };
   else if (mods.ctrl && a.handleIn) {
     const k = Math.hypot(a.handleIn[0] - x, a.handleIn[1] - y) / (Math.hypot(ox, oy) || 1);
     next = { ...a, handleIn: [x - ox * k, y - oy * k], handleOut: out };

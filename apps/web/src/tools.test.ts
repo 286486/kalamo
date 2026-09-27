@@ -166,10 +166,11 @@ it("a drag places a Smooth Anchor whose Handles mirror each other", () => {
   expect(typeAt(1)).toBe("smooth");
 });
 
-it("Alt while dragging leaves the incoming Handle behind: a cusp", () => {
+it("Alt while dragging leaves the incoming Handle behind: a Corner (cusp)", () => {
   penClick([0, 0], 1);
-  penDragged([10, 0], [[15, 5]], [[10, 10], { alt: true }]);
-  expect(anchors()?.[1]).toEqual({ anchor: [10, 0], handleIn: [5, -5], handleOut: [10, 10] });
+  // Released before the button, as Illustrator documents it, Alt leaves the Handles broken.
+  penDragged([10, 0], [[15, 5]], [[10, 10], { alt: true }], [[10, 12]]);
+  expect(anchors()?.[1]).toEqual({ anchor: [10, 0], handleIn: [5, -5], handleOut: [10, 12] });
   penClick([40, 40], 1);
   expect(typeAt(1)).toBe("corner");
 });
