@@ -4,6 +4,7 @@ import {
   checkFile,
   childrenOf,
   imageInfo,
+  mapPaint,
   paint,
   paintContainer,
   union,
@@ -105,17 +106,23 @@ export function transformNodes(
     const k = scaleOf(m);
     const s = input.scaleStrokes ? 1 : k;
     const all = group.flatMap((n) => subtree(doc, n));
-    // A container has no matrix to scale its Strokes, so their widths scale instead (ADR-0043).
-    for (const c of input.scaleStrokes ? all : []) {
-      if (!isContainer(c) || !c.appearance?.strokes.length) continue;
+    // A container has no matrix, so its gradients map through the transform and, with
+    // scaleStrokes, its Stroke widths scale instead (ADR-0043).
+    for (const c of all) {
+      if (!isContainer(c) || !c.appearance) continue;
+      const { fills, strokes } = c.appearance;
+      const s = input.scaleStrokes ? k : 1;
+      const mapped = [...fills, ...strokes].some((p) => p.type === "gradient");
+      if (!mapped && !(input.scaleStrokes && strokes.length > 0)) continue;
       const next = {
         ...c,
         appearance: {
           ...c.appearance,
-          strokes: c.appearance.strokes.map((t) => ({
-            ...t,
-            width: t.width * k,
-            dash: t.dash.map((v) => v * k),
+          fills: fills.map((f) => mapPaint(f, m)),
+          strokes: strokes.map((t) => ({
+            ...mapPaint(t, m),
+            width: t.width * s,
+            dash: t.dash.map((v) => v * s),
           })),
         },
       };
@@ -292,6 +299,7 @@ function patched(doc: Document, raw: UpdateInput, i: number): Node {
       next.appearance = paintContainer(
         next.appearance as ContainerAppearanceInput,
         `${at}.appearance`,
+        () => bounds(doc, next),
       );
     }
   } else {

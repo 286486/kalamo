@@ -93,16 +93,20 @@ export interface CompositingCase {
   nodes: object[];
   /** Made into a Clipping Mask, by the names of its Clipping Path and content; it is then "mask". */
   mask?: { clip: string; content: string[] };
+  /** `node_transform` inputs by Node name, applied before the patches. */
+  transforms?: Record<string, { matrix: number[]; pivot: { x: number; y: number } }>;
   /** `node_update` patches by Node name, applied last; "Layer" is the default Layer. */
-  patches: Record<
-    string,
-    { opacity?: number; blendMode?: string; appearance?: ReturnType<typeof appearance> }
-  >;
+  patches: Record<string, { opacity?: number; blendMode?: string; appearance?: object }>;
   /** Document points and their colour. */
   probes: { x: number; y: number; rgb: RGB }[];
 }
 
 const half = over(RED, 0.5, WHITE);
+/** Red at x 0 to blue at x 200, as a linear gradient in document coordinates paints pixel `x`. */
+const across = (x: number): RGB => {
+  const t = (x + 0.5) / 200;
+  return [255 * (1 - t), 0, 255 * t];
+};
 
 export const COMPOSITING: CompositingCase[] = [
   {
@@ -253,6 +257,51 @@ export const COMPOSITING: CompositingCase[] = [
     probes: [
       { x: 30, y: 50, rgb: RED },
       { x: 50, y: 50, rgb: WHITE },
+    ],
+  },
+  {
+    // #107. The text's stem spans x 22.5..28.2, y 16..40 in its own coordinates, 45..56.4 by 32..80
+    // once doubled. Painted in the text's own space, the stem would take the colour at half its x.
+    name: "a Group gradient Fill runs one field across a shape and a doubled text",
+    nodes: [
+      {
+        type: "group",
+        name: "g",
+        children: [
+          rect("r", 120, 20, 60, 60, RED),
+          { type: "text", name: "t", x: 20, y: 40, content: "I", fontSize: 36, fontStyle: "Black" },
+        ],
+      },
+    ],
+    transforms: { t: { matrix: [2, 0, 0, 2, 0, 0], pivot: { x: 0, y: 0 } } },
+    patches: {
+      g: {
+        appearance: {
+          fills: [
+            {
+              type: "gradient",
+              gradient: {
+                type: "linear",
+                stops: [
+                  { offset: 0, color: `${hex(RED)}FF` },
+                  { offset: 1, color: `${hex(BLUE)}FF` },
+                ],
+                start: { x: 0, y: 0 },
+                end: { x: 200, y: 0 },
+              },
+            },
+          ],
+          strokes: [],
+          contents: 0,
+        },
+      },
+    },
+    probes: [
+      { x: 130, y: 50, rgb: across(130) },
+      { x: 170, y: 30, rgb: across(170) },
+      { x: 50, y: 56, rgb: across(50) },
+      { x: 52, y: 75, rgb: across(52) },
+      { x: 100, y: 50, rgb: WHITE },
     ],
   },
 ];

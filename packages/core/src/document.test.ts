@@ -1461,3 +1461,87 @@ describe("container Appearance (ADR-0043)", () => {
     });
   });
 });
+
+describe("container gradients (#107)", () => {
+  const stops = [
+    { offset: 0, color: "#000000" },
+    { offset: 1, color: "#FFFFFF" },
+  ];
+  const fill = (gradient: object) => ({
+    type: "gradient" as const,
+    gradient: { stops, ...gradient },
+  });
+  const box = (x: number, y: number) => ({ type: "rect" as const, x, y, width: 20, height: 10 });
+  const group = (
+    parentId: string,
+    appearance: object,
+    children: object[] = [box(0, 0), box(80, 30)],
+  ) => ({ type: "group", parentId, appearance, children }) as never;
+
+  it("spans the Group's geometric bounds, its inline children's included", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const [g] = createNodes(doc, [
+      group(defaultLayerId, {
+        fills: [fill({ type: "linear" }), fill({ type: "linear", angle: 90 })],
+        strokes: [{ ...fill({ type: "radial" }), width: 3, cap: "round", dash: [2, 1] }],
+      }),
+    ]).nodes;
+    // Bounds 0,0 100×40.
+    expect(g).toMatchObject({
+      appearance: {
+        fills: [
+          { gradient: { type: "linear", start: { x: 0, y: 20 }, end: { x: 100, y: 20 } } },
+          { gradient: { type: "linear", start: { x: 50, y: 0 }, end: { x: 50, y: 40 } } },
+        ],
+        strokes: [
+          {
+            width: 3,
+            cap: "round",
+            dash: [2, 1],
+            gradient: {
+              type: "radial",
+              center: { x: 50, y: 20 },
+              radius: Math.round(Math.sqrt((100 ** 2 + 40 ** 2) / 8) * 1000) / 1000,
+              aspectRatio: 1,
+              angle: 0,
+              focus: { x: 50, y: 20 },
+            },
+          },
+        ],
+      },
+    });
+    expect((nodeView(doc, g as Node, "full") as { appearance?: unknown }).appearance).toEqual(
+      (g as { appearance: unknown }).appearance,
+    );
+    // The paint leaves the bounds alone.
+    expect(bounds(doc, g as Node)).toEqual({ x: 0, y: 0, width: 100, height: 40 });
+  });
+
+  it("needs explicit geometry on a Group without bounds, and takes it", () => {
+    const { doc, defaultLayerId } = newDoc();
+    for (const [gradient, list] of [
+      [{ type: "linear" }, "fills"],
+      [{ type: "radial", center: { x: 1, y: 1 } }, "strokes"],
+    ] as const) {
+      expect(
+        codeOf(() => createNodes(doc, [group(defaultLayerId, { [list]: [fill(gradient)] }, [])])),
+      ).toMatchObject({
+        code: "INVALID_INPUT",
+        path: `nodes[0].appearance.${list}[0].gradient`,
+        hint: expect.stringContaining("start and end"),
+      });
+    }
+    const [g] = createNodes(doc, [
+      group(
+        defaultLayerId,
+        { fills: [fill({ type: "radial", center: { x: 1, y: 2 }, radius: 3 })] },
+        [],
+      ),
+    ]).nodes;
+    expect(g).toMatchObject({
+      appearance: {
+        fills: [{ gradient: { center: { x: 1, y: 2 }, radius: 3, focus: { x: 1, y: 2 } } }],
+      },
+    });
+  });
+});

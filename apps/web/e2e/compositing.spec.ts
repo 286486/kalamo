@@ -44,6 +44,9 @@ for (const c of COMPOSITING) {
       ).structuredContent;
       ids.set("mask", createdIds[0]);
     }
+    for (const [k, t] of Object.entries(c.transforms ?? {})) {
+      await call(request, "zibel_node_transform", { docId, nodeIds: [ids.get(k)], ...t });
+    }
     await page.goto(`/docs/${docId}`);
     await expect(page.getByTestId("status-bar")).toContainText(/\d+%/);
     await page.keyboard.press("Control+1");

@@ -209,8 +209,8 @@ it("exports the fixture Document as Inkscape SVG that matches the stored file", 
   await expect(svg).toMatchFileSnapshot("../../../fixtures/documents/inkscape.svg");
   // resvg in the Worker draws the same file, namespaces and all, over every Artboard.
   expect(await render({ docId })).toEqual({
-    docRect: { x: 0, y: 0, width: 1480, height: 200 },
-    pixelSize: { width: 1480, height: 200 },
+    docRect: { x: 0, y: 0, width: 1580, height: 200 },
+    pixelSize: { width: 1580, height: 200 },
     scale: 1,
   });
 });

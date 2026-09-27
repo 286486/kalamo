@@ -658,24 +658,48 @@ describe("resolveImages", () => {
   });
 });
 
-it("refuses a container gradient in a file as INVALID_DOCUMENT until #107", () => {
+it("opens and saves a container gradient unchanged (#107)", () => {
   const doc = scene();
   const file = JSON.parse(serializeDocument(doc));
-  const gradient = {
-    type: "linear",
-    stops: [
-      { offset: 0, color: "#000000" },
-      { offset: 1, color: "#FFFFFF" },
+  const stops = [
+    { offset: 0, color: "#000000FF" },
+    { offset: 1, color: "#FFFFFFFF" },
+  ];
+  const linear = { type: "linear", stops, start: { x: 0, y: 0 }, end: { x: 1, y: 0 } };
+  const radial = {
+    type: "radial",
+    stops,
+    center: { x: 5, y: 5 },
+    radius: 4,
+    aspectRatio: 0.5,
+    angle: 30,
+    focus: { x: 6, y: 5 },
+  };
+  const group = file.nodes.find((n: Node) => n.type === "group");
+  group.appearance = {
+    fills: [{ type: "gradient", gradient: linear }],
+    strokes: [
+      {
+        type: "gradient",
+        gradient: radial,
+        width: 2,
+        cap: "round",
+        join: "bevel",
+        miterLimit: 4,
+        dash: [1, 2],
+      },
     ],
-    start: { x: 0, y: 0 },
-    end: { x: 1, y: 0 },
+    contents: 1,
   };
-  file.nodes.find((n: Node) => n.type === "group").appearance = {
-    fills: [{ type: "gradient", gradient }],
-    strokes: [],
-    contents: 0,
-  };
-  expect(errorOf(() => parseDocument(JSON.stringify(file)))).toMatchObject({
-    code: "INVALID_DOCUMENT",
-  });
+  const text = JSON.stringify(file);
+  const opened = parseDocument(text).nodes.find((n) => n.id === group.id);
+  expect(opened).toMatchObject({ appearance: group.appearance });
+  expect(
+    JSON.parse(
+      serializeDocument({
+        ...doc,
+        nodes: new Map(parseDocument(text).nodes.map((n) => [n.id, n])),
+      }),
+    ).nodes.find((n: Node) => n.id === group.id),
+  ).toEqual(group);
 });

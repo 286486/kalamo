@@ -2004,6 +2004,160 @@ describe("container Appearance (ADR-0043)", () => {
     );
   });
 
+  describe("gradients (#107)", () => {
+    const stops = [
+      { offset: 0, color: "#000000" },
+      { offset: 1, color: "#FFFFFF80" },
+    ];
+    /** A Group with a linear Fill above Contents and an elliptical radial Stroke below. */
+    function gradients() {
+      const { doc, defaultLayerId } = createDocument({
+        id: "d",
+        name: "Doc",
+        artboards: [{ width: 100, height: 100 }],
+      });
+      const [group, , text] = createNodes(doc, [
+        {
+          type: "group",
+          parentId: defaultLayerId,
+          appearance: {
+            fills: [{ type: "gradient", gradient: { type: "linear", stops, angle: 30 } }],
+            strokes: [
+              {
+                type: "gradient",
+                width: 3,
+                gradient: {
+                  type: "radial",
+                  stops,
+                  aspectRatio: 0.5,
+                  angle: 20,
+                  focus: { x: 30, y: 20 },
+                },
+              },
+            ],
+            contents: 1,
+          },
+          children: [
+            { type: "rect", x: 0, y: 0, width: 40, height: 20 },
+            { type: "text", x: 10, y: 50, content: "Hi" },
+          ],
+        },
+      ]).nodes;
+      if (!group || !text) throw new Error("setup");
+      // Turned and scaled, so the text copy paints with a gradient of its own.
+      doc.nodes.set(text.id, { ...text, transform: [1.2, 0.35, -0.35, 1.2, 0, 0] });
+      return { doc, group };
+    }
+    const saved = (doc: ReturnType<typeof gradients>["doc"], nodes: Node[]) =>
+      JSON.parse(serializeDocument({ ...doc, nodes: new Map(nodes.map((n) => [n.id, n])) }));
+    const appearanceOf = (nodes: Node[], id: string) => {
+      const n = nodes.find((m) => m.id === id);
+      return n?.type === "group" ? n.appearance : undefined;
+    };
+
+    it("reads a container gradient back unchanged, and Open of an export is the Document", () => {
+      const { doc } = gradients();
+      const file = parseSvg(toSvg(doc));
+      expect(file.warnings).toEqual([]);
+      expect(saved(doc, file.nodes)).toEqual(saved(doc, [...doc.nodes.values()]));
+    });
+
+    it.each([
+      [[0, 2, -2, 0, 10, 5]],
+      [[-1, 0, 0, 1, 50, 0]],
+      [[1.5, 0, 0, 1.5, 3, 4]],
+    ] as Matrix[][])("Opens a Group transformed by %j as node_transform leaves it", (m) => {
+      const { doc, group } = gradients();
+      const turned = toSvg(doc).replace(
+        `id="z-${group.id}"`,
+        `id="z-${group.id}" transform="matrix(${m.join(",")})"`,
+      );
+      const file = parseSvg(turned);
+      expect(file.warnings).toEqual([]);
+      transformNodes(doc, { nodeIds: [group.id], matrix: m, pivot: { x: 0, y: 0 } });
+      expect(appearanceOf(file.nodes, group.id)).toEqual(
+        appearanceOf([...doc.nodes.values()], group.id),
+      );
+    });
+
+    it("maps a Fill under a skew exactly and silently", () => {
+      const { doc, group } = gradients();
+      doc.nodes.set(group.id, {
+        ...group,
+        appearance: { ...(group.type === "group" && group.appearance), strokes: [], contents: 0 },
+      } as Node);
+      const m: Matrix = [1, 0.3, 0.5, 2, 4, 0];
+      const skewed = toSvg(doc).replace(
+        `id="z-${group.id}"`,
+        `id="z-${group.id}" transform="matrix(${m.join(",")})"`,
+      );
+      const file = parseSvg(skewed);
+      expect(file.warnings).toEqual([]);
+      transformNodes(doc, { nodeIds: [group.id], matrix: m, pivot: { x: 0, y: 0 } });
+      expect(appearanceOf(file.nodes, group.id)).toEqual(
+        appearanceOf([...doc.nodes.values()], group.id),
+      );
+    });
+
+    it("reads Inkscape's split stops and positioned gradient, with a gradientTransform", () => {
+      const file = parseSvg(
+        svg(
+          'viewBox="0 0 100 100"',
+          '<defs><linearGradient id="s"><stop offset="0" stop-color="red"/><stop offset="1" stop-color="blue"/></linearGradient>' +
+            '<linearGradient id="p" href="#s" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="10" y2="0" gradientTransform="translate(5,0)"/></defs>' +
+            '<g><rect width="20" height="20"/><g zibel:paint="true" fill="url(#p)"><path d="M 0 0 L 20 0 L 20 20 Z"/></g></g>',
+        ),
+      );
+      expect(file.warnings).toEqual([]);
+      const group = file.nodes.find((n) => n.type === "group");
+      expect(group && "appearance" in group && group.appearance).toEqual({
+        fills: [
+          {
+            type: "gradient",
+            gradient: {
+              type: "linear",
+              stops: [
+                { offset: 0, color: "#FF0000" },
+                { offset: 1, color: "#0000FF" },
+              ],
+              start: { x: 5, y: 0 },
+              end: { x: 15, y: 0 },
+            },
+          },
+        ],
+        strokes: [],
+        contents: 0,
+      });
+    });
+
+    it("resolves objectBoundingBox against the paint group's box, its copies' transforms included", () => {
+      const file = parseSvg(
+        svg(
+          'viewBox="0 0 100 100"',
+          '<defs><radialGradient id="b"><stop offset="0" stop-color="red"/><stop offset="1" stop-color="blue"/></radialGradient></defs>' +
+            '<g><rect width="20" height="20"/><g zibel:paint="true" fill="url(#b)">' +
+            '<path d="M 10 10 L 30 10 L 30 20 L 10 20 Z"/><g><path d="M 0 0 L 10 0 L 10 10 Z" transform="translate(40,20)"/></g></g></g>',
+        ),
+      );
+      const group = file.nodes.find((n) => n.type === "group");
+      // The box is 10,10 to 50,30: 40 by 20, so the circle becomes an ellipse half as tall.
+      expect(group && "appearance" in group && group.appearance).toMatchObject({
+        fills: [
+          {
+            gradient: {
+              type: "radial",
+              center: { x: 30, y: 20 },
+              radius: 20,
+              aspectRatio: 0.5,
+              angle: 0,
+              focus: { x: 30, y: 20 },
+            },
+          },
+        ],
+      });
+    });
+  });
+
   it("reads a generic <g fill> as inherited by its children, with no container Appearance", () => {
     const file = parseSvg(
       svg('viewBox="0 0 10 10"', '<g fill="red"><rect width="5" height="5"/></g>'),

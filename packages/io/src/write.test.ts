@@ -945,3 +945,68 @@ it.each([
     expect(JSON.parse(serializeDocument(opened))).toEqual(JSON.parse(serializeDocument(doc)));
   },
 );
+
+it("writes a container gradient in its paint group's <defs>, and a turned text copy's own copy of it (#107)", () => {
+  const { doc, defaultLayerId } = newDoc();
+  const stops = [
+    { offset: 0, color: "#000000" },
+    { offset: 1, color: "#FFFFFF" },
+  ];
+  const [group, , plain, turned] = createNodes(doc, [
+    {
+      type: "group",
+      parentId: defaultLayerId,
+      appearance: {
+        fills: [
+          {
+            type: "gradient",
+            gradient: { type: "linear", stops, start: { x: 0, y: 0 }, end: { x: 100, y: 0 } },
+          },
+        ],
+        strokes: [
+          {
+            type: "gradient",
+            width: 2,
+            gradient: {
+              type: "radial",
+              stops,
+              center: { x: 50, y: 50 },
+              radius: 40,
+              aspectRatio: 0.5,
+            },
+          },
+        ],
+      },
+      children: [
+        { type: "rect", x: 0, y: 0, width: 10, height: 10 },
+        { type: "text", x: 10, y: 50, content: "Hi" },
+        { type: "text", x: 10, y: 50, content: "Ho" },
+      ],
+    },
+  ]).nodes;
+  if (!group || !plain || !turned) throw new Error("setup");
+  doc.nodes.set(turned.id, { ...turned, transform: [2, 0, 0, 2, 0, 0] });
+  const svg = toSvg(doc);
+  const fill = `fill-0-z-${group.id}`;
+  expect(svg).toContain(
+    `<defs><linearGradient id="${fill}" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="100" y2="0">`,
+  );
+  // The shape and the text in document coordinates paint with the group's gradient.
+  expect(svg).toMatch(
+    /<\/defs><g [^>]*inkscape:label="Fill" fill="url\(#fill-0-[^"]*"><path d="M 0 0 L 10 0/,
+  );
+  expect(svg.match(new RegExp(`${fill}-${plain.id}`))).toBeNull();
+  // SVG reads userSpaceOnUse in the text's own space, so its copy is the field halved.
+  expect(svg).toContain(
+    `<linearGradient id="${fill}-${turned.id}" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="50" y2="0">`,
+  );
+  expect(svg).toMatch(
+    new RegExp(
+      `<text [^>]*transform="matrix\\(2 0 0 2 0 0\\)"[^>]*style="fill:url\\(#${fill}-${turned.id}\\)`,
+    ),
+  );
+  const stroke = `stroke-0-z-${group.id}`;
+  expect(svg).toContain(`inkscape:label="Stroke" fill="none" stroke="url(#${stroke})"`);
+  expect(svg).toContain(`<radialGradient id="${stroke}-${turned.id}"`);
+  expect(svg).toMatch(new RegExp(`style="stroke:url\\(#${stroke}-${turned.id}\\)`));
+});

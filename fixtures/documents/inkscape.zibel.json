@@ -69,7 +69,7 @@
       "name": "Characters"
     },
     {
-      "frame": { "height": 120, "width": 240, "x": 1240, "y": 0 },
+      "frame": { "height": 120, "width": 340, "x": 1240, "y": 0 },
       "id": "01M38T29SXC0NTA1NERSARTB00",
       "name": "Containers"
     }
@@ -1916,6 +1916,112 @@
       "type": "text",
       "visible": true,
       "width": 70,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "appearance": {
+        "contents": 0,
+        "fills": [
+          {
+            "gradient": {
+              "end": {
+                "x": 1570,
+                "y": 110
+              },
+              "start": {
+                "x": 1485,
+                "y": 10
+              },
+              "stops": [
+                {
+                  "offset": 0,
+                  "color": "#E63946"
+                },
+                {
+                  "offset": 0.5,
+                  "color": "#FFD166"
+                },
+                {
+                  "offset": 1,
+                  "color": "#118AB2"
+                }
+              ],
+              "type": "linear"
+            },
+            "type": "gradient"
+          }
+        ],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "id": "01M38T29SXC0NTA1NERSF1E1D0",
+      "index": "a1",
+      "locked": false,
+      "meta": {},
+      "name": "Field",
+      "opacity": 1,
+      "parentId": "01M38T29SXC0NTA1NERS1AYER0",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#FFFFFF",
+            "type": "solid"
+          }
+        ],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "height": 40,
+      "id": "01M38T29SXC0NTA1NERSF1E1DR",
+      "index": "a0",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29SXC0NTA1NERSF1E1D0",
+      "radius": 0,
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "rect",
+      "visible": true,
+      "width": 70,
+      "x": 1490,
+      "y": 12
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#333333",
+            "type": "solid"
+          }
+        ],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "content": "Field",
+      "fontFamily": "Source Sans 3",
+      "fontSize": 18,
+      "fontStyle": "Bold",
+      "id": "01M38T29SXC0NTA1NERSF1E1DT",
+      "index": "a1",
+      "kind": "point",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29SXC0NTA1NERSF1E1D0",
+      "tags": [],
+      "transform": [1.2, 0.35, -0.35, 1.2, 1500, 70],
+      "type": "text",
+      "visible": true,
       "x": 0,
       "y": 0
     }

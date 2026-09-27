@@ -12,6 +12,8 @@ import {
   fileProblem,
   fontStyleName,
   formatPath,
+  frameShape,
+  type Gradient,
   IDENTITY,
   IMAGE_ID,
   type ImageFile,
@@ -19,6 +21,7 @@ import {
   invert,
   type Matrix,
   MIGRATIONS,
+  mapGradient,
   multiply,
   type Node,
   newId,
@@ -36,6 +39,7 @@ import {
   shapeSegments,
   textBox,
   transformSegments,
+  union,
   type WriteReceipt,
   ZibelError,
 } from "@zibel/core";
@@ -54,7 +58,7 @@ import {
   xmlId,
   type ZibelAttr,
 } from "./dialect.ts";
-import { type Geometry, mapped, unroll } from "./gradient.ts";
+import { type Geometry, unroll } from "./gradient.ts";
 import { computeStyle, type Rule, type Style, stylesheet } from "./style.ts";
 
 export type Warning = WriteReceipt["warnings"][number];
@@ -526,21 +530,13 @@ class Reader {
         return;
       }
       const m = readable ? multiply(matrix, own) : matrix;
-      // A container has no matrix, so its Strokes scale as node_transform scales them.
+      // A container has no matrix, so its Strokes scale, and its gradients map into document
+      // coordinates, as node_transform does them.
       const look = this.appearance(s, c, m, scaleOf(m));
       const fill = look.fills[0];
       const stroke = look.strokes[0];
       const paint = fill ?? stroke;
       if (!paint) return;
-      // ponytail: container gradients arrive with #107.
-      if (paint.type === "gradient") {
-        this.warn(
-          "UNSUPPORTED_PAINT",
-          "container",
-          "A Layer's or Group's gradient paint is not supported yet and was dropped.",
-        );
-        return;
-      }
       if (fill && appearance.strokes.length) {
         this.warn(
           "UNSUPPORTED_ATTRIBUTE",
@@ -862,11 +858,11 @@ class Reader {
   /**
    * Fills and Strokes from resolved style, SVG's defaults where it says nothing. Widths scale, and
    * gradients move, with `m` when the leaf bakes it into its parameters; a given `scale` scales
-   * widths instead, as a container's do.
+   * widths instead, and gradients always move, as a container's do.
    */
   private appearance(style: Style, e: Element, m: Matrix, scale?: number): Appearance {
     const bake = this.bake(e, m);
-    const own = bake ? m : IDENTITY;
+    const own = bake || scale !== undefined ? m : IDENTITY;
     const k = scale ?? bake?.k ?? 1;
     const fill = this.paint(style.fill ?? "black", style, style["fill-opacity"], e, own);
     const stroke = this.paint(style.stroke ?? "none", style, style["stroke-opacity"], e, own);
@@ -1047,11 +1043,33 @@ class Reader {
       });
       ({ g, stops: placed } = unroll(g, stops, spread, corners));
     }
-    return { type: "gradient", gradient: mapped(g, placed, multiply(own, space)) };
+    const gradient: Gradient =
+      g.type === "linear"
+        ? { type: "linear", stops: placed, start: g.p1, end: g.p2 }
+        : {
+            type: "radial",
+            stops: placed,
+            center: g.c,
+            radius: g.r,
+            aspectRatio: 1,
+            angle: 0,
+            focus: g.f,
+          };
+    return { type: "gradient", gradient: mapGradient(gradient, multiply(own, space)) };
   }
 
   /** An element's geometric bounding box in its user space, as objectBoundingBox measures it. */
   private bbox(e: Element, style: Style): Rect | null {
+    if (e.localName === "g") {
+      // A paint group's: its copies' boxes, each through its own transform.
+      return union(
+        elements(e).map((c) => {
+          const box = this.bbox(c, computeStyle(c, style, this.rules));
+          const m = parseTransform(c.getAttribute("transform"));
+          return box && pathBounds(transformSegments(shapeSegments(frameShape(box)), m));
+        }),
+      );
+    }
     const shape = this.shape(e, IDENTITY, style);
     if (!shape) return null;
     return shape.type === "text"

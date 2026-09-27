@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { bounds, createDocument, createNodes, outline } from "./document.ts";
+import { bounds, createDocument, createNodes, ellipseMatrix, outline } from "./document.ts";
 import { deleteNodes, transformNodes, updateNodes } from "./edit.ts";
 import { ZibelError } from "./errors.ts";
-import type { Node, ShapeNode } from "./schema.ts";
+import { applyTo, compose, IDENTITY, invert } from "./matrix.ts";
+import type { Gradient, Node, ShapeNode } from "./schema.ts";
 
 const newDoc = () => {
   const { doc, defaultLayerId } = createDocument({
@@ -772,5 +773,188 @@ describe("an Image", () => {
       expect(moved).not.toHaveProperty("appearance");
       expect(bounds(doc, moved as Node)).toEqual({ x: -12, y: -8, width: 48, height: 32 });
     }
+  });
+});
+
+describe("container gradients (#107)", () => {
+  const stops = [
+    { offset: 0, color: "#000000" },
+    { offset: 1, color: "#FFFFFF" },
+  ];
+  type G = Extract<Node, { type: "group" }>;
+  const gradients = (doc: { nodes: Map<string, Node> }, id: string) => {
+    const a = (doc.nodes.get(id) as G).appearance;
+    return [...(a?.fills ?? []), ...(a?.strokes ?? [])].map((p) =>
+      p.type === "gradient" ? p.gradient : undefined,
+    ) as Gradient[];
+  };
+  /** Where `q` falls along the gradient, 0 at its first stop and 1 at its last. */
+  const along = (g: Gradient, [x, y]: [number, number]) => {
+    if (g.type === "linear") {
+      const [dx, dy] = [g.end.x - g.start.x, g.end.y - g.start.y];
+      return ((x - g.start.x) * dx + (y - g.start.y) * dy) / (dx * dx + dy * dy);
+    }
+    // Into the circle the ellipse is, then the t whose circle about the focus passes through q.
+    const back = invert(ellipseMatrix(g) ?? IDENTITY);
+    const [qx, qy] = applyTo(back, x, y);
+    const [fx, fy] = applyTo(back, g.focus.x, g.focus.y);
+    const [wx, wy] = [qx - fx, qy - fy];
+    const [ex, ey] = [g.center.x - fx, g.center.y - fy];
+    const a = ex * ex + ey * ey - g.radius * g.radius;
+    const b = wx * ex + wy * ey;
+    const c = wx * wx + wy * wy;
+    return Math.abs(a) < 1e-12 ? c / (2 * b) : (b - Math.sqrt(b * b - a * c)) / a;
+  };
+  const samples: [number, number][] = [
+    [0, 0],
+    [30, 5],
+    [60, 25],
+    [12, 38],
+    [45, 20],
+  ];
+  const setup = () => {
+    const { doc, defaultLayerId } = newDoc();
+    const [outer, inner, a, b] = createNodes(doc, [
+      {
+        type: "group",
+        parentId: defaultLayerId,
+        appearance: {
+          fills: [{ type: "gradient", gradient: { type: "linear", stops, angle: 30 } }],
+          strokes: [
+            {
+              type: "gradient",
+              width: 2,
+              gradient: {
+                type: "radial",
+                stops,
+                aspectRatio: 0.5,
+                angle: 20,
+                focus: { x: 35, y: 18 },
+              },
+            },
+          ],
+        },
+        children: [
+          {
+            type: "group",
+            appearance: { fills: [{ type: "gradient", gradient: { type: "linear", stops } }] },
+            children: [{ type: "rect", x: 0, y: 0, width: 50, height: 30 }],
+          },
+          { type: "rect", x: 20, y: 10, width: 40, height: 30 },
+        ],
+      },
+    ]).nodes;
+    if (!outer || !inner || !a || !b) throw new Error("setup");
+    return { doc, outer, inner, a, b };
+  };
+
+  for (const [name, t] of [
+    ["a move", { translate: { x: 7, y: -3 } }],
+    ["a turn", { rotate: 35 }],
+    ["an uneven scale", { scale: { x: 2, y: 0.5 } }],
+    ["a skew", { skew: { x: 25, y: -10 }, scale: { x: 1.5, y: 1 } }],
+    ["a mirror", { scale: { x: -1, y: 1 }, rotate: 10 }],
+  ] as const) {
+    it(`maps every container's gradient through ${name}, so the field is the old one moved`, () => {
+      const { doc, outer, inner } = setup();
+      const before = [...gradients(doc, outer.id), ...gradients(doc, inner.id)];
+      const pivot = { x: 30, y: 20 };
+      for (const scaleStrokes of [true, false]) {
+        const s = setup();
+        const { nodes } = transformNodes(s.doc, {
+          nodeIds: [s.outer.id],
+          ...t,
+          pivot,
+          scaleStrokes,
+        });
+        expect(nodes.slice(0, 2).map((n) => n.id)).toEqual([s.outer.id, s.inner.id]);
+        const after = [...gradients(s.doc, s.outer.id), ...gradients(s.doc, s.inner.id)];
+        const m = compose(t, pivot);
+        after.forEach((g, i) => {
+          // Stored at 3 decimals, so a thin ellipse's aspectRatio is off by up to a few parts in 1000.
+          for (const q of samples) {
+            expect(along(g, applyTo(m, ...q))).toBeCloseTo(along(before[i] as Gradient, q), 2);
+          }
+        });
+      }
+    });
+  }
+
+  it("keeps a container Stroke's line and scales its width only with scaleStrokes", () => {
+    const { doc, outer } = setup();
+    transformNodes(doc, { nodeIds: [outer.id], scale: 3 });
+    expect((doc.nodes.get(outer.id) as G).appearance?.strokes[0]).toMatchObject({
+      type: "gradient",
+      width: 6,
+      cap: "butt",
+    });
+    transformNodes(doc, { nodeIds: [outer.id], scale: 2, scaleStrokes: false });
+    expect((doc.nodes.get(outer.id) as G).appearance?.strokes[0]).toMatchObject({ width: 6 });
+  });
+
+  it("maps each target through its own matrix with each: true", () => {
+    const { doc, inner, b } = setup();
+    // Two Groups side by side, each turning about its own centre.
+    const [other] = createNodes(doc, [
+      {
+        type: "group",
+        parentId: inner.parentId as string,
+        appearance: { fills: [{ type: "gradient", gradient: { type: "linear", stops } }] },
+        children: [{ type: "rect", x: 100, y: 0, width: 20, height: 20 }],
+      },
+    ]).nodes;
+    if (!other) throw new Error("setup");
+    transformNodes(doc, { nodeIds: [inner.id, other.id], rotate: 90, each: true });
+    expect(gradients(doc, inner.id)[0]).toMatchObject({
+      start: { x: 25, y: -10 },
+      end: { x: 25, y: 40 },
+    });
+    expect(gradients(doc, other.id)[0]).toMatchObject({
+      start: { x: 110, y: 0 },
+      end: { x: 110, y: 20 },
+    });
+    expect(doc.nodes.get(b.id)).toMatchObject({ transform: [1, 0, 0, 1, 0, 0] });
+  });
+
+  it("leaves the containers' gradients alone when only a leaf moves", () => {
+    const { doc, outer, inner, a } = setup();
+    const before = [...gradients(doc, outer.id), ...gradients(doc, inner.id)];
+    const { nodes } = transformNodes(doc, { nodeIds: [a.id], rotate: 45, scale: 2 });
+    expect(nodes.map((n) => n.id)).toEqual([a.id]);
+    expect([...gradients(doc, outer.id), ...gradients(doc, inner.id)]).toEqual(before);
+  });
+
+  it("switches a Group from solid to gradient in one patch, placed on its bounds", () => {
+    const { doc, inner } = setup();
+    updateNodes(doc, [
+      { nodeId: inner.id, patch: { appearance: { fills: [{ color: "#FF0000" }] } } },
+    ]);
+    updateNodes(doc, [
+      {
+        nodeId: inner.id,
+        patch: {
+          appearance: {
+            fills: [{ type: "gradient", gradient: { type: "linear", stops, angle: 90 } }],
+          },
+        },
+      },
+    ]);
+    expect(gradients(doc, inner.id)).toMatchObject([
+      { type: "linear", start: { x: 25, y: 0 }, end: { x: 25, y: 30 } },
+    ]);
+    expect(
+      errorOf(() =>
+        updateNodes(doc, [
+          {
+            nodeId: inner.id,
+            patch: {
+              appearance: {
+                fills: [{ type: "gradient", gradient: { type: "linear", stops: [stops[0]] } }],
+              },
+            },
+          },
+        ]),
+      ),
+    ).toMatchObject({ code: "INVALID_PATCH" });
   });
 });

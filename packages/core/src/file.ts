@@ -96,11 +96,6 @@ const container = {
       message: "contents is at most the number of fills and strokes.",
       path: ["contents"],
     })
-    // ponytail: container gradients arrive with #107.
-    .refine((a) => [...a.fills, ...a.strokes].every((p) => p.type !== "gradient"), {
-      message: "A Layer's or Group's Appearance takes solid colours only for now.",
-      path: ["fills"],
-    })
     .optional(),
 };
 /** A Node exactly as stored; unknown keys are refused so nothing in a file is dropped silently. */
@@ -222,7 +217,7 @@ export function parseDocument(
     const at = `nodes[${i}]`;
     if (n.type === "layer" || n.type === "group") {
       const { appearance: a, ...rest } = n;
-      return a ? { ...rest, appearance: paintContainer(a, `${at}.appearance`) } : rest;
+      return a ? { ...rest, appearance: paintContainer(a, `${at}.appearance`, () => null) } : rest;
     }
     if (n.type === "image") return n;
     if (n.type === "text") {
