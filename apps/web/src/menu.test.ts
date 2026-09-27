@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { documentMenus, find, type Item, keysOf, type Menu, shortcut } from "./menu.ts";
+import { documentMenus, findByKeys, type Item, keysOf, type Menu, shortcut } from "./menu.ts";
 
 const press = (key: string, mods: Partial<KeyboardEvent> = {}, code = "") => ({
   key,
@@ -17,6 +17,7 @@ it("names a key press in Illustrator's Windows notation, Cmd as Ctrl", () => {
   // macOS Option turns the letter into another character; the physical key names it.
   expect(keysOf(press("ß", { altKey: true, metaKey: true }, "KeyS"))).toBe("Alt+Ctrl+S");
   expect(keysOf(press("+", { ctrlKey: true }, "NumpadAdd"))).toBe("Ctrl+=");
+  expect(keysOf(press("+", { ctrlKey: true, shiftKey: true }, "Equal"))).toBe("Ctrl+=");
   expect(keysOf(press("Backspace"))).toBe("Delete");
   expect(keysOf(press("F7"))).toBe("F7");
 });
@@ -47,7 +48,7 @@ it("binds each shortcut once, and none the browser keeps for itself", () => {
 });
 
 it("finds the Menu Item a shortcut runs", () => {
-  expect(find(menus, "Ctrl+A")?.label).toBe("All");
-  expect(find(menus, "Shift+Ctrl+A")?.label).toBe("Deselect");
-  expect(find(menus, "Ctrl+Q")).toBeUndefined();
+  expect(findByKeys(menus, "Ctrl+A")?.label).toBe("All");
+  expect(findByKeys(menus, "Shift+Ctrl+A")?.label).toBe("Deselect");
+  expect(findByKeys(menus, "Ctrl+Q")).toBeUndefined();
 });

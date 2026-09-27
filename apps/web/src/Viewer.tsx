@@ -77,7 +77,11 @@ export function Viewer({ docId }: { docId: string }) {
   /** Counts image files decoded, so the canvas redraws as each arrives. */
   const [imagesLoaded, setImagesLoaded] = useState(0);
   const images = useMemo(() => imageCache(docId, () => setImagesLoaded((n) => n + 1)), [docId]);
-  useEffect(() => useStore.setState({ images }), [images]);
+  useEffect(() => {
+    useStore.setState({ images });
+    // Until the next tab's Viewer sets its own, a download must not pair its cache with this Document.
+    return () => useStore.setState({ images: null });
+  }, [images]);
 
   useEffect(() => {
     fontLoaded.then((faces) => {
@@ -361,7 +365,7 @@ export function Viewer({ docId }: { docId: string }) {
       />
       {/* The status bar, where Illustrator shows the zoom. */}
       <div
-        role="status"
+        data-testid="status-bar"
         style={{
           position: "absolute",
           bottom: 0,
@@ -375,7 +379,11 @@ export function Viewer({ docId }: { docId: string }) {
         {[viewport && `${Math.round(viewport.scale * 100)}%`, !live && "connecting…"]
           .filter(Boolean)
           .join(" · ")}
-        {notice && <span style={{ color: "#B00020", marginLeft: 12 }}>{notice}</span>}
+        {notice && (
+          <span role="alert" style={{ color: "#B00020", marginLeft: 12 }}>
+            {notice}
+          </span>
+        )}
       </div>
       {layersShown && <Layers />}
     </div>

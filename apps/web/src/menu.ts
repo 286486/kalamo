@@ -206,7 +206,7 @@ export function documentMenus(tabs: { open: (file: File) => void; close: () => v
         {
           label: "Fit Artboard in Window",
           keys: "Ctrl+0",
-          enabled: (s) => s.viewport !== null && s.doc !== null,
+          enabled: (s) => hasView(s) && hasDoc(s),
           run: view(({ doc, size, viewport }) =>
             doc ? fit(artboardsRect(doc), size.width, size.height) : viewport,
           ),
@@ -242,10 +242,17 @@ export function keysOf(
   let key = e.key;
   // macOS Option types another character, such as ß for S; the physical key names it then.
   if (key.length === 1 && key > "~") key = e.code.replace(/^(Key|Digit)/, "");
-  else if (key === "+") key = "=";
+  // Ctrl++ is Shift+Ctrl+= on a US keyboard, and Ctrl+= wherever + has a key of its own.
+  const plus = key === "+";
+  if (plus) key = "=";
   else if (key === "Backspace") key = "Delete";
   if (key.length === 1) key = key.toUpperCase();
-  return [e.altKey && "Alt", e.shiftKey && "Shift", (e.ctrlKey || e.metaKey) && "Ctrl", key]
+  return [
+    e.altKey && "Alt",
+    e.shiftKey && !plus && "Shift",
+    (e.ctrlKey || e.metaKey) && "Ctrl",
+    key,
+  ]
     .filter(Boolean)
     .join("+");
 }
@@ -259,10 +266,11 @@ export function shortcut(keys: string, mac: boolean): string {
 }
 
 /** The Menu Item whose shortcut is `keys`, wherever it sits. */
-export function find(items: Item[], keys: string): MenuItem | undefined {
+export function findByKeys(items: Item[], keys: string): MenuItem | undefined {
   for (const item of items) {
     if (item === "-") continue;
-    const found = "items" in item ? find(item.items, keys) : item.keys === keys ? item : undefined;
+    const found =
+      "items" in item ? findByKeys(item.items, keys) : item.keys === keys ? item : undefined;
     if (found) return found;
   }
 }

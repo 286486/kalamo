@@ -16,11 +16,13 @@ export function List() {
   const [opened, setOpened] = useState<Opened | null>(null);
   const [openError, setOpenError] = useState<string | null>(null);
   // Visiting /docs/<id> adds its tab (Tabs.tsx).
-  const open = async (file: File) => {
+  const open = (file: File) => {
     setOpenError(null);
-    const body = await openFile(file);
-    if (body.warnings.length === 0) location.assign(`/docs/${body.docId}`);
-    else setOpened(body);
+    openFile(file).then(
+      (body) =>
+        body.warnings.length === 0 ? location.assign(`/docs/${body.docId}`) : setOpened(body),
+      (err: Error) => setOpenError(err.message),
+    );
   };
   useEffect(() => {
     fetch("/api/docs")
@@ -30,9 +32,7 @@ export function List() {
   }, []);
   return (
     <>
-      <MenuBar
-        menus={listMenus((file) => open(file).catch((err: Error) => setOpenError(err.message)))}
-      />
+      <MenuBar menus={listMenus(open)} />
       <main style={{ padding: 24 }}>
         <h1>Documents</h1>
         <label>
@@ -42,7 +42,7 @@ export function List() {
             accept={OPENABLE}
             onChange={(e) => {
               const file = e.target.files?.[0];
-              if (file) open(file).catch((err: Error) => setOpenError(err.message));
+              if (file) open(file);
             }}
           />
         </label>

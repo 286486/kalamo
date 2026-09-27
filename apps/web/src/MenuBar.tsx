@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { find, type Item, keysOf, type Menu, type MenuItem, shortcut } from "./menu.ts";
+import { findByKeys, type Item, keysOf, type Menu, type MenuItem, shortcut } from "./menu.ts";
 import { type State, useStore } from "./store.ts";
 
 const MAC = /Mac|iPhone|iPad/.test(navigator.platform);
@@ -77,21 +77,23 @@ export function MenuBar({ menus }: { menus: Menu[] }) {
   latest.current = menus;
   /** The open top-level menu: while one is, the items follow the store to grey out. */
   const [open, setOpen] = useState<string | null>(null);
-  const live = useStore((s) => (open ? s : null));
-  const state = live ?? useStore.getState();
+  const followed = useStore((s) => (open ? s : null));
+  const state = followed ?? useStore.getState();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (menuOpen()) return;
+      const keys = keysOf(e);
+      // Every edit is already saved; the browser's Save Page would save the app's HTML.
+      if (keys === "Ctrl+S") e.preventDefault();
+      // An open menu takes the keys; Delete on a focused title is not Clear.
+      const inBar = (e.target as Element).closest?.("[role=menubar]");
+      if (menuOpen() || (inBar && keys === "Delete")) return;
       if (e.key === "F10") {
         e.preventDefault();
         bar.current?.querySelector<HTMLElement>(ITEMS)?.focus();
         return;
       }
-      const keys = keysOf(e);
-      // Every edit is already saved; the browser's Save Page would save the app's HTML.
-      if (keys === "Ctrl+S") e.preventDefault();
-      const item = find(latest.current, keys);
+      const item = findByKeys(latest.current, keys);
       if (!item || item.native) return;
       e.preventDefault();
       if (item.enabled?.(useStore.getState()) ?? true) item.run();
@@ -267,8 +269,9 @@ export function MenuBar({ menus }: { menus: Menu[] }) {
               aria-label={menu.label}
               popover="auto"
               style={popupStyle}
-              onBeforeToggle={(e) => position(e, false)}
-              onToggle={(e) => {
+              onBeforeToggle={(e) => {
+                position(e, false);
+                // Before it shows, so its items are greyed out from the first frame.
                 const opened = e.newState === "open";
                 setOpen((o) => (opened ? id : o === id ? null : o));
               }}

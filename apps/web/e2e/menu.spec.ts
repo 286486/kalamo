@@ -19,7 +19,7 @@ test("menu commands run from the menu bar, by their shortcuts, and with the keyb
     ],
   });
   await page.goto(`/docs/${docId}`);
-  await expect(page.getByRole("status")).toContainText(/\d+%/);
+  await expect(page.getByTestId("status-bar")).toContainText(/\d+%/);
   const box = page.getByRole("button", { name: "Box", exact: true });
   const item = (name: string) => page.getByRole("menuitem", { name, exact: true });
 
@@ -42,9 +42,9 @@ test("menu commands run from the menu bar, by their shortcuts, and with the keyb
   await expect(item("Clear")).toBeHidden();
   await expect(item("Actual Size")).toBeVisible();
   await item("Actual Size").click();
-  await expect(page.getByRole("status")).toContainText("100%");
+  await expect(page.getByTestId("status-bar")).toContainText("100%");
   await page.keyboard.press("Control+=");
-  await expect(page.getByRole("status")).toContainText("150%");
+  await expect(page.getByTestId("status-bar")).toContainText("150%");
 
   // Window > Layers hides the panel, F7 shows it again.
   await choose(page, "Window", "Layers");
