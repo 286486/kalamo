@@ -1119,6 +1119,10 @@ it("returns a non-empty hint with every error code a tool can return", async () 
       tool("zibel_node_create", { nodes: [{ type: "path", parentId: defaultLayerId, d: "h 1" }] }),
     INVALID_PATCH: () =>
       tool("zibel_node_update", { updates: [{ nodeId: defaultLayerId, patch: { type: "rect" } }] }),
+    INVALID_INPUT: () =>
+      tool("zibel_node_create", {
+        nodes: [{ type: "group", parentId: defaultLayerId, appearance: { contents: 1 } }],
+      }),
     LIMIT_EXCEEDED: () => tool("zibel_node_create", { nodes: Array(2001).fill(rect) }),
     PERMISSION_DENIED: async () => (await rpc("tools/list", {}, "nope")).body.error.data,
     REV_CONFLICT: () => tool("zibel_node_create", { nodes: [rect], ifRev: 99 }),

@@ -3,6 +3,7 @@ import {
   applyTo,
   childrenOf,
   clippingPath,
+  containerAppearance,
   crossedFrame,
   type Document,
   ellipseMatrix,
@@ -11,13 +12,16 @@ import {
   formatNumber,
   formatPath,
   type Gradient,
+  type GroupNode,
   IDENTITY,
   type ImageSource,
   invert,
+  type LayerNode,
   layoutText,
   lookup,
   MISSING_LINK_STROKE,
   type Node,
+  paintedLeaves,
   type Rect,
   type RenderScope,
   round,
@@ -344,7 +348,10 @@ function node(doc: Document, n: Node, walk: Walk): string {
         `<clipPath${attrs({ id: clipId(n.id), clipPathUnits: "userSpaceOnUse" })}>${leaf}</clipPath>`;
     }
     const clipPath = clip ? `url(#${clipId(n.id)})` : undefined;
-    return `<g${attrs({ ...own, ...layer, "clip-path": clipPath, style: style(...looks) })}>${kids.join("")}</g>`;
+    const paints = inside ? containerPaints(doc, n) : [];
+    const { contents } = containerAppearance(n);
+    const body = [...paints.slice(0, contents), ...kids, ...paints.slice(contents)].join("");
+    return `<g${attrs({ ...own, ...layer, "clip-path": clipPath, style: style(...looks) })}>${body}</g>`;
   }
   if (!inside) return "";
   if (n.type === "image") {
@@ -433,6 +440,31 @@ function node(doc: Document, n: Node, walk: Walk): string {
       : "";
   const defs = frame || gradients.length > 0 ? `<defs>${frame}${gradients.join("")}</defs>` : "";
   return `${defs}${body}`;
+}
+
+/**
+ * Each Fill, then each Stroke, of a container's Appearance as a locked `<g zibel:paint>` holding a
+ * bare copy of every leaf it paints, in document coordinates (ADR-0043).
+ */
+function containerPaints(doc: Document, n: LayerNode | GroupNode): string[] {
+  const { fills, strokes } = containerAppearance(n);
+  if (fills.length + strokes.length === 0) return [];
+  const copies = paintedLeaves(doc, n)
+    .map(
+      (l) =>
+        `<path${attrs({ d: formatPath(l.segments), "fill-rule": l.fillRule === "evenodd" ? "evenodd" : undefined })}/>`,
+    )
+    .join("");
+  const group = (label: string, a: Attrs) =>
+    `<g${attrs({ [zibel("paint")]: "true", "sodipodi:insensitive": "true", "inkscape:label": label, ...a })}>${copies}</g>`;
+  // paintContainer refuses gradients until #107.
+  const color = (p: Fill) => (p.type === "solid" ? p.color : "#000000");
+  return [
+    ...fills.map((f) => group("Fill", paintAttrs("fill", color(f)))),
+    ...strokes.map((k) =>
+      group("Stroke", { fill: "none", ...paintAttrs("stroke", color(k)), ...strokeStyle(k) }),
+    ),
+  ];
 }
 
 /**

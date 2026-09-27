@@ -229,6 +229,7 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 
 **F-DOC-04 样式模型**（P0）
 - 每个可绘制节点有 `appearance`：`fills[]`、`strokes[]`、`effects[]`，**数组即外观栈**（顺序 = 绘制顺序）。MVP 的 UI 默认只显示 1 fill + 1 stroke，但模型从一开始支持多重。
+- Layer 与 Group 也可有 `appearance`，另加 `contents`（整数，0 至 fills + strokes 数）：它描画每个可见后代 Live Shape 与 Path 的轮廓，每层描画依叠放顺序覆盖全部后代后才画下一层；前 `contents` 层画在子节点之下，其余在上。缺省即空（ADR-0043）。
 - `Fill`：`type` solid / gradient / pattern，`color` 或内联的 `gradient`（不引用 Asset，ADR-0026）、`opacity`、`blendMode`。
 - `Stroke`：`type` solid / gradient，`color` 或内联的 `gradient`（描边内渐变）、`width`、`cap`（butt / round / square）、`join`（miter / round / bevel）、`miterLimit`（1–500）、`dash[]`、`dashOffset`、`align`（center / inside / outside）、`arrowStart / arrowEnd`（样式、缩放、对齐）、`widthProfile`（可变宽度点列，P1）、`brushId`（P1）。
 - `Gradient`：`type` linear / radial / freeform（P2），`stops[]`（`offset` 0–1、`color` 含 alpha；`midpoint` 随 Gradient 面板加入）；线性为 `start` / `end`，径向为 `center`、`radius`、`aspectRatio`、`angle`、`focus`，都在 Node 自身坐标中，随 Node 的 `transform` 移动（ADR-0026）。
@@ -709,7 +710,7 @@ flowchart LR
 
 ### 6.7 错误处理、并发与长任务
 
-- **F-MCP-15** 错误码枚举：`REV_CONFLICT`（附当前 `rev` 与冲突节点）、`NEEDS_DECISION`（需要人类决定，附选项）、`DOC_NOT_FOUND`、`NODE_NOT_FOUND`、`NODE_GONE`（并发删除）、`LOCKED_BY_USER`、`INVALID_COLOR`、`INVALID_PATH`、`INVALID_PARENT`（如把节点放进 path）、`INVALID_PATCH`（patch 含只读键、该类型没有的键或删除了必填键）、`INVALID_MASK`（`mask_make` / `mask_release` 的对象不合规则；ADR-0021）、`INVALID_DOCUMENT`（`.zibel.json` 或 SVG 不合法，附文件内 `path`；ADR-0017）、`INVALID_IMAGE`（图像不是 PNG / JPEG / GIF、是 WebP，或 `src` 指向文档里没有的图像；ADR-0023）、`TX_NOT_FOUND`、`TX_EXPIRED`、`LIMIT_EXCEEDED`、`BOOLEAN_FAILED`（含几何诊断）、`FONT_MISSING`、`SCRIPT_ERROR`（含行号）、`PERMISSION_DENIED`。每条附 `hint`。（P0）
+- **F-MCP-15** 错误码枚举：`REV_CONFLICT`（附当前 `rev` 与冲突节点）、`NEEDS_DECISION`（需要人类决定，附选项）、`DOC_NOT_FOUND`、`NODE_NOT_FOUND`、`NODE_GONE`（并发删除）、`LOCKED_BY_USER`、`INVALID_COLOR`、`INVALID_PATH`、`INVALID_PARENT`（如把节点放进 path）、`INVALID_INPUT`（值合乎 schema 但超出范围，如容器 `appearance.contents`；ADR-0043）、`INVALID_PATCH`（patch 含只读键、该类型没有的键或删除了必填键）、`INVALID_MASK`（`mask_make` / `mask_release` 的对象不合规则；ADR-0021）、`INVALID_DOCUMENT`（`.zibel.json` 或 SVG 不合法，附文件内 `path`；ADR-0017）、`INVALID_IMAGE`（图像不是 PNG / JPEG / GIF、是 WebP，或 `src` 指向文档里没有的图像；ADR-0023）、`TX_NOT_FOUND`、`TX_EXPIRED`、`LIMIT_EXCEEDED`、`BOOLEAN_FAILED`（含几何诊断）、`FONT_MISSING`、`SCRIPT_ERROR`（含行号）、`PERMISSION_DENIED`。每条附 `hint`。（P0）
 - **F-MCP-16** 批量工具的部分失败：默认**原子**（任一失败整批回滚）；可选 `partial: true` 返回逐项结果。（P0）
 - **F-MCP-17** 长任务（`export_batch`、`image_trace`、大 `svg_import`）：单个请求内可经 SSE 响应流发送 progress；预计超过 30 秒的任务一律返回 `jobId`，由 Queues 执行，用 `job_status / job_cancel` 轮询。（P1）
 - **F-MCP-18** 幂等：读工具与 `doc_save`、`tx_rollback` 幂等；`node_create` 通过 `clientKey` + `txId` 去重（同一事务内重复提交同 key 不重复创建）。（P1）
@@ -981,6 +982,7 @@ zibel/
 | 45 | 多文档标签页，删除替换（2026-09-26） | 三方合并的替换（`doc_replace`）复杂度过高，删除：编辑过的文件经打开成为新 Document，在新标签页中显示；一个标签页就是一个 Document（不设 Sheet 容器）；图稿经系统剪贴板以 Node 范围的 Inkscape 方言 SVG 剪切 / 复制 / 粘贴，Zibel 的拷贝粘贴时不包 Group；30 天 Delta Log 与 `zibel:doc` / `zibel:rev` 一并删除 | ADR-0030、#68、#69、#70 |
 | 46 | 菜单栏（2026-09-27） | 顶部 Illustrator 式菜单栏，在文档标签页之上；菜单项是一张数据表，菜单与快捷键都从中读取；只列已实现的项；浏览器保留快捷键不标；原生 `popover` 实现，不引入菜单库 | ADR-0031、F-VIEW-10 |
 | 47 | 链接图像（2026-09-27） | Image 可链接：可选 `file` 是 SVG 所写的路径或 URL（非 data URL，至多 2048 字符），`embedded` 由 `file` 缺省派生；`src` 变为可选，链接 Image 无 `src` 即缺失链接；`export` SVG 写 `xlink:href="<file>"`，有像素时加 `zibel:src`，从不写像素；`render` 与 PNG 画存下的像素，缺失链接画成灰色细线框加两条对角线；`.zibel.json` 的 `version` 仍为 1；导入链接的 `<image>` 得链接 Image，同一 Document 内粘贴经 `zibel:src` 保留像素，别的 Document 中为缺失链接，警告 `IMAGE_LINK_MISSING` 取代 `LINKED_IMAGE_DROPPED` | ADR-0042、#97、#98、#99 |
+| 48 | 容器外观（2026-09-27） | Layer 与 Group 的 `appearance {fills, strokes, contents}` 按 Illustrator 语义描画后代的轮廓，`contents` 定 Contents 在栈中的位置；缺省为空，`version` 仍为 1；`visibleBounds` 随容器描边增长，`geometricBounds` 不变；`node_transform` 按 √\|det\| 缩放容器描边宽度；SVG 中每层描画是锁定的 `<g zibel:paint>`，内含每个后代轮廓的副本；新错误码 `INVALID_INPUT` | ADR-0043、#17、#103 |
 
 **剩余开放问题**
 

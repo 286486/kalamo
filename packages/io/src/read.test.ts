@@ -1555,3 +1555,22 @@ describe("gradients (ADR-0026)", () => {
     });
   });
 });
+
+it("skips a container paint's <g zibel:paint> copies instead of reading them as Nodes (ADR-0043)", () => {
+  const { doc, defaultLayerId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 100, height: 100 }],
+  });
+  createNodes(doc, [
+    {
+      type: "group",
+      parentId: defaultLayerId,
+      appearance: { strokes: [{ color: "#FF0000" }], fills: [{ color: "#00FF00" }], contents: 1 },
+      children: [{ type: "rect", x: 0, y: 0, width: 10, height: 10 }],
+    },
+  ]);
+  const file = parseSvg(toSvg(doc));
+  expect(file.warnings).toEqual([]);
+  expect(file.nodes.map((n) => n.type)).toEqual(["layer", "group", "rect"]);
+});

@@ -6,6 +6,7 @@ export type ErrorCode =
   | "INVALID_PARENT"
   | "INVALID_COLOR"
   | "INVALID_PATH"
+  | "INVALID_INPUT"
   | "INVALID_PATCH"
   | "INVALID_MASK"
   | "INVALID_DOCUMENT"

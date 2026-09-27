@@ -154,8 +154,12 @@ _Avoid_: Arrow、Edge（仅在 Diagram 的输入描述中使用）、Link
 ## 外观
 
 **Appearance（外观）**：
-一个 Node 的全部视觉属性：有序的 Fill 列表、Stroke 列表与 Effect 列表。可施加于单个 Node、Group 或 Layer。
+一个 Node 的全部视觉属性：有序的 Fill 列表、Stroke 列表与 Effect 列表。可施加于单个 Node、Group 或 Layer；Group 或 Layer 的 Appearance 描画其每个后代的轮廓，栈中另有一项 Contents（ADR-0043）。
 _Avoid_: Style（保留给 Graphic Style）、Paint、Look
+
+**Contents（内容）**：
+Group 或 Layer 的 Appearance 栈中代表其后代的一项。它在栈中的位置决定容器的哪些 Fill 与 Stroke 画在子节点下面、哪些画在上面；默认在所有容器描画之下（ADR-0043）。
+_Avoid_: Children（指栈中的项时）、Content
 
 **Fill（填充）**：
 Appearance 中给 Path 内部着色的一层：纯色、渐变或图案。一个 Node 可有多个 Fill。

@@ -1,13 +1,24 @@
 import type { z } from "zod";
-import { bounds, checkFile, childrenOf, imageInfo, paint, union } from "./document.ts";
+import {
+  bounds,
+  checkFile,
+  childrenOf,
+  imageInfo,
+  paint,
+  paintContainer,
+  union,
+} from "./document.ts";
 import { collect, type Failed, ZibelError } from "./errors.ts";
 import { preserveAspectRatio } from "./image.ts";
 import { compose, multiply, round, scaleOf } from "./matrix.ts";
 import { formatPath, parsePath } from "./path.ts";
 import {
   AppearanceInput,
+  ContainerAppearanceInput,
   type Document,
+  type GroupNode,
   ImageShape,
+  type LayerNode,
   type LeafNode,
   type Node,
   PIVOTS,
@@ -24,7 +35,8 @@ import { canonicalRanges } from "./text.ts";
 
 type Warning = WriteReceipt["warnings"][number];
 
-const isContainer = (n: Node) => n.type === "layer" || n.type === "group";
+const isContainer = (n: Node): n is LayerNode | GroupNode =>
+  n.type === "layer" || n.type === "group";
 
 /** The Node and everything beneath it, depth first. */
 export function subtree(doc: Document, node: Node): Node[] {
@@ -66,7 +78,8 @@ function pivotOf(pivot: z.output<typeof TransformInput>["pivot"], b: Rect | null
 
 /**
  * Composes the transform into every leaf beneath the targets; Layers and Groups stay identity
- * (ADR-0007). Returns the changed leaves, depth first in target order.
+ * (ADR-0007), whose Strokes scale instead (ADR-0043). Returns the changed containers, then the
+ * changed leaves depth first in target order.
  */
 export function transformNodes(
   doc: Document,
@@ -89,8 +102,27 @@ export function transformNodes(
     const pivot = pivotOf(input.pivot, union(group.map((n) => bounds(doc, n))));
     if (!pivot) continue;
     const m = compose(input, pivot);
-    const s = input.scaleStrokes ? 1 : scaleOf(m);
-    for (const leaf of group.flatMap((n) => subtree(doc, n)).filter((n) => !isContainer(n))) {
+    const k = scaleOf(m);
+    const s = input.scaleStrokes ? 1 : k;
+    const all = group.flatMap((n) => subtree(doc, n));
+    // A container has no matrix to scale its Strokes, so their widths scale instead (ADR-0043).
+    for (const c of input.scaleStrokes ? all : []) {
+      if (!isContainer(c) || !c.appearance?.strokes.length) continue;
+      const next = {
+        ...c,
+        appearance: {
+          ...c.appearance,
+          strokes: c.appearance.strokes.map((t) => ({
+            ...t,
+            width: t.width * k,
+            dash: t.dash.map((v) => v * k),
+          })),
+        },
+      };
+      doc.nodes.set(c.id, next);
+      nodes.push(next);
+    }
+    for (const leaf of all.filter((n) => !isContainer(n))) {
       const { appearance } = leaf as LeafNode;
       const next = {
         ...leaf,
@@ -146,7 +178,9 @@ export const zodPath = (path: PropertyKey[]) =>
   path.map((k) => (typeof k === "number" ? `[${k}]` : `.${String(k)}`)).join("");
 
 function writableSchema(node: Node) {
-  if (node.type === "layer" || node.type === "group") return Writable;
+  if (node.type === "layer" || node.type === "group") {
+    return Writable.extend({ appearance: ContainerAppearanceInput.optional() });
+  }
   if (node.type === "image") {
     const { src, file, x, y, width, height, preserveAspectRatio } = ImageShape.shape;
     return Writable.extend({
@@ -199,6 +233,14 @@ function patched(doc: Document, raw: UpdateInput, i: number): Node {
         "Send a data: URL or an image id to Relink; file: null Embeds a linked Image (ADR-0042).",
       );
     }
+    const appearance = patch.appearance as { contents?: unknown } | null | undefined;
+    if (key === "appearance" && appearance?.contents !== undefined && !isContainer(node)) {
+      throw invalid(
+        ".appearance.contents",
+        `A ${node.type}'s Appearance has no contents.`,
+        "contents places a Layer's or Group's children in its stack; a leaf paints its Fills, then its Strokes.",
+      );
+    }
     if (!Object.hasOwn(schema.shape, key)) {
       throw invalid(
         `.${key}`,
@@ -245,7 +287,14 @@ function patched(doc: Document, raw: UpdateInput, i: number): Node {
       });
     }
     next.preserveAspectRatio = preserveAspectRatio(next.preserveAspectRatio) ?? "none";
-  } else if (next.type !== "layer" && next.type !== "group") {
+  } else if (isContainer(next)) {
+    if (next.appearance) {
+      next.appearance = paintContainer(
+        next.appearance as ContainerAppearanceInput,
+        `${at}.appearance`,
+      );
+    }
+  } else {
     next.appearance = paint(next.appearance as AppearanceInput, `${at}.appearance`, next);
   }
   if (next.type === "text") {

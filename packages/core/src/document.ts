@@ -5,7 +5,7 @@ import { parseColor } from "./color.ts";
 import { collect, type Failed, ZibelError } from "./errors.ts";
 import { fileProblem, MAX_FILE_LENGTH, preserveAspectRatio } from "./image.ts";
 import { IDENTITY, multiply, scaleOf, transformSegments } from "./matrix.ts";
-import { formatPath, parsePath, pathBounds, shapeSegments } from "./path.ts";
+import { formatPath, parsePath, pathBounds, type Segment, shapeSegments } from "./path.ts";
 import {
   type Appearance,
   AppearanceInput,
@@ -13,9 +13,12 @@ import {
   type ArtboardInput,
   type ChildInput,
   type ColorStop,
+  type ContainerAppearance,
+  type ContainerAppearanceInput,
   type Document,
   type Fill,
   type Gradient,
+  type GroupNode,
   ImageShape,
   imageFrame,
   imagePixels,
@@ -128,7 +131,11 @@ export function createNodes(
     const name = input.name ?? "";
     let node: Node;
     if (input.type === "layer" || input.type === "group") {
-      node = { ...at, type: input.type, name };
+      const appearance =
+        "appearance" in input && input.appearance
+          ? paintContainer(input.appearance, `${path}.appearance`)
+          : undefined;
+      node = { ...at, type: input.type, name, ...(appearance && { appearance }) };
     } else if (input.type === "text") {
       const { ranges, ...parsed } = TextShape.superRefine(textFrame).parse(input);
       const canonical = canonicalRanges(ranges, `${path}.ranges`);
@@ -398,6 +405,64 @@ export function paint(a: AppearanceInput, path: string, leaf: Shape | TextShape)
   };
 }
 
+/**
+ * A Layer's or Group's Appearance as stored (ADR-0043): its colours parsed, `contents` inside the
+ * stack.
+ */
+export function paintContainer(a: ContainerAppearanceInput, path: string): ContainerAppearance {
+  for (const list of ["fills", "strokes"] as const) {
+    const i = a[list].findIndex((p) => p.type === "gradient");
+    if (i < 0) continue;
+    // ponytail: container gradients span the container's bounds once #107 lands.
+    throw new ZibelError({
+      code: "INVALID_INPUT",
+      message: "A Layer's or Group's Appearance takes solid colours only for now.",
+      hint: "Give the container a solid {color}, or put the gradient on each child.",
+      path: `${path}.${list}[${i}].type`,
+    });
+  }
+  const paints = a.fills.length + a.strokes.length;
+  if (!Number.isInteger(a.contents) || a.contents < 0 || a.contents > paints) {
+    throw new ZibelError({
+      code: "INVALID_INPUT",
+      message: `contents is ${a.contents}, outside 0 to ${paints}, the number of fills and strokes.`,
+      hint: "contents counts the paints drawn below the children, from the first Fill up through the Strokes: 0 puts every paint above them.",
+      path: `${path}.contents`,
+    });
+  }
+  // Solid paints only, so no gradient needs the leaf's bounds.
+  const { fills, strokes } = paint(a, path, frameShape({ x: 0, y: 0, width: 0, height: 0 }));
+  return { fills, strokes, contents: a.contents };
+}
+
+/** A Live Shape or Path a container paints, with its outline in document coordinates. */
+export interface PaintedLeaf {
+  node: ShapeNode;
+  segments: Segment[];
+  fillRule: "nonzero" | "evenodd";
+}
+
+/**
+ * The leaves a container's Appearance paints (ADR-0043): its descendant Live Shapes and Paths,
+ * depth first in stacking order. Hidden Nodes and subtrees, Images and Clipping Paths get none.
+ */
+// ponytail: texts and a Clipping Mask's content get no paint until #106 draws them.
+export function paintedLeaves(doc: Document, container: Node): PaintedLeaf[] {
+  return childrenOf(doc, container.id).flatMap((n): PaintedLeaf[] => {
+    if (!n.visible || n.type === "text" || n.type === "image") return [];
+    if (n.type === "layer" || n.type === "group") {
+      return clippingPath(doc, n) ? [] : paintedLeaves(doc, n);
+    }
+    if (n.clipping) return [];
+    const segments = transformSegments(shapeSegments(n), worldTransform(doc, n));
+    return [{ node: n, segments, fillRule: n.type === "path" ? n.fillRule : "nonzero" }];
+  });
+}
+
+/** A container's Appearance, empty when it has none. */
+export const containerAppearance = (n: LayerNode | GroupNode): ContainerAppearance =>
+  n.appearance ?? { fills: [], strokes: [], contents: 0 };
+
 // ponytail: scans every Node per lookup; keep a parent index beside the map when Documents grow.
 export function childrenOf(doc: Document, parentId: string | null): Node[] {
   return [...doc.nodes.values()]
@@ -453,7 +518,11 @@ export function visibleBounds(doc: Document, node: Node): Rect | null {
     const children = childrenOf(doc, node.id);
     // A Clipping Path's Strokes are not drawn, so its geometry is all that shows.
     const clip = node.type === "group" ? clipAmong(children) : undefined;
-    return clip ? bounds(doc, clip) : union(children.map((c) => visibleBounds(doc, c)));
+    if (clip) return bounds(doc, clip);
+    const grow = Math.max(0, ...containerAppearance(node).strokes.map((s) => s.width)) / 2;
+    const painted =
+      grow > 0 ? paintedLeaves(doc, node).map((l) => grown(pathBounds(l.segments), grow)) : [];
+    return union([...children.map((c) => visibleBounds(doc, c)), ...painted]);
   }
   const b = bounds(doc, node);
   if (node.type === "image") return b;
@@ -462,10 +531,11 @@ export function visibleBounds(doc: Document, node: Node): Rect | null {
   const grow =
     (Math.max(0, ...node.appearance.strokes.map((s) => s.width)) / 2) *
     scaleOf(worldTransform(doc, node));
-  return (
-    b && { x: b.x - grow, y: b.y - grow, width: b.width + 2 * grow, height: b.height + 2 * grow }
-  );
+  return grown(b, grow);
 }
+
+const grown = (b: Rect | null, by: number): Rect | null =>
+  b && { x: b.x - by, y: b.y - by, width: b.width + 2 * by, height: b.height + 2 * by };
 
 /**
  * The Node's transform composed with every ancestor's, mapping its coordinates to the Document's.
@@ -525,6 +595,9 @@ export function nodeView(doc: Document, node: Node, detail: "concise" | "full") 
   if (detail === "concise") return concise;
   return {
     ...node,
+    ...((node.type === "layer" || node.type === "group") && {
+      appearance: containerAppearance(node),
+    }),
     ...concise,
     // A text has no outline until Create Outlines (F-TEXT-06).
     ...(node.type !== "layer" &&

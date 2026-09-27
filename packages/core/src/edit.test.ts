@@ -107,6 +107,37 @@ describe("transformNodes", () => {
     expect(shape(doc, b.id).appearance.strokes[0]).toMatchObject({ width: 1, dash: [2, 1] });
   });
 
+  it("scales a container's Strokes by √|det| unless scaleStrokes is false (ADR-0043)", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const appearance = { strokes: [{ color: "#000000", width: 2, dash: [4, 2] }] };
+    const [outer, inner, leaf] = createNodes(doc, [
+      {
+        type: "group",
+        parentId: defaultLayerId,
+        appearance,
+        children: [
+          {
+            type: "group",
+            appearance,
+            children: [{ type: "rect", x: 0, y: 0, width: 50, height: 30 }],
+          },
+        ],
+      },
+    ]).nodes;
+    if (!outer || !inner || !leaf) throw new Error("setup");
+    const stroke = (id: string) => {
+      const n = doc.nodes.get(id);
+      return n?.type === "group" ? n.appearance?.strokes[0] : undefined;
+    };
+    const { nodes } = transformNodes(doc, { nodeIds: [outer.id], scale: { x: 2, y: 8 } });
+    expect(nodes.map((n) => n.id)).toEqual([outer.id, inner.id, leaf.id]);
+    expect(stroke(outer.id)).toMatchObject({ width: 8, dash: [16, 8] });
+    expect(stroke(inner.id)).toMatchObject({ width: 8, dash: [16, 8] });
+    transformNodes(doc, { nodeIds: [outer.id], scale: 2, scaleStrokes: false });
+    transformNodes(doc, { nodeIds: [leaf.id], scale: 2 });
+    expect(stroke(outer.id)).toMatchObject({ width: 8 });
+  });
+
   it("moves a gradient with transform and never rewrites it", () => {
     const { doc, rect } = newDoc();
     const stops = [
@@ -367,11 +398,32 @@ describe("updateNodes", () => {
     });
   });
 
-  it("rejects appearance on a Group", () => {
-    const { doc, defaultLayerId } = setup();
+  it("sets, merges and clears a container's appearance (ADR-0043)", () => {
+    const { doc, defaultLayerId, r } = setup();
+    const layer = () => doc.nodes.get(defaultLayerId);
+    const update = (patch: Record<string, unknown>) =>
+      updateNodes(doc, [{ nodeId: defaultLayerId, patch }]);
+    update({ appearance: { strokes: [{ color: "#FF0000", width: 2 }] } });
+    expect(layer()).toMatchObject({
+      appearance: { fills: [], strokes: [{ type: "solid", width: 2 }], contents: 0 },
+    });
+    update({ appearance: { fills: [{ color: "#00FF00" }], contents: 2 } });
+    expect(layer()).toMatchObject({
+      appearance: { fills: [{ color: "#00FF00" }], strokes: [{ width: 2 }], contents: 2 },
+    });
+    expect(errorOf(() => update({ appearance: { strokes: [] } }))).toMatchObject({
+      code: "INVALID_INPUT",
+      path: "updates[0].patch.appearance.contents",
+    });
+    update({ appearance: null });
+    expect(layer()).not.toHaveProperty("appearance");
     expect(
-      errorOf(() => updateNodes(doc, [{ nodeId: defaultLayerId, patch: { appearance: {} } }])),
-    ).toMatchObject({ code: "INVALID_PATCH", path: "updates[0].patch.appearance" });
+      errorOf(() => updateNodes(doc, [{ nodeId: r.id, patch: { appearance: { contents: 0 } } }])),
+    ).toMatchObject({
+      code: "INVALID_PATCH",
+      path: "updates[0].patch.appearance.contents",
+      hint: expect.stringContaining("Layer's or Group's"),
+    });
   });
 
   it("reports INVALID_COLOR and INVALID_PATH at the patch path", () => {

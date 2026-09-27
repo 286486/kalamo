@@ -68,7 +68,13 @@ export function placeNodes(
   const copy = (n: Node, parentId: string, index: string): string => {
     const id = newId();
     ids.set(n.id, id);
-    doc.nodes.set(id, { ...n, id, parentId, index, ...(n.type === "layer" && { type: "group" }) });
+    doc.nodes.set(id, {
+      ...n,
+      id,
+      parentId,
+      index,
+      ...(n.type === "layer" && { type: "group" }),
+    } as Node);
     for (const c of childrenIn(n.id)) copy(c, id, c.index);
     return id;
   };

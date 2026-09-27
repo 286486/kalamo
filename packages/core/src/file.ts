@@ -1,7 +1,7 @@
 import { generateKeyBetween } from "fractional-indexing";
 import { z } from "zod";
 import { parseColor } from "./color.ts";
-import { assertParent, paint } from "./document.ts";
+import { assertParent, paint, paintContainer } from "./document.ts";
 import { zodPath } from "./edit.ts";
 import { ZibelError } from "./errors.ts";
 import {
@@ -88,10 +88,25 @@ const appearance = z.strictObject({
   fills: z.array(StoredFill),
   strokes: z.array(StoredStroke),
 });
+const container = {
+  ...base,
+  appearance: appearance
+    .extend({ contents: z.number().int().min(0) })
+    .refine((a) => a.contents <= a.fills.length + a.strokes.length, {
+      message: "contents is at most the number of fills and strokes.",
+      path: ["contents"],
+    })
+    // ponytail: container gradients arrive with #107.
+    .refine((a) => [...a.fills, ...a.strokes].every((p) => p.type !== "gradient"), {
+      message: "A Layer's or Group's Appearance takes solid colours only for now.",
+      path: ["fills"],
+    })
+    .optional(),
+};
 /** A Node exactly as stored; unknown keys are refused so nothing in a file is dropped silently. */
 const StoredNode = z.discriminatedUnion("type", [
-  z.strictObject({ ...base, type: z.literal("layer") }),
-  z.strictObject({ ...base, type: z.literal("group") }),
+  z.strictObject({ ...container, type: z.literal("layer") }),
+  z.strictObject({ ...container, type: z.literal("group") }),
   z.strictObject({
     ...base,
     type: z.literal("image"),
@@ -204,8 +219,12 @@ export function parseDocument(
     }),
   );
   const nodes = parsed.data.nodes.map((n, i): Node => {
-    if (n.type === "layer" || n.type === "group" || n.type === "image") return n;
     const at = `nodes[${i}]`;
+    if (n.type === "layer" || n.type === "group") {
+      const { appearance: a, ...rest } = n;
+      return a ? { ...rest, appearance: paintContainer(a, `${at}.appearance`) } : rest;
+    }
+    if (n.type === "image") return n;
     if (n.type === "text") {
       const { ranges, ...text } = n;
       const canonical = canonicalRanges(ranges, `${at}.ranges`);
