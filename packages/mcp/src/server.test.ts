@@ -183,35 +183,41 @@ describe("write tools pass the write and its options apart", () => {
     expect(service.pathEdit.mock.calls[0]?.[2]).toStrictEqual({});
   });
 
-  it("freehand_stroke: the fitted Ink as one path through createNodes, only the write options given", async () => {
-    const { service, call } = await harness({ createNodes: async () => receipt });
-    const write = { intent: opts.intent };
-    const points = [
-      { x: 0, y: 0, pressure: 0.5 },
-      { x: 5, y: 0 },
-      { x: 10, y: 0 },
-    ];
-    const result = await call("zibel_freehand_stroke", {
-      docId: "d",
-      parentId: "p",
-      points,
-      tool: "pencil",
-      ...write,
-    });
-    expect(result.structuredContent).toEqual(receipt);
-    expect(service.createNodes.mock.calls[0]).toStrictEqual([
-      "d",
-      [
-        {
-          type: "path",
-          parentId: "p",
-          d: "M 0 0 L 10 0",
-          appearance: { fills: [], strokes: [{ color: "#000000" }] },
-        },
-      ],
-      write,
-    ]);
-  });
+  it.each([
+    ["all", opts],
+    ["some", { intent: opts.intent }],
+    ["no", {}],
+  ])(
+    "freehand_stroke: the fitted Ink as one path through createNodes, with %s write options as given",
+    async (_, write) => {
+      const { service, call } = await harness({ createNodes: async () => receipt });
+      const points = [
+        { x: 0, y: 0, pressure: 0.5 },
+        { x: 5, y: 0 },
+        { x: 10, y: 0 },
+      ];
+      const result = await call("zibel_freehand_stroke", {
+        docId: "d",
+        parentId: "p",
+        points,
+        tool: "pencil",
+        ...write,
+      });
+      expect(result.structuredContent).toEqual(receipt);
+      expect(service.createNodes.mock.calls[0]).toStrictEqual([
+        "d",
+        [
+          {
+            type: "path",
+            parentId: "p",
+            d: "M 0 0 L 10 0",
+            appearance: { fills: [], strokes: [{ color: "#000000" }] },
+          },
+        ],
+        write,
+      ]);
+    },
+  );
 
   it("freehand_stroke names its own parentId in an error", async () => {
     const { call } = await harness({
