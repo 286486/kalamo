@@ -19,7 +19,7 @@ Placed images (F-IO-02, F-DOC-03 `image`, #32) are one of the Zibel gaps ADR-001
 
 ## Storage
 
-The Document Durable Object keeps an `images` table, one row per id with its MIME type and pixel size, and the bytes in 1 MiB chunks under the 2 MB row cap. An image is stored before the write that references it, and a write whose `src` names no stored image fails `INVALID_IMAGE`. Stored bytes never change, so undo, redo, Replace's rebuilt base and the Delta Log need nothing new. Rows are not deleted yet: a Document keeps every image it has held.
+The Document Durable Object keeps an `images` table, one row per id with its MIME type and pixel size, and the bytes in 1 MiB chunks under the 2 MB row cap. An image is stored before the write that references it, and a write whose `src` names no stored image fails `INVALID_IMAGE`. Stored bytes never change, so undo, redo, Replace's rebuilt base and the Delta Log need nothing new. Rows are not deleted yet: a Document keeps every image it has held. (Superseded by ADR-0046: the bytes live in R2, a file nothing names is swept, and a Document holds at most 20 MB of them.)
 
 This supersedes, for now, F-MCP-06b's "bitmaps always in R2". R2 is not bound until the hosted M1, and SQLite keeps the image and the Node that names it in one Durable Object. Moving the bytes to R2 later changes where the table lives, not the model, since the ids are content hashes.
 
@@ -69,7 +69,7 @@ Import:
 
 - MCP: `node_create` gains `image`; `INVALID_IMAGE` joins the error codes, and `LINKED_IMAGE_DROPPED` and `INVALID_IMAGE` the import warnings.
 - An Agent that sends a large image in `src` pays for its base64 in tokens. `image_place` from a URL is the fix.
-- A Document's images count against nothing yet, and their rows are never deleted. Both wait for M1's quotas, with R2.
+- A Document's images count against nothing yet, and their rows are never deleted. Both wait for M1's quotas, with R2. (Superseded by ADR-0046.)
 - A JPEG's EXIF orientation is not handled. Renderers may disagree on a rotated photo.
 - Inkscape 1.2.2 draws the empty bands of a `meet` Image with the file's edge pixels stretched into them, where SVG, resvg and the canvas leave them transparent (measured with `pnpm roundtrip`). The file keeps `meet`, so the structure survives; the round-trip fixture uses `slice`, which has no bands, so the pixel check compares what both draw.
 - F-DOC-03's `image` row, F-IO-02, F-MCP-06b, §6.4.3, §7.5 and decision 42 change to match (REQUIREMENTS).

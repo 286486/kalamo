@@ -31,6 +31,8 @@
       "migrations_dir": "migrations"
     }
   ],
+  // Image files, one object per file per Document (ADR-0046); wrangler dev and tests emulate it.
+  "r2_buckets": [{ "binding": "IMAGES", "bucket_name": "zibel-images" }],
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["DocumentObject"] }],
   // `token=actor` pairs in apps/edge/.dev.vars locally and an encrypted Worker secret remotely.
   "secrets": { "required": ["DEV_TOKENS"] }

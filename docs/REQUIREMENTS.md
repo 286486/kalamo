@@ -513,9 +513,9 @@ flowchart LR
 | 登录 | **GitHub OAuth 经 Worker 实现**（Google 放 M3）；企业版可接 Cloudflare Access | MCP 客户端走同一 OAuth 授权服务器 |
 | 观测 | Workers Analytics Engine / Logpush | 工具调用日志（F-NFR 可观测性） |
 
-- **F-MCP-06b 数据驻留与限制**（已按 `docs/research/04-cloudflare-limits.md` 核实）：单 DO SQLite 上限 10 GB（Paid）远超需求，但**单键值上限 2 MB**，因此文档不能整块存一个键：事务日志按行写 SQLite，节点表按节点或分片存储，完整快照写 R2；单文档 JSON 建议 < 50 MB，位图一律外置 R2（M1 之前位图按 SHA-256 分块存在 DO SQLite，Node 只存 id，ADR-0023）；同一文档 ≤ 50 个活跃连接为设计目标。（P0 设计约束）
+- **F-MCP-06b 数据驻留与限制**（已按 `docs/research/04-cloudflare-limits.md` 核实）：单 DO SQLite 上限 10 GB（Paid）远超需求，但**单键值上限 2 MB**，因此文档不能整块存一个键：事务日志按行写 SQLite，节点表按节点或分片存储，完整快照写 R2；单文档 JSON 建议 < 50 MB，位图一律外置 R2（每个 Document 的图像文件按 SHA-256 存为 R2 对象，DO SQLite 只存元数据行，Node 只存 id；无人引用的文件由清扫删除，ADR-0046）；同一文档 ≤ 50 个活跃连接为设计目标。（P0 设计约束）
 
-- **F-MCP-06c 托管首发形态**：M1 托管版为**免费 beta + 硬配额**，不做计费；计费与付费档推到 M3。超限返回 `LIMIT_EXCEEDED` 并提示。（P0）
+- **F-MCP-06c 托管首发形态**：M1 托管版为**免费 beta + 硬配额**，不做计费；计费与付费档推到 M3。超限返回 `LIMIT_EXCEEDED` 并提示。（P0）现状：单文档 20 MB 按其存储的图像文件字节计（含撤销历史仍持有的文件），ADR-0046；每用户 200 MB 待 OAuth 与 User 记录。
 
 | 配额（每用户） | 值 |
 |---|---|
@@ -976,7 +976,7 @@ zibel/
 | 39 | Compound Path（2026-09-24） | 不设 `compound_path` 节点类型：Compound Path 是 `d` 含多个子路径、带 `fillRule` 的 `path`，SVG 中即一个 `<path fill-rule>` | ADR-0018、#30 |
 | 40 | Clipping Mask（2026-09-24） | 不设 `clip_group` 节点类型：Clipping Mask 是含一个 `clipping: true` 的 Live Shape 或 Path 的 `group`；`mask_make` / `mask_release` 是写它的唯一入口；SVG 中即 `<g clip-path>` 加内联 `<clipPath>`；文字作剪切路径、图层剪切蒙版、带外观的剪切路径暂缓 | ADR-0021、#31 |
 | 41 | 多行文字与区域文字（2026-09-25） | Point Type 的 `content` 可含硬回车 `\n`；Area Type 是 `kind: "area"` 加矩形框 `width`/`height`；新增 `leading`（缺省即 Auto，字号的 120%）；区域文字的首行基线、换行与溢出按 Inkscape 1.2 实测排版；SVG 中点文字为 `sodipodi:role="line"` 行，区域文字为 `shape-inside` 引用 `<defs>` 中的矩形 | ADR-0022、#33 |
-| 42 | 置入图像（2026-09-25） | 新增 `image` 节点：框、`preserveAspectRatio`（缺省 `none`）与 `src`（文件的 SHA-256）；字节按 id 分块存 DO SQLite，M1 随 R2 迁移；PNG / JPEG / GIF，WebP 暂拒；裁切即 Clipping Mask；SVG 中为 `<image xlink:href="data:…">`（Inkscape 1.2 只绘制 `xlink:href`）；`.zibel.json` 顶层 `images` 按 id 内嵌 base64 | ADR-0023、#32 |
+| 42 | 置入图像（2026-09-25） | 新增 `image` 节点：框、`preserveAspectRatio`（缺省 `none`）与 `src`（文件的 SHA-256）；字节按 id 存 R2、元数据存 DO SQLite（ADR-0046）；PNG / JPEG / GIF，WebP 暂拒；裁切即 Clipping Mask；SVG 中为 `<image xlink:href="data:…">`（Inkscape 1.2 只绘制 `xlink:href`）；`.zibel.json` 顶层 `images` 按 id 内嵌 base64 | ADR-0023、#32 |
 | 43 | 渐变（2026-09-25） | 线性与径向渐变内联在 Fill / Stroke 中，不设 `gradientId` 与 `assets.gradients[]`（几何本就逐个 Fill；渐变色板施加即复制）；位置在 Node 自身坐标中、随 `transform` 移动，改参数不移动；只有 pad；中点随 Gradient 面板加入；SVG 中为元素前 `<defs>` 里自包含的 `userSpaceOnUse` 渐变，导入折叠 `gradientTransform`、`objectBoundingBox` 与 `href` 链，reflect / repeat 展开为色标 | ADR-0026、#22 |
 | 44 | 从 URL 置入图像（2026-09-25） | `image_place` 由 Worker 拉取 http(s) URL（20 MB、10 秒、SSRF 防护、手动重定向逐跳检查），`FETCH_FAILED` 新错误码，`openWorldHint: true`；`embed` 与本地路径去掉；`asTemplate` 在父级 Layer 下方建锁定的 Template Layer，Image 不透明度 50%，不打印待 `template` 标志 | ADR-0027、#61 |
 | 45 | 多文档标签页，删除替换（2026-09-26） | 三方合并的替换（`doc_replace`）复杂度过高，删除：编辑过的文件经打开成为新 Document，在新标签页中显示；一个标签页就是一个 Document（不设 Sheet 容器）；图稿经系统剪贴板以 Node 范围的 Inkscape 方言 SVG 剪切 / 复制 / 粘贴，Zibel 的拷贝粘贴时不包 Group；30 天 Delta Log 与 `zibel:doc` / `zibel:rev` 一并删除 | ADR-0030、#68、#69、#70 |

@@ -1,9 +1,10 @@
-import { runInDurableObject } from "cloudflare:test";
+import { evictDurableObject, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { imageId, readImage } from "@zibel/core";
 import { parseFile } from "@zibel/io";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { BLUE_1x1_PNG, RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
+import { imageKey } from "../src/document-object.ts";
 
 const stub = (docId: string) => env.DOCUMENT.get(env.DOCUMENT.idFromName(docId));
 
@@ -23,11 +24,26 @@ async function setup(docId: string) {
 }
 
 const redId = () => imageId(readImage(RED_2x2_PNG, "src").bytes);
-const rows = (s: ReturnType<typeof stub>) =>
-  runInDurableObject(s, (_, state) => ({
-    images: state.storage.sql.exec("SELECT COUNT(*) AS n FROM images").one().n,
-    chunks: state.storage.sql.exec("SELECT COUNT(*) AS n FROM image_chunks").one().n,
-  }));
+const blueId = () => imageId(readImage(BLUE_1x1_PNG, "src").bytes);
+
+/** The ids of the Document's file rows and of its R2 objects, each sorted. */
+async function stored(docId: string) {
+  const rows = await runInDurableObject(stub(docId), (_, state) =>
+    state.storage.sql
+      .exec<{ id: string }>("SELECT id FROM images ORDER BY id")
+      .toArray()
+      .map((r) => r.id),
+  );
+  const prefix = imageKey(docId, "");
+  const { objects } = await env.IMAGES.list({ prefix });
+  return { rows, objects: objects.map((o) => o.key.slice(prefix.length)).sort() };
+}
+
+/** The object's bytes as base64, which compares a large file exactly and fast. */
+const objectOf = async (docId: string, id: string) => {
+  const object = await env.IMAGES.get(imageKey(docId, id));
+  return object && new Uint8Array(await object.arrayBuffer()).toBase64();
+};
 
 it("stores a data URL's file once and gives its Images the file's SHA-256 as src", async () => {
   const { s, image } = await setup("images-store");
@@ -42,8 +58,8 @@ it("stores a data URL's file once and gives its Images the file's SHA-256 as src
     { src: id, x: 5 },
   ]);
   expect(JSON.stringify(nodes)).not.toContain("data:");
-  expect(await rows(s)).toEqual({ images: 1, chunks: 1 });
-  expect(ok(await s.image(id)).bytes).toEqual(readImage(RED_2x2_PNG, "src").bytes);
+  expect(await stored("images-store")).toEqual({ rows: [id], objects: [id] });
+  expect(await objectOf("images-store", id)).toBe(RED_2x2_PNG.split(",")[1]);
   expect(ok(await s.svg("agent", {})).svg).toContain(`xlink:href="${RED_2x2_PNG}"`);
   expect(JSON.parse(ok(await s.file("agent")).text).images).toEqual({ [id]: RED_2x2_PNG });
   expect(ok(await s.raster("agent", { scale: 1 })).svg).toContain(RED_2x2_PNG);
@@ -72,16 +88,14 @@ it("refuses a WebP with the reason, and with partial keeps the other items", asy
   ]);
 });
 
-it("keeps a file over 1 MiB in chunks and reads it back whole", async () => {
-  const { s, image } = await setup("images-chunks");
+it("keeps a file over 1 MiB whole in R2", async () => {
+  const { s, image } = await setup("images-big");
   const big = new Uint8Array(1.5 * 1024 * 1024);
   big.set(readImage(RED_2x2_PNG, "src").bytes);
   const receipt = ok(await s.createNodes([image(`data:image/png;base64,${big.toBase64()}`)], "a"));
   const id = await imageId(big);
   expect(ok(await s.get(receipt.createdIds, "full", "a")).nodes[0]).toMatchObject({ src: id });
-  expect(await rows(s)).toEqual({ images: 1, chunks: 2 });
-  // Deep equality walks 1.5M elements one by one and times out on CI; base64 compares exactly.
-  expect(ok(await s.image(id)).bytes.toBase64()).toBe(big.toBase64());
+  expect(await objectOf("images-big", id)).toBe(big.toBase64());
 });
 
 it("refuses an id the Document does not hold", async () => {
@@ -89,7 +103,6 @@ it("refuses an id the Document does not hold", async () => {
   expect(await s.createNodes([image("b".repeat(64))], "a")).toMatchObject({
     error: { code: "INVALID_IMAGE", path: "nodes[0].src" },
   });
-  expect(await s.image("b".repeat(64))).toMatchObject({ error: { code: "INVALID_IMAGE" } });
 });
 
 describe("linked Images (ADR-0042)", () => {
@@ -166,8 +179,6 @@ describe("linked Images (ADR-0042)", () => {
 });
 
 describe("Relink and Embed through node_update (ADR-0042)", () => {
-  const blueId = () => imageId(readImage(BLUE_1x1_PNG, "src").bytes);
-
   it("Relinks an embedded Image by data URL, keeping everything but its pixels; undo and redo restore it", async () => {
     const { s, image } = await setup("images-relink");
     const extra = { width: 40, height: 20, preserveAspectRatio: "xMidYMid slice", name: "Photo" };
@@ -275,5 +286,198 @@ describe("Relink and Embed through node_update (ADR-0042)", () => {
       { index: 0, code: "INVALID_IMAGE", path: "updates[0].patch.src" },
       { index: 2, code: "NODE_NOT_FOUND", path: "updates[2].nodeId" },
     ]);
+  });
+});
+
+describe("image files in R2, swept once nothing names them (ADR-0046)", () => {
+  afterEach(() => vi.useRealTimers());
+
+  /** Ends a Transaction that staged a rect, which has the alarm sweep, and runs the alarm. */
+  async function sweep(s: ReturnType<typeof stub>, parentId: string) {
+    const { txId } = ok(await s.begin("agent"));
+    const rect = { type: "rect", parentId, x: 0, y: 0, width: 1, height: 1 } as const;
+    ok(await s.createNodes([rect], "agent", { txId }));
+    ok(await s.rollback(txId, "agent"));
+    expect(await runDurableObjectAlarm(s)).toBe(true);
+  }
+
+  it("a refused create, Place or place-image leaves no row and no object (#66)", async () => {
+    const { s, image, parentId } = await setup("r2-refused");
+    const bad = { parentId: "nope" };
+    expect(await s.createNodes([image(BLUE_1x1_PNG, bad)], "agent")).toMatchObject({
+      error: { code: "NODE_NOT_FOUND" },
+    });
+    const blue = readImage(BLUE_1x1_PNG, "src");
+    expect(await s.placeImage({ ...blue, name: "Image" }, "user", bad)).toMatchObject({
+      error: { code: "NODE_NOT_FOUND" },
+    });
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><image width="1" height="1" xlink:href="${BLUE_1x1_PNG}"/></svg>`;
+    expect(await s.place(parseFile(svg), "user", bad)).toMatchObject({
+      error: { code: "NODE_NOT_FOUND" },
+    });
+    const { rev } = ok(await s.info());
+    expect(await s.createNodes([image(BLUE_1x1_PNG)], "agent", { ifRev: rev - 1 })).toMatchObject({
+      error: { code: "REV_CONFLICT" },
+    });
+    expect(await stored("r2-refused")).toEqual({ rows: [], objects: [] });
+    ok(await s.createNodes([image(BLUE_1x1_PNG)], "agent"));
+    expect(await stored("r2-refused")).toEqual({
+      rows: [await blueId()],
+      objects: [await blueId()],
+    });
+    expect(parentId).toBeTruthy();
+  });
+
+  it("keeps a deleted Image's file while undo or redo can bring it back, and sweeps it after", async () => {
+    const { s, image, parentId } = await setup("r2-history");
+    const id = await redId();
+    const [nodeId] = ok(await s.createNodes([image(RED_2x2_PNG)], "agent")).createdIds as [string];
+    ok(await s.deleteNodes([nodeId], "agent"));
+    await sweep(s, parentId);
+    ok(await s.undo("agent"));
+    expect(ok(await s.raster("agent", { scale: 1 })).svg).toContain(RED_2x2_PNG);
+    ok(await s.redo("agent"));
+    ok(await s.undo("agent"));
+    ok(await s.deleteNodes([nodeId], "agent"));
+    // The redo stack is cleared, but the undo stack still holds the delete and the create.
+    await sweep(s, parentId);
+    expect(await stored("r2-history")).toEqual({ rows: [id], objects: [id] });
+
+    // Undoing the create too moves it to the redo stack, which the next edit clears.
+    ok(await s.undo("agent"));
+    ok(await s.undo("agent"));
+    const rect = { type: "rect", parentId, x: 0, y: 0, width: 1, height: 1 } as const;
+    ok(await s.createNodes([rect], "agent"));
+    expect(await runDurableObjectAlarm(s)).toBe(true);
+    expect(await stored("r2-history")).toEqual({ rows: [], objects: [] });
+    expect(await s.createNodes([image(id)], "agent")).toMatchObject({
+      error: { code: "INVALID_IMAGE" },
+    });
+  });
+
+  it("keeps an open Transaction's staged Image, drawn in its own render, and sweeps it after rollback or expiry", async () => {
+    const { s, image, parentId } = await setup("r2-tx");
+    const [red, blue] = [await redId(), await blueId()];
+    const [kept] = ok(await s.createNodes([image(RED_2x2_PNG)], "agent")).createdIds as [string];
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const rolled = ok(await s.begin("agent")).txId;
+    ok(await s.createNodes([image(BLUE_1x1_PNG)], "agent", { txId: rolled }));
+    ok(await s.deleteNodes([kept], "agent", { txId: rolled }));
+    await sweep(s, parentId);
+    expect(ok(await s.raster("agent", { scale: 1, txId: rolled })).svg).toContain(BLUE_1x1_PNG);
+    expect(await stored("r2-tx")).toEqual({
+      rows: [blue, red].sort(),
+      objects: [blue, red].sort(),
+    });
+    ok(await s.rollback(rolled, "agent"));
+    expect(await runDurableObjectAlarm(s)).toBe(true);
+    expect(await stored("r2-tx")).toEqual({ rows: [red], objects: [red] });
+    expect(ok(await s.raster("agent", { scale: 1 })).svg).toContain(RED_2x2_PNG);
+
+    const expiring = ok(await s.begin("agent")).txId;
+    ok(await s.createNodes([image(BLUE_1x1_PNG)], "agent", { txId: expiring }));
+    vi.setSystemTime(Date.now() + 5 * 60_000 + 1000);
+    expect(await runDurableObjectAlarm(s)).toBe(true);
+    expect(await stored("r2-tx")).toEqual({ rows: [red], objects: [red] });
+  });
+
+  it("sweeps an object with no row once it is an hour old, and sweeping twice changes nothing", async () => {
+    const { s, image, parentId } = await setup("r2-orphan");
+    const red = await redId();
+    ok(await s.createNodes([image(RED_2x2_PNG)], "agent"));
+    const orphan = "0".repeat(64);
+    await env.IMAGES.put(imageKey("r2-orphan", orphan), new Uint8Array([1]));
+    await sweep(s, parentId);
+    expect(await stored("r2-orphan")).toEqual({ rows: [red], objects: [orphan, red] });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now() + 60 * 60_000 + 1000);
+    await sweep(s, parentId);
+    expect(await stored("r2-orphan")).toEqual({ rows: [red], objects: [red] });
+    await sweep(s, parentId);
+    expect(await stored("r2-orphan")).toEqual({ rows: [red], objects: [red] });
+  });
+
+  describe("the 20 MB Document quota", () => {
+    /** A distinct PNG of `size` bytes: a real header, then zeros. */
+    const png = (n: number, size = 5 * 1024 * 1024) => {
+      const bytes = new Uint8Array(size);
+      bytes.set(readImage(RED_2x2_PNG, "src").bytes);
+      bytes[size - 1] = n;
+      return bytes;
+    };
+    const url = (bytes: Uint8Array) => `data:image/png;base64,${bytes.toBase64()}`;
+
+    it("refuses a write that would store a new file past it, with nothing stored; a held file always passes", async () => {
+      const { s, image } = await setup("r2-quota");
+      for (let n = 0; n < 4; n++) ok(await s.createNodes([image(url(png(n)))], "agent"));
+      expect(await s.storedImageBytes()).toBe(20 * 1024 * 1024);
+      const { rev } = ok(await s.info());
+      const refused = await s.createNodes([image(BLUE_1x1_PNG)], "agent");
+      expect(refused).toMatchObject({
+        error: {
+          code: "LIMIT_EXCEEDED",
+          message: `The Document stores ${20 * 1024 * 1024} bytes of image files; ${readImage(BLUE_1x1_PNG, "src").bytes.length} more would pass its limit of ${20 * 1024 * 1024} (20 MB).`,
+          hint: expect.stringContaining("undo history"),
+        },
+      });
+      expect(ok(await s.info()).rev).toBe(rev);
+      expect((await stored("r2-quota")).objects).toHaveLength(4);
+      expect(await objectOf("r2-quota", await blueId())).toBeNull();
+
+      const held = await imageId(png(0));
+      ok(await s.createNodes([image(held), image(url(png(1)))], "agent"));
+      expect(await s.storedImageBytes()).toBe(20 * 1024 * 1024);
+    }, 30_000);
+
+    it("refuses to Open a file whose images pass it", async () => {
+      const files = new Map(
+        await Promise.all(
+          [0, 1, 2, 3, 4].map(async (n) => {
+            const bytes = png(n, n === 4 ? 1024 : undefined);
+            return [await imageId(bytes), { ...readImage(url(bytes), "src") }] as const;
+          }),
+        ),
+      );
+      const opened = await stub("r2-open").open({
+        docId: "r2-open",
+        name: "Big",
+        artboards: [],
+        nodes: [],
+        images: files,
+        actor: "agent",
+      });
+      expect(opened).toMatchObject({ error: { code: "LIMIT_EXCEEDED" } });
+      expect(await stub("r2-open").info()).toMatchObject({ error: { code: "DOC_NOT_FOUND" } });
+      expect((await env.IMAGES.list({ prefix: imageKey("r2-open", "") })).objects).toEqual([]);
+    }, 30_000);
+  });
+
+  it("moves a Document's files from SQLite chunks to R2 on its first request", async () => {
+    const { s, image } = await setup("r2-legacy");
+    const id = await redId();
+    const bytes = readImage(RED_2x2_PNG, "src").bytes;
+    await runInDurableObject(s, (_, state) => {
+      const sql = state.storage.sql;
+      sql.exec("DROP TABLE images");
+      sql.exec(`CREATE TABLE images (
+        id TEXT PRIMARY KEY, mime TEXT NOT NULL, width INTEGER NOT NULL, height INTEGER NOT NULL)`);
+      sql.exec(`CREATE TABLE image_chunks (
+        id TEXT NOT NULL, n INTEGER NOT NULL, bytes BLOB NOT NULL, PRIMARY KEY (id, n))`);
+      sql.exec("INSERT INTO images VALUES (?, 'image/png', 2, 2)", id);
+      sql.exec("INSERT INTO image_chunks VALUES (?, 0, ?)", id, bytes.slice(0, 10).buffer);
+      sql.exec("INSERT INTO image_chunks VALUES (?, 1, ?)", id, bytes.slice(10).buffer);
+    });
+    await evictDurableObject(s);
+
+    ok(await s.createNodes([image(id)], "agent"));
+    expect(await objectOf("r2-legacy", id)).toBe(bytes.toBase64());
+    expect(await s.storedImageBytes()).toBe(bytes.length);
+    expect(ok(await s.svg("agent", {})).svg).toContain(RED_2x2_PNG);
+    const tables = await runInDurableObject(s, (_, state) =>
+      state.storage.sql
+        .exec("SELECT name FROM sqlite_master WHERE name = 'image_chunks'")
+        .toArray(),
+    );
+    expect(tables).toEqual([]);
   });
 });
