@@ -241,10 +241,11 @@ export function Viewer({ docId }: { docId: string }) {
         setHand(down);
         return;
       }
-      if (!down) return;
       const mod = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
-      if (mod && key === "v") inPlace.current = e.shiftKey;
+      // Its paste event comes between keydown and keyup.
+      if (key === "v") inPlace.current = down && mod && e.shiftKey;
+      if (!down) return;
       const { doc, viewport: v, selection } = useStore.getState();
       if (!doc || !v) return;
       if (mod && key === "z") {
@@ -282,11 +283,11 @@ export function Viewer({ docId }: { docId: string }) {
   const inPlace = useRef(false);
 
   /**
-   * Place at the centre of the canvas, or pasted text where it was with `here`, in the Selection's
+   * Place at the centre of the canvas, or pasted text where it was with `inPlace`, in the Selection's
    * Layer or the top one: an SVG as a Group (ADR-0017), or a Zibel copy's Nodes as they were
    * (ADR-0030), any other file as an Image, which the Worker checks (ADR-0023).
    */
-  const place = (file: File | string, here = false) => {
+  const place = (file: File | string, inPlace = false) => {
     const { doc, viewport: v, selection } = useStore.getState();
     const parentId = doc && placeParent(doc, selection);
     if (!v || !parentId) return;
@@ -295,7 +296,7 @@ export function Viewer({ docId }: { docId: string }) {
     const post = (path: string, body: BodyInit, what: string) =>
       postFile(docId, `/api/docs/${docId}/${path}?${query}`, body, what);
     if (typeof file === "string") {
-      if (here) query.set("inPlace", "");
+      if (inPlace) query.set("inPlace", "");
       post("place", file, "place the pasted SVG");
     } else if (isSvg(file)) {
       query.set("name", file.name);
@@ -311,8 +312,6 @@ export function Viewer({ docId }: { docId: string }) {
   // biome-ignore lint/correctness/useExhaustiveDependencies: place reads the current size
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
-      const here = inPlace.current;
-      inPlace.current = false;
       const data = e.clipboardData;
       const text = data?.getData("image/svg+xml") || data?.getData("text/plain") || "";
       const pasted = text.trimStart().startsWith("<")
@@ -320,13 +319,14 @@ export function Viewer({ docId }: { docId: string }) {
         : [...(data?.files ?? [])].find((f) => f.type.startsWith("image/"));
       if (!pasted) return;
       e.preventDefault();
-      place(pasted, here);
+      place(pasted, inPlace.current);
     };
     // Copy writes the Selection as a nodes-scope export, which paste places without a Group and
     // Inkscape pastes as it is (ADR-0030). Cut then deletes what of it is editable.
-    const onCopy = (e: ClipboardEvent) => {
+    const onCopyOrCut = (e: ClipboardEvent) => {
       const { doc, selection } = useStore.getState();
-      if (!doc || selection.length === 0 || !e.clipboardData) return;
+      // Selected page text, such as a notice, copies as text.
+      if (!doc || selection.length === 0 || !e.clipboardData || getSelection()?.toString()) return;
       e.preventDefault();
       let svg: string;
       try {
@@ -344,12 +344,12 @@ export function Viewer({ docId }: { docId: string }) {
       if (e.type === "cut" && nodeIds.length > 0) send({ type: "delete", nodeIds });
     };
     addEventListener("paste", onPaste);
-    addEventListener("copy", onCopy);
-    addEventListener("cut", onCopy);
+    addEventListener("copy", onCopyOrCut);
+    addEventListener("cut", onCopyOrCut);
     return () => {
       removeEventListener("paste", onPaste);
-      removeEventListener("copy", onCopy);
-      removeEventListener("cut", onCopy);
+      removeEventListener("copy", onCopyOrCut);
+      removeEventListener("cut", onCopyOrCut);
     };
   }, [size, images]);
 
