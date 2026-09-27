@@ -11,10 +11,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { imageCache } from "./images.ts";
 import { Layers } from "./Layers.tsx";
 import { menuOpen } from "./MenuBar.tsx";
+import { keysOf } from "./menu.ts";
 import { pastedArt, place, placeable } from "./place.ts";
 import { preview } from "./receive.ts";
 import { combine, editable, hitTest, marquee } from "./selection.ts";
 import { connect, send, useStore } from "./store.ts";
+import { Tools } from "./Tools.tsx";
+import { finishPen, paintKey, pathD, penClick, setTool, TOOL_KEYS } from "./tools.ts";
 import { artboardsRect, fit, toDoc, type Viewport, zoomAt } from "./viewport.ts";
 
 const PASTEBOARD = "#E6E6E6";
@@ -59,15 +62,16 @@ const fontLoaded = Promise.allSettled(
   }),
 );
 
-/** A live view of one Document: select, drag-move and delete its objects. */
+/** A live view of one Document: select, drag-move and delete its objects, and draw with the Pen. */
 export function Viewer({ docId }: { docId: string }) {
   const canvas = useRef<HTMLCanvasElement>(null);
-  const { doc, live, viewport, selection, drag, notice, size, layersShown } = useStore();
+  const { doc, live, viewport, selection, drag, pen, notice, size, layersShown, tool, paint } =
+    useStore();
   /** Space held: drag pans. */
   const [hand, setHand] = useState(false);
-  /** Illustrator's Zoom tool (Z): click zooms in, Alt+click out. */
-  const [zoomTool, setZoomTool] = useState(false);
   const [alt, setAlt] = useState(false);
+  /** Where the Pen's rubber band ends, in document coordinates. */
+  const [pointer, setPointer] = useState<[number, number] | null>(null);
   /** Pointer position at the last pan step; movementX/Y scale with devicePixelRatio in some Chromes. */
   const last = useRef({ x: 0, y: 0 });
   const gesture = useRef<Gesture | null>(null);
@@ -155,13 +159,47 @@ export function Viewer({ docId }: { docId: string }) {
       const b = node && bounds(shown, node);
       if (b) ctx.strokeRect(b.x, b.y, b.width, b.height);
     }
+    if (pen) {
+      // The path so far in its Fill and Stroke, then its outline, rubber band and Anchors.
+      const rubber = pen.commandId === null && pointer && !pen.closed;
+      const points = rubber ? [...pen.points, pointer] : pen.points;
+      const path = new Path2D(pathD(points, pen.closed));
+      if (paint.fill) {
+        ctx.fillStyle = paint.fill;
+        ctx.fill(path);
+      }
+      if (paint.stroke) {
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = paint.stroke;
+        ctx.stroke(path);
+      }
+      ctx.lineWidth = 1 / scale;
+      ctx.strokeStyle = SELECTION;
+      ctx.stroke(path);
+      const r = 3 / scale;
+      for (const [px, py] of pen.points) ctx.strokeRect(px - r, py - r, 2 * r, 2 * r);
+    }
     if (marqueeRect) {
       ctx.setLineDash([4 / scale, 4 / scale]);
       const { x: mx, y: my, width, height } = marqueeRect;
       ctx.strokeRect(mx, my, width, height);
       ctx.setLineDash([]);
     }
-  }, [doc, docId, viewport, size, selection, drag, marqueeRect, fontReady, images, imagesLoaded]);
+  }, [
+    doc,
+    docId,
+    viewport,
+    size,
+    selection,
+    drag,
+    pen,
+    pointer,
+    paint,
+    marqueeRect,
+    fontReady,
+    images,
+    imagesLoaded,
+  ]);
 
   // Ctrl+wheel (and trackpad pinch) zooms at the cursor; plain wheel and two-finger scroll pan.
   // A native listener, because React's onWheel is passive and cannot preventDefault.
@@ -200,9 +238,18 @@ export function Viewer({ docId }: { docId: string }) {
       const key = e.key.toLowerCase();
       // Its paste event comes between keydown and keyup.
       if (key === "v") inPlace.current = down && mod && e.shiftKey;
-      if (!down || mod) return;
-      if (key === "z") setZoomTool(true);
-      else if (key === "escape" || key === "v") setZoomTool(false);
+      if (!down || mod || e.target instanceof HTMLInputElement) return;
+      const keys = keysOf(e);
+      const tool = TOOL_KEYS[keys];
+      const paint = paintKey(useStore.getState().paint, keys);
+      if (tool) setTool(tool);
+      else if (paint) useStore.setState({ paint });
+      else if (keys === "Enter") finishPen();
+      else if (keys === "Escape") {
+        // Esc ends a path the Pen is drawing, else leaves the Zoom tool.
+        if (useStore.getState().pen?.commandId === null) finishPen();
+        else if (useStore.getState().tool === "zoom") setTool("selection");
+      }
     };
     addEventListener("keydown", onKey);
     addEventListener("keyup", onKey);
@@ -276,10 +323,15 @@ export function Viewer({ docId }: { docId: string }) {
       last.current = { x: e.clientX, y: e.clientY };
       return;
     }
-    if (zoomTool) {
+    if (tool === "zoom") {
       const r = e.currentTarget.getBoundingClientRect();
       const factor = e.altKey ? 0.5 : 2;
       useStore.setState({ viewport: zoomAt(v, factor, e.clientX - r.left, e.clientY - r.top) });
+      return;
+    }
+    if (tool === "pen") {
+      const p = docPoint(e, v);
+      penClick([p.x, p.y], SLOP / v.scale);
       return;
     }
     const ctx = e.currentTarget.getContext("2d");
@@ -306,6 +358,10 @@ export function Viewer({ docId }: { docId: string }) {
 
   const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const v = useStore.getState().viewport;
+    if (v && tool === "pen") {
+      const p = docPoint(e, v);
+      setPointer([p.x, p.y]);
+    }
     if (!v || !e.currentTarget.hasPointerCapture(e.pointerId)) return;
     const g = gesture.current;
     if (!g) {
@@ -349,7 +405,9 @@ export function Viewer({ docId }: { docId: string }) {
     if (useStore.getState().drag?.commandId === null) useStore.setState({ drag: null });
   };
 
-  const cursor = hand ? "grab" : zoomTool ? (alt ? "zoom-out" : "zoom-in") : "default";
+  const cursor = hand
+    ? "grab"
+    : { selection: "default", pen: "crosshair", zoom: alt ? "zoom-out" : "zoom-in" }[tool];
 
   return (
     <div style={{ position: "absolute", inset: 0, background: PASTEBOARD }}>
@@ -385,6 +443,7 @@ export function Viewer({ docId }: { docId: string }) {
           </span>
         )}
       </div>
+      <Tools />
       {layersShown && <Layers />}
     </div>
   );

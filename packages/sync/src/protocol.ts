@@ -4,6 +4,7 @@ import {
   type ErrorData,
   MaskInput,
   type Node,
+  NodeInput,
   PathEditInput,
   TransformInput,
   Writable,
@@ -55,6 +56,8 @@ export const ClientMessage = z.object({
   type: z.literal("command"),
   id: z.string().max(64),
   command: z.discriminatedUnion("type", [
+    // A path the Pen finished drawing (ADR-0032); images come by Place, over HTTP.
+    z.object({ type: z.literal("create"), nodes: z.array(NodeInput).min(1).max(1000) }),
     z.object({ type: z.literal("transform"), input: TransformInput }),
     z.object({ type: z.literal("delete"), nodeIds: z.array(z.string()).min(1) }),
     z.object({
