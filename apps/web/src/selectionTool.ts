@@ -1,5 +1,6 @@
 import type { Rect } from "@zibel/core";
 import {
+  ARROW,
   cancelDrag,
   commitDrag,
   dragged,
@@ -12,8 +13,6 @@ import {
 import { combine, editable, hitTest, marquee } from "./selection.ts";
 import { useStore } from "./store.ts";
 import type { CanvasTool } from "./toolbox.ts";
-
-export const ARROW = "M4 2 L4 13 L7 10 L9 14 L11 13 L9 9 L13 9 Z";
 
 /** A press on the canvas: moving objects, or drawing a marquee. */
 let gesture:
@@ -72,10 +71,10 @@ export const selectionTool: CanvasTool = {
       e.redraw();
     } else if (g?.moved) commitDrag();
   },
-  cancel(e) {
+  cancel(redraw) {
     gesture = null;
     marqueeRect = null;
-    e.redraw();
+    redraw();
     cancelDrag();
   },
   draw(ctx, _doc, scale) {

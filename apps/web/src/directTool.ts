@@ -1,5 +1,6 @@
 import { formatPath, fromAnchors, type Rect } from "@zibel/core";
 import {
+  ARROW,
   cancelDrag,
   commitDrag,
   dragged,
@@ -23,7 +24,6 @@ import {
   splitWhole,
 } from "./direct.ts";
 import { combine, hitTest } from "./selection.ts";
-import { ARROW } from "./selectionTool.ts";
 import { useStore } from "./store.ts";
 import type { CanvasTool } from "./toolbox.ts";
 
@@ -138,10 +138,10 @@ export const directTool: CanvasTool = {
       e.redraw();
     } else if (g?.moved) commitDrag();
   },
-  cancel(e) {
+  cancel(redraw) {
     gesture = null;
     marqueeRect = null;
-    e.redraw();
+    redraw();
     cancelDrag();
   },
   draw(ctx, _doc, scale) {

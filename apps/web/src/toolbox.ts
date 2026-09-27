@@ -38,7 +38,8 @@ export interface CanvasTool {
   down(e: ToolEvent): void;
   move?(e: ToolEvent): void;
   up?(e: ToolEvent): void;
-  cancel?(e: ToolEvent): void;
+  /** Drops the press; also when its release comes after the Document went. */
+  cancel?(redraw: () => void): void;
   leave?(e: ToolEvent): void;
   /** A key that is neither a tool's nor the Fill and Stroke boxes'. */
   onKey?(keys: string): void;

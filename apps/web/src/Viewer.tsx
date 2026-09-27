@@ -343,9 +343,8 @@ export function Viewer({ docId }: { docId: string }) {
     panning.current = false;
     pressed.current = null;
     const ev = toolEvent(e);
-    if (!ev) return;
-    if (e.type === "pointercancel") t.cancel?.(ev);
-    else t.up?.(ev);
+    if (ev && e.type === "pointerup") t.up?.(ev);
+    else t.cancel?.(redraw);
   };
 
   const cursor = hand ? "grab" : (alt && TOOLS[tool].altCursor) || TOOLS[tool].cursor;
@@ -361,7 +360,7 @@ export function Viewer({ docId }: { docId: string }) {
         onPointerCancel={onPointerEnd}
         onPointerLeave={(e) => {
           const ev = toolEvent(e);
-          if (ev) TOOLS[tool].leave?.(ev);
+          if (ev) for (const t of Object.values(TOOLS)) t.leave?.(ev);
         }}
         onDragOver={(e) => e.preventDefault()}
         onDrop={onDrop}

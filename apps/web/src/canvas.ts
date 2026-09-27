@@ -4,6 +4,8 @@ import type { ToolEvent } from "./toolbox.ts";
 
 /** Illustrator's first Layer colour, used for the Selection and the marquee. */
 export const SELECTION = "#4F80FF";
+/** The Selection and Direct Selection tools' icon: Illustrator's arrow, black and white. */
+export const ARROW = "M4 2 L4 13 L7 10 L9 14 L11 13 L9 9 L13 9 Z";
 /** Screen px the pointer may wander before a press becomes a drag, and the hit tolerance. */
 export const SLOP = 3;
 
