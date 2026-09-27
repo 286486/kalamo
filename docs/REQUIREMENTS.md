@@ -818,7 +818,7 @@ flowchart TD
 - **`core` 是唯一的真理源**：纯 TypeScript，无 DOM 依赖，可在浏览器与 Node 运行。包含：节点表（`Map<id, Node>`）+ 索引（父子、类型、空间 rbush）、命令（Command）定义与执行、事务与历史（delta 反转）、查询、schema 校验（zod）、迁移。
 - **UI 与 MCP 都是 core 的客户端**：UI 工具（钢笔、选择…）把交互翻译成命令；MCP 工具把 JSON 入参翻译成同一批命令。MCP 工具的 zod schema 与 UI 属性面板共用节点 schema（tldraw `static props` 思路）。
 - **渲染可插拔**：`render` 包定义 `Renderer` 接口（`draw(scene, viewport)`、`hitTest`；SVG 序列化在 `io`，ADR-0019），MVP 用 Canvas2D + 脏矩形 + 视口裁剪，V2 提供 CanvasKit（Skia WASM，WebGL）后端；headless 用同一 CanvasKit 或 resvg。
-- **几何**：贝塞尔基础（自研 + bezier-js 思路）、布尔与描边轮廓走 Skia PathOps（通过 CanvasKit，或独立编译的 pathops WASM 以减小体积）、折线级用 Clipper2 WASM 备选、拟合 fit-curve、简化 RDP、空间索引 rbush。
+- **几何**：贝塞尔基础（自研 + bezier-js 思路）、布尔、偏移与描边轮廓走 Skia PathOps（`pathkit-wasm`，在 Worker 中运行；CanvasKit 与 Clipper2 WASM 不能在 workerd 中加载，见 `docs/adr/0033`）、拟合 fit-curve、简化 RDP、空间索引 rbush。
 - **文字**：harfbuzzjs 整形 + opentype.js / fontkit 读取字形轮廓；字体来源：系统（Local Font Access API，Chrome）、Google Fonts、用户上传；字体缓存 IndexedDB。
 - **图表**：内部用 D3 的 scale / shape / axis / hierarchy 计算几何，直接产出 core 节点（不经过 SVG DOM 再解析，保证 id 与语义 key 稳定）；图示布局 dagre（P0）/ ELK（P1）。Mermaid 解析用 mermaid 的 parser 或自研子集。
 - **同步**：`sync` 包定义 Document Service 接口（apply transaction、向浏览器广播、lock）与线协议；唯一实现在 `apps/edge`（Cloudflare Durable Object，每文档一实例，SQLite 存储，浏览器连接用 WebSocket Hibernation）。冲突按属性 LWW + 结构规则。不引入 CRDT（可在 `sync` 包内后期替换为 Yjs 以支持离线）。

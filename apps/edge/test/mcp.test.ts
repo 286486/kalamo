@@ -787,6 +787,8 @@ it("returns a non-empty hint with every error code a tool can return", async () 
     // Undo and redo are browser commands over the WebSocket, not tools (ADR-0011).
     NOTHING_TO_UNDO: null,
     NOTHING_TO_REDO: null,
+    // packages/geometry raises it; no tool calls geometry yet (ADR-0033).
+    BOOLEAN_FAILED: null,
   };
   for (const [code, trigger] of Object.entries(triggers)) {
     if (!trigger) continue;
