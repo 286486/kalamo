@@ -4,7 +4,8 @@ import { create } from "zustand";
 import { parseKey } from "./direct.ts";
 import type { ImageCache } from "./images.ts";
 import { receive, type ViewState } from "./receive.ts";
-import type { FillStroke, Tool } from "./tools.ts";
+import type { Tool } from "./toolbox.ts";
+import type { FillStroke } from "./tools.ts";
 import type { Viewport } from "./viewport.ts";
 
 export interface State extends ViewState {
