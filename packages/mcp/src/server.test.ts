@@ -151,6 +151,23 @@ describe("write tools pass the write and its options apart", () => {
     );
   });
 
+  it("path_edit: the ops with their defaults; intent, txId and ifRev but no partial", async () => {
+    const out = { ...receipt, d: "M 0 0 L 5 5", subpaths: [] };
+    const { service, call } = await harness({ pathEdit: async () => out });
+    const { partial: _, ...write } = { ...opts, partial: false };
+    const ops = [{ op: "move_anchor", index: 1, to: [5, 5] }, { op: "reverse" }];
+    const result = await call("zibel_path_edit", { docId: "d", nodeId: "p", ops, ...write });
+    expect(service.pathEdit).toHaveBeenCalledWith(
+      "d",
+      {
+        nodeId: "p",
+        ops: [{ op: "move_anchor", subpath: 0, index: 1, to: [5, 5] }, { op: "reverse" }],
+      },
+      write,
+    );
+    expect(result.structuredContent).toEqual(out);
+  });
+
   it("mask_release", async () => {
     const { service, call } = await harness({ releaseMask: async () => receipt });
     const { partial: _, ...write } = { ...opts, partial: false };
@@ -515,6 +532,7 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
     "zibel_node_query",
     "zibel_node_transform",
     "zibel_node_update",
+    "zibel_path_edit",
     "zibel_render",
     "zibel_svg_import",
     "zibel_tx_begin",
@@ -545,7 +563,7 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
   expect(inputKeys("zibel_image_place").sort()).toEqual(
     ["asTemplate", "docId", "frame", "ifRev", "intent", "parentId", "src", "txId"].sort(),
   );
-  for (const name of ["zibel_mask_make", "zibel_mask_release"]) {
+  for (const name of ["zibel_mask_make", "zibel_mask_release", "zibel_path_edit"]) {
     expect(inputKeys(name)).toEqual(expect.arrayContaining(["docId", "intent", "txId", "ifRev"]));
     expect(inputKeys(name)).not.toContain("partial");
   }

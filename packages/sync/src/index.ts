@@ -1,6 +1,7 @@
 export * from "./protocol.ts";
 
 import type {
+  Anchor,
   Artboard,
   ArtboardInput,
   ConciseView,
@@ -10,6 +11,7 @@ import type {
   NodeQuery,
   OutlineNode,
   OutlineOptions,
+  PathEditInput,
   Rect,
   RenderOverlay,
   RenderScope,
@@ -39,6 +41,12 @@ export interface ChangeEntry {
   updatedIds: string[];
   deletedIds: string[];
   intent: string | null;
+}
+
+/** A `path_edit` receipt: the path's new `d` and its Anchors, as stored. */
+export interface PathEditReceipt extends WriteReceipt {
+  d: string;
+  subpaths: { closed: boolean; anchors: (Anchor & { index: number })[] }[];
 }
 
 export interface DocInfo {
@@ -130,6 +138,8 @@ export interface DocumentService {
   /** Illustrator's Clipping Mask > Make and Release (ADR-0021). */
   makeMask(docId: string, input: MaskInput, opts?: WriteOptions): Promise<WriteReceipt>;
   releaseMask(docId: string, nodeIds: string[], opts?: WriteOptions): Promise<WriteReceipt>;
+  /** Anchor edits on one path (REQUIREMENTS §6.4); a Live Shape is refused for now. */
+  pathEdit(docId: string, input: PathEditInput, opts?: WriteOptions): Promise<PathEditReceipt>;
   /** Reads take `txId` to see that open Transaction's uncommitted edits. */
   get(
     docId: string,
