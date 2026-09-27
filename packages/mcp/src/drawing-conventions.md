@@ -90,7 +90,7 @@ Read this once before your first write. Tool descriptions cover each call; this 
 - The receipt and `zibel_node_get` give the Image's `src` as an id, the file's SHA-256, never the bytes. Pass that id as `src` to place the same file again without resending it.
 - Omit `width` and `height` for the file's pixel size, one pt per pixel, or give both. `preserveAspectRatio` is SVG's: `none` (the default) stretches the file to the frame, `xMidYMid meet` fits it inside, `xMidYMid slice` fills the frame and crops the rest.
 - To crop to any shape, draw the shape over the Image and call `zibel_mask_make`. An Image cannot be the clip, and has no `appearance`.
-- `src` is read-only: to swap the file, create a new Image and delete the old one.
+- To swap the file (Relink), `zibel_node_update` the Image's `src` with a `data:` URL or an image id; the frame, `preserveAspectRatio`, transform, name and Clipping Mask stay. `file` names a linked file, and `file: null` embeds a linked Image, which needs `src` first or in the same patch.
 
 ## Reading a Document
 

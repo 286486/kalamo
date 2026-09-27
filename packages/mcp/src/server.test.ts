@@ -133,12 +133,14 @@ describe("write tools pass the write and its options apart", () => {
       { nodeId: "a", patch: { width: 60 } },
       { nodeId: "b", patch: { appearance: { fills: [{ color: "#FF0000" }] } } },
       { nodeId: "c", patch: { preserveAspectRatio: "xMidYMid meet" } },
+      { nodeId: "d", patch: { src: "data:image/png;base64,AAAA", file: "a.png" } },
+      { nodeId: "e", patch: { file: null } },
     ];
     await call("zibel_node_update", { docId: "d", updates, ...opts });
     const [docId, sent, options] = service.updateNodes.mock.calls[0] ?? [];
     expect([docId, options]).toEqual(["d", { ...opts, partial: false }]);
     // Strict: a default filled in as an undefined key would still reach the Durable Object.
-    expect(sent).toStrictEqual([updates[0], updates[1], updates[2]]);
+    expect(sent).toStrictEqual(updates);
   });
 
   it("node_delete", async () => {
@@ -725,6 +727,14 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
   expect(described("zibel_node_create")).toContain("image {");
   expect(described("zibel_node_create")).toContain("missing link");
   expect(described("zibel_node_update")).toContain("preserveAspectRatio");
+  // Relink and Embed (ADR-0042).
+  expect(described("zibel_node_update")).not.toContain("src is read-only");
+  for (const word of ["Relink", "file: null", "Embed", "INVALID_IMAGE"]) {
+    expect(described("zibel_node_update")).toContain(word);
+  }
+  for (const key of ["src", "file"]) {
+    expect(JSON.stringify(byName.zibel_node_update?.inputSchema)).toContain(`"${key}"`);
+  }
   for (const param of [
     "angle",
     "twist",

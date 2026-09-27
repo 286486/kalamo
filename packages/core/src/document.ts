@@ -263,31 +263,39 @@ export function assertParent(
   }
 }
 
+/** Refuses a linked Image's `file` that cannot name a file (ADR-0042). */
+export function checkFile(file: string, path: string) {
+  const problem = fileProblem(file);
+  if (!problem) return;
+  throw new ZibelError({
+    code: "INVALID_IMAGE",
+    message: problem,
+    hint: `file is the linked file's path or URL, at most ${MAX_FILE_LENGTH} characters; pass a data: URL as src.`,
+    path,
+  });
+}
+
+/** The stored image `src` names, which the Durable Object stored before the write (ADR-0023). */
+export function imageInfo(doc: Document, src: string, path: string) {
+  const info = doc.images.get(src);
+  if (info) return info;
+  throw new ZibelError({
+    code: "INVALID_IMAGE",
+    message: src.startsWith("data:")
+      ? "The image's data: URL was not read into the Document."
+      : `No image with id ${src} in the Document.`,
+    hint: "src is a data: URL of a PNG, JPEG or GIF, or the id of an image already in the Document; node_get shows an Image's src id.",
+    path,
+  });
+}
+
 /** An Image's parameters, its `src` an id the Document holds (ADR-0023, ADR-0042). */
 function imageOf(doc: Document, input: unknown, path: string) {
   const { src, file, width, height, ...rest } = ImageShape.superRefine(imageFrame)
     .superRefine(imagePixels)
     .parse(input);
-  const problem = file === undefined ? undefined : fileProblem(file);
-  if (problem) {
-    throw new ZibelError({
-      code: "INVALID_IMAGE",
-      message: problem,
-      hint: `file is the linked file's path or URL, at most ${MAX_FILE_LENGTH} characters; pass a data: URL as src.`,
-      path: `${path}.file`,
-    });
-  }
-  const info = src === undefined ? undefined : doc.images.get(src);
-  if (src !== undefined && !info) {
-    throw new ZibelError({
-      code: "INVALID_IMAGE",
-      message: src.startsWith("data:")
-        ? "The image's data: URL was not read into the Document."
-        : `No image with id ${src} in the Document.`,
-      hint: "src is a data: URL of a PNG, JPEG or GIF, or the id of an image already in the Document; node_get shows an Image's src id.",
-      path: `${path}.src`,
-    });
-  }
+  if (file !== undefined) checkFile(file, `${path}.file`);
+  const info = src === undefined ? undefined : imageInfo(doc, src, `${path}.src`);
   return {
     ...rest,
     ...(src !== undefined && { src }),

@@ -18,7 +18,7 @@ Inkscape and Illustrator SVGs often link their photos (`xlink:href="photo.png"`)
 
 - `node_create` image takes `file`. `src` may then be left out, and `width` and `height` are required, because a missing link has no pixel size to default to. `file` together with `src` makes a linked Image with pixels. Embedded creation is unchanged.
 - `node_get` `full` returns `file` when present and `src` when present, never bytes. An Agent finds the Images that need relinking as those with `file` and no `src`.
-- `node_update` of `src` and `file` (Relink and Embed) is #101. `image_place` stays embed-only (ADR-0027).
+- `node_update` writes `src` and `file` (#101). `src`, a data URL or an id the Document holds, with `node_create`'s checks, Relinks: it replaces only the pixels, so the frame and `preserveAspectRatio` stay unless the same patch sets them, and the Image keeps its id, transform, name, opacity and Clipping Mask. The Durable Object stores a data URL's file before the write, as for `node_create`. `file` as a string links an embedded Image or relinks a linked one, with `node_create`'s checks. `file: null` Embeds; on an Image left without `src` it fails `INVALID_IMAGE`, with a hint to set `src` in the same patch or first. `src: null` fails `INVALID_PATCH`: an Image never loses its pixels by patch. Each write is one Transaction, so one undo step. `image_place` stays embed-only (ADR-0027).
 - `doc_open` and `svg_import` read linked `<image>`s (below). `LINKED_IMAGE_DROPPED` is gone; the import warning `IMAGE_LINK_MISSING` joins, reported once per import.
 
 ## SVG

@@ -700,7 +700,7 @@ describe("an Image", () => {
   });
 
   it.each([
-    ["src", { src: "b".repeat(64) }, /Relink/],
+    ["src: null", { src: null }, /Relink/],
     ["an Appearance", { appearance: { fills: [] } }, /x, y, width, height, preserveAspectRatio/],
     ["a bad preserveAspectRatio", { preserveAspectRatio: "stretch" }, /meet or slice/],
     ["a zero width", { width: 0 }, /./],
