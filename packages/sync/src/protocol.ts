@@ -74,6 +74,9 @@ export const ClientMessage = z.object({
     z.object({ type: z.literal("path_edit"), input: PathEditInput }),
     // Object > Shape > Expand Shape (ADR-0032).
     z.object({ type: z.literal("path_op"), input: PathOpInput }),
+    // The Pen continuing a path onto another's Endpoint: the edit, then a Join, as one
+    // Transaction (ADR-0037).
+    z.object({ type: z.literal("path_join"), edit: PathEditInput, join: PathOpInput }),
     z.object({ type: z.literal("undo") }),
     z.object({ type: z.literal("redo") }),
   ]),
