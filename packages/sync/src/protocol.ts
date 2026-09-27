@@ -67,6 +67,8 @@ export const ClientMessage = z.object({
       // One Layers panel toggle (ADR-0012); an empty patch would commit a no-op Transaction.
       patch: Writable.pick({ visible: true }).or(Writable.pick({ locked: true })),
     }),
+    // Object > Embed: the linked Images with pixels, embedded in one Transaction (ADR-0042).
+    z.object({ type: z.literal("embed"), nodeIds: z.array(z.string()).min(1) }),
     // Object > Clipping Mask > Make and Release (ADR-0021).
     z.object({ type: z.literal("mask_make"), input: MaskInput }),
     z.object({ type: z.literal("mask_release"), nodeIds: z.array(z.string()).min(1) }),

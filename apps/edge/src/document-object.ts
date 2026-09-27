@@ -20,6 +20,7 @@ import {
   type ImageInfo,
   type ImageSource,
   imageId,
+  lockedIn,
   type MaskInput,
   makeMask,
   type Node,
@@ -305,6 +306,14 @@ export class DocumentObject extends DurableObject<Env> {
       nodeIds: (c) => c.nodeIds,
       run: (c, commandId) => this.deleteNodes(c.nodeIds, USER, { commandId }),
     },
+    embed: {
+      nodeIds: (c) => c.nodeIds,
+      run: (c, commandId) =>
+        this.write(USER, { commandId }, "Embed", (doc) => {
+          const updates = c.nodeIds.map((nodeId) => ({ nodeId, patch: { file: null } }));
+          return { updated: updateNodes(doc, updates).nodes, failed: [] };
+        }),
+    },
     mask_make: {
       nodeIds: (c) => [c.input.clipNodeId, ...c.input.contentIds],
       run: (c, commandId) => this.makeMask(c.input, USER, { commandId }),
@@ -480,8 +489,12 @@ export class DocumentObject extends DurableObject<Env> {
   }
 
   /** Stores a data URL's file and returns its id. */
-  private async storeDataUrl(src: string, path: string): Promise<string> {
-    const file = readImage(src, path);
+  private storeDataUrl(src: string, path: string): Promise<string> {
+    return this.storeFile(readImage(src, path));
+  }
+
+  /** Stores a checked file and returns its id. */
+  private async storeFile(file: ImageFile): Promise<string> {
     const id = await imageId(file.bytes);
     this.storeImages(new Map([[id, file]]));
     return id;
@@ -868,12 +881,37 @@ export class DocumentObject extends DurableObject<Env> {
     },
   ): Promise<Result<WriteReceipt>> {
     const { name, ...image } = file;
-    const src = await imageId(image.bytes);
-    this.storeImages(new Map([[src, image]]));
+    const src = await this.storeFile(image);
     return this.write(actor, opts, "Place", (doc) => ({
       created: placeImage(doc, { src, name }, opts).created,
       failed: [],
     }));
+  }
+
+  /**
+   * Object > Relink… (ADR-0042): the file the Worker checked becomes the Image's pixels, its frame
+   * kept; a linked Image is renamed `name`. A hidden Image relinks, as in Illustrator's Links panel.
+   */
+  async relinkImage(
+    file: ImageFile & { name?: string },
+    actor: string,
+    opts: Options & { nodeId: string },
+  ): Promise<Result<WriteReceipt>> {
+    const { name, ...image } = file;
+    const src = await this.storeFile(image);
+    return this.write(actor, opts, "Relink", (doc) => {
+      const node = doc.nodes.get(opts.nodeId);
+      const refuse = (message: string, hint: string) =>
+        new ZibelError({ code: "INVALID_IMAGE", message, hint, path: "nodeId" });
+      if (node && node.type !== "image") {
+        throw refuse(`${opts.nodeId} is a ${node.type}, not an Image.`, "Select one Image.");
+      }
+      if (lockedIn(doc, node))
+        throw refuse("The Image or its Layer is locked.", "Unlock it first.");
+      const linked = node?.type === "image" && node.file !== undefined;
+      const patch = { src, ...(linked && name && { file: name }) };
+      return { updated: updateNodes(doc, [{ nodeId: opts.nodeId, patch }]).nodes, failed: [] };
+    });
   }
 
   /**

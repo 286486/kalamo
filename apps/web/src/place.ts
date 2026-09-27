@@ -3,8 +3,8 @@ import { useStore } from "./store.ts";
 import { toDoc } from "./viewport.ts";
 
 /**
- * Place (ADR-0017) POSTs the file to the Worker, which writes it as the user; the canvas
- * follows the `tx` broadcast like any other write. What it placed becomes the Selection.
+ * Place (ADR-0017) and Relink POST the file to the Worker, which writes it as the user; the canvas
+ * follows the `tx` broadcast like any other write. What it placed or relinked becomes the Selection.
  * Failures and warnings show as the notice.
  */
 async function postFile(docId: string, url: string, body: BodyInit, what: string) {
@@ -16,6 +16,7 @@ async function postFile(docId: string, url: string, body: BodyInit, what: string
       hint?: string;
       warnings?: { message: string }[];
       createdIds?: string[];
+      updatedIds?: string[];
       /** Place's: what went into the parent, the Group or a copy's Nodes. */
       nodes?: { id: string }[];
     };
@@ -24,7 +25,10 @@ async function postFile(docId: string, url: string, body: BodyInit, what: string
       useStore.setState({
         notice: json.warnings?.map((w) => w.message).join(" ") || null,
         ...(useStore.getState().doc?.id === docId && {
-          selection: json.nodes?.map((n) => n.id) ?? json.createdIds ?? [],
+          selection: json.nodes?.map((n) => n.id) ?? [
+            ...(json.createdIds ?? []),
+            ...(json.updatedIds ?? []),
+          ],
         }),
       });
   } catch (e) {
@@ -64,6 +68,14 @@ export function place(file: File | string, inPlace = false) {
   } else {
     post("place-image", file, `place ${file.name}`);
   }
+}
+
+/** Object > Relink… (ADR-0042): the file becomes the Image's pixels; the Worker checks it. */
+export function relink(nodeId: string, file: File) {
+  const docId = useStore.getState().doc?.id;
+  if (!docId) return;
+  const query = new URLSearchParams({ nodeId, name: file.name });
+  postFile(docId, `/api/docs/${docId}/relink-image?${query}`, file, `relink ${file.name}`);
 }
 
 /** What a paste places: SVG text, else the first image file. */

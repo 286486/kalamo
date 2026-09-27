@@ -110,11 +110,11 @@ _Avoid_: Run、Span、Character style（Character Style 是具名样式，F-TEXT
 - **缺失链接（missing link）**：有 `file` 而没有 `src` 的链接 Image。`render` 和画布把它画成框加两条对角线，如 Illustrator 画找不到的置入文件。
 
 **Relink（重新链接）**：
-给 Image 换像素（新的 `src`），链接 Image 还可换 `file`；id、框、变换、名称、不透明度与 Clipping Mask 不变。对应 Illustrator 的 Relink。Agent 经 `node_update` 写 `src`（ADR-0042）。
+给 Image 换像素（新的 `src`），链接 Image 还可换 `file`；id、框、变换、名称、不透明度与 Clipping Mask 不变。对应 Illustrator 的 Relink。Agent 经 `node_update` 写 `src`，设计师经 Object > Relink… 从磁盘选文件（ADR-0042）。
 _Avoid_: Replace、Swap
 
 **Embed（嵌入）**：
-把有像素的链接 Image 变为嵌入 Image，即去掉 `file`，对应 Illustrator 的 Embed。Agent 经 `node_update` 写 `file: null`；缺失链接不能 Embed（ADR-0042）。
+把有像素的链接 Image 变为嵌入 Image，即去掉 `file`，对应 Illustrator 的 Embed。Agent 经 `node_update` 写 `file: null`，设计师用 Object > Embed；缺失链接不能 Embed（ADR-0042）。
 _Avoid_: Bitmap、Picture、Raster、Photo、Placed item 作为类型名
 
 ## 实时对象

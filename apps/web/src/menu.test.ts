@@ -1,5 +1,7 @@
+import { createDocument, createNodes, type Node } from "@zibel/core";
 import { expect, it } from "vitest";
 import { documentMenus, findByKeys, type Item, keysOf, type Menu, shortcut } from "./menu.ts";
+import { useStore } from "./store.ts";
 
 const press = (key: string, mods: Partial<KeyboardEvent> = {}, code = "") => ({
   key,
@@ -53,4 +55,45 @@ it("finds the Menu Item a shortcut runs", () => {
   expect(findByKeys(menus, "Ctrl+7")?.label).toBe("Make");
   expect(findByKeys(menus, "Alt+Ctrl+7")?.label).toBe("Release");
   expect(findByKeys(menus, "Ctrl+Q")).toBeUndefined();
+});
+
+it("enables Relink… on exactly one Image, and Embed on linked Images with pixels that are not locked", () => {
+  const { doc, defaultLayerId: parentId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 200, height: 100 }],
+  });
+  const src = "a".repeat(64);
+  doc.images.set(src, { mime: "image/png", width: 2, height: 2 });
+  const image = (clientKey: string, extra: object) =>
+    ({ type: "image", clientKey, parentId, x: 0, y: 0, width: 2, height: 2, ...extra }) as const;
+  const { keyMap } = createNodes(doc, [
+    image("embedded", { src }),
+    image("linked", { src, file: "a.png" }),
+    image("missing", { file: "gone.png" }),
+    image("locked", { src, file: "a.png" }),
+    { type: "group", clientKey: "g", parentId, children: [] },
+    { type: "rect", clientKey: "r", parentId, x: 0, y: 0, width: 1, height: 1 },
+  ]);
+  const id = (k: string) => keyMap[k] as string;
+  const lock = (nodeId: string) =>
+    doc.nodes.set(nodeId, { ...(doc.nodes.get(nodeId) as Node), locked: true });
+  lock(id("locked"));
+  const object = menus.find((m) => m.label === "Object")?.items ?? [];
+  const item = (label: string) => leaves(object).find((i) => i.label === label);
+  const enabled = (label: string, keys: string[]) =>
+    item(label)?.enabled?.({ ...useStore.getState(), doc, selection: keys.map(id) });
+
+  expect(enabled("Relink…", ["missing"])).toBe(true);
+  expect(enabled("Relink…", ["embedded"])).toBe(true);
+  expect(enabled("Relink…", ["embedded", "linked"])).toBe(false);
+  expect(enabled("Relink…", ["r"])).toBe(false);
+  expect(enabled("Relink…", [])).toBe(false);
+
+  expect(enabled("Embed", ["linked", "r"])).toBe(true);
+  expect(enabled("Embed", ["missing"])).toBe(false);
+  expect(enabled("Embed", ["embedded"])).toBe(false);
+  expect(enabled("Embed", ["locked"])).toBe(false);
+  lock(parentId);
+  expect(enabled("Embed", ["linked"])).toBe(false);
 });

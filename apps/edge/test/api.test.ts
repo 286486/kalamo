@@ -1,4 +1,4 @@
-import { exports } from "cloudflare:workers";
+import { env, exports } from "cloudflare:workers";
 import { imageId, readImage } from "@zibel/core";
 import type { ServerMessage } from "@zibel/sync";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -664,6 +664,115 @@ describe("images through the Worker", () => {
       expect(refused.status).toBe(400);
       expect(await refused.json()).toMatchObject(error);
     }
+  });
+
+  describe("Relink from a file POSTed to /api/docs/:docId/relink-image (ADR-0042)", () => {
+    const relink = (docId: string, query: string, body: BodyInit) =>
+      exports.default.fetch(`http://zibel/api/docs/${docId}/relink-image?${query}`, {
+        method: "POST",
+        body,
+      });
+    const blue = readImage(BLUE_1x1_PNG, "src").bytes;
+    const nodeOf = async (docId: string, id: string) =>
+      (await call("zibel_node_get", { docId, nodeIds: [id], detail: "full" })).structuredContent
+        .nodes[0];
+    const stub = (docId: string) => env.DOCUMENT.get(env.DOCUMENT.idFromName(docId));
+    const revOf = async (docId: string) => {
+      const info = await stub(docId).info();
+      return "error" in info ? undefined : info.rev;
+    };
+    const create = async (docId: string, nodes: object[]) => {
+      const result = await call("zibel_node_create", { docId, nodes });
+      expect(errorOf(result)).toBeNull();
+      return result.structuredContent.createdIds as string[];
+    };
+    const set = async (docId: string, nodeId: string, patch: object) =>
+      expect(
+        errorOf(await call("zibel_node_update", { docId, updates: [{ nodeId, patch }] })),
+      ).toBeNull();
+
+    it("fills a missing link and renames it after the file, as the user in one undo step", async () => {
+      const { docId, defaultLayerId } = await newDoc();
+      const [id = ""] = await create(docId, [
+        {
+          type: "image",
+          parentId: defaultLayerId,
+          file: "gone.png",
+          x: 5,
+          y: 5,
+          width: 40,
+          height: 20,
+        },
+      ]);
+      await call("zibel_node_transform", { docId, nodeIds: [id], rotate: 30 });
+      const before = await nodeOf(docId, id);
+      const { received } = await subscribe(docId);
+
+      const res = await relink(docId, `nodeId=${id}&name=found.png`, blue);
+      expect(res.status).toBe(200);
+      const src = await imageId(blue);
+      expect(await nodeOf(docId, id)).toEqual({ ...before, src, file: "found.png" });
+      const [, tx] = await received(2);
+      expect(tx).toMatchObject({ type: "tx", actor: "user", updated: [{ id, src }] });
+      const served = await get(`/api/docs/${docId}/images/${src}`);
+      expect(served.status).toBe(200);
+      await served.body?.cancel();
+
+      await stub(docId).undo("user");
+      expect(await nodeOf(docId, id)).toEqual(before);
+    });
+
+    it("replaces an embedded Image's pixels and leaves it embedded; a hidden one too", async () => {
+      const { docId, defaultLayerId } = await newDoc();
+      const [id = ""] = await create(docId, [
+        { type: "image", parentId: defaultLayerId, src: RED_2x2_PNG, x: 0, y: 0 },
+      ]);
+      await set(docId, id, { visible: false });
+      const res = await relink(docId, `nodeId=${id}&name=blue.png`, blue);
+      expect(res.status).toBe(200);
+      const node = await nodeOf(docId, id);
+      expect(node).toMatchObject({ src: await imageId(blue), width: 2, height: 2 });
+      expect(node).not.toHaveProperty("file");
+    });
+
+    it("refuses what is not an Image, a locked Image or Layer, and files Place refuses", async () => {
+      const { docId, defaultLayerId } = await newDoc();
+      const [layer = ""] = await create(docId, [{ type: "layer", name: "Locked" }]);
+      const [rectId = "", lockedId = "", inLocked = ""] = await create(docId, [
+        rect(defaultLayerId),
+        { type: "image", parentId: defaultLayerId, src: RED_2x2_PNG, x: 0, y: 0 },
+        { type: "image", parentId: layer, src: RED_2x2_PNG, x: 0, y: 0 },
+      ]);
+      await set(docId, layer, { locked: true });
+      await set(docId, lockedId, { locked: true });
+      const [free = ""] = await create(docId, [
+        { type: "image", parentId: defaultLayerId, src: RED_2x2_PNG, x: 0, y: 0 },
+      ]);
+      const rev = await revOf(docId);
+      const locked = {
+        code: "INVALID_IMAGE",
+        message: "The Image or its Layer is locked.",
+        hint: "Unlock it first.",
+      };
+      const refusals: [string, BodyInit, object][] = [
+        [rectId, blue, { code: "INVALID_IMAGE", path: "nodeId" }],
+        ["nope", blue, { code: "NODE_NOT_FOUND" }],
+        [lockedId, blue, locked],
+        [inLocked, blue, locked],
+        [
+          free,
+          Uint8Array.fromBase64(WEBP_HEADER.split(",")[1] ?? ""),
+          { code: "INVALID_IMAGE", hint: expect.stringContaining("Convert the image to PNG") },
+        ],
+        [free, new Uint8Array(5 * 1024 * 1024 + 1), { code: "LIMIT_EXCEEDED" }],
+      ];
+      for (const [nodeId, body, error] of refusals) {
+        const refused = await relink(docId, `nodeId=${nodeId}&name=a.png`, body);
+        expect(refused.status).toBe(400);
+        expect(await refused.json()).toMatchObject(error);
+      }
+      expect(await revOf(docId)).toBe(rev);
+    });
   });
 
   it("places an SVG holding an embedded PNG, and serves its file", async () => {
