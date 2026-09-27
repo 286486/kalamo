@@ -657,3 +657,137 @@ describe("pathOp offset", () => {
     ).toMatchObject({ code: "INVALID_PATH", path: "distance" });
   });
 });
+
+describe("pathOp clean_up", () => {
+  it("removes Stray Points, unpainted objects and blank texts across the Document", () => {
+    const { doc, node: stray, defaultLayerId: layer } = setup("M 5 5");
+    const [unpainted, mixed, kept, clip, blank, text, locked] = createNodes(doc, [
+      { type: "rect", parentId: layer, x: 0, y: 0, width: 10, height: 10, appearance: {} },
+      { type: "path", parentId: layer, d: "M 0 0 L 10 0 M 50 50 M 20 0 L 30 0" },
+      { type: "rect", parentId: layer, x: 0, y: 0, width: 10, height: 10 },
+      { type: "rect", parentId: layer, x: 0, y: 0, width: 10, height: 10, appearance: {} },
+      { type: "text", parentId: layer, x: 0, y: 0, content: " \n " },
+      { type: "text", parentId: layer, x: 0, y: 0, content: "Hi", appearance: {} },
+      { type: "path", parentId: layer, d: "M 1 1" },
+    ]).nodes as [Node, Node, Node, Node, Node, Node, Node];
+    doc.nodes.set(clip.id, { ...clip, clipping: true } as Node);
+    doc.nodes.set(locked.id, { ...locked, locked: true } as Node);
+    const result = pathOp(doc, { op: "clean_up" });
+    expect(result.deletedIds.sort()).toEqual([stray.id, unpainted.id, blank.id].sort());
+    expect(result.updated).toEqual([{ ...mixed, d: "M 0 0 L 10 0 M 20 0 L 30 0" }]);
+    for (const n of [kept, clip, text, locked]) expect(doc.nodes.has(n.id)).toBe(true);
+    expect(doc.nodes.has(stray.id)).toBe(false);
+  });
+
+  it("each checkbox off keeps its kind, and nothing to remove fails", () => {
+    const { doc, node: stray, defaultLayerId: layer } = setup("M 5 5");
+    createNodes(doc, [
+      { type: "rect", parentId: layer, x: 0, y: 0, width: 10, height: 10, appearance: {} },
+    ]);
+    const input = { op: "clean_up" as const, unpainted: false, emptyText: false };
+    expect(pathOp(doc, input).deletedIds).toEqual([stray.id]);
+    expect(errorOf(() => pathOp(doc, input))).toMatchObject({ code: "INVALID_PATH" });
+  });
+});
+
+describe("pathOp split_into_grid", () => {
+  it("splits a 200x100 rect 2x3 with 10 pt gutters into six rects in its place", () => {
+    const { doc, node: below, defaultLayerId: layer } = setup("M 0 0 L 1 1");
+    const [rect, above] = createNodes(doc, [
+      {
+        type: "rect",
+        parentId: layer,
+        name: "Box",
+        x: 0,
+        y: 0,
+        width: 200,
+        height: 100,
+        appearance: { fills: [{ color: "#FF0000" }] },
+      },
+      { type: "path", parentId: layer, d: "M 0 0 L 1 1" },
+    ]).nodes as [Node, Node];
+    const result = pathOp(doc, {
+      nodeIds: [rect.id],
+      op: "split_into_grid",
+      rows: 2,
+      cols: 3,
+      gutter: 10,
+    });
+    expect(result.deletedIds).toEqual([rect.id]);
+    const cells = result.created as Extract<Node, { type: "rect" }>[];
+    const w = (200 - 20) / 3;
+    expect(cells.map((c) => [c.x, c.y, c.width, c.height])).toEqual([
+      [0, 0, w, 45],
+      [w + 10, 0, w, 45],
+      [2 * w + 20, 0, w, 45],
+      [0, 55, w, 45],
+      [w + 10, 55, w, 45],
+      [2 * w + 20, 55, w, 45],
+    ]);
+    expect(cells[0]).toMatchObject({
+      type: "rect",
+      name: "Box",
+      appearance: (rect as PathNode).appearance,
+    });
+    const order = childrenOf(doc, layer).map((n) => n.id);
+    expect(order).toEqual([below.id, ...cells.map((c) => c.id), above.id]);
+  });
+
+  it("takes each shape's document bounds, the topmost's appearance, totals, and skips open paths", () => {
+    const { doc, node: open, defaultLayerId: layer } = setup("M 0 0 L 10 10");
+    const [made, top] = createNodes(doc, [
+      { type: "ellipse", parentId: layer, x: 0, y: 0, width: 10, height: 10 },
+      {
+        type: "rect",
+        parentId: layer,
+        x: 100,
+        y: 0,
+        width: 10,
+        height: 10,
+        appearance: { fills: [{ color: "#00FF00" }] },
+      },
+    ]).nodes as [Node, Node];
+    doc.nodes.set(made.id, { ...made, transform: [2, 0, 0, 2, 5, 0] } as Node);
+    const input = {
+      nodeIds: [made.id, open.id, top.id],
+      op: "split_into_grid" as const,
+      rows: 1,
+      cols: 2,
+      gutter: 0,
+      totalWidth: 30,
+    };
+    const result = pathOp(doc, input);
+    expect(result.deletedIds).toEqual([made.id, top.id]);
+    expect(result.created?.map((c) => c.type === "rect" && [c.x, c.y, c.width, c.height])).toEqual([
+      [5, 0, 15, 20],
+      [20, 0, 15, 20],
+      [100, 0, 15, 10],
+      [115, 0, 15, 10],
+    ]);
+    for (const c of result.created ?? []) {
+      expect(c).toMatchObject({ appearance: (top as PathNode).appearance });
+    }
+    expect(result.created?.[0]?.transform).toEqual([1, 0, 0, 1, 0, 0]);
+    expect(
+      errorOf(() => pathOp(doc, { nodeIds: [open.id], op: "split_into_grid", rows: 2, cols: 2 })),
+    ).toMatchObject({ code: "INVALID_PATH", path: "nodeIds" });
+  });
+
+  it("refuses gutters that leave no room", () => {
+    const { doc, defaultLayerId: layer } = setup("M 0 0");
+    const [rect] = createNodes(doc, [
+      { type: "rect", parentId: layer, x: 0, y: 0, width: 20, height: 20 },
+    ]).nodes as [Node];
+    const input = {
+      nodeIds: [rect.id],
+      op: "split_into_grid" as const,
+      rows: 3,
+      cols: 1,
+      gutter: 10,
+    };
+    expect(errorOf(() => pathOp(doc, input))).toMatchObject({
+      code: "INVALID_PATH",
+      path: "gutter",
+    });
+  });
+});

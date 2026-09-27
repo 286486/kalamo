@@ -181,7 +181,7 @@ export function Viewer({ docId }: { docId: string }) {
     // Simplify's Show Original Path.
     if (opPreview?.showOriginal) {
       ctx.strokeStyle = ORIGINAL;
-      for (const id of opPreview.input.nodeIds) {
+      for (const id of opPreview.input.nodeIds ?? []) {
         const node = doc.nodes.get(id);
         if (hasAnchors(node)) ctx.stroke(new Path2D(formatPath(fromAnchors(anchorsOf(doc, node)))));
       }
