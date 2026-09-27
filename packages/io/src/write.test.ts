@@ -4,10 +4,12 @@ import {
   formatPath,
   makeMask,
   type ShapeNode,
+  serializeDocument,
   shapeSegments,
   updateNodes,
 } from "@zibel/core";
 import { describe, expect, it } from "vitest";
+import { parseSvg } from "./read.ts";
 import { scopeRect, svgRect, toSvg } from "./write.ts";
 
 const newDoc = () =>
@@ -891,3 +893,55 @@ it("paints a text child as a bare <text> copy, and an inner Clipping Mask's leaf
   // The text's scale would double the Stroke, so its copy halves the width.
   expect(stroke).toMatch(/<text [^>]*transform="matrix\(2 0 0 2 0 0\)" stroke-width="2"/);
 });
+
+it.each([
+  ["below", 1],
+  ["above", 0],
+])(
+  "names one Area Type frame from the text and every paint copy, a Fill %s Contents (#112)",
+  (_, contents) => {
+    const { doc, defaultLayerId } = newDoc();
+    const [group, text] = createNodes(doc, [
+      {
+        type: "group",
+        parentId: defaultLayerId,
+        appearance: {
+          fills: [{ color: "#00FF00" }],
+          strokes: [{ color: "#FF0000", width: 4 }],
+          contents,
+        },
+        children: [
+          {
+            type: "text",
+            kind: "area",
+            x: 10,
+            y: 10,
+            width: 60,
+            height: 20,
+            content: "one\ntwo\nthree",
+            ranges: [{ start: 0, end: 3, fill: "#0000FF" }],
+          },
+        ],
+      },
+    ]).nodes;
+    if (!group || !text) throw new Error("setup");
+    // Scaled by 1.25 and turned, so Open keeps the matrix instead of baking it (ADR-0017).
+    doc.nodes.set(text.id, { ...text, transform: [1.2, 0.35, -0.35, 1.2, 0, 0] });
+    const svg = toSvg(doc);
+    const frame = `id="area-z-${text.id}"`;
+    expect(svg.match(new RegExp(frame, "g"))).toHaveLength(1);
+    // The text, the Fill's copy and the Stroke's copy flow in it; only the text has an id.
+    expect(svg.match(new RegExp(`shape-inside:url\\(#area-z-${text.id}\\)`, "g"))).toHaveLength(3);
+    expect(svg.match(new RegExp(`id="z-${text.id}"`, "g"))).toHaveLength(1);
+    for (const [paint] of svg.matchAll(/<g zibel:paint="true".*?<\/g>/g)) {
+      expect(paint).not.toMatch(/<text [^>]*\bid=/);
+    }
+    expect(svg).toMatch(/inkscape:label="Stroke"[^>]*><text [^>]*stroke-width="3.2"/);
+    // A Fill below Contents copies the text before its frame is defined; SVG resolves it either way.
+    expect(svg.indexOf('inkscape:label="Fill"') < svg.indexOf(frame)).toBe(contents === 1);
+    const file = parseSvg(svg);
+    expect(file.warnings).toEqual([]);
+    const opened = { ...doc, nodes: new Map(file.nodes.map((n) => [n.id, n])) };
+    expect(JSON.parse(serializeDocument(opened))).toEqual(JSON.parse(serializeDocument(doc)));
+  },
+);

@@ -69,7 +69,7 @@
       "name": "Characters"
     },
     {
-      "frame": { "height": 120, "width": 120, "x": 1240, "y": 0 },
+      "frame": { "height": 120, "width": 240, "x": 1240, "y": 0 },
       "id": "01M38T29SXC0NTA1NERSARTB00",
       "name": "Containers"
     }
@@ -1832,6 +1832,78 @@
       "width": 30,
       "x": 1305,
       "y": 82
+    },
+    {
+      "appearance": {
+        "contents": 1,
+        "fills": [
+          {
+            "color": "#FFD166",
+            "type": "solid"
+          }
+        ],
+        "strokes": [
+          {
+            "cap": "butt",
+            "color": "#118AB2",
+            "dash": [],
+            "join": "round",
+            "miterLimit": 10,
+            "width": 1.5
+          }
+        ]
+      },
+      "blendMode": "normal",
+      "id": "01M38T29SXC0NTA1NERSAREAGP",
+      "index": "a1",
+      "locked": false,
+      "meta": {},
+      "name": "Area",
+      "opacity": 1,
+      "parentId": "01M38T29SXC0NTA1NERS1AYER0",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#1D3557",
+            "type": "solid"
+          }
+        ],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "content": "Area type flows",
+      "fontFamily": "Source Sans 3",
+      "fontSize": 14,
+      "height": 32,
+      "id": "01M38T29SXC0NTA1NERSAREAT0",
+      "index": "a0",
+      "kind": "area",
+      "leading": 16,
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29SXC0NTA1NERSAREAGP",
+      "ranges": [
+        {
+          "end": 4,
+          "fill": "#E63946",
+          "start": 0
+        }
+      ],
+      "tags": [],
+      "transform": [1.2, 0.35, -0.35, 1.2, 1400, 30],
+      "type": "text",
+      "visible": true,
+      "width": 40,
+      "x": 0,
+      "y": 0
     }
   ],
   "images": {
