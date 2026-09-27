@@ -381,7 +381,10 @@ function average(doc: Document, input: z.output<typeof PathOpInput>): PathOpResu
  * left as it is.
  */
 function outlineStrokes(doc: Document, nodeIds: string[], geometry: Geometry): PathOpResult {
-  const stroked = allWithAnchors(doc, nodeIds).filter((n) => n.appearance.strokes.length > 0);
+  // A Clipping Path paints nothing (ADR-0021), and a Group cannot stand in for it.
+  const stroked = allWithAnchors(doc, nodeIds).filter(
+    (n) => n.appearance.strokes.length > 0 && !n.clipping,
+  );
   if (stroked.length === 0) {
     throw invalid("nodeIds", "None of the Nodes has a Stroke to outline.", "Name a stroked path.");
   }
@@ -391,23 +394,23 @@ function outlineStrokes(doc: Document, nodeIds: string[], geometry: Geometry): P
     const path = isLiveShape(found) ? toPath(found) : found;
     const segments = parsePath(path.d, "d");
     const { fills, strokes } = path.appearance;
-    const outlines = strokes.map(({ width, cap, join, miterLimit, dash, ...paint }): PathNode => {
+    const outlines = strokes.map((stroke): PathNode => {
+      const { width, cap, join, miterLimit, dash } = stroke;
       const d = formatPath(
         geometry.outlineStroke(segments, { width, cap, join, miterLimit, dash }),
       );
-      return {
-        ...path,
-        d,
-        fillRule: "nonzero",
-        appearance: { fills: [paint as Fill], strokes: [] },
-      };
+      const paint: Fill =
+        stroke.type === "gradient"
+          ? { type: "gradient", gradient: stroke.gradient }
+          : { type: "solid", color: stroke.color };
+      return { ...path, d, fillRule: "nonzero", appearance: { fills: [paint], strokes: [] } };
     });
     const members: PathNode[] = [
       ...(fills.length > 0 ? [{ ...path, appearance: { fills, strokes: [] } }] : []),
       ...outlines,
     ];
-    const [only] = members as [PathNode];
-    if (members.length === 1) {
+    const [only, ...rest] = members;
+    if (only && rest.length === 0) {
       updated.push(only);
       continue;
     }

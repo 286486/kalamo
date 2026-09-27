@@ -122,12 +122,12 @@ interface Change {
  */
 export class DocumentObject extends DurableObject<Env> {
   private sql = this.ctx.storage.sql;
-  private loaded?: Geometry;
+  private pathKit?: Geometry;
 
   /** PathKit, instantiated on the first op that needs it (ADR-0034); no other event runs meanwhile. */
   private async geometry(): Promise<Geometry> {
-    this.loaded ??= await this.ctx.blockConcurrencyWhile(loadGeometry);
-    return this.loaded;
+    this.pathKit ??= await this.ctx.blockConcurrencyWhile(loadGeometry);
+    return this.pathKit;
   }
 
   constructor(ctx: DurableObjectState, env: Env) {

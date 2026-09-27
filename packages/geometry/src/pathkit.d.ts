@@ -13,7 +13,6 @@ declare module "pathkit-wasm/bin/pathkit.js" {
     /** Resolves self-overlaps into non-overlapping contours. */
     simplify(): SkPath | null;
     addPath(other: SkPath): SkPath;
-    getFillType(): Enum;
     /** `[verb, ...numbers]` per verb; numbers are float32. */
     toCmds(): number[][];
     delete(): void;
