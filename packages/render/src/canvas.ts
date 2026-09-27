@@ -58,7 +58,9 @@ export interface Canvas2D {
   fillText(text: string, x: number, y: number): void;
   strokeText(text: string, x: number, y: number): void;
   rect(x: number, y: number, w: number, h: number): void;
+  drawImage(image: unknown, x: number, y: number): void;
   drawImage(image: unknown, x: number, y: number, w: number, h: number): void;
+  getTransform(): { a: number; b: number; c: number; d: number; e: number; f: number };
   createLinearGradient(x0: number, y0: number, x1: number, y1: number): CanvasGradient2D;
   createRadialGradient(
     x0: number,
@@ -103,12 +105,26 @@ export interface DecodedImage {
 }
 
 /**
- * Draws the Document in document coordinates: the same scene, in the same order, as `toSvg`. An
- * Image draws once `images` has its file decoded (ADR-0023).
+ * A fresh, transparent canvas the target's device size, with the image the target's `drawImage`
+ * takes to composite it. Render cannot make one: it is type-checked for workerd, which has no DOM.
+ */
+export type NewLayer = () => { ctx: Canvas2D; image: unknown };
+
+interface Env {
+  doc: Document;
+  layer: NewLayer;
+  images: ((id: string) => DecodedImage | undefined) | undefined;
+}
+
+/**
+ * Draws the Document in document coordinates: the same scene, in the same order, as `toSvg`. A
+ * translucent or blended Node that paints more than once composes in a `layer` first, as SVG does
+ * (ADR-0044). An Image draws once `images` has its file decoded (ADR-0023).
  */
 export function drawDocument(
   ctx: Canvas2D,
   doc: Document,
+  layer: NewLayer,
   images?: (id: string) => DecodedImage | undefined,
 ): void {
   for (const { frame, background } of doc.artboards) {
@@ -116,7 +132,7 @@ export function drawDocument(
     ctx.fillStyle = background;
     ctx.fillRect(frame.x, frame.y, frame.width, frame.height);
   }
-  for (const n of childrenOf(doc, null)) draw(ctx, doc, n, images);
+  for (const n of childrenOf(doc, null)) draw(ctx, n, { doc, layer, images });
 }
 
 const ALIGN = { Min: 0, Mid: 0.5, Max: 1 } as Record<string, number>;
@@ -143,22 +159,46 @@ export function imagePlacement(
   };
 }
 
-function draw(
-  ctx: Canvas2D,
-  doc: Document,
-  n: Node,
-  images: ((id: string) => DecodedImage | undefined) | undefined,
-) {
+/** Whether one paint of `n` could show through or blend with another of its own (ADR-0044). */
+const paintsMoreThanOnce = (n: Node) =>
+  n.type === "layer" ||
+  n.type === "group" ||
+  n.type === "text" ||
+  (n.type !== "image" && n.appearance.fills.length + n.appearance.strokes.length > 1);
+
+function draw(ctx: Canvas2D, n: Node, env: Env) {
   if (!n.visible) return;
+  const mode = n.blendMode === "normal" ? "source-over" : n.blendMode;
+  if ((n.opacity < 1 || mode !== "source-over") && paintsMoreThanOnce(n)) {
+    // An isolated group: its contents compose on their own, then composite once in its opacity and
+    // mode, in device pixels, inside every ancestor's clip.
+    // ponytail: a layer covers the whole canvas; crop it to the Node's visible bounds in device space
+    // if many translucent containers show up in a profile.
+    const { ctx: into, image } = env.layer();
+    const { a, b, c, d, e, f } = ctx.getTransform();
+    into.setTransform(a, b, c, d, e, f);
+    paint(into, n, env);
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = n.opacity;
+    ctx.globalCompositeOperation = mode;
+    ctx.drawImage(image, 0, 0);
+    ctx.restore();
+    return;
+  }
+  // One paint composites the same directly as through a layer. Canvas2D takes the CSS names
+  // `toSvg` writes as mix-blend-mode. Every Node is entered in 1 and source-over, so a plain
+  // container's children blend with what is below it.
   ctx.save();
-  // ponytail: opacity multiplies into globalAlpha, and a blend mode sets globalCompositeOperation,
-  // per paint, so overlapping children (or a Fill under a Stroke) show through or blend with each
-  // other where SVG composites the container first; draw translucent or blended containers to an
-  // offscreen layer when that difference matters.
-  ctx.globalAlpha *= n.opacity;
-  // Canvas2D takes the CSS names `toSvg` writes as mix-blend-mode. A normal Node keeps the mode it
-  // draws in, so a blended container's children blend too.
-  if (n.blendMode !== "normal") ctx.globalCompositeOperation = n.blendMode;
+  ctx.globalAlpha = n.opacity;
+  if (mode !== "source-over") ctx.globalCompositeOperation = mode;
+  paint(ctx, n, env);
+  ctx.restore();
+}
+
+/** Draws `n` in `ctx`'s opacity and mode, its children each in their own; leaves `ctx` changed. */
+function paint(ctx: Canvas2D, n: Node, env: Env) {
+  const { doc, images } = env;
   ctx.transform(...n.transform);
   if (n.type === "layer" || n.type === "group") {
     // A Clipping Mask's children draw only inside its Clipping Path, which never paints (ADR-0021).
@@ -167,7 +207,7 @@ function draw(
       trace(ctx, transformSegments(shapeSegments(clip), clip.transform));
       ctx.clip(clip.type === "path" && clip.fillRule === "evenodd" ? "evenodd" : "nonzero");
     }
-    for (const c of childrenOf(doc, n.id)) if (c !== clip) draw(ctx, doc, c, images);
+    for (const c of childrenOf(doc, n.id)) if (c !== clip) draw(ctx, c, env);
   } else if (n.type === "image") {
     const file = n.src === undefined ? undefined : images?.(n.src);
     if (n.src === undefined) {
@@ -232,7 +272,6 @@ function draw(
       else ctx.stroke();
     }
   }
-  ctx.restore();
 }
 
 /**

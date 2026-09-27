@@ -11,9 +11,12 @@ import {
 import { describe, expect, it } from "vitest";
 import { type Canvas2D, drawDocument, imagePlacement } from "./canvas.ts";
 
-/** A context that logs every call and property write, with save/restore of its state. */
-function recorder() {
-  const log: string[] = [];
+/**
+ * A context that logs every call and property write, with save/restore of its state. Each layer
+ * logs "layer" when made, then its lines into the same list prefixed by "> " per level, and
+ * composites as "L1", "L2", ….
+ */
+function recorder(log: string[] = [], prefix = "", layers = { count: 0 }) {
   const stack: Record<string, unknown>[] = [];
   let state: Record<string, unknown> = { globalAlpha: 1, globalCompositeOperation: "source-over" };
   const ctx = new Proxy(
@@ -25,23 +28,28 @@ function recorder() {
           : (...args: unknown[]) => {
               if (k === "save") stack.push({ ...state });
               if (k === "restore") state = stack.pop() ?? state;
-              log.push([k, ...args].join(" "));
+              log.push(prefix + [k, ...args].join(" "));
+              if (k === "getTransform") return { a: 2, b: 0, c: 0, d: 2, e: 3, f: 4 };
               if (k.startsWith("create")) {
                 return {
                   addColorStop: (...stop: unknown[]) =>
-                    log.push(["addColorStop", ...stop].join(" ")),
+                    log.push(prefix + ["addColorStop", ...stop].join(" ")),
                   toString: () => "[gradient]",
                 };
               }
             },
       set: (_, k: string, v) => {
         state[k] = v;
-        log.push(`${k}=${v}`);
+        log.push(`${prefix}${k}=${v}`);
         return true;
       },
     },
   ) as Canvas2D;
-  return { ctx, log };
+  const layer = () => {
+    log.push("layer");
+    return { ctx: recorder(log, `${prefix}> `, layers).ctx, image: `L${++layers.count}` };
+  };
+  return { ctx, log, layer };
 }
 
 const PATH_OPS = /^(moveTo|lineTo|bezierCurveTo|quadraticCurveTo|closePath)/;
@@ -68,8 +76,8 @@ it("fills the Artboard background, then traces a rect once and paints its Fill b
       appearance: { fills: [{ color: "#FF0000" }], strokes: [{ color: "#000000", width: 2 }] },
     },
   ]);
-  const { ctx, log } = recorder();
-  drawDocument(ctx, doc);
+  const { ctx, log, layer } = recorder();
+  drawDocument(ctx, doc, layer);
   const body = log.filter((l) => !/^(save|restore|globalAlpha|transform)/.test(l));
   expect(body).toEqual([
     "fillStyle=#FFFFFF",
@@ -111,52 +119,134 @@ it("traces every node type with the segments node_get reports, in stacking order
   ]);
   const leaves = nodes.filter((n): n is ShapeNode => "appearance" in n);
   expect(leaves).toHaveLength(6);
-  const { ctx, log } = recorder();
-  drawDocument(ctx, doc);
+  const { ctx, log, layer } = recorder();
+  drawDocument(ctx, doc, layer);
   expect(log.filter((l) => PATH_OPS.test(l))).toEqual(leaves.flatMap(traced));
 });
 
-it("skips hidden Nodes, and applies opacity and transform through save and restore", () => {
+it("skips hidden Nodes, and applies transform through save and restore", () => {
   const { doc, defaultLayerId: parentId } = newDoc();
-  const [hidden, faded, after] = createNodes(doc, [
+  const [hidden, turned] = createNodes(doc, [
     { type: "rect", parentId, x: 0, y: 0, width: 1, height: 1 },
     { type: "rect", parentId, x: 0, y: 0, width: 1, height: 1 },
-    { type: "rect", parentId, x: 0, y: 0, width: 1, height: 1 },
-  ]).nodes as [ShapeNode, ShapeNode, ShapeNode];
+  ]).nodes as [ShapeNode, ShapeNode];
   hidden.visible = false;
-  faded.opacity = 0.5;
-  faded.transform = [0, 1, -1, 0, 60, -10];
-  const { ctx, log } = recorder();
-  drawDocument(ctx, doc);
-  expect(log.filter((l) => l === "beginPath")).toHaveLength(2);
-  const alphas = log.filter((l) => l.startsWith("globalAlpha="));
-  // Layer 1, faded rect, then the last rect back at full opacity.
-  expect(alphas).toEqual(["globalAlpha=1", "globalAlpha=0.5", "globalAlpha=1"]);
+  turned.transform = [0, 1, -1, 0, 60, -10];
+  const { ctx, log, layer } = recorder();
+  drawDocument(ctx, doc, layer);
+  expect(log.filter((l) => l === "beginPath")).toHaveLength(1);
   expect(log).toContain("transform 0 1 -1 0 60 -10");
-  expect(after.visible).toBe(true);
+  expect(ctx.globalAlpha).toBe(1);
 });
 
-it("paints a Node in its blend mode, as render does, and returns to source-over after it", () => {
-  const { doc, defaultLayerId: parentId } = newDoc();
-  const [multiplied, screened] = createNodes(doc, [
-    { type: "rect", parentId, x: 0, y: 0, width: 1, height: 1 },
-    { type: "group", parentId, children: [{ type: "rect", x: 0, y: 0, width: 1, height: 1 }] },
-    { type: "rect", parentId, x: 0, y: 0, width: 1, height: 1 },
-  ]).nodes as [Node, Node, Node];
-  multiplied.blendMode = "multiply";
-  screened.blendMode = "screen";
-  const { ctx, log } = recorder();
-  drawDocument(ctx, doc);
-  const ops = log.filter((l) => /^(globalCompositeOperation|beginPath)/.test(l));
-  // The screened Group's child inherits screen; the last rect draws back in source-over.
-  expect(ops).toEqual([
-    "globalCompositeOperation=multiply",
-    "beginPath",
-    "globalCompositeOperation=screen",
-    "beginPath",
-    "beginPath",
-  ]);
-  expect(ctx.globalCompositeOperation).toBe("source-over");
+describe("opacity and blend modes (ADR-0044)", () => {
+  const red = { fills: [{ color: "#FF0000" }], strokes: [] };
+  const rect = { type: "rect", x: 0, y: 0, width: 1, height: 1, appearance: red } as const;
+  const drawn = (nodes: object[], style: Partial<Node>[]) => {
+    const { doc, defaultLayerId: parentId } = newDoc();
+    doc.images.set("a".repeat(64), { mime: "image/png", width: 1, height: 1 });
+    const made = createNodes(doc, nodes.map((n) => ({ parentId, ...n })) as never).nodes;
+    for (const [i, s] of style.entries()) Object.assign(made[i] as Node, s);
+    const { ctx, log, layer } = recorder();
+    drawDocument(ctx, doc, layer, () => ({ image: "IMG", width: 1, height: 1 }));
+    return { log, ctx };
+  };
+
+  it("draws a single-paint leaf and an Image straight onto the canvas, in their opacity and mode", () => {
+    const src = "a".repeat(64);
+    const { log, ctx } = drawn(
+      [
+        rect,
+        { ...rect, appearance: { fills: [], strokes: [{ color: "#000000" }] } },
+        { type: "image", src, x: 0, y: 0, width: 1, height: 1 },
+      ],
+      [{ opacity: 0.5 }, { blendMode: "multiply" }, { opacity: 0.25, blendMode: "screen" }],
+    );
+    expect(log.filter((l) => l.startsWith("layer"))).toEqual([]);
+    expect(log.filter((l) => /^global/.test(l))).toEqual([
+      "globalAlpha=1",
+      "globalAlpha=0.5",
+      "globalAlpha=1",
+      "globalCompositeOperation=multiply",
+      "globalAlpha=0.25",
+      "globalCompositeOperation=screen",
+    ]);
+    expect([ctx.globalAlpha, ctx.globalCompositeOperation]).toEqual([1, "source-over"]);
+  });
+
+  it("draws an isolated Group into one layer at full opacity, then composites it once under the identity", () => {
+    const group = { type: "group", children: [rect, rect] };
+    const { log, ctx } = drawn([group], [{ opacity: 0.5, blendMode: "multiply" }]);
+    const layered = log.slice(log.indexOf("layer"));
+    expect(layered.filter((l) => l.startsWith("layer"))).toEqual(["layer"]);
+    // The layer starts in the target's transform; its children paint in source-over, fully opaque.
+    expect(layered.slice(1, 3)).toEqual(["getTransform", "> setTransform 2 0 0 2 3 4"]);
+    expect(layered.filter((l) => l.startsWith("> ") && /global/.test(l))).toEqual([
+      "> globalAlpha=1",
+      "> globalAlpha=1",
+    ]);
+    expect(layered.filter((l) => !/^(> |layer|getTransform)/.test(l))).toEqual([
+      "save",
+      "setTransform 1 0 0 1 0 0",
+      "globalAlpha=0.5",
+      "globalCompositeOperation=multiply",
+      "drawImage L1 0 0",
+      "restore",
+      "restore",
+    ]);
+    expect([ctx.globalAlpha, ctx.globalCompositeOperation]).toEqual([1, "source-over"]);
+  });
+
+  it("gives each nested isolated container its own layer, inside its parent's, and a plain Group none", () => {
+    const inner = { type: "group" as const, children: [rect, rect] };
+    const layers = (innerStyle: Partial<Node>) => {
+      const { doc, defaultLayerId: parentId } = newDoc();
+      const [outer, plain] = createNodes(doc, [{ parentId, type: "group", children: [inner] }])
+        .nodes as [Node, Node];
+      Object.assign(outer, { opacity: 0.5 });
+      Object.assign(plain, innerStyle);
+      const { ctx, log, layer } = recorder();
+      drawDocument(ctx, doc, layer);
+      return log.filter((l) => /^(> )*(layer|drawImage)/.test(l));
+    };
+    expect(layers({})).toEqual(["layer", "drawImage L1 0 0"]);
+    expect(layers({ blendMode: "screen" })).toEqual([
+      "layer",
+      "layer",
+      "> drawImage L2 0 0",
+      "drawImage L1 0 0",
+    ]);
+  });
+
+  it("draws a translucent leaf that paints more than once, and any translucent text, in a layer", () => {
+    const { log } = drawn(
+      [
+        { ...rect, appearance: { fills: [{ color: "#FF0000" }], strokes: [{ color: "#000000" }] } },
+        {
+          ...rect,
+          appearance: { fills: [{ color: "#FF0000" }, { color: "#00FF00" }], strokes: [] },
+        },
+        { type: "text", x: 0, y: 10, content: "Hi" },
+      ],
+      [{ opacity: 0.5 }, { opacity: 0.5 }, { blendMode: "multiply" }],
+    );
+    expect(log.filter((l) => /^(layer|drawImage)/.test(l))).toEqual([
+      "layer",
+      "drawImage L1 0 0",
+      "layer",
+      "drawImage L2 0 0",
+      "layer",
+      "drawImage L3 0 0",
+    ]);
+  });
+
+  it("asks no layer for a hidden isolated Group", () => {
+    const { log } = drawn(
+      [{ type: "group", children: [rect, rect] }],
+      [{ opacity: 0.5, visible: false }],
+    );
+    expect(log.filter((l) => /^(layer|beginPath)/.test(l))).toEqual([]);
+  });
 });
 
 it("draws Point Type with fillText per Fill and strokeText per Stroke, unkerned", () => {
@@ -171,8 +261,8 @@ it("draws Point Type with fillText per Fill and strokeText per Stroke, unkerned"
       appearance: { fills: [{ color: "#FF0000" }], strokes: [{ color: "#0000FF", width: 2 }] },
     },
   ]);
-  const { ctx, log } = recorder();
-  drawDocument(ctx, doc);
+  const { ctx, log, layer } = recorder();
+  drawDocument(ctx, doc, layer);
   const body = log.filter((l) => !/^(save|restore|globalAlpha|transform)/.test(l));
   expect(body).toEqual([
     "fillStyle=#FFFFFF",
@@ -206,8 +296,8 @@ it("draws a tracked text per character, a turned one about its origin in its ran
         appearance: { fills: [{ color: "#000000" }], strokes } as never,
       },
     ]);
-    const { ctx, log } = recorder();
-    drawDocument(ctx, doc);
+    const { ctx, log, layer } = recorder();
+    drawDocument(ctx, doc, layer);
     return log
       .slice(log.findIndex((l) => l.startsWith("font=")))
       .filter((l) => !/^(save|restore)/.test(l));
@@ -245,8 +335,8 @@ it("draws each line of Point Type, one leading apart", () => {
       appearance: { fills: [{ color: "#FF0000" }], strokes: [{ color: "#0000FF", width: 2 }] },
     },
   ]);
-  const { ctx, log } = recorder();
-  drawDocument(ctx, doc);
+  const { ctx, log, layer } = recorder();
+  drawDocument(ctx, doc, layer);
   expect(log.filter((l) => /^(fill|stroke)Text/.test(l))).toEqual([
     "fillText Hi 10 50",
     "fillText Ho 10 64.4",
@@ -269,8 +359,8 @@ it("draws only the lines of Area Type that fit its frame", () => {
       content: "one\ntwo\nthree\nfour",
     },
   ]);
-  const { ctx, log } = recorder();
-  drawDocument(ctx, doc);
+  const { ctx, log, layer } = recorder();
+  drawDocument(ctx, doc, layer);
   const drawn = log.filter((l) => l.startsWith("fillText")).map((l) => l.split(" "));
   expect(drawn.map(([, text, x]) => [text, x])).toEqual([
     ["one\n", "10"],
@@ -287,8 +377,8 @@ it("draws a font Zibel does not bundle in Source Sans 3, as render does", () => 
   createNodes(doc, [
     { type: "text", parentId, x: 10, y: 50, content: "Hi", fontFamily: "Helvetica" },
   ]);
-  const { ctx, log } = recorder();
-  drawDocument(ctx, doc);
+  const { ctx, log, layer } = recorder();
+  drawDocument(ctx, doc, layer);
   expect(log).toContain('font=12px "Source Sans 3"');
 });
 
@@ -298,8 +388,8 @@ it("draws a style in the bundled face it is measured in (ADR-0028)", () => {
     { type: "text", parentId, x: 10, y: 50, content: "Hi", fontStyle: "Semibold Italic" },
     { type: "text", parentId, x: 10, y: 80, content: "Hi", fontStyle: "Black" },
   ]);
-  const { ctx, log } = recorder();
-  drawDocument(ctx, doc);
+  const { ctx, log, layer } = recorder();
+  drawDocument(ctx, doc, layer);
   expect(log.filter((l) => l.startsWith("font="))).toEqual([
     'font=italic 700 12px "Source Sans 3"',
     'font=900 12px "Source Sans 3"',
@@ -319,8 +409,8 @@ it("fills a Path with its fill rule", () => {
     },
     { type: "path", parentId, d, appearance: { fills: [{ color: "#000000" }] } },
   ]);
-  const { ctx, log } = recorder();
-  drawDocument(ctx, doc);
+  const { ctx, log, layer } = recorder();
+  drawDocument(ctx, doc, layer);
   expect(log.filter((l) => l.startsWith("fill ") || l === "fill")).toEqual([
     "fill evenodd",
     "fill",
@@ -346,8 +436,8 @@ it("clips a Clipping Mask's children by its Clipping Path, in document coordinat
     ...(doc.nodes.get(clip.id) as ShapeNode),
     transform: [1, 0, 0, 1, 5, 0],
   });
-  const { ctx, log } = recorder();
-  drawDocument(ctx, doc);
+  const { ctx, log, layer } = recorder();
+  drawDocument(ctx, doc, layer);
   const body = log.filter(
     (l) => !/^(save|restore|globalAlpha|transform|fillStyle=#FFFFFF|fillRect)/.test(l),
   );
@@ -391,9 +481,9 @@ it("draws an Image once its file is decoded, clipped to its frame under slice", 
     height: 40,
   } as const;
   createNodes(doc, [image, { ...image, preserveAspectRatio: "xMidYMid slice" }]);
-  const drawn = (images?: Parameters<typeof drawDocument>[2]) => {
-    const { ctx, log } = recorder();
-    drawDocument(ctx, doc, images);
+  const drawn = (images?: Parameters<typeof drawDocument>[3]) => {
+    const { ctx, log, layer } = recorder();
+    drawDocument(ctx, doc, layer, images);
     return log.filter((l) => /^(drawImage|rect|clip)/.test(l));
   };
   expect(drawn()).toEqual([]);
@@ -427,8 +517,8 @@ it("draws a missing link as its frame and both diagonals, in a one-pixel stroke 
     loadingBounds,
     loadingBounds,
   ]);
-  const { ctx, log } = recorder();
-  drawDocument(ctx, doc, () => undefined);
+  const { ctx, log, layer } = recorder();
+  drawDocument(ctx, doc, layer, () => undefined);
   // The Layer's and Image's transforms, then the device-space stroke, all inside their saves.
   expect(log.filter((l) => !/^(globalAlpha|fill)/.test(l))).toEqual([
     "save",
@@ -466,8 +556,8 @@ describe("gradients (ADR-0026)", () => {
   const drawn = (input: Record<string, unknown>) => {
     const { doc, defaultLayerId: parentId } = newDoc();
     createNodes(doc, [{ parentId, ...input } as never]);
-    const { ctx, log } = recorder();
-    drawDocument(ctx, doc);
+    const { ctx, log, layer } = recorder();
+    drawDocument(ctx, doc, layer);
     // After the background and the Layer's and the leaf's save and transform, before their restores.
     const body = log.filter((l) => !PATH_OPS.test(l) && !/^(globalAlpha|beginPath)/.test(l));
     return body.slice(6, -2);
