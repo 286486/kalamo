@@ -318,8 +318,15 @@ export function Viewer({ docId }: { docId: string }) {
     const ctx = el.getContext("2d");
     if (!doc || !viewport || !ctx) return null;
     const r = el.getBoundingClientRect();
+    const at = (p: { clientX: number; clientY: number }) =>
+      toDoc(viewport, p.clientX - r.left, p.clientY - r.top);
+    const coalesced = e.nativeEvent.getCoalescedEvents?.() ?? [];
     return {
-      ...toDoc(viewport, e.clientX - r.left, e.clientY - r.top),
+      ...at(e),
+      points: (coalesced.length > 0 ? coalesced : [e]).map((p) => {
+        const { x, y } = at(p);
+        return [x, y];
+      }),
       shift: e.shiftKey,
       alt: e.altKey,
       ctrl: e.ctrlKey || e.metaKey,

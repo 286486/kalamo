@@ -29,6 +29,8 @@ export interface PenPath {
   curve?: CurveAnchor[];
   closed: boolean;
   commandId: string | null;
+  /** A Pencil stroke, sent on release: the Fill it is drawn with, and whether it stays selected. */
+  pencil?: { fill: string | null; keep: boolean };
 }
 
 /**
@@ -131,7 +133,7 @@ export function receive(
   return {
     doc,
     // The path the Pen drew becomes the Selection, as in Illustrator.
-    selection: drawn ? [...made] : [...new Set(selection)],
+    selection: drawn ? (s.pen?.pencil?.keep === false ? [] : [...made]) : [...new Set(selection)],
     ...(answered && { drag: null }),
     anchors,
     ...(msg.type === "document" ? { edit: null } : settle(s.edit, msg.commandId)),

@@ -1,6 +1,7 @@
 import type { Document, Node } from "@zibel/core";
 import { curvatureTool } from "./curvatureTool.ts";
 import { directTool } from "./directTool.ts";
+import { pencilTool } from "./pencilTool.ts";
 import { penTool } from "./penTool.ts";
 import { selectionTool } from "./selectionTool.ts";
 import type { Viewport } from "./viewport.ts";
@@ -10,6 +11,8 @@ import { zoomTool } from "./zoomTool.ts";
 export interface ToolEvent {
   x: number;
   y: number;
+  /** Every position the pointer reported since the last event, this one's last (F-FREE-01). */
+  points: [number, number][];
   shift: boolean;
   alt: boolean;
   /** Ctrl, or Cmd on macOS. */
@@ -46,6 +49,8 @@ export interface CanvasTool {
   /** Drops the press; also when its release comes after the Document went. */
   cancel?(redraw: () => void): void;
   leave?(e: ToolEvent): void;
+  /** Its options dialog, opened by double-clicking the tool. */
+  options?(): void;
   /** A key that is neither a tool's nor the Fill and Stroke boxes'. */
   onKey?(keys: string): void;
   /**
@@ -64,6 +69,7 @@ export const TOOLS = {
   zoom: zoomTool,
   pen: penTool,
   curvature: curvatureTool,
+  pencil: pencilTool,
 } satisfies Record<string, CanvasTool>;
 
 export type Tool = keyof typeof TOOLS;
