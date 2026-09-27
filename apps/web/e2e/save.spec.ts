@@ -106,7 +106,7 @@ test("the canvas draws an Image, and both downloads embed its file as export doe
   await expect(page.locator("body")).toContainText(/\d+%/);
   // The Artboard is fitted to the canvas, so the Image covers the canvas's centre.
   const centre = () =>
-    page.locator("canvas").evaluate((el: HTMLCanvasElement) => {
+    page.getByTestId("canvas").evaluate((el: HTMLCanvasElement) => {
       const pixel = el.getContext("2d")?.getImageData(el.width / 2, el.height / 2, 1, 1).data;
       return Array.from(pixel ?? []);
     });
