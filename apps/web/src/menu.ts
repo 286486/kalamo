@@ -5,15 +5,17 @@ import { cleanUpDialog } from "./cleanUp.ts";
 import { curvatureClearInputs, removeCurveAnchor } from "./curvature.ts";
 import { anchorOpTargets, clearInputs, inRange, removeAnchorInputs } from "./direct.ts";
 import { offsetDialog } from "./offset.ts";
-import { PLACEABLE, pasteClipboard, place } from "./place.ts";
+import { PLACEABLE, pasteClipboard, place, relink } from "./place.ts";
 import {
   editable,
+  embeddable,
   expandable,
   inverse,
   maskInput,
   objects,
   pathTargets,
   releasable,
+  relinkable,
 } from "./selection.ts";
 import { startSimplify } from "./simplify.ts";
 import { splitGridDialog } from "./splitGrid.ts";
@@ -371,6 +373,25 @@ export function documentMenus(tabs: { open: (file: File) => void; close: () => v
               },
             },
           ],
+        },
+        "-",
+        {
+          label: "Relink…",
+          enabled: ({ doc, selection }) => doc !== null && relinkable(doc, selection) !== undefined,
+          run: () => {
+            const { doc, selection } = useStore.getState();
+            const nodeId = doc && relinkable(doc, selection);
+            if (nodeId) pickFile("image/*", (file) => relink(nodeId, file));
+          },
+        },
+        {
+          label: "Embed",
+          enabled: ({ doc, selection }) => doc !== null && embeddable(doc, selection).length > 0,
+          run: () => {
+            const { doc, selection } = useStore.getState();
+            const nodeIds = doc ? embeddable(doc, selection) : [];
+            if (nodeIds.length > 0) send({ type: "embed", nodeIds });
+          },
         },
       ],
     },

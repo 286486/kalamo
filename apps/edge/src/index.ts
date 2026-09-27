@@ -20,6 +20,8 @@ export default {
     if (place && request.method === "POST") return placeFile(place, request, env);
     const placeImage = url.pathname.match(/^\/api\/docs\/([^/]+)\/place-image$/)?.[1];
     if (placeImage && request.method === "POST") return placeBitmap(placeImage, request, env);
+    const relink = url.pathname.match(/^\/api\/docs\/([^/]+)\/relink-image$/)?.[1];
+    if (relink && request.method === "POST") return relinkBitmap(relink, request, env);
     if (url.pathname === "/api/docs") return Response.json({ documents: await listDocuments(env) });
     if (url.pathname !== "/mcp") return new Response("not found", { status: 404 });
     const actor = actorFor(request, env.DEV_TOKENS);
@@ -95,6 +97,24 @@ async function placeBitmap(docId: string, request: Request, env: Env): Promise<R
           parentId: q.get("parentId") ?? "",
           ...(frame && { frame: { x: x - file.width / 2, y: y - file.height / 2 } }),
         },
+      ),
+    );
+  });
+}
+
+/**
+ * Object > Relink… (ADR-0042): the file's bytes as the body; the Image's `nodeId` and the file's
+ * `name`, which a linked Image takes as its `file`, in the query. By the user, like Place.
+ */
+async function relinkBitmap(docId: string, request: Request, env: Env): Promise<Response> {
+  const q = new URL(request.url).searchParams;
+  return answer(async () => {
+    const file = checkImage(new Uint8Array(await request.arrayBuffer()), "file");
+    return unwrap(
+      await env.DOCUMENT.get(env.DOCUMENT.idFromName(docId)).relinkImage(
+        { ...file, name: q.get("name") ?? undefined },
+        "user",
+        { nodeId: q.get("nodeId") ?? "" },
       ),
     );
   });

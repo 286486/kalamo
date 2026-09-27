@@ -8,6 +8,7 @@ import {
   type ImageNode,
   isLiveShape,
   type LeafNode,
+  lockedIn,
   type MaskInput,
   type Node,
   type Rect,
@@ -191,6 +192,22 @@ export const releasable = (doc: Document, selection: string[]) =>
   selection.filter((id) => {
     const n = doc.nodes.get(id);
     return !!n && editable(doc, n) && (("clipping" in n && n.clipping) || !!clippingPath(doc, n));
+  });
+
+/** Object > Relink… on the Selection: its one Image, however it is linked (ADR-0042). */
+export function relinkable(doc: Document, selection: string[]): string | undefined {
+  const [id, ...rest] = selection;
+  return rest.length === 0 && doc.nodes.get(id ?? "")?.type === "image" ? id : undefined;
+}
+
+/**
+ * Object > Embed on the Selection: its linked Images with pixels, not locked themselves or through
+ * an ancestor; a hidden one embeds (ADR-0042).
+ */
+export const embeddable = (doc: Document, selection: string[]) =>
+  selection.filter((id) => {
+    const n = doc.nodes.get(id);
+    return n?.type === "image" && n.file !== undefined && n.src !== undefined && !lockedIn(doc, n);
   });
 
 /** Object > Shape > Expand Shape on the Selection: its editable Live Shapes (ADR-0032). */

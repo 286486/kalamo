@@ -405,6 +405,11 @@ export function childrenOf(doc: Document, parentId: string | null): Node[] {
     .sort((a, b) => (a.index < b.index ? -1 : a.index > b.index ? 1 : 0));
 }
 
+/** Locked, or inside a locked Layer or Group. */
+export const lockedIn = (doc: Document, node: Node | undefined): boolean =>
+  !!node &&
+  (node.locked || lockedIn(doc, node.parentId ? doc.nodes.get(node.parentId) : undefined));
+
 const clipAmong = (children: Node[]) =>
   children.find((c): c is ShapeNode => c.type !== "text" && "clipping" in c && c.clipping === true);
 
