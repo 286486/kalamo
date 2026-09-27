@@ -3,12 +3,14 @@ import {
   createNodes,
   type Fill,
   type ImageNode,
+  type Matrix,
   type Node,
   normalizePath,
   readImage,
   type ShapeNode,
   serializeDocument,
   shapeSegments,
+  transformNodes,
   ZibelError,
 } from "@zibel/core";
 import { describe, expect, it } from "vitest";
@@ -1683,6 +1685,120 @@ describe("container Appearance (ADR-0043)", () => {
     expect(file.nodes.map((n) => n.type)).toEqual(["layer"]);
     expect(file.nodes[0]).not.toHaveProperty("appearance");
     expect(file.warnings).toEqual([expect.objectContaining({ code: "UNSUPPORTED_ELEMENT" })]);
+  });
+
+  describe("under a transform, a Stroke scales by √|det| as node_transform scales it", () => {
+    const PAINT =
+      '<g zibel:paint="true" fill="none" stroke="blue" stroke-width="4" stroke-dasharray="2 1"/>';
+    /** The Appearance of each painted container, in document order, and the warnings. */
+    const open = (body: string) => {
+      const file = parseSvg(svg('viewBox="0 0 100 100"', body));
+      const looks = file.nodes.flatMap((n) =>
+        (n.type === "group" || n.type === "layer") && n.appearance ? [n.appearance] : [],
+      );
+      return { looks, warnings: file.warnings.map((w) => w.code) };
+    };
+    const group = (transform: string, inner = "") =>
+      `<g transform="${transform}">${PAINT}<rect width="5" height="5"/>${inner}</g>`;
+
+    it.each([
+      ["a rotation", "rotate(30,25,20)", 4, [2, 1]],
+      ["a rotation and a scale", "rotate(30) scale(2)", 8, [4, 2]],
+      ["a flip", "scale(-1,1)", 4, [2, 1]],
+      ["a flip and a scale", "matrix(-2,0,0,2,10,0)", 8, [4, 2]],
+      ["a vertical flip and a rotation", "rotate(90) scale(3,-3)", 12, [6, 3]],
+    ])("keeps %s exact and silent", (_, transform, width, dash) => {
+      const { looks, warnings } = open(group(transform));
+      expect(looks).toEqual([
+        { fills: [], strokes: [expect.objectContaining({ width, dash })], contents: 1 },
+      ]);
+      expect(warnings).toEqual([]);
+    });
+
+    it("scales a rotated Layer's Stroke the same way", () => {
+      const { looks, warnings } = open(
+        `<g inkscape:groupmode="layer" transform="rotate(45) scale(0.5)">${PAINT}<rect width="5" height="5"/></g>`,
+      );
+      expect(looks).toEqual([
+        expect.objectContaining({
+          strokes: [expect.objectContaining({ width: 2, dash: [1, 0.5] })],
+        }),
+      ]);
+      expect(warnings).toEqual([]);
+    });
+
+    it("multiplies the factors of nested Groups and of the paint group's own transform", () => {
+      const nested = open(
+        `<g transform="rotate(30) scale(2)">${group("rotate(10) scale(1.5)")}</g>`,
+      );
+      expect(nested.looks[0]?.strokes[0]).toMatchObject({ width: 12 });
+      const own = open(
+        '<g><g zibel:paint="true" fill="none" stroke="blue" stroke-width="4" transform="rotate(20) scale(3)"/></g>',
+      );
+      expect(own.looks[0]?.strokes[0]).toMatchObject({ width: 12 });
+      expect([...nested.warnings, ...own.warnings]).toEqual([]);
+    });
+
+    it("keeps a skewed or unevenly scaled container's Stroke at one width, with one warning", () => {
+      const skewed = open(group("skewX(30)"));
+      expect(skewed.looks[0]?.strokes[0]).toMatchObject({ width: 4, dash: [2, 1] });
+      expect(skewed.warnings).toEqual(["UNSUPPORTED_ATTRIBUTE"]);
+      const uneven = open(group("scale(2,8)") + group("scale(8,2)"));
+      expect(uneven.looks.map((l) => l.strokes[0]?.width)).toEqual([16, 16]);
+      expect(uneven.warnings).toEqual(["UNSUPPORTED_ATTRIBUTE"]);
+    });
+
+    it("drops a paint group its own transform flattens, and does not count it in Contents", () => {
+      const { looks, warnings } = open(
+        `<g><g zibel:paint="true" fill="red" transform="scale(0,1)"/>${PAINT}<rect width="5" height="5"/></g>`,
+      );
+      expect(looks).toEqual([
+        { fills: [], strokes: [expect.objectContaining({ width: 4 })], contents: 1 },
+      ]);
+      expect(warnings).toEqual(["INVALID_TRANSFORM"]);
+    });
+
+    it("puts the children where the rotation drew them, so the copies follow on the next export", () => {
+      const { doc, group, rect } = painted();
+      const turned = toSvg(doc).replace(
+        `id="z-${group.id}"`,
+        `id="z-${group.id}" transform="rotate(90)"`,
+      );
+      const file = parseSvg(turned);
+      expect(file.warnings).toEqual([]);
+      expect(file.nodes.find((n) => n.id === rect.id)).toMatchObject({
+        transform: [0, 1, -1, 0, 0, 0],
+      });
+      const again = toSvg({ ...doc, nodes: new Map(file.nodes.map((n) => [n.id, n])) });
+      expect(again).toContain('<path d="M 0 0 L 0 10 L -10 10 L -10 0 Z"/>');
+      expect(again).not.toContain('<path d="M 0 0 L 10 0 L 10 10 L 0 10 Z"/>');
+    });
+
+    it.each([
+      [[0, 2, -2, 0, 10, 5]],
+      [[-1, 0, 0, 1, 50, 0]],
+      [[0, -1, -1, 0, 0, 0]],
+      [[-1.5, 0, 0, -1.5, 3, 4]],
+    ] as Matrix[][])(
+      "Opens a Group transformed by %j as node_transform with scaleStrokes leaves it",
+      (m) => {
+        const { doc, group } = painted();
+        const turned = toSvg(doc).replace(
+          `id="z-${group.id}"`,
+          `id="z-${group.id}" transform="matrix(${m.join(",")})"`,
+        );
+        const file = parseSvg(turned);
+        expect(file.warnings).toEqual([]);
+        transformNodes(doc, {
+          nodeIds: [group.id],
+          matrix: m,
+          pivot: { x: 0, y: 0 },
+          scaleStrokes: true,
+        });
+        const opened = { ...doc, nodes: new Map(file.nodes.map((n) => [n.id, n])) };
+        expect(JSON.parse(serializeDocument(opened))).toEqual(JSON.parse(serializeDocument(doc)));
+      },
+    );
   });
 
   it("reads a generic <g fill> as inherited by its children, with no container Appearance", () => {

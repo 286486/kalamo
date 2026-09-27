@@ -32,6 +32,7 @@ import {
   round,
   type Segment,
   type Shape,
+  scaleOf,
   shapeSegments,
   textBox,
   transformSegments,
@@ -147,6 +148,15 @@ export function parseTransform(list: string | null): Matrix {
 /** A move and a uniform scale, which Live Shape parameters can absorb (ADR-0017). */
 const bakes = ([a, b, c, d]: Matrix) =>
   Math.abs(b) < 1e-9 && Math.abs(c) < 1e-9 && a > 0 && Math.abs(a - d) < 1e-9;
+
+/** A matrix that flattens to a line or point, which draws nothing. */
+const flat = ([a, b, c, d]: Matrix) => Math.abs(a * d - b * c) < 1e-12;
+
+/** Rotation, uniform scale and reflection: a Stroke of one width draws them exactly (ADR-0043). */
+const similar = ([a, b, c, d]: Matrix) => {
+  const tolerance = 1e-9 * (a * a + b * b + c * c + d * d);
+  return Math.abs(a * c + b * d) < tolerance && Math.abs(a * a + b * b - c * c - d * d) < tolerance;
+};
 
 /** One character of a text and what its tspans give it (ADR-0029). */
 interface Char {
@@ -390,7 +400,7 @@ class Reader {
     if (!own.every(Number.isFinite)) {
       this.warn("INVALID_TRANSFORM", "nan", "An unreadable transform was ignored.");
       own = [...IDENTITY] as Matrix;
-    } else if (Math.abs(own[0] * own[3] - own[1] * own[2]) < 1e-12) {
+    } else if (flat(own)) {
       this.warn("INVALID_TRANSFORM", "flat", "An element scaled to nothing was dropped.");
       return;
     }
@@ -499,9 +509,15 @@ class Reader {
       // Hidden in the editor, it draws nothing.
       if (s.display === "none") return;
       const own = parseTransform(c.getAttribute("transform"));
-      // An unreadable transform is ignored, as walk ignores a leaf's.
-      const m = own.every(Number.isFinite) ? multiply(matrix, own) : matrix;
-      const look = this.appearance(s, c, m);
+      // An unreadable transform is ignored, as walk ignores a leaf's; one that flattens it drops it.
+      const readable = own.every(Number.isFinite);
+      if (readable && flat(own)) {
+        this.warn("INVALID_TRANSFORM", "flat", "An element scaled to nothing was dropped.");
+        return;
+      }
+      const m = readable ? multiply(matrix, own) : matrix;
+      // A container has no matrix, so its Strokes scale as node_transform scales them.
+      const look = this.appearance(s, c, m, scaleOf(m));
       const fill = look.fills[0];
       const stroke = look.strokes[0];
       const paint = fill ?? stroke;
@@ -524,6 +540,13 @@ class Reader {
       }
       if (fill) appearance.fills.push(fill);
       else if (stroke) appearance.strokes.push(stroke);
+      if (!fill && stroke && !similar(m)) {
+        this.warn(
+          "UNSUPPORTED_ATTRIBUTE",
+          "container transform",
+          "A skewed or unevenly scaled Layer or Group draws its Strokes at one width, as Illustrator does, so they differ from the file's drawing.",
+        );
+      }
       if (below < 0 || i < below) appearance.contents++;
     });
     return appearance.fills.length + appearance.strokes.length ? appearance : undefined;
@@ -828,11 +851,12 @@ class Reader {
 
   /**
    * Fills and Strokes from resolved style, SVG's defaults where it says nothing. Widths scale, and
-   * gradients move, with `m` when the leaf bakes it into its parameters.
+   * gradients move, with `m` when the leaf bakes it into its parameters; a given `scale` scales
+   * widths instead, as a container's do.
    */
-  private appearance(style: Style, e: Element, m: Matrix): Appearance {
+  private appearance(style: Style, e: Element, m: Matrix, scale?: number): Appearance {
     const own = this.baked(e, m) ? m : IDENTITY;
-    const k = own[0];
+    const k = scale ?? own[0];
     const fill = this.paint(style.fill ?? "black", style, style["fill-opacity"], e, own);
     const stroke = this.paint(style.stroke ?? "none", style, style["stroke-opacity"], e, own);
     const width = n3((length(style["stroke-width"]) ?? 1) * k);
