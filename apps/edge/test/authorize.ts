@@ -105,7 +105,8 @@ export interface Tokens {
 
 /**
  * A whole MCP authorization for a signed-in `cookie`: DCR, `/authorize`, consent, the code and
- * the PKCE token exchange, on `redirectUri` (by default the registered one). Returns the tokens and the client id.
+ * the PKCE token exchange, on `redirectUri` (by default the registered one). Returns the tokens
+ * and the client id.
  */
 export async function authorizeMcp(
   cookie: string,

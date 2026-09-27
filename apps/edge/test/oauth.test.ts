@@ -24,7 +24,13 @@ const agentRows = async (githubId: number) =>
       "SELECT * FROM actors WHERE kind = 'agent' AND user_id = ? ORDER BY created_at",
     )
       .bind(await userId(githubId))
-      .all<{ id: string; name: string; access: string; revoked_at: string | null }>()
+      .all<{
+        id: string;
+        name: string;
+        access: string;
+        redirect_uri: string;
+        revoked_at: string | null;
+      }>()
   ).results;
 
 describe("discovery", () => {
@@ -317,7 +323,10 @@ describe("Connected Agents", () => {
     });
 
     const rows = await agentRows(214);
-    const [retired, cursorRow, current] = rows;
+    const [retired, current] = [REDIRECT_URI, "http://127.0.0.1:40123/callback"].map((uri) =>
+      rows.find((r) => r.name === "Claude Code (ned)" && r.redirect_uri === uri),
+    );
+    const cursorRow = rows.find((r) => r.name === "Cursor (ned)");
     expect(rows).toHaveLength(3);
     expect(retired).toMatchObject({ name: "Claude Code (ned)", revoked_at: expect.any(String) });
     expect(current).toMatchObject({ name: "Claude Code (ned)", revoked_at: null });

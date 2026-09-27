@@ -159,10 +159,13 @@ async function decide(request: Request, env: Env) {
     `UPDATE actors SET revoked_at = ? WHERE user_id = ? AND kind = 'agent' AND client_id = ?
      AND id != ? AND revoked_at IS NULL`,
   ).bind(now, user.id, authRequest.clientId, actor);
-  await env.DB.batch(authRequest.clientId.startsWith("https://") ? [upsert] : [retire, upsert]);
+  await env.DB.batch(isCimdClient(authRequest.clientId) ? [upsert] : [retire, upsert]);
   approved.headers.set("location", redirectTo);
   return new Response(null, { status: 302, headers: approved.headers });
 }
+
+/** A Client ID Metadata Document client: an `https://` id with a path, the library's own test. */
+const isCimdClient = (clientId: string) => /^https:\/\/[^/?#]*\//i.test(clientId);
 
 /**
  * The Agent Actor id for this User, client id and redirect URI: the unrevoked one they already
@@ -254,7 +257,7 @@ function consentPage(client: ClientInfo, authRequest: AuthRequest, handle: strin
   // A client that asked for scopes but not write starts read-only; the person may still widen it.
   const readOnly = authRequest.scope.length > 0 && !authRequest.scope.includes(WRITE);
   const loopback = /^(localhost|127(\.\d{1,3}){3}|\[::1\])$/.test(host);
-  const origin = client.clientId.startsWith("https://")
+  const origin = isCimdClient(client.clientId)
     ? `Published by <strong>${escapeHtml(new URL(client.clientId).hostname)}</strong>.`
     : "This app registered itself, so its name is not verified.";
   return `<!doctype html>
