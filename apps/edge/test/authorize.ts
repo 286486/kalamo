@@ -1,3 +1,4 @@
+import { mcpOrigin } from "../src/oauth.ts";
 import { APP_ORIGIN, githubEnv, hosted } from "./signin.ts";
 
 export const REDIRECT_URI = "http://127.0.0.1:33418/callback";
@@ -51,7 +52,7 @@ export const authorizeQuery = (
     code_challenge_method: "S256",
     state: "client-state",
     scope: "zibel:read zibel:write offline_access",
-    resource: `${e.MCP_ORIGIN || APP_ORIGIN}/mcp`,
+    resource: `${mcpOrigin(e)}/mcp`,
   }).toString();
 
 /** The consent page for a signed-in `cookie`: its handle and the cookie binding it to the browser. */
@@ -128,7 +129,7 @@ export async function authorizeMcp(
       redirect_uri: REDIRECT_URI,
       client_id: client,
       code_verifier: verifier,
-      resource: `${e.MCP_ORIGIN || APP_ORIGIN}/mcp`,
+      resource: `${mcpOrigin(e)}/mcp`,
     },
     e,
   );

@@ -33,10 +33,10 @@
     }
   ],
   // Image files, one object per file per Document (ADR-0046); wrangler dev and tests emulate it.
+  "r2_buckets": [{ "binding": "IMAGES", "bucket_name": "zibel-images" }],
   // MCP OAuth grants and tokens, hashed and encrypted by workers-oauth-provider (ADR-0047).
   // `wrangler kv namespace create OAUTH_KV --binding OAUTH_KV --update-config` replaces this id.
   "kv_namespaces": [{ "binding": "OAUTH_KV", "id": "0e8bd0c1a4c34b5c9a0cbf3a7c2e3d41" }],
-  "r2_buckets": [{ "binding": "IMAGES", "bucket_name": "zibel-images" }],
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["DocumentObject"] }],
   // Deployed Workers sign browsers in with GitHub (ADR-0047). `.dev.vars` sets `dev` locally; the
   // GitHub secrets, APP_ORIGIN and MCP_ORIGIN are Worker secrets.

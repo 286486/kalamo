@@ -129,7 +129,15 @@ describe("authorization", () => {
     expect(html).toContain("&#60;img src=x onerror=&#34;alert(1)&#34;&#62;");
     expect(html).not.toContain("<img src=x");
     expect(html).toContain("<strong>127.0.0.1</strong>");
-    expect(html).toContain('name="readonly"');
+    expect(html).toContain('<input type="checkbox" name="readonly">');
+  });
+
+  it("starts read-only for a client that asked only to read", async () => {
+    const { cookie } = await signIn({ id: 213, login: "max" });
+    const query = new URLSearchParams(authorizeQuery(await register(), (await pkce()).challenge));
+    query.set("scope", "zibel:read");
+    const { html } = await openConsent(cookie, query.toString());
+    expect(html).toContain('<input type="checkbox" name="readonly" checked>');
   });
 
   it("records a read-only choice as read access and scope", async () => {

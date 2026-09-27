@@ -19,17 +19,17 @@ const READ = "zibel:read";
 const WRITE = "zibel:write";
 const OFFLINE = "offline_access";
 
-/** What a grant's encrypted props carry, and so what every token of it acts as. */
-type Props = Principal;
-
 type Handler = Required<Pick<ExportedHandler<Env>, "fetch">>;
 
+/** The origin of `/mcp`, the OAuth resource: MCP_ORIGIN, or APP_ORIGIN when they are one. */
+export const mcpOrigin = (env: Env) => env.MCP_ORIGIN || env.APP_ORIGIN;
+
+// One entry per deploy; tests build a second to check audience binding across origins.
 const providers = new Map<string, OAuthProvider<Env>>();
 
 /** The provider for this deploy's two origins, built once per isolate. */
 export function oauthProvider(env: Env, app: Handler, api: Handler): OAuthProvider<Env> {
-  const mcpOrigin = env.MCP_ORIGIN || env.APP_ORIGIN;
-  const key = `${env.APP_ORIGIN} ${mcpOrigin}`;
+  const key = `${env.APP_ORIGIN} ${mcpOrigin(env)}`;
   let provider = providers.get(key);
   if (!provider) {
     provider = new OAuthProvider<Env>({
@@ -44,7 +44,7 @@ export function oauthProvider(env: Env, app: Handler, api: Handler): OAuthProvid
       accessTokenTTL: 3600,
       refreshTokenTTL: 30 * 86_400,
       resourceMetadata: {
-        resource: `${mcpOrigin}/mcp`,
+        resource: `${mcpOrigin(env)}/mcp`,
         authorization_servers: [env.APP_ORIGIN],
         scopes_supported: [READ, WRITE],
         resource_name: "Zibel",
@@ -60,7 +60,7 @@ export function oauthProvider(env: Env, app: Handler, api: Handler): OAuthProvid
  * D1 check makes revocation immediate where KV, which holds the grant, may lag.
  */
 export async function agentPrincipal(env: Env, ctx: ExecutionContext): Promise<Principal | null> {
-  const { props, auth } = ctx as OAuthResourceContext<Props>;
+  const { props, auth } = ctx as OAuthResourceContext<Principal>;
   const live = await env.DB.prepare("SELECT 1 FROM actors WHERE id = ? AND revoked_at IS NULL")
     .bind(props.actor)
     .first();
@@ -72,7 +72,7 @@ export async function agentPrincipal(env: Env, ctx: ExecutionContext): Promise<P
 
 /** The 401 challenge for a revoked Agent's token, pointing at the metadata to authorize again. */
 export const revokedChallenge = (env: Env) =>
-  `Bearer error="invalid_token", resource_metadata="${env.MCP_ORIGIN || env.APP_ORIGIN}/.well-known/oauth-protected-resource/mcp"`;
+  `Bearer error="invalid_token", resource_metadata="${mcpOrigin(env)}/.well-known/oauth-protected-resource/mcp"`;
 
 /** `/authorize` and `/api/agents`, or null for any other path. GitHub mode only. */
 export function oauthRoute(request: Request, env: Env): Promise<Response> | null {
@@ -81,8 +81,8 @@ export function oauthRoute(request: Request, env: Env): Promise<Response> | null
   if (route === "GET /authorize") return guard(() => consent(request, env));
   if (route === "POST /authorize") return guard(() => decide(request, env));
   if (route === "GET /api/agents") return agents(request, env);
-  const revoke = pathname.match(/^\/api\/agents\/([^/]+)$/)?.[1];
-  if (revoke && request.method === "DELETE") return revokeAgent(request, env, revoke);
+  const actorId = pathname.match(/^\/api\/agents\/([^/]+)$/)?.[1];
+  if (actorId && request.method === "DELETE") return revokeAgent(request, env, actorId);
   return null;
 }
 
@@ -103,7 +103,7 @@ async function consent(request: Request, env: Env) {
     });
   }
   const client = await oauth.lookupClient(authRequest.clientId);
-  if (!client) return local("This app is not registered with Zibel. Connect it again.");
+  if (!client) return errorPage("This app is not registered with Zibel. Connect it again.");
   const { handle, headers } = await oauth.beginConsent(authRequest);
   headers.set("content-type", "text/html; charset=utf-8");
   return new Response(consentPage(client, authRequest, handle, user), { headers });
@@ -121,66 +121,54 @@ async function decide(request: Request, env: Env) {
     return new Response(null, { status: 302, headers: denied.headers });
   }
   const readOnly = form.has("readonly");
-  // The consent page, not the client, picks the scopes: read, and write unless read-only. Every
-  // grant gets a refresh token, so `offline_access` is granted whether or not it was asked for.
+  // The consent page picks the scopes: read, and write unless read-only. Every grant gets a
+  // refresh token, so `offline_access` is granted whether or not it was asked for.
   const approved = await oauth.approveConsent(request, handle, {
     scope: [READ, ...(readOnly ? [] : [WRITE]), OFFLINE],
   });
   const authRequest = approved.request;
-  const client = await oauth.lookupClient(authRequest.clientId);
   const access = readOnly ? "read" : "write";
-  const actor = await agentActor(env, user, client, authRequest, access);
+  const actor = await agentActorId(env, user, authRequest);
   const { redirectTo } = await oauth.completeAuthorization({
     request: authRequest,
     userId: user.id,
     metadata: { actor },
     scope: authRequest.scope,
-    props: { userId: user.id, actor, access } satisfies Props,
+    props: { userId: user.id, actor, access } satisfies Principal,
   });
+  // Written once the grant exists, so a failed authorization leaves no Agent listed.
+  const client = await oauth.lookupClient(authRequest.clientId);
+  await env.DB.prepare(
+    `INSERT INTO actors (id, user_id, kind, client_id, redirect_uri, name, access, created_at)
+     VALUES (?, ?, 'agent', ?, ?, ?, ?, ?)
+     ON CONFLICT (id) DO UPDATE SET name = excluded.name, access = excluded.access`,
+  )
+    .bind(
+      actor,
+      user.id,
+      authRequest.clientId,
+      authRequest.redirectUri,
+      `${client?.clientName || authRequest.clientId} (${user.login})`,
+      access,
+      new Date().toISOString(),
+    )
+    .run();
   approved.headers.set("location", redirectTo);
   return new Response(null, { status: 302, headers: approved.headers });
 }
 
 /**
- * The Agent Actor for this User, client id and redirect URI: the existing unrevoked one, with its
- * access and name brought up to date, or a new one named "<client name> (<login>)".
+ * The Agent Actor id for this User, client id and redirect URI: the unrevoked one they already
+ * have, so re-authorizing keeps it, or a new `agent_<id>`.
  */
-async function agentActor(
-  env: Env,
-  user: User,
-  client: ClientInfo | null,
-  authRequest: AuthRequest,
-  access: Principal["access"],
-) {
-  const name = `${client?.clientName || authRequest.clientId} (${user.login})`;
+async function agentActorId(env: Env, user: User, authRequest: AuthRequest) {
   const existing = await env.DB.prepare(
     `SELECT id FROM actors WHERE user_id = ? AND kind = 'agent' AND client_id = ?
      AND redirect_uri = ? AND revoked_at IS NULL`,
   )
     .bind(user.id, authRequest.clientId, authRequest.redirectUri)
     .first<string>("id");
-  if (existing) {
-    await env.DB.prepare("UPDATE actors SET name = ?, access = ? WHERE id = ?")
-      .bind(name, access, existing)
-      .run();
-    return existing;
-  }
-  const id = `agent_${newId()}`;
-  await env.DB.prepare(
-    `INSERT INTO actors (id, user_id, kind, client_id, redirect_uri, name, access, created_at)
-     VALUES (?, ?, 'agent', ?, ?, ?, ?, ?)`,
-  )
-    .bind(
-      id,
-      user.id,
-      authRequest.clientId,
-      authRequest.redirectUri,
-      name,
-      access,
-      new Date().toISOString(),
-    )
-    .run();
-  return id;
+  return existing ?? `agent_${newId()}`;
 }
 
 /** `GET /api/agents`: the signed-in User's connected Agents, newest first. */
@@ -238,13 +226,13 @@ async function guard(step: () => Promise<Response>) {
       if (error.issuer) redirect.searchParams.set("iss", error.issuer);
       return Response.redirect(redirect.href, 302);
     }
-    if (error instanceof AuthorizationError) return local(error.description);
-    if (error instanceof CimdFetchError) return local("This app could not be verified.");
+    if (error instanceof AuthorizationError) return errorPage(error.description);
+    if (error instanceof CimdFetchError) return errorPage("This app could not be verified.");
     throw error;
   }
 }
 
-const local = (message: string) =>
+const errorPage = (message: string) =>
   new Response(message, { status: 400, headers: { "content-type": "text/plain; charset=utf-8" } });
 
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -256,6 +244,8 @@ const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (c) => `&#${c.ch
 function consentPage(client: ClientInfo, authRequest: AuthRequest, handle: string, user: User) {
   const name = escapeHtml(client.clientName || client.clientId);
   const host = new URL(authRequest.redirectUri).hostname;
+  // A client that asked for scopes but not write starts read-only; the person may still widen it.
+  const readOnly = authRequest.scope.length > 0 && !authRequest.scope.includes(WRITE);
   const loopback = /^(localhost|127(\.\d{1,3}){3}|\[::1\])$/.test(host);
   const origin = client.clientId.startsWith("https://")
     ? `Published by <strong>${escapeHtml(new URL(client.clientId).hostname)}</strong>.`
@@ -273,10 +263,10 @@ function consentPage(client: ClientInfo, authRequest: AuthRequest, handle: strin
 <h1>Connect ${name} to Zibel?</h1>
 <p>${origin} Its access goes to <strong>${escapeHtml(host)}</strong>.</p>
 ${loopback ? '<p class="warn">This sends access to an app on your computer. Continue only if you just started connecting from it.</p>' : ""}
-<p>It becomes an Agent of <strong>${escapeHtml(user.login)}</strong>, named after the app, and can read and edit your Documents. You can revoke it at any time.</p>
+<p>It becomes an Agent of <strong>${escapeHtml(user.login)}</strong>, named after the app, that can read your Documents and, unless you choose read only, edit them. You can revoke it at any time.</p>
 <form method="post" action="/authorize">
   <input type="hidden" name="handle" value="${escapeHtml(handle)}">
-  <p><label><input type="checkbox" name="readonly"> Read only: it can view but not edit</label></p>
+  <p><label><input type="checkbox" name="readonly"${readOnly ? " checked" : ""}> Read only: it can view but not edit</label></p>
   <p><button name="decision" value="approve">Approve</button><button name="decision" value="deny">Deny</button></p>
 </form>
 </html>`;

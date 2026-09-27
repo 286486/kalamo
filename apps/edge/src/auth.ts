@@ -250,8 +250,7 @@ const cookie = (name: string, value: string, maxAge: number) =>
 const readCookie = (request: Request, name: string) =>
   request.headers.get("cookie")?.match(new RegExp(`(?:^|;\\s*)${name}=([^;]*)`))?.[1] || null;
 
-export const hex = (bytes: Uint8Array) =>
-  [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+const hex = (bytes: Uint8Array) => [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
 
 const sha256 = async (text: string) =>
   hex(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))));
