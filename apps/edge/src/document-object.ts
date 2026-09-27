@@ -260,7 +260,7 @@ export class DocumentObject extends DurableObject<Env> {
   }
 
   /**
-   * A transform, delete, update or Clipping Mask command from a browser. The browser only names
+   * A create, transform, delete, update, Clipping Mask or path command from a browser. The browser only names
    * Nodes it was sent, so a missing one was deleted: delete beats edit (ADR-0010).
    */
   private edit(
@@ -268,17 +268,19 @@ export class DocumentObject extends DurableObject<Env> {
     commandId: string,
   ): Result<WriteReceipt> {
     const nodeIds =
-      command.type === "transform"
-        ? command.input.nodeIds
-        : command.type === "update"
-          ? [command.nodeId]
-          : command.type === "mask_make"
-            ? [command.input.clipNodeId, ...command.input.contentIds]
-            : command.type === "path_edit"
-              ? [command.input.nodeId]
-              : command.type === "path_op"
-                ? command.input.nodeIds
-                : command.nodeIds;
+      command.type === "create"
+        ? command.nodes.flatMap((n) => n.parentId ?? [])
+        : command.type === "transform"
+          ? command.input.nodeIds
+          : command.type === "update"
+            ? [command.nodeId]
+            : command.type === "mask_make"
+              ? [command.input.clipNodeId, ...command.input.contentIds]
+              : command.type === "path_edit"
+                ? [command.input.nodeId]
+                : command.type === "path_op"
+                  ? command.input.nodeIds
+                  : command.nodeIds;
     // The socket was accepted for an existing Document, so load() cannot throw DOC_NOT_FOUND.
     const { nodes } = this.load();
     const gone = nodeIds.filter((n) => !nodes.has(n));
@@ -292,6 +294,14 @@ export class DocumentObject extends DurableObject<Env> {
           nodeIds: gone,
         },
       };
+    }
+    if (command.type === "create") {
+      // No image data URLs to store first, unlike this.createNodes: a browser places images by HTTP.
+      return this.write(USER, { commandId }, "Create", (doc) => {
+        const { nodes, keyMap, failed } = createNodes(doc, command.nodes);
+        const warnings = [...fontWarnings(nodes), ...overflowWarnings(nodes)];
+        return { created: nodes, keyMap, warnings, failed };
+      });
     }
     if (command.type === "transform")
       return this.transformNodes(command.input, USER, { commandId });

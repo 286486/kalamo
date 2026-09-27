@@ -255,6 +255,35 @@ it("makes a Clipping Mask from a mask_make command and releases it with mask_rel
   expect(released?.type === "tx" && released.updated[0]).not.toHaveProperty("clipping");
 });
 
+it("commits a create command as the User Actor, which doc_changes shows", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const { ws, received } = await subscribe(docId);
+  const [doc] = await received(1);
+  const path = { type: "path", parentId: defaultLayerId, d: "M 0 0 L 10 0 L 5 5 Z" };
+  ws.send(command("n1", { type: "create", nodes: [path] }));
+  const [, created] = await received(2);
+  expect(created).toMatchObject({ type: "tx", actor: "user", commandId: "n1" });
+  const id = created?.type === "tx" && created.created[0]?.id;
+  expect(created?.type === "tx" && created.created[0]).toMatchObject(path);
+  const { changes } = (
+    await call("zibel_doc_changes", { docId, sinceRev: doc?.type === "document" ? doc.rev : 0 })
+  ).structuredContent;
+  expect(changes).toMatchObject([{ actor: "user", createdIds: [id] }]);
+});
+
+it("rejects a create into a Layer deleted meanwhile with NODE_GONE", async () => {
+  const { docId } = await newDoc();
+  const [layer] = (await call("zibel_node_create", { docId, nodes: [{ type: "layer" }] }))
+    .structuredContent.createdIds;
+  const { ws, received } = await subscribe(docId);
+  await received(1);
+  await call("zibel_node_delete", { docId, nodeIds: [layer] });
+  await received(2);
+  ws.send(command("n1", { type: "create", nodes: [rect(layer)] }));
+  const [, , rejected] = await received(3);
+  expect(rejected).toMatchObject({ type: "rejected", id: "n1", error: { code: "NODE_GONE" } });
+});
+
 it("commits a path_edit command as the User Actor", async () => {
   const { docId, defaultLayerId } = await newDoc();
   const [id] = (

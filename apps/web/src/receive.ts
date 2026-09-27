@@ -9,12 +9,23 @@ export interface Drag {
   commandId: string | null;
 }
 
+/**
+ * The path the Pen is drawing, in document coordinates (ADR-0032). It stays in the browser until
+ * finished; `commandId` is set once its `create` has been sent, and it is drawn until the answer.
+ */
+export interface PenPath {
+  points: [number, number][];
+  closed: boolean;
+  commandId: string | null;
+}
+
 export interface ViewState {
   doc: Document | null;
   /** UI state only, never sent as a Document property (CONTEXT.md). */
   selection: string[];
   /** Drawn until the answer to its command arrives, so a committed move does not flicker. */
   drag: Drag | null;
+  pen: PenPath | null;
   /** Why the last command was rejected. */
   notice: string | null;
 }
@@ -32,6 +43,7 @@ export function receive(
     const gone = msg.error.code === "NODE_GONE";
     return {
       ...(s.drag?.commandId === msg.id && { drag: null }),
+      ...(s.pen?.commandId === msg.id && { pen: null }),
       notice: gone
         ? "Someone else deleted that object first; it stays deleted."
         : msg.error.message,
@@ -58,6 +70,7 @@ export function receive(
   // A reconnect loses the answer to a command in flight, so its preview goes with it.
   const answered =
     msg.type === "document" || (!!msg.commandId && msg.commandId === s.drag?.commandId);
+  const drawn = msg.type === "tx" && !!msg.commandId && msg.commandId === s.pen?.commandId;
   const skipped = msg.type === "tx" ? (msg.skippedIds?.length ?? 0) : 0;
   // A selected Node that a browser's command moved into a new Group selects that Group, as Make
   // Clipping Mask does; an Agent's edit leaves the person's Selection alone.
@@ -69,8 +82,10 @@ export function receive(
   });
   return {
     doc,
-    selection: [...new Set(selection)],
+    // The path the Pen drew becomes the Selection, as in Illustrator.
+    selection: drawn ? [...made] : [...new Set(selection)],
     ...(answered && { drag: null }),
+    ...((drawn || (msg.type === "document" && s.pen?.commandId)) && { pen: null }),
     ...(skipped > 0 && { notice: `Skipped ${skipped} deleted object(s); they stay deleted.` }),
   };
 }

@@ -4,6 +4,7 @@ import { PLACEABLE, pasteClipboard, place } from "./place.ts";
 import { editable, expandable, inverse, maskInput, objects, releasable } from "./selection.ts";
 import { type State, send, useStore } from "./store.ts";
 import { OPENABLE } from "./tabs.ts";
+import { undoAnchor } from "./tools.ts";
 import { artboardsRect, fit, zoomAt, zoomStep } from "./viewport.ts";
 
 /**
@@ -137,7 +138,15 @@ export function documentMenus(tabs: { open: (file: File) => void; close: () => v
       label: "Edit",
       items: [
         // Undo and Redo stay enabled: an empty stack answers with a rejection notice (ADR-0011).
-        { label: "Undo", keys: "Ctrl+Z", enabled: hasDoc, run: () => send({ type: "undo" }) },
+        {
+          label: "Undo",
+          keys: "Ctrl+Z",
+          enabled: hasDoc,
+          // While the Pen draws, Undo takes back its last Anchor and sends nothing (ADR-0032).
+          run: () => {
+            if (!undoAnchor()) send({ type: "undo" });
+          },
+        },
         { label: "Redo", keys: "Shift+Ctrl+Z", enabled: hasDoc, run: () => send({ type: "redo" }) },
         "-",
         // A click is a user gesture, so execCommand fires the copy or cut event a key press would.
