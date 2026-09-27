@@ -247,6 +247,10 @@ _Avoid_: Result、Response、Ack
 做出修改的身份：一个人类 User，或一个 Agent 凭证。每个 Transaction 记录其 Actor；同一个人授权的两个 MCP 客户端是两个不同的 Actor。
 _Avoid_: Session、Client、Connection、User（Actor 可能是 Agent）
 
+**User（用户）**：
+一个用 GitHub 登录 Zibel 的人，按 GitHub 数字 id 识别，login 每次登录时刷新。每个 User 有一个自己的 User Actor（`user_<userId>`），他在浏览器里的所有标签页都以它编辑。dev 模式只有一个本地 User `local`，其 Actor 是 `user`（ADR-0047）。
+_Avoid_: Account、Member（保留给文档成员）、Session（那是一次登录）
+
 **Agent**：
 通过 MCP 调用 Zibel 的 AI 客户端，以自己的凭证作为一个 Actor。与人类用户拥有同等的编辑能力，只是入口不同。
 _Avoid_: Bot、AI、Model、Assistant

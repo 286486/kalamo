@@ -1,5 +1,6 @@
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { Account, SignIn, useMe } from "./Account.tsx";
 import { List } from "./List.tsx";
 import { MenuBar } from "./MenuBar.tsx";
 import { documentMenus } from "./menu.ts";
@@ -20,16 +21,32 @@ function DocumentPage({ docId }: { docId: string }) {
   );
 }
 
-/** The Document list at `/`; the active Document Tab at `/docs/<id>`, switched in place by `go`. */
+/**
+ * The Document list at `/`; the active Document Tab at `/docs/<id>`, switched in place by `go`.
+ * Signed out in GitHub mode, the list offers sign-in and every other page goes there and back.
+ */
 function App() {
+  const me = useMe();
   const [path, setPath] = useState(location.pathname);
   useEffect(() => {
     const follow = () => setPath(location.pathname);
     addEventListener("popstate", follow);
     return () => removeEventListener("popstate", follow);
   }, []);
+  const away = me === "signed-out" && path !== "/";
+  useEffect(() => {
+    if (away)
+      location.replace(`/?return=${encodeURIComponent(location.pathname + location.search)}`);
+  }, [away]);
+  if (me === null || away) return null;
+  if (me === "signed-out") return <SignIn />;
   const docId = path.match(/^\/docs\/([^/]+)$/)?.[1];
-  return docId ? <DocumentPage docId={docId} /> : <List />;
+  return (
+    <>
+      {docId ? <DocumentPage docId={docId} /> : <List />}
+      {me !== "unknown" && <Account me={me} />}
+    </>
+  );
 }
 
 createRoot(document.getElementById("root") as HTMLElement).render(
