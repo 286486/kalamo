@@ -63,6 +63,8 @@ async function measureMoves(page: Page, cx: number, cy: number) {
     () => (window as unknown as { repainted: number }).repainted,
   );
   expect(repainted).toBe(0);
+  // A move that drew nothing would read as fast.
+  expect(Math.min(...times)).toBeGreaterThan(0);
   return times;
 }
 
