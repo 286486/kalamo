@@ -31,6 +31,7 @@ type Stroke = LeafNode["appearance"]["strokes"][number];
  */
 export interface Canvas2D {
   globalAlpha: number;
+  globalCompositeOperation: string;
   fillStyle: unknown;
   strokeStyle: unknown;
   lineWidth: number;
@@ -154,6 +155,10 @@ function draw(
   // under a Stroke) show through each other where SVG composites the group first; draw
   // translucent containers to an offscreen layer when that difference matters.
   ctx.globalAlpha *= n.opacity;
+  // Canvas2D takes the CSS blend-mode names `toSvg` writes as mix-blend-mode. A normal Node keeps
+  // the mode it draws in, so a blended container's children blend too; like opacity, each paint
+  // blends on its own where SVG blends the composited container.
+  if (n.blendMode !== "normal") ctx.globalCompositeOperation = n.blendMode;
   ctx.transform(...n.transform);
   if (n.type === "layer" || n.type === "group") {
     // A Clipping Mask's children draw only inside its Clipping Path, which never paints (ADR-0021).

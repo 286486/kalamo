@@ -15,7 +15,7 @@ import { type Canvas2D, drawDocument, imagePlacement } from "./canvas.ts";
 function recorder() {
   const log: string[] = [];
   const stack: Record<string, unknown>[] = [];
-  let state: Record<string, unknown> = { globalAlpha: 1 };
+  let state: Record<string, unknown> = { globalAlpha: 1, globalCompositeOperation: "source-over" };
   const ctx = new Proxy(
     {},
     {
@@ -134,6 +134,29 @@ it("skips hidden Nodes, and applies opacity and transform through save and resto
   expect(alphas).toEqual(["globalAlpha=1", "globalAlpha=0.5", "globalAlpha=1"]);
   expect(log).toContain("transform 0 1 -1 0 60 -10");
   expect(after.visible).toBe(true);
+});
+
+it("paints a Node in its blend mode, as render does, and restores the one below it", () => {
+  const { doc, defaultLayerId: parentId } = newDoc();
+  const [multiplied, screened] = createNodes(doc, [
+    { type: "rect", parentId, x: 0, y: 0, width: 1, height: 1 },
+    { type: "group", parentId, children: [{ type: "rect", x: 0, y: 0, width: 1, height: 1 }] },
+    { type: "rect", parentId, x: 0, y: 0, width: 1, height: 1 },
+  ]).nodes as [Node, Node];
+  multiplied.blendMode = "multiply";
+  screened.blendMode = "screen";
+  const { ctx, log } = recorder();
+  drawDocument(ctx, doc);
+  const ops = log.filter((l) => /^(globalCompositeOperation|beginPath)/.test(l));
+  // The screened Group's child inherits screen; the last rect draws back in source-over.
+  expect(ops).toEqual([
+    "globalCompositeOperation=multiply",
+    "beginPath",
+    "globalCompositeOperation=screen",
+    "beginPath",
+    "beginPath",
+  ]);
+  expect(ctx.globalCompositeOperation).toBe("source-over");
 });
 
 it("draws Point Type with fillText per Fill and strokeText per Stroke, unkerned", () => {
