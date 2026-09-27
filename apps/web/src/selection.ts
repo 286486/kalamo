@@ -2,6 +2,7 @@ import {
   bounds,
   childrenOf,
   clippingPath,
+  containerAppearance,
   type Document,
   formatPath,
   frameShape,
@@ -11,6 +12,7 @@ import {
   lockedIn,
   type MaskInput,
   type Node,
+  paintedLeaves,
   type Rect,
   type ShapeNode,
   scaleOf,
@@ -90,7 +92,30 @@ export function hitTest(
       if (n.type === "layer" || n.type === "group") {
         // Outside its Clipping Path, a Clipping Mask draws nothing to hit (ADR-0021).
         const clip = clippingPath(doc, n);
-        if (!clip || ctx.isPointInPath(outline(doc, clip), x, y, ruleOf(clip))) walk(n.id);
+        if (clip && !ctx.isPointInPath(outline(doc, clip), x, y, ruleOf(clip))) continue;
+        // Its Appearance hits as the leaf it paints, in draw order around the children
+        // (ADR-0043); a leaf locked below it lets the click through.
+        const { fills, strokes, contents } = containerAppearance(n);
+        const leaves =
+          fills.length + strokes.length > 0
+            ? paintedLeaves(doc, n)
+                .filter((l) => !lockedIn(doc, l.node))
+                .map((l) => ({ ...l, path: new Path2D(formatPath(l.segments)) }))
+            : [];
+        type Leaf = (typeof leaves)[number];
+        const paints = [
+          ...fills.map(() => (l: Leaf) => ctx.isPointInPath(l.path, x, y, l.fillRule)),
+          ...strokes.map((s) => (l: Leaf) => {
+            ctx.lineWidth = Math.max(s.width, tolerance);
+            return ctx.isPointInStroke(l.path, x, y);
+          }),
+        ];
+        const paintsAt = (some: typeof paints) => {
+          for (const p of some) for (const l of leaves) if (p(l)) hit = l.node;
+        };
+        paintsAt(paints.slice(0, contents));
+        walk(n.id);
+        paintsAt(paints.slice(contents));
       } else if (!("clipping" in n && n.clipping) && paintedAt(ctx, doc, n, x, y, tolerance)) {
         hit = n;
       }

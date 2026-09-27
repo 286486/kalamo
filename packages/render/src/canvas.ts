@@ -4,6 +4,7 @@ import {
   bundledStyle,
   childrenOf,
   clippingPath,
+  containerAppearance,
   crossedFrame,
   type Document,
   ellipseMatrix,
@@ -16,6 +17,7 @@ import {
   type Matrix,
   MISSING_LINK_STROKE,
   type Node,
+  paintedLeaves,
   type Rect,
   type Segment,
   shapeSegments,
@@ -208,7 +210,30 @@ function paint(ctx: Canvas2D, n: Node, scene: Scene) {
       trace(ctx, transformSegments(shapeSegments(clip), clip.transform));
       ctx.clip(clip.type === "path" && clip.fillRule === "evenodd" ? "evenodd" : "nonzero");
     }
+    // Its Appearance paints every leaf's outline, in document coordinates since a container
+    // carries identity (ADR-0007), one paint over all of them before the next, the first
+    // `contents` below the children (ADR-0043).
+    const { fills, strokes, contents } = containerAppearance(n);
+    const leaves = fills.length + strokes.length > 0 ? paintedLeaves(doc, n) : [];
+    const paints = [
+      ...fills.map((f) => () => {
+        ctx.fillStyle = styleOf(ctx, f, false).style;
+        for (const l of leaves) {
+          trace(ctx, l.segments);
+          ctx.fill(l.fillRule);
+        }
+      }),
+      ...strokes.map((s) => () => {
+        pen(ctx, s);
+        for (const l of leaves) {
+          trace(ctx, l.segments);
+          ctx.stroke();
+        }
+      }),
+    ];
+    for (const p of paints.slice(0, contents)) p();
     for (const c of childrenOf(doc, n.id)) if (c !== clip) draw(ctx, c, scene);
+    for (const p of paints.slice(contents)) p();
   } else if (n.type === "image") {
     const file = n.src === undefined ? undefined : images?.(n.src);
     if (n.src === undefined) {
@@ -263,16 +288,21 @@ function paint(ctx: Canvas2D, n: Node, scene: Scene) {
     for (const s of n.appearance.strokes) {
       // ponytail: the ellipse would also scale the pen, so a Stroke draws an elliptical radial
       // gradient as its circle; SVG draws it exactly. Stroke to an offscreen layer when it matters.
-      ctx.strokeStyle = styleOf(ctx, s, false).style;
-      ctx.lineWidth = s.width;
-      ctx.lineCap = s.cap;
-      ctx.lineJoin = s.join;
-      ctx.miterLimit = s.miterLimit;
-      ctx.setLineDash(s.dash);
+      pen(ctx, s);
       if (n.type === "text") text(ctx, n, (t, x, y) => ctx.strokeText(t, x, y));
       else ctx.stroke();
     }
   }
+}
+
+/** Sets `ctx` to draw the Stroke `s`. */
+function pen(ctx: Canvas2D, s: Stroke) {
+  ctx.strokeStyle = styleOf(ctx, s, false).style;
+  ctx.lineWidth = s.width;
+  ctx.lineCap = s.cap;
+  ctx.lineJoin = s.join;
+  ctx.miterLimit = s.miterLimit;
+  ctx.setLineDash(s.dash);
 }
 
 /**
