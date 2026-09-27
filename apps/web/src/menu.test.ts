@@ -38,7 +38,7 @@ const leaves = (items: Item[]): Exclude<Item, Menu | "-">[] =>
   items.flatMap((i) => (i === "-" ? [] : "items" in i ? leaves(i.items) : [i]));
 
 it("lists Illustrator's menus in its order", () => {
-  expect(menus.map((m) => m.label)).toEqual(["File", "Edit", "Select", "View", "Window"]);
+  expect(menus.map((m) => m.label)).toEqual(["File", "Edit", "Object", "Select", "View", "Window"]);
 });
 
 it("binds each shortcut once, and none the browser keeps for itself", () => {
@@ -50,5 +50,7 @@ it("binds each shortcut once, and none the browser keeps for itself", () => {
 it("finds the Menu Item a shortcut runs", () => {
   expect(findByKeys(menus, "Ctrl+A")?.label).toBe("All");
   expect(findByKeys(menus, "Shift+Ctrl+A")?.label).toBe("Deselect");
+  expect(findByKeys(menus, "Ctrl+7")?.label).toBe("Make");
+  expect(findByKeys(menus, "Alt+Ctrl+7")?.label).toBe("Release");
   expect(findByKeys(menus, "Ctrl+Q")).toBeUndefined();
 });

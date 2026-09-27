@@ -255,8 +255,8 @@ export class DocumentObject extends DurableObject<Env> {
   }
 
   /**
-   * A transform, delete or update from a browser. The browser only names Nodes it was sent, so a missing one
-   * was deleted: delete beats edit (ADR-0010).
+   * A transform, delete, update or Clipping Mask command from a browser. The browser only names
+   * Nodes it was sent, so a missing one was deleted: delete beats edit (ADR-0010).
    */
   private edit(
     command: Exclude<Command, { type: "undo" | "redo" }>,
@@ -267,7 +267,9 @@ export class DocumentObject extends DurableObject<Env> {
         ? command.input.nodeIds
         : command.type === "update"
           ? [command.nodeId]
-          : command.nodeIds;
+          : command.type === "mask_make"
+            ? [command.input.clipNodeId, ...command.input.contentIds]
+            : command.nodeIds;
     // The socket was accepted for an existing Document, so load() cannot throw DOC_NOT_FOUND.
     const { nodes } = this.load();
     const gone = nodeIds.filter((n) => !nodes.has(n));
@@ -288,6 +290,10 @@ export class DocumentObject extends DurableObject<Env> {
       return this.updateNodes([{ nodeId: command.nodeId, patch: command.patch }], USER, {
         commandId,
       });
+    }
+    if (command.type === "mask_make") return this.makeMask(command.input, USER, { commandId });
+    if (command.type === "mask_release") {
+      return this.releaseMask(command.nodeIds, USER, { commandId });
     }
     return this.deleteNodes(command.nodeIds, USER, { commandId });
   }

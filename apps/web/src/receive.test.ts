@@ -83,3 +83,15 @@ it("tells the person when an undo skipped Nodes deleted meanwhile", () => {
   });
   expect(receive(state, tx(doc, {}), "d")).not.toHaveProperty("notice");
 });
+
+it("selects the Group a selected Node was just moved into, as Make Clipping Mask leaves it", () => {
+  const { doc, a, b } = fixture();
+  const state = { doc, selection: [a.id, b.id], drag: null, notice: null };
+  const group = { ...a, id: "g", type: "group" } as unknown as Node;
+  const moved = [a, b].map((n) => ({ ...n, parentId: "g" }));
+  const made = { created: [group], updated: moved };
+  expect(receive(state, tx(doc, { ...made, commandId: "m1" }), "d")).toMatchObject({
+    selection: ["g"],
+  });
+  expect(receive(state, tx(doc, made), "d")).toMatchObject({ selection: [a.id, b.id] });
+});

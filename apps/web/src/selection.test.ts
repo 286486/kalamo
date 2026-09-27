@@ -6,9 +6,11 @@ import {
   hitTest,
   inverse,
   marquee,
+  maskInput,
   objectOf,
   objects,
   placeParent,
+  releasable,
 } from "./selection.ts";
 
 /**
@@ -214,6 +216,32 @@ describe("hitTest", () => {
     expect(hitTest(ctx, doc, 30, 30, 1)).toBeNull();
     expect(hitTest(ctx, doc, 65, 5, 1)).toBeNull();
   });
+});
+
+describe("maskInput", () => {
+  it("clips with the topmost selected Node, as Illustrator picks it, whatever order it was selected in", () => {
+    const { doc, id } = fixture();
+    expect(maskInput(doc, [id("c"), id("g")])).toEqual({
+      clipNodeId: id("c"),
+      contentIds: [id("g")],
+    });
+    // In Layer 3, above Layer 1's own children.
+    expect(maskInput(doc, [id("e"), id("c")])?.clipNodeId).toBe(id("e"));
+  });
+
+  it("is null without two editable Nodes selected", () => {
+    const { doc, id } = fixture();
+    expect(maskInput(doc, [id("c")])).toBeNull();
+    expect(maskInput(doc, [id("c"), id("m")])).toBeNull();
+  });
+});
+
+it("releasable lists the selected Clipping Masks and Clipping Paths only", () => {
+  const { doc, id } = fixture();
+  const { group } = makeMask(doc, { clipNodeId: id("c"), contentIds: [id("g")] });
+  expect(releasable(doc, [group.id, id("e")])).toEqual([group.id]);
+  expect(releasable(doc, [id("c")])).toEqual([id("c")]);
+  expect(releasable(doc, [id("e"), id("a")])).toEqual([]);
 });
 
 describe("placeParent", () => {

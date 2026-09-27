@@ -70,13 +70,17 @@ test("menu commands run from the menu bar, by their shortcuts, and with the keyb
   await page.keyboard.press("ArrowRight");
   await expect(item("Edit")).toBeFocused();
   await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
   await page.keyboard.press("ArrowDown");
   await expect(item("All")).toBeFocused();
   await page.keyboard.press("i");
   await expect(item("Inverse")).toBeFocused();
   await page.keyboard.press("ArrowLeft");
-  await expect(item("Undo")).toBeFocused();
+  await expect(item("Clipping Mask")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(item("Object")).toBeFocused();
   await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowDown");
   await expect(item("All")).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(item("All")).toBeHidden();
@@ -107,4 +111,43 @@ test("the Document list's menu bar has File > Open… only", async ({ page }) =>
   await expect(page.getByRole("menu", { name: "File" }).getByRole("menuitem")).toHaveText([
     /^Open…/,
   ]);
+});
+
+test("Ctrl+7 clips the selection with its topmost Node, and Alt+Ctrl+7 releases it", async ({
+  page,
+  request,
+}) => {
+  const { docId, defaultLayerId } = (
+    await call(request, "zibel_doc_create", {
+      name: "Mask",
+      artboards: [{ width: 200, height: 100 }],
+    })
+  ).structuredContent;
+  const rect = (name: string) => ({
+    type: "rect",
+    parentId: defaultLayerId,
+    name,
+    x: 0,
+    y: 0,
+    width: 10,
+    height: 10,
+  });
+  await call(request, "zibel_node_create", { docId, nodes: [rect("Art"), rect("Clip")] });
+  await page.goto(`/docs/${docId}`);
+  await expect(page.getByTestId("status-bar")).toContainText(/\d+%/);
+  const row = (name: string) => page.getByRole("button", { name, exact: true });
+
+  await page.keyboard.press("Control+A");
+  await page.keyboard.press("Control+7");
+  await expect(row("<Clip Group>")).toHaveAttribute("aria-pressed", "true");
+  await expect(row("Art")).toBeHidden();
+
+  await page.keyboard.press("Alt+Control+7");
+  await expect(row("<Clip Group>")).toBeHidden();
+  await expect(row("<Group>")).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Control+Z");
+  await expect(row("<Clip Group>")).toBeVisible();
+  await choose(page, "Object", "Clipping Mask", "Release");
+  await expect(row("<Clip Group>")).toBeHidden();
+  await expect(row("<Group>")).toHaveAttribute("aria-pressed", "true");
 });

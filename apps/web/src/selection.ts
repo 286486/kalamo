@@ -7,6 +7,7 @@ import {
   frameShape,
   type ImageNode,
   type LeafNode,
+  type MaskInput,
   type Node,
   type Rect,
   type ShapeNode,
@@ -163,3 +164,28 @@ export const inverse = (doc: Document, selection: string[]) =>
   objects(doc)
     .map((n) => n.id)
     .filter((id) => !selection.includes(id));
+
+/**
+ * Object > Clipping Mask > Make on the Selection: the topmost selected Node clips the others, as
+ * Illustrator picks it. Null without two editable Nodes; core rejects what cannot be clipped.
+ */
+export function maskInput(doc: Document, selection: string[]): MaskInput | null {
+  const ids = selection.filter((id) => editable(doc, doc.nodes.get(id)));
+  if (ids.length < 2) return null;
+  let clipNodeId = "";
+  const walk = (parentId: string | null) => {
+    for (const n of childrenOf(doc, parentId)) {
+      if (ids.includes(n.id)) clipNodeId = n.id;
+      walk(n.id);
+    }
+  };
+  walk(null);
+  return { clipNodeId, contentIds: ids.filter((id) => id !== clipNodeId) };
+}
+
+/** Object > Clipping Mask > Release on the Selection: its editable Clipping Masks and Clipping Paths. */
+export const releasable = (doc: Document, selection: string[]) =>
+  selection.filter((id) => {
+    const n = doc.nodes.get(id);
+    return !!n && editable(doc, n) && (("clipping" in n && n.clipping) || !!clippingPath(doc, n));
+  });
