@@ -165,6 +165,9 @@ const uniformScale = (m: Matrix) => {
   return upright && similar(m) ? s : undefined;
 };
 
+/** What a leaf that keeps its matrix scales and moves its parameters by. */
+const UNBAKED = { k: 1, tx: 0, ty: 0 };
+
 /** One character of a text and what its tspans give it (ADR-0029). */
 interface Char {
   char: string;
@@ -716,9 +719,8 @@ class Reader {
    * flows in a frame, else Point Type from Inkscape's line tspans or the whole text as one line.
    */
   private text(e: Element, style: Style, m: Matrix) {
-    const s = this.bakeScale(e, m);
-    const bake = s !== undefined;
-    const [k, tx, ty] = bake ? [s, m[4], m[5]] : [1, 0, 0];
+    const bake = this.bake(e, m);
+    const { k, tx, ty } = bake ?? UNBAKED;
     const tspans = elements(e).filter(
       (c) => c.localName === "tspan" && c.getAttributeNS(NS.sodipodi, "role") === "line",
     );
@@ -863,9 +865,9 @@ class Reader {
    * widths instead, as a container's do.
    */
   private appearance(style: Style, e: Element, m: Matrix, scale?: number): Appearance {
-    const s = this.bakeScale(e, m);
-    const own = s === undefined ? IDENTITY : m;
-    const k = scale ?? s ?? 1;
+    const bake = this.bake(e, m);
+    const own = bake ? m : IDENTITY;
+    const k = scale ?? bake?.k ?? 1;
     const fill = this.paint(style.fill ?? "black", style, style["fill-opacity"], e, own);
     const stroke = this.paint(style.stroke ?? "none", style, style["stroke-opacity"], e, own);
     const width = n3((length(style["stroke-width"]) ?? 1) * k);
@@ -1140,13 +1142,14 @@ class Reader {
   }
 
   /**
-   * The scale a leaf's matrix bakes into its parameters with (ADR-0017), or none when it keeps the
-   * matrix. A randomized star's never bakes: its jitter is seeded from its parameters, so moving or
-   * scaling them re-rolls it (ADR-0024).
+   * The scale and move a leaf's matrix bakes into its parameters (ADR-0017), or none when it keeps
+   * the matrix. A randomized star's never bakes: its jitter is seeded from its parameters, so
+   * moving or scaling them re-rolls it (ADR-0024).
    */
-  private bakeScale(e: Element, m: Matrix) {
+  private bake(e: Element, m: Matrix) {
     if (e.localName === "path" && this.star(e)?.shape.randomized) return undefined;
-    return uniformScale(m);
+    const k = uniformScale(m);
+    return k === undefined ? undefined : { k, tx: m[4], ty: m[5] };
   }
 
   /**
@@ -1158,9 +1161,8 @@ class Reader {
     const href = (e.getAttribute("href") || e.getAttributeNS(NS.xlink, "href") || "").trim();
     const w = length(e.getAttribute("width"));
     const h = length(e.getAttribute("height"));
-    const s = this.bakeScale(e, m);
-    const bake = s !== undefined;
-    const [k, tx, ty] = bake ? [s, m[4], m[5]] : [1, 0, 0];
+    const bake = this.bake(e, m);
+    const { k, tx, ty } = bake ?? UNBAKED;
     const frame = (width: number, height: number) => ({
       type: "image",
       x: n3(k * (length(e.getAttribute("x")) ?? 0) + tx),
@@ -1218,9 +1220,8 @@ class Reader {
     if (e.localName === "text") return this.text(e, style, m)?.shape ?? null;
     const star = e.localName === "path" ? this.star(e) : undefined;
     const num = (name: string) => length(e.getAttribute(name)) ?? 0;
-    const s = this.bakeScale(e, m);
-    const bake = s !== undefined;
-    const [k, tx, ty] = bake ? [s, m[4], m[5]] : [1, 0, 0];
+    const bake = this.bake(e, m);
+    const { k, tx, ty } = bake ?? UNBAKED;
     const x = (v: number) => n3(k * v + tx);
     const y = (v: number) => n3(k * v + ty);
     const size = (v: number) => n3(k * v);

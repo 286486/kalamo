@@ -540,13 +540,13 @@ describe("a leaf under a writer's rounded uniform scale bakes (#110)", () => {
   const open = (groups: string[], body = BODY) =>
     parseFile(
       svg(
-        `width="1000" height="1000" ${'xmlns:xlink="http://www.w3.org/1999/xlink"'}`,
+        `width="1000" height="1000"`,
         DEFS + groups.reduceRight((inner, t) => `<g transform="${t}">${inner}</g>`, body),
       ),
     );
-  const read = (file: ReturnType<typeof parseFile>) =>
+  const withoutIds = (file: ReturnType<typeof parseFile>) =>
     leaves(file).map(({ id, parentId, ...rest }) => rest);
-  const exact = read(open(["matrix(2,0,0,2,5,5)"]));
+  const exact = withoutIds(open(["matrix(2,0,0,2,5,5)"]));
 
   it.each([
     [["matrix(2,0,0,2.0000001,5,5)"]],
@@ -560,12 +560,14 @@ describe("a leaf under a writer's rounded uniform scale bakes (#110)", () => {
     ],
   ])("under %j it opens as under an exact ×2", (groups) => {
     const file = open(groups);
-    expect(read(file)).toEqual(exact);
+    expect(withoutIds(file)).toEqual(exact);
     expect(file.warnings).toEqual([]);
   });
 
-  it("reads the rect's size, Stroke and dash in document units", () => {
-    const [rect, ellipse, text, image, path, star] = read(open(["matrix(2,0,0,2.0000001,5,5)"]));
+  it("bakes each kind of leaf into document units", () => {
+    const [rect, ellipse, text, image, path, polygon] = withoutIds(
+      open(["matrix(2,0,0,2.0000001,5,5)"]),
+    );
     expect(rect).toMatchObject({
       x: 5,
       width: 20,
@@ -579,8 +581,8 @@ describe("a leaf under a writer's rounded uniform scale bakes (#110)", () => {
     expect(text).toMatchObject({ fontSize: 20 });
     expect(image).toMatchObject({ width: 8, height: 6 });
     expect(path).toMatchObject({ d: "M 5 5 L 25 5 L 25 15" });
-    expect(star).toMatchObject({ cx: 525, outerRadius: 70 });
-    for (const n of [ellipse, text, image, path, star]) {
+    expect(polygon).toMatchObject({ cx: 525, outerRadius: 70 });
+    for (const n of [ellipse, text, image, path, polygon]) {
       expect(n?.transform).toEqual([1, 0, 0, 1, 0, 0]);
     }
   });
@@ -588,10 +590,9 @@ describe("a leaf under a writer's rounded uniform scale bakes (#110)", () => {
   it.each(["rotate(0.01)", "skewX(0.01)", "scale(1,1.00001)", "scale(-1,1)", "rotate(180)"])(
     "keeps %s as a matrix",
     (t) => {
-      for (const n of read(open([t]))) {
-        expect(n.transform).not.toEqual([1, 0, 0, 1, 0, 0]);
-      }
-      expect(read(open([t]))[0]).toMatchObject({
+      const nodes = withoutIds(open([t]));
+      for (const n of nodes) expect(n.transform).not.toEqual([1, 0, 0, 1, 0, 0]);
+      expect(nodes[0]).toMatchObject({
         width: 10,
         appearance: { strokes: [{ width: 2 }] },
       });
@@ -599,7 +600,7 @@ describe("a leaf under a writer's rounded uniform scale bakes (#110)", () => {
   );
 
   it("keeps a randomized star's matrix", () => {
-    const [randomized] = read(
+    const [randomized] = withoutIds(
       open(["matrix(2,0,0,2.0000001,0,0)"], star({ "inkscape:randomized": 0.1 })),
     );
     expect(randomized).toMatchObject({ cx: 260, outerRadius: 35, transform: [2, 0, 0, 2, 0, 0] });
@@ -616,7 +617,7 @@ describe("a leaf under a writer's rounded uniform scale bakes (#110)", () => {
       artboards: [{ width: 1000, height: 1000 }],
     });
     const opened = { ...doc, nodes: new Map(first.nodes.map((n) => [n.id, n])) };
-    expect(read(parseFile(toSvg(opened)))).toEqual(read(first));
+    expect(withoutIds(parseFile(toSvg(opened)))).toEqual(withoutIds(first));
   });
 });
 
