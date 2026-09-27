@@ -1,4 +1,10 @@
-import { type Document, editPath, type PathEditInput, transformNodes } from "@zibel/core";
+import {
+  type BareAnchor,
+  type Document,
+  editPath,
+  type PathEditInput,
+  transformNodes,
+} from "@zibel/core";
 import { applyBroadcast, type ServerMessage } from "@zibel/sync";
 import { inRange, parseKey } from "./direct.ts";
 
@@ -15,7 +21,7 @@ export interface Drag {
  * finished; `commandId` is set once its `create` has been sent, and it is drawn until the answer.
  */
 export interface PenPath {
-  points: [number, number][];
+  anchors: BareAnchor[];
   closed: boolean;
   commandId: string | null;
 }

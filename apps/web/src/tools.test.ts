@@ -1,7 +1,48 @@
-import { createDocument } from "@zibel/core";
-import { beforeEach, expect, it } from "vitest";
-import { DEFAULT_FILL_STROKE, useStore } from "./store.ts";
-import { fillStrokeKey, finishPen, penClick, penNode, setTool, undoAnchor } from "./tools.ts";
+import { type BareAnchor, createDocument, parsePath, toAnchors } from "@zibel/core";
+import { beforeEach, expect, it, vi } from "vitest";
+import { DEFAULT_FILL_STROKE, send, useStore } from "./store.ts";
+import {
+  fillStrokeKey,
+  finishPen,
+  penDown,
+  penDrag,
+  penNode,
+  penUp,
+  setTool,
+  undoAnchor,
+} from "./tools.ts";
+
+vi.mock("./store.ts", async (original) => ({
+  ...(await original<typeof import("./store.ts")>()),
+  send: vi.fn(() => "sent"),
+}));
+
+type Point = [number, number];
+const penClick = (p: Point, tolerance: number, shift = false) => {
+  penDown(p, tolerance, shift);
+  penUp();
+};
+const NONE = { shift: false, alt: false, ctrl: false, space: false };
+/** A press at `from` dragged through `to`, each with its modifiers, then released. */
+const penDragged = (from: Point, ...to: [Point, Partial<typeof NONE>?][]) => {
+  penDown(from, 1);
+  for (const [p, mods] of to) penDrag(p, { ...NONE, ...mods });
+  penUp();
+};
+const corner = (x: number, y: number): BareAnchor => ({
+  anchor: [x, y],
+  handleIn: null,
+  handleOut: null,
+});
+const anchors = () => useStore.getState().pen?.anchors;
+/** The type core derives for an Anchor but the last, whose outgoing Handle `d` leaves out. */
+const typeAt = (i: number) => {
+  const pen = useStore.getState().pen;
+  if (!pen) throw new Error("no path");
+  const node = penNode({ doc, selection: [], fillStroke: DEFAULT_FILL_STROKE }, pen);
+  if (node?.type !== "path") throw new Error("no path");
+  return toAnchors(parsePath(node.d, "d"))[0]?.anchors[i]?.type;
+};
 
 const { doc, defaultLayerId } = createDocument({
   id: "d",
@@ -17,6 +58,7 @@ beforeEach(() => {
     tool: "pen",
     fillStroke: DEFAULT_FILL_STROKE,
   });
+  vi.mocked(send).mockClear();
 });
 
 const pen = () => useStore.getState().pen;
@@ -42,18 +84,14 @@ it("Enter sends three Corner Anchors as one open path with the current Fill and 
   expect(pen()).toMatchObject({ closed: false, commandId: expect.any(String) });
   // The next click starts another path; the sent one waits for its answer in receive.
   penClick([50, 50], 1);
-  expect(pen()).toEqual({ points: [[50, 50]], closed: false, commandId: null });
+  expect(pen()).toEqual({ anchors: [corner(50, 50)], closed: false, commandId: null });
 });
 
 it("builds the create input from the path, the current fillStroke and placeParent's Layer", () => {
   const s = { doc, selection: [], fillStroke: DEFAULT_FILL_STROKE };
   expect(
     penNode(s, {
-      points: [
-        [0, 0],
-        [10, 0],
-        [5, 8],
-      ],
+      anchors: [corner(0, 0), corner(10, 0), corner(5, 8)],
       closed: true,
       commandId: null,
     }),
@@ -70,15 +108,11 @@ it("builds the create input from the path, the current fillStroke and placeParen
 
 it("a click on the first Anchor closes the path", () => {
   penClick([0, 0], 1);
-  penClick([0.5, 0.5], 1); // Not closing: a path needs two Anchors first.
+  penClick([2, 2], 1); // Not closing: a path needs two Anchors first.
   penClick([10, 0], 1);
   penClick([0.5, -0.5], 1);
   expect(pen()).toMatchObject({
-    points: [
-      [0, 0],
-      [0.5, 0.5],
-      [10, 0],
-    ],
+    anchors: [corner(0, 0), corner(2, 2), corner(10, 0)],
     closed: true,
   });
   expect(pen()?.commandId).not.toBeNull();
@@ -88,7 +122,7 @@ it("Ctrl+Z removes the last Anchor and sends nothing", () => {
   penClick([0, 0], 1);
   penClick([10, 0], 1);
   expect(undoAnchor()).toBe(true);
-  expect(pen()).toEqual({ points: [[0, 0]], closed: false, commandId: null });
+  expect(pen()).toEqual({ anchors: [corner(0, 0)], closed: false, commandId: null });
   expect(undoAnchor()).toBe(true);
   expect(pen()).toBeNull();
   expect(undoAnchor()).toBe(false);
@@ -116,4 +150,88 @@ it("draws nothing into a hidden or locked Layer, and says why", () => {
   finishPen();
   expect(pen()).toBeNull();
   expect(useStore.getState().notice).toMatch(/locked/);
+});
+
+it("Shift-click constrains the segment to a multiple of 45°", () => {
+  penClick([0, 0], 1);
+  penClick([10, 9], 1, true);
+  expect(anchors()?.[1]?.anchor).toEqual([9.5, 9.5]);
+});
+
+it("a drag places a Smooth Anchor whose Handles mirror each other", () => {
+  penClick([0, 0], 1);
+  penDragged([10, 0], [[15, 5]]);
+  expect(anchors()?.[1]).toEqual({ anchor: [10, 0], handleIn: [5, -5], handleOut: [15, 5] });
+  penClick([40, 40], 1);
+  expect(typeAt(1)).toBe("smooth");
+});
+
+it("Alt while dragging leaves the incoming Handle behind: a cusp", () => {
+  penClick([0, 0], 1);
+  penDragged([10, 0], [[15, 5]], [[10, 10], { alt: true }]);
+  expect(anchors()?.[1]).toEqual({ anchor: [10, 0], handleIn: [5, -5], handleOut: [10, 10] });
+  penClick([40, 40], 1);
+  expect(typeAt(1)).toBe("corner");
+});
+
+it("Ctrl while dragging keeps the Handles collinear and the incoming one's length", () => {
+  penClick([0, 0], 1);
+  penDragged([10, 0], [[15, 0]], [[30, 0], { ctrl: true }]);
+  expect(anchors()?.[1]).toEqual({ anchor: [10, 0], handleIn: [5, 0], handleOut: [30, 0] });
+  penClick([40, 40], 1);
+  expect(typeAt(1)).toBe("smooth");
+});
+
+it("Shift while dragging constrains the Handle to a multiple of 45°", () => {
+  penDragged([0, 0], [[10, 1], { shift: true }]);
+  expect(anchors()?.[0]).toEqual({ anchor: [0, 0], handleIn: [-10, 0], handleOut: [10, 0] });
+});
+
+it("Space while the button is down moves the Anchor with its Handles", () => {
+  penClick([0, 0], 1);
+  penDragged([10, 0], [[15, 5]], [[20, 5], { space: true }], [[25, 5]]);
+  expect(anchors()?.[1]).toEqual({ anchor: [15, 0], handleIn: [5, -5], handleOut: [25, 5] });
+});
+
+it("a click on the last Anchor removes its outgoing Handle, and a drag pulls a new one", () => {
+  penClick([0, 0], 1);
+  penDragged([10, 0], [[15, 5]]);
+  penClick([10, 0], 1);
+  expect(anchors()).toEqual([corner(0, 0), { ...corner(10, 0), handleIn: [5, -5] }]);
+  penDragged([10, 0], [[10, 10]]);
+  expect(anchors()?.[1]).toEqual({ anchor: [10, 0], handleIn: [5, -5], handleOut: [10, 10] });
+});
+
+it("closing on the first Anchor with a drag shapes the closing segment", () => {
+  penClick([0, 0], 1);
+  penClick([10, 0], 1);
+  penClick([5, 8], 1);
+  penDown([0, 0], 1);
+  penDrag([-5, 5], NONE);
+  expect(pen()?.commandId).toBeNull();
+  penUp();
+  expect(pen()).toMatchObject({
+    anchors: [{ anchor: [0, 0], handleIn: [5, -5], handleOut: [-5, 5] }, {}, {}],
+    closed: true,
+    commandId: "sent",
+  });
+});
+
+it("Alt while closing keeps the first segment and shapes only the closing one", () => {
+  penDragged([0, 0], [[5, -5]]);
+  penClick([10, 0], 1);
+  penDragged([0, 0], [[-5, 0], { alt: true }]);
+  expect(anchors()?.[0]).toEqual({ anchor: [0, 0], handleIn: [5, 0], handleOut: [5, -5] });
+});
+
+it("a path of Smooth Anchors commits as C segments in one Transaction", () => {
+  penDragged([0, 0], [[5, -5]]);
+  penDragged([20, 0], [[25, 5]]);
+  penDragged([40, 0], [[45, -5]]);
+  finishPen();
+  expect(send).toHaveBeenCalledTimes(1);
+  expect(vi.mocked(send).mock.calls[0]?.[0]).toMatchObject({
+    type: "create",
+    nodes: [{ d: "M 0 0 C 5 -5 15 -5 20 0 C 25 5 35 5 40 0" }],
+  });
 });

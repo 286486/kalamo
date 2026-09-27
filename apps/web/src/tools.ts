@@ -1,4 +1,10 @@
-import type { Document, NodeInput } from "@zibel/core";
+import {
+  type BareAnchor,
+  type Document,
+  formatPath,
+  fromAnchors,
+  type NodeInput,
+} from "@zibel/core";
 import type { PenPath } from "./receive.ts";
 import { editable, placeParent } from "./selection.ts";
 import { DEFAULT_FILL_STROKE, type State, send, useStore } from "./store.ts";
@@ -29,9 +35,20 @@ export function fillStrokeKey(p: FillStroke, keys: string): FillStroke | null {
 
 type Point = [number, number];
 
-/** Corner Anchors joined by straight segments. */
-export const pathD = (points: Point[], closed: boolean) =>
-  points.map(([x, y], i) => `${i ? "L" : "M"} ${x} ${y}`).join(" ") + (closed ? " Z" : "");
+/** The path's `d`: its Anchors, curved where they have Handles. */
+export const pathD = (anchors: BareAnchor[], closed: boolean) =>
+  formatPath(fromAnchors([{ closed, anchors }]));
+
+/** `p` moved onto the nearest line through `from` at a multiple of 45°. */
+export function constrain(from: Point, p: Point): Point {
+  const [dx, dy] = [p[0] - from[0], p[1] - from[1]];
+  const angle = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * (Math.PI / 4);
+  const [ux, uy] = [Math.cos(angle), Math.sin(angle)];
+  const length = dx * ux + dy * uy;
+  // Rounded, so the diagonal's cos and sin do not leave 1e-15 in `d`.
+  const at = (v: number) => Math.round(v * 1e9) / 1e9;
+  return [at(from[0] + ux * length), at(from[1] + uy * length)];
+}
 
 /** The `create` input for a finished path: the current Fill and Stroke, in placeParent's Layer. */
 export function penNode(
@@ -45,7 +62,7 @@ export function penNode(
   return {
     type: "path",
     parentId,
-    d: pathD(pen.points, pen.closed),
+    d: pathD(pen.anchors, pen.closed),
     appearance: {
       fills: fill ? [{ color: fill }] : [],
       strokes: stroke ? [{ color: stroke, width: 1 }] : [],
@@ -65,11 +82,11 @@ export function finishPen(closed = false) {
   const pen = drawing(s);
   if (!pen) return;
   const done = { ...pen, closed };
-  const node = s.doc && pen.points.length >= 2 ? penNode({ ...s, doc: s.doc }, done) : null;
+  const node = s.doc && pen.anchors.length >= 2 ? penNode({ ...s, doc: s.doc }, done) : null;
   if (!node) {
     useStore.setState({
       pen: null,
-      ...(pen.points.length >= 2 && {
+      ...(pen.anchors.length >= 2 && {
         notice: "The Layer is hidden or locked; nothing was drawn.",
       }),
     });
@@ -79,24 +96,100 @@ export function finishPen(closed = false) {
   useStore.setState({ pen: { ...done, commandId } });
 }
 
-/** A Pen click: closes on the first Anchor, within `tolerance` pt, or places a Corner Anchor. */
-export function penClick(p: Point, tolerance: number) {
+/** The Pen's modifiers while its button is down. Ctrl is Cmd on macOS. */
+export interface PenMods {
+  shift: boolean;
+  alt: boolean;
+  ctrl: boolean;
+  space: boolean;
+}
+
+/**
+ * The Anchor the Pen's button is down on, at `index`, and the pointer's last position. It is one
+ * just placed, the last Anchor pressed again, or the first Anchor, which closes the path on release.
+ */
+let press: { kind: "place" | "last" | "close"; index: number; at: Point } | null = null;
+
+export const penPressed = () => press !== null;
+
+const near = (a: Point, b: Point, tolerance: number) =>
+  Math.hypot(a[0] - b[0], a[1] - b[1]) <= tolerance;
+
+/**
+ * A Pen press (research §1): on the first Anchor it will close the path, on the last it removes
+ * that Anchor's outgoing Handle, and anywhere else it places a Corner Anchor, which a drag then
+ * makes Smooth. Shift constrains the new segment to 45°.
+ */
+export function penDown(p: Point, tolerance: number, shift = false) {
   const pen = drawing(useStore.getState());
-  const [first] = pen?.points ?? [];
-  if (pen && first && pen.points.length >= 2) {
-    if (Math.hypot(p[0] - first[0], p[1] - first[1]) <= tolerance) return finishPen(true);
+  const anchors = pen?.anchors ?? [];
+  const first = anchors[0];
+  const last = anchors.at(-1);
+  if (first && anchors.length >= 2 && near(p, first.anchor, tolerance)) {
+    press = { kind: "close", index: 0, at: p };
+  } else if (pen && last && near(p, last.anchor, tolerance)) {
+    press = { kind: "last", index: anchors.length - 1, at: p };
+    useStore.setState({ pen: { ...pen, anchors: anchors.with(-1, { ...last, handleOut: null }) } });
+  } else {
+    press = { kind: "place", index: anchors.length, at: p };
+    const anchor = last && shift ? constrain(last.anchor, p) : p;
+    useStore.setState({
+      pen: {
+        anchors: [...anchors, { anchor, handleIn: null, handleOut: null }],
+        closed: false,
+        commandId: null,
+      },
+    });
   }
-  useStore.setState({
-    pen: { points: [...(pen?.points ?? []), p], closed: false, commandId: null },
-  });
+}
+
+/**
+ * A drag of the press to `p`. It pulls the outgoing Handle and the incoming one mirrors it: Alt
+ * leaves the incoming Handle where it is (a cusp), Ctrl keeps its length, and Shift constrains
+ * the Handle to 45°. Space moves the Anchor with its Handles instead. On the last Anchor only the
+ * outgoing Handle moves; closing, Alt leaves the outgoing one and shapes the closing segment.
+ */
+export function penDrag(p: Point, mods: PenMods) {
+  const pen = drawing(useStore.getState());
+  const a = press && pen?.anchors[press.index];
+  if (!press || !pen || !a) return;
+  const [dx, dy] = [p[0] - press.at[0], p[1] - press.at[1]];
+  press.at = p;
+  const [x, y] = a.anchor;
+  const out = mods.shift ? constrain(a.anchor, p) : p;
+  const [ox, oy] = [out[0] - x, out[1] - y];
+  const mirror: Point = [x - ox, y - oy];
+  let next: BareAnchor;
+  if (mods.space) {
+    const by = (h: Point | null): Point | null => h && [h[0] + dx, h[1] + dy];
+    next = { anchor: [x + dx, y + dy], handleIn: by(a.handleIn), handleOut: by(a.handleOut) };
+  } else if (press.kind === "close" && mods.alt) next = { ...a, handleIn: mirror };
+  else if (press.kind === "last" || mods.alt) next = { ...a, handleOut: out };
+  else if (mods.ctrl && a.handleIn) {
+    const k = Math.hypot(a.handleIn[0] - x, a.handleIn[1] - y) / (Math.hypot(ox, oy) || 1);
+    next = { ...a, handleIn: [x - ox * k, y - oy * k], handleOut: out };
+  } else next = { ...a, handleIn: mirror, handleOut: out };
+  useStore.setState({ pen: { ...pen, anchors: pen.anchors.with(press.index, next) } });
+}
+
+/** Drops the press, leaving what it placed. */
+export const penCancel = () => {
+  press = null;
+};
+
+/** Releasing the Pen: a press on the first Anchor closes the path. */
+export function penUp() {
+  const closing = press?.kind === "close";
+  press = null;
+  if (closing) finishPen(true);
 }
 
 /** Ctrl+Z while drawing removes the last Anchor locally; false when not drawing. */
 export function undoAnchor(): boolean {
   const pen = drawing(useStore.getState());
   if (!pen) return false;
-  const points = pen.points.slice(0, -1);
-  useStore.setState({ pen: points.length > 0 ? { ...pen, points } : null });
+  const anchors = pen.anchors.slice(0, -1);
+  useStore.setState({ pen: anchors.length > 0 ? { ...pen, anchors } : null });
   return true;
 }
 

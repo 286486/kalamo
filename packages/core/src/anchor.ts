@@ -16,6 +16,9 @@ export interface Anchor {
   type: "corner" | "smooth";
 }
 
+/** An Anchor before its type is derived, as fromAnchors reads it. */
+export type BareAnchor = Omit<Anchor, "type">;
+
 /** A closed subpath's last Anchor joins its first by the closing segment. */
 export interface Subpath {
   closed: boolean;
@@ -33,7 +36,7 @@ const pair = (args: number[], k: number): Point => [args[k] ?? 0, args[k + 1] ??
  * Smooth when both Handles point away from the Anchor along one line, within what rounding `d`
  * to 3 decimals can bend them.
  */
-function typeOf({ anchor: [x, y], handleIn, handleOut }: Omit<Anchor, "type">): Anchor["type"] {
+function typeOf({ anchor: [x, y], handleIn, handleOut }: BareAnchor): Anchor["type"] {
   if (!handleIn || !handleOut) return "corner";
   const [ux, uy, vx, vy] = [handleIn[0] - x, handleIn[1] - y, handleOut[0] - x, handleOut[1] - y];
   const cross = Math.abs(ux * vy - uy * vx);
@@ -47,7 +50,7 @@ const handle = (h: Point, anchor: Point) => (same(h, anchor) ? null : h);
 
 /** Each subpath's Anchors. A Q's control point becomes the two Handles of the same curve. */
 export function toAnchors(segments: Segment[]): Subpath[] {
-  type Bare = { closed: boolean; anchors: Omit<Anchor, "type">[] };
+  type Bare = { closed: boolean; anchors: BareAnchor[] };
   const out: Bare[] = [];
   let current: Bare | undefined;
   let start: Point = [0, 0];
@@ -98,7 +101,7 @@ export function toAnchors(segments: Segment[]): Subpath[] {
 const near = (a: number, b: number) => Math.abs(a - b) <= 1e-7 * (1 + Math.abs(a));
 
 /** L without Handles, Q when the cubic is exactly a raised quadratic, else C. */
-function segment(a: Anchor, b: Anchor): Segment {
+function segment(a: BareAnchor, b: BareAnchor): Segment {
   const [p0, p3] = [a.anchor, b.anchor];
   if (!a.handleOut && !b.handleIn) return { cmd: "L", args: [...p3] };
   const [c1, c2] = [a.handleOut ?? p0, b.handleIn ?? p3];
@@ -111,7 +114,7 @@ function segment(a: Anchor, b: Anchor): Segment {
 }
 
 /** The segments of `d` for the subpaths; closing without Handles is a bare Z. */
-export function fromAnchors(subpaths: Subpath[]): Segment[] {
+export function fromAnchors(subpaths: { closed: boolean; anchors: BareAnchor[] }[]): Segment[] {
   const out: Segment[] = [];
   for (const { closed, anchors } of subpaths) {
     const [first] = anchors;
@@ -119,7 +122,7 @@ export function fromAnchors(subpaths: Subpath[]): Segment[] {
     if (!first || !last) continue;
     out.push({ cmd: "M", args: [...first.anchor] });
     for (let i = 1; i < anchors.length; i++) {
-      out.push(segment(anchors[i - 1] as Anchor, anchors[i] as Anchor));
+      out.push(segment(anchors[i - 1] as BareAnchor, anchors[i] as BareAnchor));
     }
     if (closed) {
       if (last.handleOut || first.handleIn) out.push(segment(last, first));

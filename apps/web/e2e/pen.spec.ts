@@ -70,3 +70,42 @@ test("the Pen draws a triangle, and an open path that undo takes back", async ({
   await page.keyboard.press("Control+z");
   await expect.poll(async () => (await paths()).length).toBe(1);
 });
+
+// #78: a drag places a Smooth Anchor, so the path commits as curves.
+test("the Pen drags out Smooth Anchors into one curved path", async ({ page, request }) => {
+  const { docId } = (
+    await call(request, "zibel_doc_create", {
+      name: "Curves",
+      artboards: [{ width: 200, height: 100 }],
+    })
+  ).structuredContent;
+  await page.goto(`/docs/${docId}`);
+  await expect(page.getByTestId("status-bar")).toContainText(/\d+%/);
+  const size = page.viewportSize() ?? { width: 0, height: 0 };
+  const [cx, cy] = [size.width / 2, size.height / 2];
+  await page.getByRole("button", { name: "Pen Tool (P)" }).click();
+  // Uneven Handles, so no segment is exactly a quadratic, which core would write as Q.
+  for (const [x, dx, dy] of [
+    [-60, 10, -30],
+    [0, 25, 15],
+    [60, 10, -20],
+  ] as const) {
+    await page.mouse.move(cx + x, cy);
+    await page.mouse.down();
+    await page.mouse.move(cx + x + dx, cy + dy, { steps: 4 });
+    await page.mouse.up();
+  }
+  await page.keyboard.press("Enter");
+  await expect
+    .poll(async () => {
+      const { nodes } = (await call(request, "zibel_node_query", { docId, types: ["path"] }))
+        .structuredContent;
+      return nodes.length;
+    })
+    .toBe(1);
+  const [{ id }] = (await call(request, "zibel_node_query", { docId, types: ["path"] }))
+    .structuredContent.nodes;
+  const [path] = (await call(request, "zibel_node_get", { docId, nodeIds: [id], detail: "full" }))
+    .structuredContent.nodes;
+  expect(path.d).toMatch(/^M [\d.]+ [\d.]+ C( [\d.]+){6} C( [\d.]+){6}$/);
+});

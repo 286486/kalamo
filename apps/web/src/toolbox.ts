@@ -11,6 +11,10 @@ export interface ToolEvent {
   y: number;
   shift: boolean;
   alt: boolean;
+  /** Ctrl, or Cmd on macOS. */
+  ctrl: boolean;
+  /** Space held since after the press; Space held at the press pans instead. */
+  space: boolean;
   doc: Document;
   viewport: Viewport;
   /** For hit tests. */
