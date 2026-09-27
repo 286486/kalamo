@@ -65,14 +65,15 @@ export function placeNodes(
         roots.length,
       );
   const ids = new Map<string, string>();
-  const copy = (n: Node, parentId: string, index: string) => {
+  const copy = (n: Node, parentId: string, index: string): string => {
     const id = newId();
     ids.set(n.id, id);
     doc.nodes.set(id, { ...n, id, parentId, index, ...(n.type === "layer" && { type: "group" }) });
     for (const c of childrenIn(n.id)) copy(c, id, c.index);
+    return id;
   };
-  roots.forEach((n, i) => copy(n, group?.id ?? opts.parentId, keys[i] as string));
-  const placedIds = group ? [group.id] : roots.map((n) => ids.get(n.id) as string);
+  const copied = roots.map((n, i) => copy(n, group?.id ?? opts.parentId, keys[i] as string));
+  const placedIds = group ? [group.id] : copied;
 
   const b = union(placedIds.map((id) => bounds(doc, doc.nodes.get(id) as Node)));
   const target = opts.position ??

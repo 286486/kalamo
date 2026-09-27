@@ -80,9 +80,10 @@ async function saveWith(
 
 /**
  * Place (ADR-0017) POSTs the file to the Worker, which writes it as the user; the canvas
- * follows the `tx` broadcast like any other write. Failures and warnings show as the notice.
+ * follows the `tx` broadcast like any other write. What it placed becomes the Selection.
+ * Failures and warnings show as the notice.
  */
-async function postFile(url: string, body: BodyInit, what: string) {
+async function postFile(docId: string, url: string, body: BodyInit, what: string) {
   const notice = (text: string) => useStore.setState({ notice: text });
   try {
     const res = await fetch(url, { method: "POST", body });
@@ -90,9 +91,18 @@ async function postFile(url: string, body: BodyInit, what: string) {
       message?: string;
       hint?: string;
       warnings?: { message: string }[];
+      createdIds?: string[];
+      /** Place's: what went into the parent, the Group or a copy's Nodes. */
+      nodes?: { id: string }[];
     };
     if (!res.ok) notice(`Could not ${what}: ${json.message} ${json.hint ?? ""}`);
-    else useStore.setState({ notice: json.warnings?.map((w) => w.message).join(" ") || null });
+    else
+      useStore.setState({
+        notice: json.warnings?.map((w) => w.message).join(" ") || null,
+        ...(useStore.getState().doc?.id === docId && {
+          selection: json.nodes?.map((n) => n.id) ?? json.createdIds ?? [],
+        }),
+      });
   } catch (e) {
     notice(`Could not ${what}: ${String(e)}`);
   }
@@ -232,10 +242,11 @@ export function Viewer({ docId }: { docId: string }) {
         return;
       }
       if (!down) return;
-      const { doc, viewport: v, selection } = useStore.getState();
-      if (!doc || !v) return;
       const mod = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
+      if (mod && key === "v") inPlace.current = e.shiftKey;
+      const { doc, viewport: v, selection } = useStore.getState();
+      if (!doc || !v) return;
       if (mod && key === "z") {
         e.preventDefault();
         send({ type: e.shiftKey ? "redo" : "undo" });
@@ -267,32 +278,41 @@ export function Viewer({ docId }: { docId: string }) {
     };
   }, [size]);
 
+  /** Set by Ctrl+Shift+V for the paste event it fires: Paste in Place (ADR-0030). */
+  const inPlace = useRef(false);
+
   /**
-   * Place at the centre of the canvas, in the Selection's Layer or the top one: an SVG as a Group
-   * (ADR-0017), any other file as an Image, which the Worker checks (ADR-0023).
+   * Place at the centre of the canvas, or pasted text where it was with `here`, in the Selection's
+   * Layer or the top one: an SVG as a Group (ADR-0017), or a Zibel copy's Nodes as they were
+   * (ADR-0030), any other file as an Image, which the Worker checks (ADR-0023).
    */
-  const place = (file: File | string) => {
+  const place = (file: File | string, here = false) => {
     const { doc, viewport: v, selection } = useStore.getState();
     const parentId = doc && placeParent(doc, selection);
     if (!v || !parentId) return;
     const { x, y } = toDoc(v, size.width / 2, size.height / 2);
     const query = new URLSearchParams({ parentId, x: String(x), y: String(y) });
+    const post = (path: string, body: BodyInit, what: string) =>
+      postFile(docId, `/api/docs/${docId}/${path}?${query}`, body, what);
     if (typeof file === "string") {
-      postFile(`/api/docs/${docId}/place?${query}`, file, "place the pasted SVG");
+      if (here) query.set("inPlace", "");
+      post("place", file, "place the pasted SVG");
     } else if (isSvg(file)) {
       query.set("name", file.name);
       file.text().then(
-        (text) => postFile(`/api/docs/${docId}/place?${query}`, text, `place ${file.name}`),
+        (text) => post("place", text, `place ${file.name}`),
         (e) => useStore.setState({ notice: `Could not place ${file.name}: ${String(e)}` }),
       );
     } else {
-      postFile(`/api/docs/${docId}/place-image?${query}`, file, `place ${file.name}`);
+      post("place-image", file, `place ${file.name}`);
     }
   };
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: place reads the current size
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
+      const here = inPlace.current;
+      inPlace.current = false;
       const data = e.clipboardData;
       const text = data?.getData("image/svg+xml") || data?.getData("text/plain") || "";
       const pasted = text.trimStart().startsWith("<")
@@ -300,11 +320,38 @@ export function Viewer({ docId }: { docId: string }) {
         : [...(data?.files ?? [])].find((f) => f.type.startsWith("image/"));
       if (!pasted) return;
       e.preventDefault();
-      place(pasted);
+      place(pasted, here);
+    };
+    // Copy writes the Selection as a nodes-scope export, which paste places without a Group and
+    // Inkscape pastes as it is (ADR-0030). Cut then deletes what of it is editable.
+    const onCopy = (e: ClipboardEvent) => {
+      const { doc, selection } = useStore.getState();
+      if (!doc || selection.length === 0 || !e.clipboardData) return;
+      e.preventDefault();
+      let svg: string;
+      try {
+        svg = toSvg(doc, undefined, {
+          scope: { nodeIds: selection },
+          images: (id) => images.get(id)?.dataUrl,
+        });
+      } catch (err) {
+        useStore.setState({ notice: `Could not ${e.type}: ${String(err)}` });
+        return;
+      }
+      e.clipboardData.setData("text/plain", svg);
+      e.clipboardData.setData("image/svg+xml", svg);
+      const nodeIds = selection.filter((id) => editable(doc, doc.nodes.get(id)));
+      if (e.type === "cut" && nodeIds.length > 0) send({ type: "delete", nodeIds });
     };
     addEventListener("paste", onPaste);
-    return () => removeEventListener("paste", onPaste);
-  }, [size]);
+    addEventListener("copy", onCopy);
+    addEventListener("cut", onCopy);
+    return () => {
+      removeEventListener("paste", onPaste);
+      removeEventListener("copy", onCopy);
+      removeEventListener("cut", onCopy);
+    };
+  }, [size, images]);
 
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();

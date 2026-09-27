@@ -892,11 +892,11 @@ it("places an SVG as one Group under the parent, and refuses a .zibel.json", asy
   expect(outline).toMatchObject([
     { id: createdIds[0], type: "group", name: "Inkscape round trip" },
   ]);
-  expect(nodes.map((n: { name: string; type: string }) => [n.type, n.name])).toEqual([
+  expect(nodes).toMatchObject([{ id: createdIds[0] }]);
+  expect(nodes[0].children.map((n: { name: string; type: string }) => [n.type, n.name])).toEqual([
     ["group", "Layer 1"],
     ["group", "Guides"],
   ]);
-  expect(nodes[0].children.length).toBeGreaterThan(0);
   expect(warnings).toEqual([]);
   // The export's z-<id> ids are not reused.
   expect(createdIds.filter((id: string) => exported.includes(`z-${id}`))).toEqual([]);
