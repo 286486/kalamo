@@ -184,7 +184,7 @@ export function maskInput(doc: Document, selection: string[]): MaskInput | null 
 }
 
 /** Object > Clipping Mask > Release on the Selection: its editable Clipping Masks and Clipping Paths. */
-export const masks = (doc: Document, selection: string[]) =>
+export const releasable = (doc: Document, selection: string[]) =>
   selection.filter((id) => {
     const n = doc.nodes.get(id);
     return !!n && editable(doc, n) && (("clipping" in n && n.clipping) || !!clippingPath(doc, n));

@@ -7,10 +7,10 @@ import {
   inverse,
   marquee,
   maskInput,
-  masks,
   objectOf,
   objects,
   placeParent,
+  releasable,
 } from "./selection.ts";
 
 /**
@@ -236,12 +236,12 @@ describe("maskInput", () => {
   });
 });
 
-it("masks lists the selected Clipping Masks and Clipping Paths only", () => {
+it("releasable lists the selected Clipping Masks and Clipping Paths only", () => {
   const { doc, id } = fixture();
   const { group } = makeMask(doc, { clipNodeId: id("c"), contentIds: [id("g")] });
-  expect(masks(doc, [group.id, id("e")])).toEqual([group.id]);
-  expect(masks(doc, [id("c")])).toEqual([id("c")]);
-  expect(masks(doc, [id("e"), id("a")])).toEqual([]);
+  expect(releasable(doc, [group.id, id("e")])).toEqual([group.id]);
+  expect(releasable(doc, [id("c")])).toEqual([id("c")]);
+  expect(releasable(doc, [id("e"), id("a")])).toEqual([]);
 });
 
 describe("placeParent", () => {

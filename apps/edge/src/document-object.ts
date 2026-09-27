@@ -255,8 +255,8 @@ export class DocumentObject extends DurableObject<Env> {
   }
 
   /**
-   * A transform, delete, update or Clipping Mask command from a browser. The browser only names Nodes it was sent, so a missing one
-   * was deleted: delete beats edit (ADR-0010).
+   * A transform, delete, update or Clipping Mask command from a browser. The browser only names
+   * Nodes it was sent, so a missing one was deleted: delete beats edit (ADR-0010).
    */
   private edit(
     command: Exclude<Command, { type: "undo" | "redo" }>,
