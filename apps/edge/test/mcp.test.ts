@@ -31,6 +31,7 @@ it("lists the tools over HTTP (their schemas and annotations: packages/mcp serve
     "zibel_doc_open",
     "zibel_doc_outline",
     "zibel_export",
+    "zibel_freehand_stroke",
     "zibel_image_place",
     "zibel_mask_make",
     "zibel_mask_release",
@@ -161,6 +162,25 @@ it("converts a rect to a path with path_op, keeping its id", async () => {
     .structuredContent;
   expect(nodes[0]).toMatchObject({ id, type: "path", name: "Box", parentId: defaultLayerId });
   expect(nodes[0]).not.toHaveProperty("radius");
+});
+
+it("draws a freehand_stroke as one smooth closed path", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const points = Array.from({ length: 61 }, (_, k) => ({
+    x: 100 + 40 * Math.cos((Math.PI * k) / 30),
+    y: 50 + 40 * Math.sin((Math.PI * k) / 30),
+  }));
+  const [id] = (
+    await call("zibel_freehand_stroke", { docId, parentId: defaultLayerId, points, tool: "pencil" })
+  ).structuredContent.createdIds as string[];
+  const { nodes } = (await call("zibel_node_get", { docId, nodeIds: [id], detail: "full" }))
+    .structuredContent;
+  expect(nodes[0]).toMatchObject({ type: "path", parentId: defaultLayerId, closed: true });
+  expect(nodes[0].appearance).toMatchObject({
+    fills: [],
+    strokes: [{ color: "#000000", width: 1 }],
+  });
+  expect(nodes[0].geometricBounds.width).toBeCloseTo(80, 0);
 });
 
 it("places a PNG as an Image: node_get has its id, render draws it, export and open keep it", async () => {

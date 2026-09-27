@@ -4,6 +4,7 @@ export * from "./document.ts";
 export * from "./edit.ts";
 export * from "./errors.ts";
 export * from "./file.ts";
+export * from "./fit.ts";
 export * from "./image.ts";
 export * from "./mask.ts";
 export * from "./matrix.ts";
