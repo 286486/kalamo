@@ -95,3 +95,60 @@ test("Join makes two open paths one and closes one alone; Average stacks Anchors
   await dialog.getByRole("button", { name: "OK" }).click();
   await expect.poll(async () => (await node(b))?.d).toBe("M 100 50 L 100 50 L 100 50 L 100 50 Z");
 });
+
+// #86: Object > Path > Simplify….
+test("Simplify previews on its bar and commits once on OK; More Options converts to lines", async ({
+  page,
+  request,
+}) => {
+  const { docId, defaultLayerId: parentId } = (
+    await call(request, "zibel_doc_create", {
+      name: "Simplify",
+      artboards: [{ width: 200, height: 100 }],
+    })
+  ).structuredContent;
+  const points = Array.from(
+    { length: 200 },
+    (_, i) => `${i} ${Math.round(50e3 + 30e3 * Math.sin(i / 15)) / 1e3}`,
+  );
+  const original = `M ${points.join(" L ")}`;
+  const [id] = (
+    await call(request, "zibel_node_create", {
+      docId,
+      nodes: [{ type: "path", parentId, d: original }],
+    })
+  ).structuredContent.createdIds as [string];
+  const d = async () =>
+    (await call(request, "zibel_node_get", { docId, nodeIds: [id], detail: "full" }))
+      .structuredContent?.nodes[0]?.d as string;
+  const segments = async () => (await d()).match(/[LC]/g)?.length ?? 0;
+
+  await page.goto(`/docs/${docId}`);
+  await expect(page.getByTestId("status-bar")).toContainText(/\d+%/);
+  await page.keyboard.press("Control+a");
+  await choose(page, "Object", "Path", "Simplify…");
+  const bar = page.getByRole("toolbar", { name: "Simplify" });
+  await bar.getByLabel("Simplify Curve").fill("20");
+  // Only a preview: nothing is sent until OK, and Cancel drops it.
+  await bar.getByRole("button", { name: "Cancel" }).click();
+  await expect(bar).toBeHidden();
+  expect(await d()).toBe(original);
+
+  await choose(page, "Object", "Path", "Simplify…");
+  await bar.getByRole("button", { name: "OK" }).click();
+  await expect.poll(segments).toBeLessThan(20);
+  // One Transaction: one Undo brings every Anchor back.
+  await page.keyboard.press("Control+z");
+  await expect.poll(d).toBe(original);
+
+  await page.keyboard.press("Control+a");
+  await choose(page, "Object", "Path", "Simplify…");
+  await bar.getByRole("button", { name: "More Options" }).click();
+  const dialog = page.getByRole("dialog", { name: "Simplify" });
+  await expect(dialog).toContainText("Original: 200 Anchors");
+  await dialog.getByLabel("Convert to Straight Lines").check();
+  await dialog.getByLabel("Show Original Path").check();
+  await dialog.getByRole("button", { name: "OK" }).click();
+  await expect.poll(d).toMatch(/^M [\d. ]+( L [\d. ]+)+$/);
+  expect(await segments()).toBeLessThan(60);
+});

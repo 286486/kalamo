@@ -462,14 +462,21 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         "To remove chosen Anchors, as Remove Anchor Points does, use zibel_path_edit remove_anchor.",
         "op join, as Object > Path > Join: with anchors naming two open Endpoints it connects them, closing the subpath when both are its ends; without anchors it joins the named paths' open subpaths, closest Endpoints first, until one path is left, and closes a single open path. Endpoints within tolerance (in document units) merge into one Anchor keeping both Handles as they were (a Corner join: nothing aligns them), and farther ones get a straight segment. The topmost path keeps its id and appearance and takes every subpath of the others, which are deleted (deletedIds); paths without an open subpath are left as they are.",
         "op average, as Object > Path > Average: moves the anchors listed, or every Anchor of nodeIds, to their mean position in document coordinates; axis horizontal puts them on one horizontal line (same y), vertical on one vertical line (same x), both on one point. Handles move with their Anchors.",
+        "op simplify, as Object > Path > Simplify: refits each subpath with as few Anchors as keep it within tolerance (in document units, default 1) of the original, the same least-squares fit zibel_freehand_stroke uses. Ends stay put, closed subpaths stay closed, and turns whose angle is at most cornerAngle (default 90) stay Corner Anchors. toLines fits straight segments only.",
       ].join(" "),
       inputSchema: { docId, ...PathOpInput.shape, ...txWrite },
       outputSchema: WriteReceipt.shape,
       annotations: edit,
     },
-    ({ docId, nodeIds, op, tolerance, axis, anchors, ...opts }) =>
+    ({ docId, nodeIds, op, tolerance, cornerAngle, toLines, axis, anchors, ...opts }) =>
       run("zibel_path_op", async () =>
-        json(await service.pathOp(docId, { nodeIds, op, tolerance, axis, anchors }, opts)),
+        json(
+          await service.pathOp(
+            docId,
+            { nodeIds, op, tolerance, cornerAngle, toLines, axis, anchors },
+            opts,
+          ),
+        ),
       ),
   );
 

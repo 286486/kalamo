@@ -2,6 +2,7 @@ import { z } from "zod";
 import { childrenOf, worldTransform } from "./document.ts";
 import { lookup } from "./edit.ts";
 import { ZibelError } from "./errors.ts";
+import { simplifySubpath } from "./fit.ts";
 import { applyTo, IDENTITY, invert, multiply, scaleOf, transformSegments } from "./matrix.ts";
 import { formatPath, parsePath, type Segment, shapeSegments } from "./path.ts";
 import {
@@ -222,18 +223,31 @@ const AnchorRef = z.object({ nodeId: z.string(), subpath, index });
 
 /**
  * `path_op` (REQUIREMENTS §6.4) so far: convert_to_path (Object > Shape > Expand Shape), reverse
- * (Reverse Path Direction), add_anchors (Add Anchor Points), join (Join) and average (Average).
+ * (Reverse Path Direction), add_anchors (Add Anchor Points), join (Join), average (Average) and
+ * simplify (Simplify).
  */
 export const PathOpInput = z.object({
   nodeIds: z.array(z.string()).min(1).max(1000),
-  op: z.enum(["convert_to_path", "reverse", "add_anchors", "join", "average"]),
+  op: z.enum(["convert_to_path", "reverse", "add_anchors", "join", "average", "simplify"]),
   tolerance: z
     .number()
     .min(0)
-    .default(0.01)
+    .optional()
     .describe(
-      "join: Endpoints this close merge into one Anchor; farther ones get a straight segment.",
+      "In document units. join: Endpoints this close merge into one Anchor, farther ones get a straight segment; default 0.01. simplify: the most the result may stray from the path, above 0; default 1.",
     ),
+  cornerAngle: z
+    .number()
+    .min(0)
+    .max(180)
+    .default(90)
+    .describe(
+      "simplify: Illustrator's Corner Point Angle Threshold in degrees. Where the path turns so that the angle between its two sides is at most this (180 is straight on), a Corner Anchor stays; higher keeps more corners.",
+    ),
+  toLines: z
+    .boolean()
+    .default(false)
+    .describe("simplify: Convert to Straight Lines, fitting straight segments only."),
   axis: z
     .enum(["horizontal", "vertical", "both"])
     .default("both")
@@ -605,7 +619,7 @@ function join(doc: Document, input: z.output<typeof PathOpInput>): PathOpResult 
     const top = nodes.reduce((a, b) => ((order.get(b.id) ?? 0) > (order.get(a.id) ?? 0) ? b : a));
     const m = worldTransform(doc, top);
     const each = nodes.map((n) => anchorsIn(n, multiply(invert(m), worldTransform(doc, n))));
-    return { top, each, tolerance: input.tolerance / scaleOf(m) };
+    return { top, each, tolerance: (input.tolerance ?? 0.01) / scaleOf(m) };
   };
   const done = (top: WithAnchors, subpaths: Subpath[], nodes: WithAnchors[]): PathOpResult => {
     const next = { ...anchorsIn(top).path, d: formatPath(fromAnchors(subpaths)) };
@@ -734,9 +748,20 @@ export function pathOp(doc: Document, raw: PathOpInput): PathOpResult {
   if (op === "join") return join(doc, input);
   if (op === "average") return average(doc, input);
   const unique = allWithAnchors(doc, nodeIds);
+  if (op === "simplify" && input.tolerance === 0) {
+    throw invalid("tolerance", "Simplify needs a tolerance above 0.", "Omit it for 1 pt.");
+  }
   const updated = unique.map((found) => {
     const node = isLiveShape(found) ? toPath(found) : found;
     const subpaths = toAnchors(parsePath(node.d, "d"));
+    if (op === "simplify") {
+      const tolerance = (input.tolerance ?? 1) / scaleOf(worldTransform(doc, found));
+      const { cornerAngle, toLines } = input;
+      const d = subpaths.flatMap(
+        (s) => simplifySubpath(s, tolerance, cornerAngle, toLines) ?? fromAnchors([s]),
+      );
+      return { ...node, d: formatPath(d) };
+    }
     const next = op === "reverse" ? apply(subpaths, { op: "reverse" }, "") : addAnchors(subpaths);
     return { ...node, d: formatPath(fromAnchors(next)) };
   });

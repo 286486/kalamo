@@ -175,6 +175,8 @@ describe("write tools pass the write and its options apart", () => {
       nodeIds: ["r"],
       op: "join",
       tolerance: 0.5,
+      cornerAngle: 120,
+      toLines: true,
       axis: "vertical",
       anchors: [{ nodeId: "r", subpath: 0, index: 1 }],
     };
