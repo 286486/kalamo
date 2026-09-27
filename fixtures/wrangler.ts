@@ -10,7 +10,11 @@ export async function startServer(port: number, state: string): Promise<{ stop()
   const server = spawn(
     "wrangler",
     ["dev", "-c", "apps/edge/wrangler.jsonc", "--port", String(port), "--persist-to", state],
-    { detached: true, stdio: ["ignore", log, log] },
+    {
+      detached: true,
+      stdio: ["ignore", log, log],
+      env: { ...process.env, DEV_TOKENS: "dev-token-a=agent-a,dev-token-b=agent-b" },
+    },
   );
   const stop = () => {
     try {

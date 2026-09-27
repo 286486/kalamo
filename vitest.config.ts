@@ -2,6 +2,7 @@ import { cloudflareTest, readD1Migrations } from "@cloudflare/vitest-plugin";
 import { defineConfig } from "vitest/config";
 
 const migrations = await readD1Migrations("./apps/edge/migrations");
+process.env.DEV_TOKENS ??= "dev-token-a=agent-a,dev-token-b=agent-b";
 
 export default defineConfig({
   plugins: [

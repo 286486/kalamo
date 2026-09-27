@@ -19,7 +19,7 @@ export const permissionDenied = () =>
         message: "PERMISSION_DENIED",
         data: {
           code: "PERMISSION_DENIED",
-          hint: "Send Authorization: Bearer <dev token> with a token from DEV_TOKENS in apps/edge/wrangler.jsonc.",
+          hint: "Send Authorization: Bearer <dev token> with a token from DEV_TOKENS.",
         },
       },
     },

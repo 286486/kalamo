@@ -33,13 +33,27 @@ pnpm test:e2e # Playwright smoke test against its own wrangler dev (needs `pnpm 
 pnpm dev     # builds the web app, then wrangler dev: viewer at http://localhost:8787, MCP at /mcp
 ```
 
-Every MCP request needs `Authorization: Bearer <dev token>`. The dev tokens and the Agent Actor each one maps to are in `DEV_TOKENS` in [apps/edge/wrangler.jsonc](apps/edge/wrangler.jsonc). Documents are stored under `.wrangler/state` and survive a restart of `pnpm dev`. The viewer lists them at http://localhost:8787 and opens one at `/docs/<docId>`: Space-drag or scroll to pan, Ctrl+scroll or pinch to zoom, Z then click (Alt+click) to zoom in (out), Ctrl+0 to fit the Artboards, Ctrl+1 for 100%. Click an object to select it (Shift-click toggles, Alt+Shift-click removes) or drag a marquee over several; drag the Selection to move it, press Delete or Backspace to delete it, Ctrl+A to select all and Ctrl+Shift+A to deselect. Each move or delete is one Transaction by the Actor `user`. Ctrl+Z undoes the Document's latest Transaction, whoever made it, including an Agent's whole Transaction in one step, and Ctrl+Shift+Z redoes it; both are Transactions too. The viewer has no login in M0. The first `pnpm dev` asks once to apply the local D1 migration that indexes Documents.
+Every MCP request needs `Authorization: Bearer <dev token>`. Copy `apps/edge/.dev.vars.example` to `apps/edge/.dev.vars` and set the `DEV_TOKENS` token-to-Agent-Actor pairs. Documents are stored under `.wrangler/state` and survive a restart of `pnpm dev`. The viewer lists them at http://localhost:8787 and opens one at `/docs/<docId>`: Space-drag or scroll to pan, Ctrl+scroll or pinch to zoom, Z then click (Alt+click) to zoom in (out), Ctrl+0 to fit the Artboards, Ctrl+1 for 100%. Click an object to select it (Shift-click toggles, Alt+Shift-click removes) or drag a marquee over several; drag the Selection to move it, press Delete or Backspace to delete it, Ctrl+A to select all and Ctrl+Shift+A to deselect. Each move or delete is one Transaction by the Actor `user`. Ctrl+Z undoes the Document's latest Transaction, whoever made it, including an Agent's whole Transaction in one step, and Ctrl+Shift+Z redoes it; both are Transactions too. The viewer has no login in M0. The first `pnpm dev` asks once to apply the local D1 migration that indexes Documents.
 
 To connect Claude Code, copy [examples/claude-code.mcp.json](examples/claude-code.mcp.json) to `.mcp.json`, or run:
 
 ```sh
-claude mcp add --transport http zibel http://localhost:8787/mcp -H "Authorization: Bearer dev-token-a"
+claude mcp add --transport http zibel http://localhost:8787/mcp -H "Authorization: Bearer YOUR_TOKEN"
 ```
+
+## Cloudflare preview deployment
+
+The current M0 browser API has no login. Treat the `workers.dev` deployment as public and do not put sensitive documents there until M1 adds OAuth.
+
+```sh
+pnpm exec wrangler login
+cp apps/edge/.dev.vars.example apps/edge/.dev.vars # replace DEV_TOKENS with a long random token
+pnpm exec wrangler d1 create zibel --location apac --binding DB --update-config -c apps/edge/wrangler.jsonc
+pnpm deploy:check
+pnpm deploy
+```
+
+`pnpm deploy` builds the web app, applies remote D1 migrations, uploads `DEV_TOKENS` as an encrypted Worker secret, and deploys the Worker, Durable Object, and static assets. The resulting `workers.dev` URL needs no domain configuration; add a custom domain later in Cloudflare if wanted.
 
 ## What it is meant to do
 

@@ -19,7 +19,7 @@
   "durable_objects": {
     "bindings": [{ "name": "DOCUMENT", "class_name": "DocumentObject" }]
   },
-  // Local only until M1 creates the hosted database.
+  // `wrangler d1 create zibel --binding DB --update-config` replaces this id for hosting.
   "d1_databases": [
     {
       "binding": "DB",
@@ -29,8 +29,6 @@
     }
   ],
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["DocumentObject"] }],
-  // Dev tokens for local Agent Actors, `token=actor` pairs. Replaced by OAuth in M1.
-  "vars": {
-    "DEV_TOKENS": "dev-token-a=agent-a,dev-token-b=agent-b"
-  }
+  // `token=actor` pairs in apps/edge/.dev.vars locally and an encrypted Worker secret remotely.
+  "secrets": { "required": ["DEV_TOKENS"] }
 }

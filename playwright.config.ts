@@ -18,6 +18,10 @@ export default defineConfig({
     reuseExistingServer: false,
     timeout: 120_000,
     // Non-interactive: wrangler applies the migration without asking and sends no metrics.
-    env: { CI: "1", WRANGLER_SEND_METRICS: "false" },
+    env: {
+      CI: "1",
+      DEV_TOKENS: "dev-token-a=agent-a,dev-token-b=agent-b",
+      WRANGLER_SEND_METRICS: "false",
+    },
   },
 });

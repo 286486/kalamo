@@ -1,0 +1,2 @@
+# Comma-separated token=actor pairs. Replace the token before deploying.
+DEV_TOKENS="replace-with-a-long-random-token=agent-a"
