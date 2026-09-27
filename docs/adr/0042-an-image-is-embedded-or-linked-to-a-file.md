@@ -18,7 +18,8 @@ Inkscape and Illustrator SVGs often link their photos (`xlink:href="photo.png"`)
 
 - `node_create` image takes `file`. `src` may then be left out, and `width` and `height` are required, because a missing link has no pixel size to default to. `file` together with `src` makes a linked Image with pixels. Embedded creation is unchanged.
 - `node_get` `full` returns `file` when present and `src` when present, never bytes. An Agent finds the Images that need relinking as those with `file` and no `src`.
-- `node_update` of `src` and `file` (Relink and Embed) and the import of linked `<image>`s are #101 and #99. `image_place` stays embed-only (ADR-0027).
+- `node_update` of `src` and `file` (Relink and Embed) is #101. `image_place` stays embed-only (ADR-0027).
+- `doc_open` and `svg_import` read linked `<image>`s (below). `LINKED_IMAGE_DROPPED` is gone; the import warning `IMAGE_LINK_MISSING` joins, reported once per import.
 
 ## SVG
 
@@ -27,7 +28,13 @@ The writer takes a choice of how a linked Image is drawn, so one SVG writer serv
 - **`link`**, the default, is used by `export` SVG, Download SVG and Copy. It writes `<image … xlink:href="<file>">`, with `xlink:` because Inkscape 1.2.2 draws nothing for a plain `href` (ADR-0023). A linked Image with pixels also carries `zibel:src="<id>"`, so a paste into the same Document gets its pixels back. The pixels themselves are never written. An embedded Image is written as before.
 - **`draw`** is used by `render` and `export` PNG. It writes a linked Image's stored pixels as a data URL, as for an embedded one. A missing link is drawn the way Illustrator draws an unresolved placed file: its frame and both diagonals in a grey (`#999999`) one-pixel stroke, with the Image's id, opacity and visibility. The Image's transform is applied to the points rather than written as `transform`, so the stroke stays one pixel however the Image is scaled. resvg does not honour `vector-effect: non-scaling-stroke` (measured: a 2x Image drew a 2 px line).
 
-Inkscape 1.2.2 keeps a relative `xlink:href`, the frame, `preserveAspectRatio` and `zibel:src` on save, even when the file is not beside the SVG (measured headless). It shows its own broken-image icon where Zibel draws the crossed frame.
+Inkscape 1.2.2 keeps a relative `xlink:href`, the frame, `preserveAspectRatio` and `zibel:src` on save, even when the file is not beside the SVG (measured headless). It shows its own broken-image icon where Zibel draws the crossed frame. `pnpm roundtrip` checks this with a missing link to `photos/red.png`. Saved into another folder, Inkscape rewrites a relative href against that folder (`../photos/red.png`), so the round trip saves over its input.
+
+Import (#99):
+
+- An `<image>` whose `xlink:href` or `href` is not a `data:` URL becomes a linked Image with `file` set to the trimmed href. The frame, transform and `preserveAspectRatio` follow the embedded `<image>` rules (ADR-0023). An empty href, or one `file` refuses, is dropped with `INVALID_IMAGE`. Nothing is fetched, so `doc_open` and `svg_import` stay closed-world. `sodipodi:absref` is neither read nor written.
+- A `zibel:src` holding an image id is offered as the Image's `src`, and is kept only when the target Document holds that image. For Open that is the file's own embedded images; for Place, which Copy and Paste use, the Document's images once the file's are stored. So a linked Image pasted into its own Document keeps its pixels, and one pasted into another Document arrives as a missing link.
+- Every linked Image that comes in without pixels makes the warning `IMAGE_LINK_MISSING`. One without `width` or `height` takes the missing size from its resolved pixels, and is dropped with `INVALID_IMAGE` when there are none, since nothing else gives its size.
 
 ## `.zibel.json`
 

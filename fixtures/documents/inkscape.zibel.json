@@ -858,6 +858,26 @@
       "y": 40
     },
     {
+      "blendMode": "normal",
+      "file": "photos/red.png",
+      "height": 12,
+      "id": "01M38T29SQ11NKED1MAGE00000",
+      "index": "ag",
+      "locked": false,
+      "meta": {},
+      "name": "Missing link",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "preserveAspectRatio": "xMidYMid meet",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "image",
+      "visible": true,
+      "width": 16,
+      "x": 530,
+      "y": 40
+    },
+    {
       "appearance": {
         "fills": [],
         "strokes": []

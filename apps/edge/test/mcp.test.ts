@@ -496,6 +496,31 @@ it("places a PNG as an Image: node_get has its id, render draws it, export and o
   expect(back.nodes[0]).toMatchObject({ src: nodes[0].src });
 });
 
+it("opens an SVG that links its photos as missing links, with one warning (ADR-0042)", async () => {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:zibel="https://zibel.dev/ns/svg" width="100" height="100"><image x="5" y="5" width="30" height="20" xlink:href="photo.png"/><image width="10" height="10" href="b.png" zibel:src="${"a".repeat(64)}"/><image href="unsized.png"/></svg>`;
+  const opened = (await call("zibel_doc_open", { content: svg })).structuredContent;
+  expect(opened.warnings.map((w: { code: string }) => w.code).sort()).toEqual([
+    "IMAGE_LINK_MISSING",
+    "INVALID_IMAGE",
+  ]);
+  const [layer] = opened.nodes;
+  const { nodes } = (
+    await call("zibel_doc_outline", { docId: opened.docId, rootId: layer.id, depth: 1 })
+  ).structuredContent;
+  const full = (
+    await call("zibel_node_get", {
+      docId: opened.docId,
+      nodeIds: nodes.map((n: { id: string }) => n.id),
+      detail: "full",
+    })
+  ).structuredContent.nodes;
+  expect(full).toMatchObject([
+    { type: "image", file: "photo.png", x: 5, y: 5, width: 30, height: 20 },
+    { type: "image", file: "b.png" },
+  ]);
+  expect(full.some((n: object) => "src" in n)).toBe(false);
+});
+
 it("creates a missing link from file and a frame (ADR-0042)", async () => {
   const { docId, defaultLayerId: parentId } = await newDoc();
   const missing = {
@@ -1288,7 +1313,8 @@ it("places an SVG as one Group under the parent, and refuses a .zibel.json", asy
     ["group", "Layer 1"],
     ["group", "Guides"],
   ]);
-  expect(warnings).toEqual([]);
+  // The fixture's one missing link; its other Images are embedded.
+  expect(warnings).toMatchObject([{ code: "IMAGE_LINK_MISSING" }]);
   // The export's z-<id> ids are not reused.
   expect(createdIds.filter((id: string) => exported.includes(`z-${id}`))).toEqual([]);
 

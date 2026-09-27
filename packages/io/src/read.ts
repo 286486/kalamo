@@ -8,10 +8,13 @@ import {
   canonicalRanges,
   cssColor,
   type Fill,
+  fileProblem,
   fontStyleName,
   formatPath,
   IDENTITY,
+  IMAGE_ID,
   type ImageFile,
+  type ImageInfo,
   invert,
   type Matrix,
   MIGRATIONS,
@@ -64,6 +67,18 @@ export interface OpenedFile {
   warnings: Warning[];
   /** The Render Scope a Zibel SVG export was written at, from `zibel:scope`; absent at doc scope. */
   scope?: RenderScope;
+  /** Each linked Image's `zibel:src`, by Node id, until `resolveLinks` (ADR-0042). */
+  links?: Map<string, Link>;
+}
+
+/**
+ * The pixels a linked `<image>` names by `zibel:src`, which the target Document may hold. `size` is
+ * there when `width` or `height` was absent: the frame then takes the pixel size, so the Image's
+ * frame is a placeholder until then.
+ */
+interface Link {
+  src: string;
+  size?: { scale: number; width: number | undefined; height: number | undefined };
 }
 
 const invalid = (message: string) =>
@@ -237,6 +252,11 @@ interface Context {
  */
 export const MAX_DEPTH = 256;
 
+const MISSING =
+  "Some linked images came in as missing links, drawn as crossed frames: Zibel fetches nothing, so it has no pixels for them. Relink each to its file.";
+const UNSIZED =
+  "An <image> was dropped: a linked image without width and height has no size until its file is read.";
+
 const zibelAttr = (e: Element, name: ZibelAttr) => e.getAttributeNS(NS.zibel, name);
 
 const CAPS = ["butt", "round", "square"];
@@ -248,6 +268,7 @@ class Reader {
   readonly warnings = new Map<string, Warning>();
   /** Each embedded file, under the key its Images' `src` holds until `resolveImages`. */
   readonly images = new Map<string, ImageFile>();
+  readonly links = new Map<string, Link>();
   private readonly keys = new Map<string, string>();
   private readonly last = new Map<string | null, string | null>();
   private readonly ids = new Set<string>();
@@ -405,8 +426,9 @@ class Reader {
     if (zibelAttr(e, "background")) return;
     let shape: Record<string, unknown> | null;
     let appearance: Appearance | undefined;
+    let link: Link | undefined;
     if (tag === "image") {
-      shape = this.image(e, matrix);
+      ({ shape, link } = this.image(e, matrix) ?? { shape: null });
     } else if (stack) {
       // One Node painted several times: its geometry from the first paint, its Fills, then its
       // Strokes, in order (ADR-0017).
@@ -439,6 +461,7 @@ class Reader {
     // visibility inherits, unlike display, so it hides a leaf rather than its Group.
     if (style.visibility === "hidden" || style.visibility === "collapse") base.visible = false;
     this.add({ ...base, ...shape, ...(appearance && { appearance }) } as Node);
+    if (link) this.links.set(base.id, link);
     if (clip) this.clipping(clip, parentId, matrix);
   }
 
@@ -1028,42 +1051,18 @@ class Reader {
   }
 
   /**
-   * An embedded `<image>`'s parameters (ADR-0023): its frame, baked as a rect's, and its file under
-   * a key of this read. A linked file, or one Zibel cannot hold, is dropped with a warning.
+   * An `<image>`'s parameters: its frame, baked as a rect's, and an embedded file under a key of
+   * this read (ADR-0023), or a linked file's href and `zibel:src` (ADR-0042). One Zibel cannot hold
+   * is dropped with a warning.
    */
-  private image(e: Element, m: Matrix): Record<string, unknown> | null {
+  private image(e: Element, m: Matrix): { shape: Record<string, unknown>; link?: Link } | null {
     const href = (e.getAttribute("href") || e.getAttributeNS(NS.xlink, "href") || "").trim();
-    if (!href.startsWith("data:")) {
-      this.warn(
-        "LINKED_IMAGE_DROPPED",
-        "",
-        "An <image> that links a file was dropped: Zibel embeds images and fetches nothing. Embed it in the editor, then save again.",
-      );
-      return null;
-    }
-    let file: ImageFile;
-    try {
-      file = readImage(href, "src");
-    } catch (err) {
-      if (!(err instanceof ZibelError)) throw err;
-      this.warn("INVALID_IMAGE", "", `An <image> was dropped: ${err.data.message}`);
-      return null;
-    }
-    const width = length(e.getAttribute("width")) ?? file.width;
-    const height = length(e.getAttribute("height")) ?? file.height;
-    // SVG draws nothing for an image with no area.
-    if (!(width > 0 && height > 0)) return null;
-    let src = this.keys.get(href);
-    if (src === undefined) {
-      src = `pending:${this.keys.size}`;
-      this.keys.set(href, src);
-    }
-    this.images.set(src, file);
+    const w = length(e.getAttribute("width"));
+    const h = length(e.getAttribute("height"));
     const bake = bakes(m);
     const [k, , , , tx, ty] = bake ? m : IDENTITY;
-    return {
+    const frame = (width: number, height: number) => ({
       type: "image",
-      src,
       x: n3(k * (length(e.getAttribute("x")) ?? 0) + tx),
       y: n3(k * (length(e.getAttribute("y")) ?? 0) + ty),
       width: n3(k * width),
@@ -1072,7 +1071,48 @@ class Reader {
       preserveAspectRatio:
         preserveAspectRatio(e.getAttribute("preserveAspectRatio") ?? "") ?? "xMidYMid meet",
       transform: bake ? [...IDENTITY] : round(m),
+    });
+    const drop = (message: string) => {
+      this.warn("INVALID_IMAGE", "", `An <image> was dropped: ${message}`);
+      return null;
     };
+    if (!href.startsWith("data:")) {
+      const problem = fileProblem(href);
+      if (problem) return drop(problem);
+      // SVG draws nothing for an image with no area.
+      if (w === 0 || h === 0) return null;
+      const src = zibelAttr(e, "src") ?? "";
+      if (IMAGE_ID.test(src) && (w === undefined || h === undefined)) {
+        return {
+          shape: { ...frame(1, 1), file: href },
+          link: { src, size: { scale: k, width: w, height: h } },
+        };
+      }
+      if (w === undefined || h === undefined) {
+        this.warn("INVALID_IMAGE", "", UNSIZED);
+        return null;
+      }
+      if (IMAGE_ID.test(src)) return { shape: { ...frame(w, h), file: href }, link: { src } };
+      this.warn("IMAGE_LINK_MISSING", "", MISSING);
+      return { shape: { ...frame(w, h), file: href } };
+    }
+    let file: ImageFile;
+    try {
+      file = readImage(href, "src");
+    } catch (err) {
+      if (!(err instanceof ZibelError)) throw err;
+      return drop(err.data.message);
+    }
+    const width = w ?? file.width;
+    const height = h ?? file.height;
+    if (!(width > 0 && height > 0)) return null;
+    let src = this.keys.get(href);
+    if (src === undefined) {
+      src = `pending:${this.keys.size}`;
+      this.keys.set(href, src);
+    }
+    this.images.set(src, file);
+    return { shape: { ...frame(width, height), src } };
   }
 
   /** A shape element's parameters in document coordinates, with the transform it keeps. */
@@ -1279,5 +1319,51 @@ export function parseSvg(text: string, nameHint?: string): OpenedFile {
     reader.images,
   );
   const scope = scopeOf(zibelAttr(root, "scope"));
-  return { ...file, warnings: [...reader.warnings.values()], ...(scope && { scope }) };
+  return {
+    ...file,
+    warnings: [...reader.warnings.values()],
+    ...(scope && { scope }),
+    ...(reader.links.size && { links: reader.links }),
+  };
+}
+
+/**
+ * `file` with each linked Image's `zibel:src` kept when `held` knows that image, the Document it
+ * goes into holding it (ADR-0042). The rest are missing links; one without a size is dropped.
+ */
+export function resolveLinks(
+  file: OpenedFile,
+  held: (id: string) => ImageInfo | undefined,
+): OpenedFile {
+  const { links, ...rest } = file;
+  if (!links) return file;
+  const warnings = [...file.warnings];
+  const warn = (code: string, message: string) => {
+    if (!warnings.some((w) => w.code === code)) warnings.push({ code, message });
+  };
+  const nodes = file.nodes.flatMap((n): Node[] => {
+    const link = links.get(n.id);
+    if (!link || n.type !== "image") return [n];
+    const info = held(link.src);
+    if (!info) {
+      if (!link.size) {
+        warn("IMAGE_LINK_MISSING", MISSING);
+        return [n];
+      }
+      warn("INVALID_IMAGE", UNSIZED);
+      return [];
+    }
+    const { size } = link;
+    return [
+      {
+        ...n,
+        src: link.src,
+        ...(size && {
+          width: n3(size.scale * (size.width ?? info.width)),
+          height: n3(size.scale * (size.height ?? info.height)),
+        }),
+      },
+    ];
+  });
+  return { ...rest, nodes, warnings };
 }

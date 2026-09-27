@@ -12,7 +12,7 @@ import {
 } from "@zibel/core";
 import { describe, expect, it } from "vitest";
 import { RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
-import { MAX_DEPTH, parseFile, parseSvg, SVG_LIMIT, toSvg } from "./index.ts";
+import { MAX_DEPTH, parseFile, parseSvg, resolveLinks, SVG_LIMIT, toSvg } from "./index.ts";
 
 const errorOf = (fn: () => unknown) => {
   try {
@@ -1172,8 +1172,62 @@ describe("<image>", () => {
     expect([...file.images.keys()]).toEqual(["pending:0"]);
   });
 
+  it("reads a linked image as a missing link: its trimmed href as file, the frame as embedded", () => {
+    const file = open(
+      `<image transform="translate(10 20) scale(2)" width="4" height="3" preserveAspectRatio="xMinYMin slice" xlink:href=" photos/a b.png " sodipodi:absref="/home/me/photos/a b.png"/><image href="https://example.com/b.jpg" width="1" height="1"/>`,
+    );
+    const [a, b] = images(file);
+    expect(a).toMatchObject({
+      file: "photos/a b.png",
+      x: 10,
+      y: 20,
+      width: 8,
+      height: 6,
+      preserveAspectRatio: "xMinYMin slice",
+    });
+    expect(a).not.toHaveProperty("src");
+    expect(b).toMatchObject({
+      file: "https://example.com/b.jpg",
+      preserveAspectRatio: "xMidYMid meet",
+    });
+    expect(file.images.size).toBe(0);
+    expect(file.warnings).toEqual([expect.objectContaining({ code: "IMAGE_LINK_MISSING" })]);
+  });
+
+  const ID = "a".repeat(64);
+  const PIXELS = { mime: "image/png" as const, width: 2, height: 3 };
+
+  it("gives a linked image its zibel:src only when the Document holds that image", () => {
+    const body = `<image width="4" height="3" href="a.png" zibel:src="${ID}"/><image width="4" height="3" href="b.png" zibel:src="${"b".repeat(64)}"/>`;
+    const file = open(body);
+    expect(images(file).map((n) => n.src)).toEqual([undefined, undefined]);
+    expect(file.warnings).toEqual([]);
+
+    const held = resolveLinks(file, (id) => (id === ID ? PIXELS : undefined));
+    expect(images(held).map((n) => [n.file, n.src])).toEqual([
+      ["a.png", ID],
+      ["b.png", undefined],
+    ]);
+    expect(held.warnings).toEqual([expect.objectContaining({ code: "IMAGE_LINK_MISSING" })]);
+    expect(
+      images(resolveLinks(open(body.slice(0, body.indexOf("/>") + 2)), () => PIXELS)),
+    ).toMatchObject([{ src: ID }]);
+    expect(resolveLinks(open(body), () => PIXELS).warnings).toEqual([]);
+  });
+
+  it("sizes an unsized linked image from its resolved pixels, and drops it without them", () => {
+    const body = `<image transform="scale(2)" width="5" href="a.png" zibel:src="${ID}"/>`;
+    const [image] = images(resolveLinks(open(body), () => PIXELS));
+    expect(image).toMatchObject({ src: ID, width: 10, height: 6 });
+
+    const missing = resolveLinks(open(body), () => undefined);
+    expect(images(missing)).toEqual([]);
+    expect(missing.warnings).toEqual([expect.objectContaining({ code: "INVALID_IMAGE" })]);
+  });
+
   it.each([
-    ["a linked file", '<image href="photo.png" width="1" height="1"/>', "LINKED_IMAGE_DROPPED"],
+    ["a linked file without width", '<image href="photo.png" height="1"/>', "INVALID_IMAGE"],
+    ["an empty href", '<image href=" " width="1" height="1"/>', "INVALID_IMAGE"],
     ["a WebP", `<image href="${WEBP_HEADER}" width="1" height="1"/>`, "INVALID_IMAGE"],
   ])("drops %s with a warning", (_, body, code) => {
     const file = open(body);
