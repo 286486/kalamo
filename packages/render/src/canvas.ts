@@ -25,6 +25,7 @@ import {
   shapeSegments,
   type TextNode,
   transformSegments,
+  unscaledStroke,
   worldTransform,
 } from "@zibel/core";
 
@@ -257,8 +258,7 @@ function paint(ctx: Canvas2D, n: Node, scene: Scene) {
         pen(ctx, s);
         over(
           (t, k) => {
-            // The width is in document units, which the text's own scale must not grow.
-            if (k !== 1) pen(ctx, { ...s, width: s.width / k, dash: s.dash.map((d) => d / k) });
+            if (k !== 1) pen(ctx, unscaledStroke(s, k));
             text(ctx, t, (c, x, y) => ctx.strokeText(c, x, y));
           },
           () => ctx.stroke(),

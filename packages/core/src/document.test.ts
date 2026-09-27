@@ -1397,6 +1397,23 @@ describe("container Appearance (ADR-0043)", () => {
     expect(visibleBounds(doc, group)).toEqual({ x: 5, y: 5, width: 60, height: 40 });
   });
 
+  it("cuts the Stroke on an inner Clipping Mask's leaf to its Clipping Path in visibleBounds", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const box = (x: number) => ({ type: "rect" as const, x, y: 0, width: 10, height: 10 });
+    const [group, clipped, clip] = createNodes(doc, [
+      {
+        type: "group",
+        parentId: defaultLayerId,
+        appearance: { strokes: [stroke(4)] },
+        children: [box(20), box(25)],
+      },
+    ]).nodes;
+    if (!group || !clipped || !clip) throw new Error("setup");
+    makeMask(doc, { clipNodeId: clip.id, contentIds: [clipped.id] });
+    // Grown on every side the leaf would reach 18; its clip, which the mask reports, starts at 25.
+    expect(visibleBounds(doc, group)).toEqual({ x: 25, y: 0, width: 10, height: 10 });
+  });
+
   it("grows visibleBounds around a text child by half the container Stroke", () => {
     const { doc, defaultLayerId } = newDoc();
     const [group, text] = createNodes(doc, [

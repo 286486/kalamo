@@ -33,6 +33,7 @@ import {
   textBox,
   transformSegments,
   union,
+  unscaledStroke,
   visibleBounds,
   worldTransform,
   ZibelError,
@@ -466,14 +467,7 @@ function containerPaints(doc: Document, n: LayerNode | GroupNode): string[] {
               transform: m.every((v, i) => v === IDENTITY[i])
                 ? undefined
                 : `matrix(${round(m).join(" ")})`,
-              // The width is in document units, which the text's own scale must not grow.
-              ...(stroke &&
-                k !== 1 &&
-                strokeStyle({
-                  ...stroke,
-                  width: stroke.width / k,
-                  dash: stroke.dash.map((d) => d / k),
-                })),
+              ...(stroke && k !== 1 && strokeStyle(unscaledStroke(stroke, k))),
             },
             [],
           );

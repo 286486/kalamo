@@ -485,6 +485,13 @@ export function paintedLeaves(
   });
 }
 
+/**
+ * A container Stroke as a leaf drawn at `scale` must draw it: its width and dash are in document
+ * units, which the leaf's own transform would grow (ADR-0043).
+ */
+export const unscaledStroke = (s: Stroke, scale: number): Stroke =>
+  scale === 1 ? s : { ...s, width: s.width / scale, dash: s.dash.map((d) => d / scale) };
+
 /** A container's Appearance, empty when it has none. */
 export const containerAppearance = (n: LayerNode | GroupNode): ContainerAppearance =>
   n.appearance ?? { fills: [], strokes: [], contents: 0 };
@@ -546,8 +553,16 @@ export function visibleBounds(doc: Document, node: Node): Rect | null {
     const clip = node.type === "group" ? clipAmong(children) : undefined;
     if (clip) return bounds(doc, clip);
     const grow = Math.max(0, ...containerAppearance(node).strokes.map((s) => s.width)) / 2;
+    // A leaf inside an inner Clipping Mask paints only within its Clipping Paths.
     const painted =
-      grow > 0 ? paintedLeaves(doc, node).map((l) => grown(pathBounds(l.segments), grow)) : [];
+      grow > 0
+        ? paintedLeaves(doc, node).map((l) =>
+            l.clips.reduce(
+              (b, c) => intersection(b, pathBounds(c.segments)),
+              grown(pathBounds(l.segments), grow),
+            ),
+          )
+        : [];
     return union([...children.map((c) => visibleBounds(doc, c)), ...painted]);
   }
   const b = bounds(doc, node);
@@ -559,6 +574,15 @@ export function visibleBounds(doc: Document, node: Node): Rect | null {
     scaleOf(worldTransform(doc, node));
   return grown(b, grow);
 }
+
+const intersection = (a: Rect | null, b: Rect | null): Rect | null => {
+  if (!a || !b) return null;
+  const x = Math.max(a.x, b.x);
+  const y = Math.max(a.y, b.y);
+  const right = Math.min(a.x + a.width, b.x + b.width);
+  const bottom = Math.min(a.y + a.height, b.y + b.height);
+  return right < x || bottom < y ? null : { x, y, width: right - x, height: bottom - y };
+};
 
 const grown = (b: Rect | null, by: number): Rect | null =>
   b && { x: b.x - by, y: b.y - by, width: b.width + 2 * by, height: b.height + 2 * by };
