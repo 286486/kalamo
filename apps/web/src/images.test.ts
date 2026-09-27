@@ -12,7 +12,7 @@ function scene() {
   for (const id of [a, b]) doc.images.set(id, { mime: "image/png", width: 2, height: 2 });
   const image = (src: string, x: number) => ({ type: "image", parentId, src, x, y: 0 }) as const;
   createNodes(doc, [image(a, 0), image(a, 5), image(b, 10)]);
-  return { doc, a, b };
+  return { doc, a, b, parentId };
 }
 
 const io = () => ({
@@ -70,4 +70,17 @@ it("does not fetch a failed file again on every redraw", async () => {
   deps.fetch.mockImplementation(async (url: string) => new Response(new Blob([url])));
   await cache.ready(doc);
   expect(cache.get(a)).toBeDefined();
+});
+
+it("fetches only the files some Image's src names, not a missing link", async () => {
+  const { doc, parentId } = scene();
+  createNodes(doc, [
+    { type: "image", parentId, file: "gone.png", x: 0, y: 0, width: 4, height: 4 },
+  ]);
+  const deps = io();
+  const cache = imageCache("D", () => {}, deps);
+  cache.want(doc);
+  await cache.ready(doc);
+  expect(deps.fetch).toHaveBeenCalledTimes(2);
+  expect(deps.fetch.mock.calls.every(([url]) => !url.endsWith("undefined"))).toBe(true);
 });

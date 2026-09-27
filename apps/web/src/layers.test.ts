@@ -120,3 +120,24 @@ it("names an Image as Illustrator names an embedded one", () => {
     .nodes as [Node];
   expect(autoName(doc, image)).toBe("<Image>");
 });
+
+it("names a linked Image <Linked File>, with or without its pixels", () => {
+  const { doc, defaultLayerId: parentId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 200, height: 100 }],
+  });
+  const src = "a".repeat(64);
+  doc.images.set(src, { mime: "image/png", width: 2, height: 2 });
+  const frame = {
+    type: "image",
+    parentId,
+    file: "a.png",
+    x: 0,
+    y: 0,
+    width: 2,
+    height: 2,
+  } as const;
+  const images = createNodes(doc, [frame, { ...frame, src }]).nodes as Node[];
+  expect(images.map((n) => autoName(doc, n))).toEqual(["<Linked File>", "<Linked File>"]);
+});
