@@ -1,6 +1,7 @@
 import {
   formatNumber,
   formatPath,
+  type OffsetStyle,
   parsePath,
   pathBounds,
   type Segment,
@@ -9,7 +10,7 @@ import {
 } from "@zibel/core";
 import { svgToPixels } from "@zibel/render";
 import { describe, expect, it } from "vitest";
-import { loadGeometry, offsetPath } from "./index.ts";
+import { loadGeometry } from "./index.ts";
 
 const K = 0.5522847498;
 /** A circle as four cubics, the way core draws an ellipse. */
@@ -30,6 +31,15 @@ const cmds = (s: Segment[]) => new Set(s.map((x) => x.cmd));
 const square = parsePath("M 0 0 L 100 0 L 100 100 L 0 100 Z", "d");
 
 describe("offsetPath in workerd (ADR-0034)", () => {
+  const offsetPath = async (segments: Segment[], style: Partial<OffsetStyle>) =>
+    (await loadGeometry()).offsetPath(segments, {
+      distance: 0,
+      join: "miter",
+      miterLimit: 4,
+      fillRule: "nonzero",
+      ...style,
+    });
+
   it("grows a circle and keeps it curved", async () => {
     const out = await offsetPath(circle(50, 50, 40), { distance: 10, join: "round" });
     expect(bounds(out)).toEqual({ x: "0", y: "0", width: "100", height: "100" });
@@ -66,6 +76,21 @@ describe("offsetPath in workerd (ADR-0034)", () => {
 
   it("returns no segments when the shape shrinks away", async () => {
     expect(await offsetPath(square, { distance: -60, join: "miter" })).toEqual([]);
+  });
+
+  // Skia's result winds a hole as its outer contour, so only evenodd leaves it empty.
+  it("closes a C shape's gap into a hole that evenodd leaves empty", async () => {
+    const c =
+      "M 0 0 L 48 0 L 48 20 L 20 20 L 20 80 L 80 80 L 80 20 L 52 20 L 52 0 L 100 0 L 100 100 L 0 100 Z";
+    const d = formatPath(await offsetPath(parsePath(c, "d"), { distance: 5 }));
+    /** Alpha at (55, 55), the hole's middle, and (55, 100), inside the ring, filled by `rule`. */
+    const alphas = async (rule: string) => {
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="110" height="110"><path transform="translate(5 5)" d="${d}" fill-rule="${rule}"/></svg>`;
+      const { pixels, width } = await svgToPixels(svg, 1);
+      return [55 * width + 55, 100 * width + 55].map((i) => pixels[i * 4 + 3]);
+    };
+    expect(await alphas("evenodd")).toEqual([0, 255]);
+    expect(await alphas("nonzero")).toEqual([255, 255]);
   });
 
   it("fails with BOOLEAN_FAILED instead of bad geometry", async () => {

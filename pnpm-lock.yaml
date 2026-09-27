@@ -223,6 +223,9 @@ importers:
       '@zibel/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@zibel/geometry':
+        specifier: workspace:*
+        version: link:../../packages/geometry
       '@zibel/io':
         specifier: workspace:*
         version: link:../../packages/io

@@ -152,3 +152,68 @@ test("Simplify previews on its bar and commits once on OK; More Options converts
   await expect.poll(d).toMatch(/^M [\d. ]+( L [\d. ]+)+$/);
   expect(await segments()).toBeLessThan(60);
 });
+
+// #88: Object > Path > Offset Path….
+test("Offset Path previews the copy, adds it below on OK, and one Undo takes it away", async ({
+  page,
+  request,
+}) => {
+  const { docId, defaultLayerId: parentId } = (
+    await call(request, "zibel_doc_create", {
+      name: "Offset",
+      artboards: [{ width: 200, height: 100 }],
+    })
+  ).structuredContent;
+  const [id] = (
+    await call(request, "zibel_node_create", {
+      docId,
+      nodes: [
+        {
+          type: "rect",
+          parentId,
+          x: 50,
+          y: 25,
+          width: 100,
+          height: 50,
+          appearance: { fills: [{ color: "#FF0000" }] },
+        },
+      ],
+    })
+  ).structuredContent.createdIds as [string];
+  // The Layer's children, bottom to top.
+  const layer = async () =>
+    (await call(request, "zibel_doc_outline", { docId, rootId: parentId, depth: 1 }))
+      .structuredContent?.nodes as { id: string }[];
+
+  await page.goto(`/docs/${docId}`);
+  await expect(page.getByTestId("status-bar")).toContainText(/\d+%/);
+  await page.keyboard.press("Control+1");
+  await expect(page.getByTestId("status-bar")).toContainText("100%");
+  // Red at 5 pt left of the rect, inside where a 10 pt offset reaches.
+  const red = () =>
+    page.locator("canvas").evaluate((el: HTMLCanvasElement) => {
+      const k = el.width / el.getBoundingClientRect().width;
+      const [x, y] = [(el.width / k / 2 - 55) * k, (el.height / k / 2) * k];
+      return el.getContext("2d")?.getImageData(x, y, 1, 1).data[1] === 0;
+    });
+  expect(await red()).toBe(false);
+
+  await page.keyboard.press("Control+a");
+  await choose(page, "Object", "Path", "Offset Path…");
+  const dialog = page.getByRole("dialog", { name: "Offset Path" });
+  await expect(dialog.getByLabel("Offset")).toHaveValue("10");
+  await expect(dialog.getByLabel("Miter limit")).toHaveValue("4");
+  await dialog.getByLabel("Preview").check();
+  await expect.poll(red).toBe(true);
+  // Only a preview: Cancel sends nothing.
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect.poll(red).toBe(false);
+  expect(await layer()).toHaveLength(1);
+
+  await choose(page, "Object", "Path", "Offset Path…");
+  await dialog.getByRole("button", { name: "OK" }).click();
+  await expect.poll(async () => (await layer()).map((n) => n.id === id)).toEqual([false, true]);
+  expect(await red()).toBe(true);
+  await page.keyboard.press("Control+z");
+  await expect.poll(async () => (await layer()).length).toBe(1);
+});

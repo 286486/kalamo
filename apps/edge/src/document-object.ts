@@ -570,7 +570,8 @@ export class DocumentObject extends DurableObject<Env> {
     actor: string,
     opts: Options = {},
   ): Promise<Result<WriteReceipt>> {
-    const geometry = input.op === "outline_stroke" ? await this.geometry() : undefined;
+    const geometry =
+      input.op === "outline_stroke" || input.op === "offset" ? await this.geometry() : undefined;
     const { summary } = PATH_OP_TEXT[input.op];
     return this.write(actor, opts, summary, (doc) => ({
       ...pathOp(doc, input, geometry),

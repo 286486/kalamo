@@ -244,7 +244,7 @@ Sources:
 | 1 | Join | Ctrl+J / Cmd+J [A] | See the Join details below this table. |
 | 2 | Average… | Alt+Ctrl+J / Opt+Cmd+J [A] | Dialog with an Axis choice of Horizontal, Vertical or Both. Moves the selected anchors (two or more, on one or several paths) to their average position on that axis. [A] "Horizontal" puts the points on a horizontal line (same Y) [U: Adobe's wording "horizontal (X) axis only" is ambiguous]. |
 | 3 | Outline Stroke | none | Turns the stroke into a filled compound path of the stroke's outline. If the object also has a fill, "the resulting Compound Path is grouped with the filled object." [A] |
-| 4 | Offset Path… | none | Dialog: **Offset** (signed distance; negative goes inward; shown as 10 px in the doc screenshot), **Joins** (Miter, Round, Bevel), **Miter limit** (4 in the screenshot), Preview. Creates a *new* offset copy and keeps the original. [A] Where the copy sits in the stack is [U]. |
+| 4 | Offset Path… | none | Dialog: **Offset** (signed distance; negative goes inward; shown as 10 px in the doc screenshot), **Joins** (Miter, Round, Bevel), **Miter limit** (4 in the screenshot), Preview. Creates a *new* offset copy and keeps the original. [A] Where the copy sits in the stack is [U]; Zibel puts it directly below, as Inkscape's Linked Offset does (ADR-0039). |
 | 5 | Reverse Path Direction | none | Reverses the anchor order, and so the start and end, of the selected paths. Arrowheads, brushes and type on a path flip. [C] Before this command, only compound paths could be reversed, through the Attributes panel. [C] |
 | 6 | Simplify… | none [A: none listed] | See the Simplify details below this table. |
 | 7 | Smooth | none | On-canvas slider from Minimum to Maximum smoothing, plus Auto-Smooth. Applies to the whole path or to the anchors selected with Direct Selection. [A] Position in the menu [U]. |
@@ -340,4 +340,4 @@ Source: https://helpx.adobe.com/illustrator/using/default-keyboard-shortcuts.htm
 3. Exact positions of Reverse Path Direction and Smooth in Object > Path.
 4. The Pencil option defaults (15 px close, 12 px edit, Keep selected on).
 5. How the Curvature tool closes a path (clicking the first point?).
-6. Where Offset Path puts the new object in the stacking order.
+6. Where Offset Path puts the new object in the stacking order. Not verified live; Zibel puts it directly below the original, as Inkscape's Linked Offset does (ADR-0039).

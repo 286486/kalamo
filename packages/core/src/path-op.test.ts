@@ -4,7 +4,14 @@ import { toAnchors } from "./anchor.ts";
 import { childrenOf, createDocument, createNodes } from "./document.ts";
 import { ZibelError } from "./errors.ts";
 import { formatPath, parsePath, type Segment } from "./path.ts";
-import { closestEnds, convertToPath, type Geometry, pathOp, type StrokeStyle } from "./path-op.ts";
+import {
+  closestEnds,
+  convertToPath,
+  type Geometry,
+  type OffsetStyle,
+  pathOp,
+  type StrokeStyle,
+} from "./path-op.ts";
 import type { GroupNode, Node } from "./schema.ts";
 
 const errorOf = (fn: () => unknown) => {
@@ -424,6 +431,7 @@ describe("pathOp outline_stroke", () => {
         const w = stroke.width;
         return parsePath(`M 0 0 L ${w} 0 L ${w} ${w} Z`, "d");
       },
+      offsetPath: () => [],
     };
     return { calls, geometry };
   };
@@ -547,5 +555,105 @@ describe("pathOp outline_stroke", () => {
     expect(
       errorOf(() => pathOp(doc, { nodeIds: [bare.id], op: "outline_stroke" }, stub().geometry)),
     ).toMatchObject({ code: "INVALID_PATH", path: "nodeIds" });
+  });
+});
+
+describe("pathOp offset", () => {
+  /** Offsets by moving every point `distance` along x, recording what it was asked. */
+  const stub = (empty: string[] = []) => {
+    const calls: { d: string; style: OffsetStyle }[] = [];
+    const geometry: Geometry = {
+      outlineStroke: () => [],
+      offsetPath(segments, style) {
+        const d = formatPath(segments);
+        calls.push({ d, style });
+        if (empty.includes(d)) return [];
+        return segments.map(({ cmd, args }) => ({
+          cmd,
+          args: args.map((v, k) => (k % 2 ? v : v + style.distance)),
+        }));
+      },
+    };
+    return { calls, geometry };
+  };
+
+  it("adds an offset copy directly below each path and keeps the original", () => {
+    const { doc, defaultLayerId } = setup("M 0 0");
+    const [a, b] = createNodes(doc, [
+      {
+        type: "path",
+        parentId: defaultLayerId,
+        d: "M 0 0 L 100 0 L 100 100 Z",
+        appearance: { fills: [{ color: "#FF0000" }] },
+        name: "Tri",
+      },
+      { type: "path", parentId: defaultLayerId, d: "M 10 10 L 20 10 L 20 20 Z" },
+    ]).nodes as [PathNode, PathNode];
+    const { calls, geometry } = stub();
+    const input = { nodeIds: [a.id, b.id], op: "offset" as const, distance: 10 };
+    const result = pathOp(doc, input, geometry);
+    expect(calls.map((c) => c.style)).toEqual([
+      { distance: 10, join: "miter", miterLimit: 4, fillRule: "nonzero" },
+      { distance: 10, join: "miter", miterLimit: 4, fillRule: "nonzero" },
+    ]);
+    expect(result).toMatchObject({ updated: [], deletedIds: [], warnings: [] });
+    const [ca, cb] = result.created as [PathNode, PathNode];
+    expect(ca).toEqual({
+      ...a,
+      id: ca.id,
+      index: ca.index,
+      d: "M 10 0 L 110 0 L 110 100 Z",
+      fillRule: "evenodd",
+    });
+    expect(cb.d).toBe("M 20 10 L 30 10 L 30 20 Z");
+    expect(doc.nodes.get(a.id)).toBe(a);
+    const order = childrenOf(doc, defaultLayerId).map((n) => n.id);
+    expect(order.slice(1)).toEqual([ca.id, a.id, cb.id, b.id]);
+  });
+
+  it("offsets in document units and keeps a Live Shape live, its copy a path", () => {
+    const { doc, defaultLayerId } = setup("M 0 0");
+    const [made] = createNodes(doc, [
+      { type: "rect", parentId: defaultLayerId, x: 0, y: 0, width: 10, height: 10 },
+    ]).nodes as [Node];
+    const rect = { ...made, transform: [2, 0, 0, 2, 5, 0] } as Node;
+    doc.nodes.set(rect.id, rect);
+    const { calls, geometry } = stub();
+    const input = {
+      nodeIds: [rect.id],
+      op: "offset" as const,
+      distance: -4,
+      join: "round" as const,
+    };
+    const [copy] = pathOp(doc, input, geometry).created as [PathNode];
+    expect(calls[0]).toMatchObject({
+      d: "M 5 0 L 25 0 L 25 20 L 5 20 Z",
+      style: { distance: -4, join: "round" },
+    });
+    // Back in the shape's own units: 4 pt at scale 2 is 2.
+    expect(copy).toMatchObject({ type: "path", d: "M -2 0 L 8 0 L 8 10 L -2 10 Z" });
+    expect(copy.transform).toEqual(rect.transform);
+    expect(doc.nodes.get(rect.id)).toBe(rect);
+  });
+
+  it("skips a path that shrinks away or clips, and refuses when nothing is left", () => {
+    const { doc, node } = setup("M 0 0 L 1 0 L 1 1 Z");
+    const { geometry } = stub([formatPath(parsePath("M 0 0 L 1 0 L 1 1 Z", "d"))]);
+    const input = { nodeIds: [node.id], op: "offset" as const, distance: -5 };
+    expect(errorOf(() => pathOp(doc, input, geometry))).toMatchObject({
+      code: "INVALID_PATH",
+      path: "nodeIds",
+    });
+    doc.nodes.set(node.id, { ...node, clipping: true } as Node);
+    expect(errorOf(() => pathOp(doc, { ...input, distance: 5 }, geometry))).toMatchObject({
+      code: "INVALID_PATH",
+    });
+  });
+
+  it("needs a distance", () => {
+    const { doc, node } = setup("M 0 0 L 1 0 L 1 1 Z");
+    expect(
+      errorOf(() => pathOp(doc, { nodeIds: [node.id], op: "offset" }, stub().geometry)),
+    ).toMatchObject({ code: "INVALID_PATH", path: "distance" });
   });
 });

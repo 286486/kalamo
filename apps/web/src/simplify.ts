@@ -38,22 +38,22 @@ function takeDown() {
 /** OK: the preview as one `path_op` Command, drawn until its answer. */
 function commit() {
   takeDown();
-  const { simplify } = useStore.getState();
-  if (!simplify || simplify.commandId) return;
-  const commandId = send({ type: "path_op", input: simplify.input });
-  useStore.setState({ simplify: { ...simplify, showOriginal: false, commandId } });
+  const { opPreview } = useStore.getState();
+  if (!opPreview || opPreview.commandId) return;
+  const commandId = send({ type: "path_op", input: opPreview.input });
+  useStore.setState({ opPreview: { ...opPreview, showOriginal: false, commandId } });
 }
 
 function cancel() {
   takeDown();
-  useStore.setState({ simplify: null });
+  useStore.setState({ opPreview: null });
 }
 
 // A tab switch drops the preview, so its bar goes; a new Selection applies it, as a click
 // elsewhere does in Illustrator. The slider is in screen px, so a zoom refits.
 useStore.subscribe((s, prev) => {
   if (!open) return;
-  if (!s.simplify) takeDown();
+  if (!s.opPreview) takeDown();
   else if (s.selection.join(" ") !== prev.selection.join(" ")) commit();
   else if (s.viewport?.scale !== prev.viewport?.scale) open.update();
 });
@@ -81,7 +81,7 @@ export function startSimplify() {
     const scale = useStore.getState().viewport?.scale ?? viewport.scale;
     const tolerance = sliderTolerance(curve, scale);
     const input = { nodeIds, op: "simplify" as const, tolerance, cornerAngle, toLines };
-    useStore.setState({ simplify: { input, showOriginal, commandId: null } });
+    useStore.setState({ opPreview: { input, showOriginal, commandId: null } });
   };
   update();
 
@@ -183,8 +183,8 @@ function moreOptions(doc: Document, nodeIds: string[], settings: Settings, updat
   const field = <T extends Element>(name: string) => form.elements.namedItem(name) as T;
   field<HTMLOutputElement>("original").value = String(anchorCount(doc, nodeIds));
   const refresh = () => {
-    const { simplify, doc: now } = useStore.getState();
-    const shown = simplify && now ? previewOp(now, simplify.input) : doc;
+    const { opPreview, doc: now } = useStore.getState();
+    const shown = opPreview && now ? previewOp(now, opPreview) : doc;
     field<HTMLOutputElement>("current").value = String(anchorCount(shown, nodeIds));
     field<HTMLOutputElement>("angle").value = `${settings.cornerAngle}°`;
   };

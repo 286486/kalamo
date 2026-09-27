@@ -5,6 +5,9 @@
   // Must not be later than the workerd bundled with @cloudflare/vitest-plugin.
   "compatibility_date": "2026-09-21",
   "compatibility_flags": ["nodejs_compat"],
+  // pathkit-wasm's Emscripten loader takes nodejs_compat's process for Node and reads __dirname,
+  // which an ES module Worker lacks. It never loads a file: the wasm is handed over (ADR-0034).
+  "define": { "__dirname": "\"/\"" },
   // The bundled font as bytes (ADR-0013); skill:// documents as text.
   "rules": [
     { "type": "Data", "globs": ["**/*.ttf"], "fallthrough": true },

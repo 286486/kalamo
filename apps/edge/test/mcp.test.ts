@@ -309,6 +309,54 @@ it("outlines Strokes with path_op: a Stroke alone in place, a filled path as a G
   expect(nodes[3].geometricBounds).toEqual({ x: 8, y: 8, width: 44, height: 34 });
 });
 
+it("offsets a 100 pt square by 10 pt into a 120 pt copy below it, in one Transaction", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const [square] = (
+    await call("zibel_node_create", {
+      docId,
+      nodes: [
+        {
+          type: "rect",
+          parentId: defaultLayerId,
+          x: 50,
+          y: 50,
+          width: 100,
+          height: 100,
+          appearance: { fills: [{ color: "#FF0000" }] },
+        },
+      ],
+    })
+  ).structuredContent.createdIds as string[];
+  const receipt = (
+    await call("zibel_path_op", {
+      docId,
+      nodeIds: [square],
+      op: "offset",
+      distance: 10,
+      join: "miter",
+    })
+  ).structuredContent;
+  expect(receipt).toMatchObject({ updatedIds: [], createdIds: [expect.any(String)], warnings: [] });
+  const { changes } = (await call("zibel_doc_changes", { docId, sinceRev: receipt.rev - 1 }))
+    .structuredContent;
+  expect(changes).toEqual([expect.objectContaining({ rev: receipt.rev, summary: "Offset Path" })]);
+  const [copy] = receipt.createdIds as [string];
+  const { nodes } = (
+    await call("zibel_node_get", { docId, nodeIds: [square, copy], detail: "full" })
+  ).structuredContent;
+  expect(nodes).toMatchObject([
+    { type: "rect", width: 100, height: 100 },
+    {
+      type: "path",
+      parentId: defaultLayerId,
+      appearance: { fills: [{ color: "#FF0000" }] },
+      geometricBounds: { x: 40, y: 40, width: 120, height: 120 },
+    },
+  ]);
+  expect(nodes[1].d).toMatch(/^M [\d. ]+( L [\d. ]+)+ Z$/);
+  expect(nodes[1].index < nodes[0].index).toBe(true);
+});
+
 it("draws a freehand_stroke as one smooth closed path", async () => {
   const { docId, defaultLayerId } = await newDoc();
   const points = Array.from({ length: 61 }, (_, k) => ({

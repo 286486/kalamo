@@ -3,6 +3,7 @@ import { toSvg } from "@zibel/io/write";
 import { sendAnchorEdits } from "./anchorTools.ts";
 import { curvatureClearInputs, removeCurveAnchor } from "./curvature.ts";
 import { anchorOpTargets, clearInputs, inRange, removeAnchorInputs } from "./direct.ts";
+import { offsetDialog } from "./offset.ts";
 import { PLACEABLE, pasteClipboard, place } from "./place.ts";
 import {
   editable,
@@ -80,7 +81,7 @@ const hasPathTargets = ({ doc, selection }: State) =>
   doc !== null && pathTargets(doc, selection).length > 0;
 
 /** An Object > Path item that runs `op` on the Selection's paths and Live Shapes (pathTargets). */
-const pathOp = (op: Exclude<PathOpInput["op"], "convert_to_path">): MenuItem => ({
+const pathOp = (op: Exclude<PathOpInput["op"], "convert_to_path" | "offset">): MenuItem => ({
   label: PATH_OP_TEXT[op].menu,
   enabled: hasPathTargets,
   run: () => {
@@ -272,7 +273,7 @@ export function documentMenus(tabs: { open: (file: File) => void; close: () => v
       label: "Object",
       items: [
         {
-          // Illustrator's order; Offset Path and Smooth take their places as they arrive.
+          // Illustrator's order; Smooth takes its place when it arrives.
           label: "Path",
           items: [
             {
@@ -298,6 +299,7 @@ export function documentMenus(tabs: { open: (file: File) => void; close: () => v
               },
             },
             pathOp("outline_stroke"),
+            { label: PATH_OP_TEXT.offset.menu, enabled: hasPathTargets, run: offsetDialog },
             pathOp("reverse"),
             { label: PATH_OP_TEXT.simplify.menu, enabled: hasPathTargets, run: startSimplify },
             pathOp("add_anchors"),
