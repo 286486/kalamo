@@ -186,6 +186,7 @@ describe("write tools pass the write and its options apart", () => {
   it.each([
     ["all", opts],
     ["some", { intent: opts.intent }],
+    ["no", {}],
   ])(
     "freehand_stroke: the fitted Ink as one path through createNodes, with %s write options as given",
     async (_, write) => {
