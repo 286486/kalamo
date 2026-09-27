@@ -1,8 +1,9 @@
 import { expect, test } from "@playwright/test";
 import { RED_2x2_PNG } from "../../../fixtures/images.ts";
 import { call } from "./mcp.ts";
+import { choose } from "./menubar.ts";
 
-test("the download button saves the .zibel.json that export returns and doc_open accepts", async ({
+test("File > Save a Copy… saves the .zibel.json that export returns and doc_open accepts", async ({
   page,
   request,
 }) => {
@@ -21,7 +22,7 @@ test("the download button saves the .zibel.json that export returns and doc_open
   await expect(page.locator("body")).toContainText(/\d+%/);
   const [download] = await Promise.all([
     page.waitForEvent("download"),
-    page.getByRole("button", { name: "Download .zibel.json" }).click(),
+    choose(page, "File", "Save a Copy…"),
   ]);
   expect(download.suggestedFilename()).toBe("E2E.zibel.json");
   let text = "";
@@ -33,7 +34,7 @@ test("the download button saves the .zibel.json that export returns and doc_open
   expect(opened.structuredContent).toMatchObject({ name: "E2E", rev: 1 });
 });
 
-test("Download SVG saves the Inkscape SVG that export returns at that rev", async ({
+test("File > Export > Export As SVG saves the Inkscape SVG that export returns at that rev", async ({
   page,
   request,
 }) => {
@@ -67,7 +68,7 @@ test("Download SVG saves the Inkscape SVG that export returns at that rev", asyn
   await expect(page.locator("body")).toContainText(/\d+%/);
   const [download] = await Promise.all([
     page.waitForEvent("download"),
-    page.getByRole("button", { name: "Download SVG" }).click(),
+    choose(page, "File", "Export", "Export As SVG"),
   ]);
   expect(download.suggestedFilename()).toBe("E2E.svg");
   let text = "";
@@ -111,14 +112,11 @@ test("the canvas draws an Image, and both downloads embed its file as export doe
     });
   await expect.poll(centre).toEqual([255, 0, 0, 255]);
 
-  for (const [button, format] of [
-    ["Download SVG", "svg"],
-    ["Download .zibel.json", "zibel_json"],
-  ]) {
-    const [download] = await Promise.all([
-      page.waitForEvent("download"),
-      page.getByRole("button", { name: button }).click(),
-    ]);
+  for (const [path, format] of [
+    [["File", "Export", "Export As SVG"], "svg"],
+    [["File", "Save a Copy…"], "zibel_json"],
+  ] as const) {
+    const [download] = await Promise.all([page.waitForEvent("download"), choose(page, ...path)]);
     let text = "";
     for await (const chunk of await download.createReadStream()) text += chunk;
     const exported = await call(request, "zibel_export", { docId, format });

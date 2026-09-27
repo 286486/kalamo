@@ -32,6 +32,8 @@ const browserIO: ImageIO = {
 const srcs = (doc: Document) =>
   new Set([...doc.nodes.values()].flatMap((n) => (n.type === "image" ? [n.src] : [])));
 
+export type ImageCache = ReturnType<typeof imageCache>;
+
 /**
  * The files one Document's Images name, fetched once each from the Worker (ADR-0023). `onLoad`
  * runs as each arrives, so the canvas redraws with it.

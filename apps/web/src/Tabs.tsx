@@ -1,18 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { pickFile } from "./menu.ts";
 import { useStore } from "./store.ts";
 import { closeTab, go, loadTabs, OPENABLE, openable, openFile, saveTabs, withTab } from "./tabs.ts";
 
-/**
- * Document Tabs, as Illustrator's (F-VIEW-09): the Document list, one tab per open Document, and Open
- * file, which also takes an .svg or .zibel.json dropped on the bar. `docId` is the active tab.
- */
-export function Tabs({ docId }: { docId: string }) {
+/** The Document Tabs' state, which the tab bar and the menu bar's File > Open… and Close share. */
+export function useTabs(docId: string) {
   const [tabs, setTabs] = useState(() => withTab(loadTabs(), docId));
   const [names, setNames] = useState<Map<string, string> | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const picker = useRef<HTMLInputElement>(null);
-  // The store holds the last tab's Document until this one's arrives.
-  const activeName = useStore((s) => (s.doc?.id === docId ? s.doc.name : undefined));
 
   useEffect(() => setTabs((t) => withTab(t, docId)), [docId]);
   useEffect(() => saveTabs(tabs), [tabs]);
@@ -57,6 +52,21 @@ export function Tabs({ docId }: { docId: string }) {
     if (!next) location.assign("/");
     else if (next !== docId) go(next, true);
   };
+
+  return { docId, tabs, names, message, setMessage, open, close };
+}
+
+/**
+ * Document Tabs, as Illustrator's (F-VIEW-09): the Document list, one tab per open Document, and Open
+ * file, which also takes an .svg or .zibel.json dropped on the bar. `docId` is the active tab.
+ */
+export function Tabs({
+  state: { docId, tabs, names, message, setMessage, open, close },
+}: {
+  state: ReturnType<typeof useTabs>;
+}) {
+  // The store holds the last tab's Document until this one's arrives.
+  const activeName = useStore((s) => (s.doc?.id === docId ? s.doc.name : undefined));
 
   const tabStyle = (active: boolean): React.CSSProperties => ({
     display: "flex",
@@ -120,20 +130,9 @@ export function Tabs({ docId }: { docId: string }) {
           </div>
         );
       })}
-      <button type="button" style={plain} onClick={() => picker.current?.click()}>
+      <button type="button" style={plain} onClick={() => pickFile(OPENABLE, open)}>
         Open file…
       </button>
-      <input
-        ref={picker}
-        type="file"
-        accept={OPENABLE}
-        hidden
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          e.target.value = "";
-          if (file) open(file);
-        }}
-      />
       {message && (
         <span role="status" style={{ alignSelf: "center", color: "#B00020" }}>
           {message}
