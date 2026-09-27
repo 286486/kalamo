@@ -3,6 +3,7 @@ import {
   createNodes,
   type Fill,
   type ImageNode,
+  type Node,
   normalizePath,
   readImage,
   type ShapeNode,
@@ -1573,4 +1574,124 @@ it("skips a container paint's <g zibel:paint> copies instead of reading them as 
   const file = parseSvg(toSvg(doc));
   expect(file.warnings).toEqual([]);
   expect(file.nodes.map((n) => n.type)).toEqual(["layer", "group", "rect"]);
+});
+
+describe("container Appearance (ADR-0043)", () => {
+  /** A Layer with a Fill above Contents, and in it a Group with a Stroke below Contents. */
+  function painted() {
+    const { doc, defaultLayerId } = createDocument({
+      id: "d",
+      name: "Doc",
+      artboards: [{ width: 100, height: 100 }],
+    });
+    doc.nodes.set(defaultLayerId, {
+      ...(doc.nodes.get(defaultLayerId) as Node),
+      appearance: { fills: [{ type: "solid", color: "#00FF0080" }], strokes: [], contents: 0 },
+    } as Node);
+    const [group, rect, inner] = createNodes(doc, [
+      {
+        type: "group",
+        parentId: defaultLayerId,
+        appearance: {
+          fills: [{ color: "#0000FF" }],
+          strokes: [{ color: "#FF0000", width: 4, dash: [2, 1] }],
+          contents: 2,
+        },
+        children: [
+          { type: "rect", x: 0, y: 0, width: 10, height: 10 },
+          { type: "group", children: [{ type: "ellipse", x: 20, y: 0, width: 10, height: 10 }] },
+          { type: "rect", x: 40, y: 0, width: 10, height: 10 },
+        ],
+      },
+    ]).nodes;
+    const hidden = [...doc.nodes.values()].at(-1);
+    if (!group || !rect || !inner || !hidden) throw new Error("setup");
+    doc.nodes.set(hidden.id, { ...hidden, visible: false });
+    return { doc, layerId: defaultLayerId, group, rect, inner };
+  }
+
+  it("reads each <g zibel:paint> of a Layer or Group back as its Fill or Stroke, and Open of an export is the Document", () => {
+    const { doc } = painted();
+    const file = parseSvg(toSvg(doc));
+    expect(file.warnings).toEqual([]);
+    const opened = { ...doc, nodes: new Map(file.nodes.map((n) => [n.id, n])) };
+    expect(JSON.parse(serializeDocument(opened))).toEqual(JSON.parse(serializeDocument(doc)));
+  });
+
+  it("drops a paint whose group the designer removed, and takes Contents from where the children are", () => {
+    const { doc, group } = painted();
+    const out = toSvg(doc).replace(
+      /<g zibel:paint="true"[^>]*inkscape:label="Fill" fill="#0000FF">.*?<\/g>/,
+      "",
+    );
+    const back = parseSvg(out).nodes.find((n) => n.id === group.id);
+    expect(back && "appearance" in back && back.appearance).toEqual({
+      fills: [],
+      strokes: [expect.objectContaining({ color: "#FF0000", width: 4, dash: [2, 1] })],
+      contents: 1,
+    });
+  });
+
+  it("ignores the copies inside, so a moved child leaves no stale outline", () => {
+    const { doc, rect } = painted();
+    const moved = toSvg(doc).replace(
+      `<rect x="0" y="0" width="10" height="10" id="z-${rect.id}"`,
+      `<rect x="60" y="0" width="10" height="10" id="z-${rect.id}"`,
+    );
+    const file = parseSvg(moved);
+    expect(file.nodes.find((n) => n.id === rect.id)).toMatchObject({ x: 60 });
+    // Written again, the copies follow the child.
+    const again = toSvg({ ...doc, nodes: new Map(file.nodes.map((n) => [n.id, n])) });
+    expect(again).toContain('<path d="M 60 0 L 70 0 L 70 10 L 60 10 Z"/>');
+    expect(again).not.toContain('<path d="M 0 0 L 10 0 L 10 10 L 0 10 Z"/>');
+  });
+
+  it("counts Contents past what the walk drops, and ignores a paint's unreadable transform", () => {
+    const file = parseSvg(
+      svg(
+        'viewBox="0 0 10 10"',
+        '<g><g zibel:paint="true" fill="red"/><foreignObject/><g zibel:paint="true" fill="none" stroke="blue" transform="matrix(1,NaN)"/><rect width="5" height="5"/></g>',
+      ),
+    );
+    const group = file.nodes.find((n) => n.type === "group");
+    expect(group && "appearance" in group && group.appearance).toMatchObject({
+      fills: [{ color: "#FF0000" }],
+      strokes: [{ color: "#0000FF", width: 1 }],
+      contents: 2,
+    });
+  });
+
+  it("warns when a Fill group sits above a Stroke group, which the model cannot hold", () => {
+    const file = parseSvg(
+      svg(
+        'viewBox="0 0 10 10"',
+        '<g><g zibel:paint="true" fill="none" stroke="blue"/><rect width="5" height="5"/><g zibel:paint="true" fill="red"/></g>',
+      ),
+    );
+    const group = file.nodes.find((n) => n.type === "group");
+    expect(group && "appearance" in group && group.appearance).toMatchObject({ contents: 1 });
+    expect(file.warnings).toEqual([expect.objectContaining({ code: "UNSUPPORTED_ATTRIBUTE" })]);
+  });
+
+  it("drops a paint group outside a Layer or Group with a warning", () => {
+    const file = parseSvg(
+      svg(
+        'viewBox="0 0 10 10"',
+        '<g zibel:paint="true" fill="red"><path d="M 0 0 L 5 0 L 5 5 Z"/></g>',
+      ),
+    );
+    expect(file.nodes.map((n) => n.type)).toEqual(["layer"]);
+    expect(file.nodes[0]).not.toHaveProperty("appearance");
+    expect(file.warnings).toEqual([expect.objectContaining({ code: "UNSUPPORTED_ELEMENT" })]);
+  });
+
+  it("reads a generic <g fill> as inherited by its children, with no container Appearance", () => {
+    const file = parseSvg(
+      svg('viewBox="0 0 10 10"', '<g fill="red"><rect width="5" height="5"/></g>'),
+    );
+    const [, group, rect] = file.nodes;
+    expect(group).toMatchObject({ type: "group" });
+    expect(group).not.toHaveProperty("appearance");
+    expect(rect).toMatchObject({ appearance: { fills: [{ color: "#FF0000" }] } });
+  });
 });

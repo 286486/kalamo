@@ -5,6 +5,7 @@ import {
   applyTo,
   BlendMode,
   BUNDLED_FONT,
+  type ContainerAppearance,
   canonicalRanges,
   cssColor,
   type Fill,
@@ -258,6 +259,8 @@ const UNSIZED =
   "An <image> was dropped: a linked image without width and height has no size until its file is read.";
 
 const zibelAttr = (e: Element, name: ZibelAttr) => e.getAttributeNS(NS.zibel, name);
+/** One paint of a container's Appearance, as export writes it (ADR-0043). */
+const isPaint = (e: Element) => zibelAttr(e, "paint") === "true";
 
 const CAPS = ["butt", "round", "square"];
 const JOINS = ["miter", "round", "bevel"];
@@ -372,6 +375,15 @@ class Reader {
       );
       return;
     }
+    // Its container reads it (containerAppearance); anywhere else it paints nothing Zibel can hold.
+    if (isPaint(e)) {
+      this.warn(
+        "UNSUPPORTED_ELEMENT",
+        "zibel:paint",
+        "A <g zibel:paint> outside a Layer or Group was dropped: it is the paint of the container it sits in.",
+      );
+      return;
+    }
     let own = parseTransform(e.getAttribute("transform"));
     // An unreadable transform is ignored, as SVG does; one that flattens the element to a line
     // or point draws nothing, and a Node cannot carry it.
@@ -382,8 +394,6 @@ class Reader {
       this.warn("INVALID_TRANSFORM", "flat", "An element scaled to nothing was dropped.");
       return;
     }
-    // ponytail: a container paint's copies are derived; #104 reads the paint back into its container.
-    if (zibelAttr(e, "paint") === "true") return;
     const matrix = multiply(ctx.matrix, own);
     const style = computeStyle(e, ctx.style, this.rules);
     const tag = e.localName;
@@ -405,11 +415,15 @@ class Reader {
       const layer = ctx.layerLevel && e.getAttributeNS(NS.inkscape, "groupmode") === "layer";
       const clip = this.clipOf(style, layer);
       const parentId = layer ? ctx.parentId : this.parent(ctx);
+      const kids = elements(e);
+      const appearance = this.containerAppearance(kids, matrix, style);
       const node = this.add({
         ...this.base(e, parentId, undefined, style),
         type: layer ? "layer" : "group",
+        ...(appearance && { appearance }),
       });
-      for (const c of elements(e)) {
+      for (const c of kids) {
+        if (isPaint(c)) continue;
         if (c === clip) this.clipping(clip, node.id, matrix);
         this.walk(c, { parentId: node.id, layerLevel: layer, matrix, style, depth: ctx.depth + 1 });
       }
@@ -465,6 +479,54 @@ class Reader {
     this.add({ ...base, ...shape, ...(appearance && { appearance }) } as Node);
     if (link) this.links.set(base.id, link);
     if (clip) this.clipping(clip, parentId, matrix);
+  }
+
+  /**
+   * A Layer's or Group's Appearance from its direct `<g zibel:paint>` children (ADR-0043): each one
+   * Fill, else one Stroke, resolved like a leaf's paint; Contents is how many come before the first
+   * other child. The outline copies inside are derived from the children and ignored.
+   */
+  private containerAppearance(kids: Element[], matrix: Matrix, style: Style) {
+    // What walk reads: an element it drops without a Node does not end the paints below Contents.
+    const drawn = kids.filter(
+      (c) => (c.namespaceURI === NS.svg || c.namespaceURI === null) && DRAWN.has(c.localName ?? ""),
+    );
+    const below = drawn.findIndex((c) => !isPaint(c));
+    const appearance: ContainerAppearance = { fills: [], strokes: [], contents: 0 };
+    drawn.forEach((c, i) => {
+      if (!isPaint(c)) return;
+      const s = computeStyle(c, style, this.rules);
+      // Hidden in the editor, it draws nothing.
+      if (s.display === "none") return;
+      const own = parseTransform(c.getAttribute("transform"));
+      // An unreadable transform is ignored, as walk ignores a leaf's.
+      const m = own.every(Number.isFinite) ? multiply(matrix, own) : matrix;
+      const look = this.appearance(s, c, m);
+      const fill = look.fills[0];
+      const stroke = look.strokes[0];
+      const paint = fill ?? stroke;
+      if (!paint) return;
+      // ponytail: container gradients arrive with #107.
+      if (paint.type === "gradient") {
+        this.warn(
+          "UNSUPPORTED_PAINT",
+          "container",
+          "A Layer's or Group's gradient paint is not supported yet and was dropped.",
+        );
+        return;
+      }
+      if (fill && appearance.strokes.length) {
+        this.warn(
+          "UNSUPPORTED_ATTRIBUTE",
+          "paint order",
+          "A Layer's or Group's Fill above one of its Strokes moved below every Stroke: a Fill cannot sit above a Stroke.",
+        );
+      }
+      if (fill) appearance.fills.push(fill);
+      else if (stroke) appearance.strokes.push(stroke);
+      if (below < 0 || i < below) appearance.contents++;
+    });
+    return appearance.fills.length + appearance.strokes.length ? appearance : undefined;
   }
 
   /**

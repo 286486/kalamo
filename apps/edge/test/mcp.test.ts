@@ -1328,6 +1328,7 @@ it("places an SVG as one Group under the parent, and refuses a .zibel.json", asy
   expect(nodes[0].children.map((n: { name: string; type: string }) => [n.type, n.name])).toEqual([
     ["group", "Layer 1"],
     ["group", "Guides"],
+    ["group", "Painted"],
   ]);
   // The fixture's one missing link; its other Images are embedded.
   expect(warnings).toMatchObject([{ code: "IMAGE_LINK_MISSING" }]);
@@ -1335,6 +1336,14 @@ it("places an SVG as one Group under the parent, and refuses a .zibel.json", asy
   expect(createdIds.filter((id: string) => exported.includes(`z-${id}`))).toEqual([]);
 
   const file = (await call("zibel_export", { docId, format: "zibel_json" })).content[0].text;
+  // Container Appearance comes along, on the Layer that became a Group too (ADR-0043).
+  const named = (name: string) =>
+    JSON.parse(file).nodes.find((n: { name: string }) => n.name === name);
+  expect(named("Painted")).toMatchObject({
+    type: "group",
+    appearance: { contents: 0, strokes: [{ color: "#222222" }] },
+  });
+  expect(named("Outlined").appearance).toMatchObject({ contents: 1, strokes: [{ width: 8 }] });
   const refused = await call("zibel_svg_import", { docId, svg: file, parentId: defaultLayerId });
   expect(errorOf(refused)).toMatchObject({ code: "INVALID_DOCUMENT", path: "svg" });
   const text = await call("zibel_svg_import", { docId, svg: "nope", parentId: defaultLayerId });
