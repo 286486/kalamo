@@ -11,6 +11,7 @@ export function cleanUpDialog() {
   dialog.style.font = "13px system-ui, sans-serif";
   const box = (name: string, label: string) =>
     `<label style="display:block;margin:6px 0"><input type="checkbox" name="${name}" checked> ${label}</label>`;
+  // OK comes first: Enter submits with it.
   dialog.innerHTML = `<form method="dialog">
 ${box("strayPoints", "Stray Points")}${box("unpainted", "Unpainted Objects")}${box("emptyText", "Empty Text Paths")}
 <p style="text-align:right;margin-bottom:0"><button value="ok">OK</button> <button value="cancel">Cancel</button></p>

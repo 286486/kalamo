@@ -579,8 +579,8 @@ function offset(
 /**
  * `path_op split_into_grid` (research §5): each closed path or Live Shape becomes rows × cols rects
  * over its geometric bounds in document coordinates, in its place, all with the topmost shape's
- * appearance (research §5). Containers
- * carry no transform (ADR-0007), so the rects need none either. A Clipping Path is left as it is.
+ * appearance. Containers carry no transform (ADR-0007), so the rects need none either. A Clipping
+ * Path is left as it is.
  */
 function splitIntoGrid(doc: Document, input: z.output<typeof PathOpInput>): PathOpResult {
   const { rows, cols, gutter } = input;

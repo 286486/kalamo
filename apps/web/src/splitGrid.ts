@@ -23,15 +23,15 @@ export function splitGridDialog() {
   const dialog = Object.assign(document.createElement("dialog"), { ariaLabel: "Split Into Grid" });
   dialog.style.font = "13px system-ui, sans-serif";
   const row = "display:flex;gap:6px;align-items:center;margin:6px 0";
-  const number = (name: keyof typeof settings, min: number, step = "any") =>
-    `<input type="number" name="${name}" min="${min}" step="${step}" value="${settings[name]}"${typeof settings[name] === "number" ? " required" : ` placeholder="Shape's"`}>`;
+  const numberField = (name: keyof typeof settings, min: number, step = "any") =>
+    `<input type="number" name="${name}" min="${min}" step="${step}" value="${settings[name]}"${typeof settings[name] === "number" ? " required" : ` placeholder="Shape size"`}>`;
   // OK comes first: Enter submits with it.
   dialog.innerHTML = `<form method="dialog">
-<label style="${row}">Rows: ${number("rows", 1, "1")}</label>
-<label style="${row}">Rows total: ${number("totalHeight", 0)} pt</label>
-<label style="${row}">Columns: ${number("cols", 1, "1")}</label>
-<label style="${row}">Columns total: ${number("totalWidth", 0)} pt</label>
-<label style="${row}">Gutter: ${number("gutter", 0)} pt</label>
+<label style="${row}">Rows: ${numberField("rows", 1, "1")}</label>
+<label style="${row}">Rows total: ${numberField("totalHeight", 0)} pt</label>
+<label style="${row}">Columns: ${numberField("cols", 1, "1")}</label>
+<label style="${row}">Columns total: ${numberField("totalWidth", 0)} pt</label>
+<label style="${row}">Gutter: ${numberField("gutter", 0)} pt</label>
 <label style="${row}"><input type="checkbox" name="preview"${settings.preview ? " checked" : ""}> Preview</label>
 <p style="text-align:right;margin-bottom:0"><button value="ok">OK</button> <button value="cancel" formnovalidate>Cancel</button></p>
 </form>`;

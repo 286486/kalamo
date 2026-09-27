@@ -11,7 +11,7 @@ Object > Path > Clean Up and Split Into Grid (F-PATH-03, #89) follow research 06
 
 **`path_op clean_up {strayPoints, unpainted, emptyText}` ignores `nodeIds`** and scans the whole Document, as Illustrator's command does. `nodeIds` now defaults to `[]`, and every other op fails with `INVALID_PATH` at `nodeIds` when it is empty.
 
-- A Stray Point is a subpath of one Anchor, so a path that also has drawn subpaths keeps them and is updated; a path left with none is deleted. Illustrator's compound path is a set of PathItems, each of which can be a stray point.
+- A Stray Point is a subpath of one Anchor, so a path that also has drawn subpaths keeps them and is updated; a path left with none is deleted. Illustrator's Compound Path is a set of PathItems, each of which can be a stray point.
 - Unpainted means a Live Shape or path with no Fill and no Stroke. Clipping Paths never paint (ADR-0021) and are kept.
 - A text's content cannot be empty (`TextShape.content` has `min(1)`), so `emptyText` removes texts of only spaces and hard returns, which draw nothing.
 - Hidden and locked Nodes, or those under a hidden or locked Layer or Group, are kept: Illustrator's Clean Up works on what can be selected.
