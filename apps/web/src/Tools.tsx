@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { useStore } from "./store.ts";
-import { type Paint, paintKey, setTool, type Tool } from "./tools.ts";
+import { type FillStroke, fillStrokeKey, setTool, type Tool } from "./tools.ts";
 
 const glyph = (d: string) => (
   <svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true">
@@ -26,9 +26,9 @@ const button: React.CSSProperties = {
 /** Illustrator's None: white with a red diagonal. */
 const NONE = "linear-gradient(to top left, #FFF 45%, #E00 45% 55%, #FFF 55%)";
 
-/** A Fill or Stroke box; a click makes it active and opens the browser's colour picker. */
-function Box({ paint, box }: { paint: Paint; box: "fill" | "stroke" }) {
-  const color = paint[box];
+/** A Fill or Stroke box; a click makes it active and opens the browser's color picker. */
+function Box({ fillStroke, box }: { fillStroke: FillStroke; box: "fill" | "stroke" }) {
+  const color = fillStroke[box];
   const size = 22;
   const at = box === "fill" ? 0 : 10;
   return (
@@ -41,13 +41,13 @@ function Box({ paint, box }: { paint: Paint; box: "fill" | "stroke" }) {
         width: size,
         height: size,
         boxSizing: "border-box",
-        zIndex: paint.active === box ? 1 : 0,
+        zIndex: fillStroke.active === box ? 1 : 0,
         cursor: "pointer",
         border: "1px solid #666",
         background: box === "stroke" ? (color ?? NONE) : "#FFF",
         padding: box === "stroke" ? 5 : 0,
       }}
-      onPointerDown={() => useStore.setState({ paint: { ...paint, active: box } })}
+      onPointerDown={() => useStore.setState({ fillStroke: { ...fillStroke, active: box } })}
     >
       <span
         style={{
@@ -64,8 +64,8 @@ function Box({ paint, box }: { paint: Paint; box: "fill" | "stroke" }) {
         aria-label={box === "fill" ? "Fill" : "Stroke"}
         value={(color ?? "#000000").toLowerCase()}
         onChange={(e) => {
-          const { paint } = useStore.getState();
-          useStore.setState({ paint: { ...paint, [box]: e.target.value.toUpperCase() } });
+          const { fillStroke } = useStore.getState();
+          useStore.setState({ fillStroke: { ...fillStroke, [box]: e.target.value.toUpperCase() } });
         }}
         // Over the whole box, invisible, so a click on the box opens the picker.
         style={{
@@ -87,10 +87,10 @@ function Box({ paint, box }: { paint: Paint; box: "fill" | "stroke" }) {
 /** Illustrator's Tools panel on the canvas's left: the tools, then the Fill and Stroke boxes. */
 export const Tools = memo(function Tools() {
   const tool = useStore((s) => s.tool);
-  const paint = useStore((s) => s.paint);
+  const fillStroke = useStore((s) => s.fillStroke);
   const key = (keys: string) => () => {
-    const next = paintKey(useStore.getState().paint, keys);
-    if (next) useStore.setState({ paint: next });
+    const next = fillStrokeKey(useStore.getState().fillStroke, keys);
+    if (next) useStore.setState({ fillStroke: next });
   };
   const small = { ...button, width: 16, height: 16, background: "none", font: "10px system-ui" };
   return (
@@ -99,7 +99,7 @@ export const Tools = memo(function Tools() {
       aria-label="Tools"
       aria-orientation="vertical"
       // A click must not leave focus on a button, where Enter and Space would press it again.
-      onMouseDown={(e) => e.target instanceof HTMLButtonElement && e.preventDefault()}
+      onMouseDown={(e) => (e.target as Element).closest("button") && e.preventDefault()}
       style={{
         position: "absolute",
         top: 8,
@@ -128,8 +128,8 @@ export const Tools = memo(function Tools() {
         </button>
       ))}
       <div style={{ position: "relative", width: 32, height: 32, marginTop: 6 }}>
-        <Box paint={paint} box="fill" />
-        <Box paint={paint} box="stroke" />
+        <Box fillStroke={fillStroke} box="fill" />
+        <Box fillStroke={fillStroke} box="stroke" />
       </div>
       <div style={{ display: "flex" }}>
         <button type="button" title="Default Fill and Stroke (D)" style={small} onClick={key("D")}>

@@ -1,7 +1,7 @@
 import { createDocument } from "@zibel/core";
 import { beforeEach, expect, it } from "vitest";
-import { DEFAULT_PAINT, useStore } from "./store.ts";
-import { finishPen, paintKey, penClick, penNode, setTool, undoAnchor } from "./tools.ts";
+import { DEFAULT_FILL_STROKE, useStore } from "./store.ts";
+import { fillStrokeKey, finishPen, penClick, penNode, setTool, undoAnchor } from "./tools.ts";
 
 const { doc, defaultLayerId } = createDocument({
   id: "d",
@@ -10,22 +10,28 @@ const { doc, defaultLayerId } = createDocument({
 });
 
 beforeEach(() => {
-  useStore.setState({ doc, selection: [], pen: null, tool: "pen", paint: DEFAULT_PAINT });
+  useStore.setState({
+    doc,
+    selection: [],
+    pen: null,
+    tool: "pen",
+    fillStroke: DEFAULT_FILL_STROKE,
+  });
 });
 
 const pen = () => useStore.getState().pen;
 
 it("D resets, X toggles the active box, Shift+X swaps and / sets the active box to None", () => {
   const p = { fill: "#FF0000", stroke: null, active: "stroke" as const };
-  expect(paintKey(p, "D")).toEqual({ fill: "#FFFFFF", stroke: "#000000", active: "stroke" });
-  expect(paintKey(p, "X")).toEqual({ ...p, active: "fill" });
-  expect(paintKey(p, "Shift+X")).toEqual({ ...p, fill: null, stroke: "#FF0000" });
-  expect(paintKey(DEFAULT_PAINT, "/")).toEqual({ ...DEFAULT_PAINT, fill: null });
-  expect(paintKey(p, "Q")).toBeNull();
+  expect(fillStrokeKey(p, "D")).toEqual({ fill: "#FFFFFF", stroke: "#000000", active: "stroke" });
+  expect(fillStrokeKey(p, "X")).toEqual({ ...p, active: "fill" });
+  expect(fillStrokeKey(p, "Shift+X")).toEqual({ ...p, fill: null, stroke: "#FF0000" });
+  expect(fillStrokeKey(DEFAULT_FILL_STROKE, "/")).toEqual({ ...DEFAULT_FILL_STROKE, fill: null });
+  expect(fillStrokeKey(p, "Q")).toBeNull();
 });
 
 it("Enter sends three Corner Anchors as one open path with the current Fill and Stroke", () => {
-  useStore.setState({ paint: { fill: null, stroke: "#FF0000", active: "fill" } });
+  useStore.setState({ fillStroke: { fill: null, stroke: "#FF0000", active: "fill" } });
   for (const p of [
     [0, 0],
     [10, 0],
@@ -39,8 +45,8 @@ it("Enter sends three Corner Anchors as one open path with the current Fill and 
   expect(pen()).toEqual({ points: [[50, 50]], closed: false, commandId: null });
 });
 
-it("builds the create input from the path, the current paint and placeParent's Layer", () => {
-  const s = { doc, selection: [], paint: DEFAULT_PAINT };
+it("builds the create input from the path, the current fillStroke and placeParent's Layer", () => {
+  const s = { doc, selection: [], fillStroke: DEFAULT_FILL_STROKE };
   expect(
     penNode(s, {
       points: [
@@ -98,4 +104,16 @@ it("a tool switch finishes the path, and a single Anchor is dropped", () => {
   penClick([0, 0], 1);
   finishPen();
   expect(pen()).toBeNull();
+});
+
+it("draws nothing into a hidden or locked Layer, and says why", () => {
+  const layer = doc.nodes.get(defaultLayerId);
+  if (!layer) throw new Error("no Layer");
+  const nodes = new Map(doc.nodes).set(defaultLayerId, { ...layer, locked: true });
+  useStore.setState({ doc: { ...doc, nodes }, notice: null });
+  penClick([0, 0], 1);
+  penClick([10, 0], 1);
+  finishPen();
+  expect(pen()).toBeNull();
+  expect(useStore.getState().notice).toMatch(/locked/);
 });

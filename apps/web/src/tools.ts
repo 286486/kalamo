@@ -1,24 +1,24 @@
-import type { NodeInput } from "@zibel/core";
+import type { Document, NodeInput } from "@zibel/core";
 import type { PenPath } from "./receive.ts";
-import { placeParent } from "./selection.ts";
-import { DEFAULT_PAINT, type State, send, useStore } from "./store.ts";
+import { editable, placeParent } from "./selection.ts";
+import { DEFAULT_FILL_STROKE, type State, send, useStore } from "./store.ts";
 
 /** The Tools panel's tools. Their keys stay here, not in the menu table (ADR-0031). */
 export type Tool = "selection" | "zoom" | "pen";
 export const TOOL_KEYS: Record<string, Tool> = { V: "selection", Z: "zoom", P: "pen" };
 
 /** The Fill and Stroke boxes (F-DRAW-12): what new art is painted with; null is None. */
-export interface Paint {
+export interface FillStroke {
   fill: string | null;
   stroke: string | null;
   active: "fill" | "stroke";
 }
 
 /** The Fill and Stroke boxes' keys, as in Illustrator, or null for another key. */
-export function paintKey(p: Paint, keys: string): Paint | null {
+export function fillStrokeKey(p: FillStroke, keys: string): FillStroke | null {
   switch (keys) {
     case "D":
-      return { ...DEFAULT_PAINT, active: p.active };
+      return { ...DEFAULT_FILL_STROKE, active: p.active };
     case "X":
       return { ...p, active: p.active === "fill" ? "stroke" : "fill" };
     case "Shift+X":
@@ -37,11 +37,17 @@ export const pathD = (points: Point[], closed: boolean) =>
   points.map(([x, y], i) => `${i ? "L" : "M"} ${x} ${y}`).join(" ") + (closed ? " Z" : "");
 
 /** The `create` input for a finished path: the current Fill and Stroke, in placeParent's Layer. */
-export function penNode(s: Pick<State, "doc" | "selection" | "paint">, pen: PenPath): NodeInput {
-  const { fill, stroke } = s.paint;
+export function penNode(
+  s: Pick<State, "selection" | "fillStroke"> & { doc: Document },
+  pen: PenPath,
+): NodeInput | null {
+  const { fill, stroke } = s.fillStroke;
+  const parentId = placeParent(s.doc, s.selection);
+  // Illustrator refuses to draw into a hidden or locked Layer.
+  if (!parentId || !editable(s.doc, s.doc.nodes.get(parentId))) return null;
   return {
     type: "path",
-    parentId: (s.doc && placeParent(s.doc, s.selection)) ?? "",
+    parentId,
     d: pathD(pen.points, pen.closed),
     appearance: {
       fills: fill ? [{ color: fill }] : [],
@@ -51,7 +57,7 @@ export function penNode(s: Pick<State, "doc" | "selection" | "paint">, pen: PenP
 }
 
 /** The path the Pen is drawing, not yet sent. */
-const drawing = (s: State) => (s.pen?.commandId === null ? s.pen : null);
+export const drawing = (s: State) => (s.pen?.commandId === null ? s.pen : null);
 
 /**
  * Finishes the path the Pen is drawing and sends it as one `create` (ADR-0032). A single Anchor
@@ -61,12 +67,18 @@ export function finishPen(closed = false) {
   const s = useStore.getState();
   const pen = drawing(s);
   if (!pen) return;
-  if (pen.points.length < 2 || !s.doc) {
-    useStore.setState({ pen: null });
+  const done = { ...pen, closed };
+  const node = s.doc && pen.points.length >= 2 ? penNode({ ...s, doc: s.doc }, done) : null;
+  if (!node) {
+    useStore.setState({
+      pen: null,
+      ...(pen.points.length >= 2 && {
+        notice: "The Layer is hidden or locked; nothing was drawn.",
+      }),
+    });
     return;
   }
-  const done = { ...pen, closed };
-  const commandId = send({ type: "create", nodes: [penNode(s, done)] });
+  const commandId = send({ type: "create", nodes: [node] });
   useStore.setState({ pen: { ...done, commandId } });
 }
 

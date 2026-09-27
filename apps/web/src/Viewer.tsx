@@ -17,7 +17,7 @@ import { preview } from "./receive.ts";
 import { combine, editable, hitTest, marquee } from "./selection.ts";
 import { connect, send, useStore } from "./store.ts";
 import { Tools } from "./Tools.tsx";
-import { finishPen, paintKey, pathD, penClick, setTool, TOOL_KEYS } from "./tools.ts";
+import { drawing, fillStrokeKey, finishPen, pathD, penClick, setTool, TOOL_KEYS } from "./tools.ts";
 import { artboardsRect, fit, toDoc, type Viewport, zoomAt } from "./viewport.ts";
 
 const PASTEBOARD = "#E6E6E6";
@@ -65,7 +65,7 @@ const fontLoaded = Promise.allSettled(
 /** A live view of one Document: select, drag-move and delete its objects, and draw with the Pen. */
 export function Viewer({ docId }: { docId: string }) {
   const canvas = useRef<HTMLCanvasElement>(null);
-  const { doc, live, viewport, selection, drag, pen, notice, size, layersShown, tool, paint } =
+  const { doc, live, viewport, selection, drag, pen, notice, size, layersShown, tool, fillStroke } =
     useStore();
   /** Space held: drag pans. */
   const [hand, setHand] = useState(false);
@@ -99,7 +99,14 @@ export function Viewer({ docId }: { docId: string }) {
     });
   }, []);
 
-  useEffect(() => connect(docId), [docId]);
+  useEffect(() => {
+    const stop = connect(docId);
+    // Leaving the tab finishes a path the Pen is drawing, as a tool switch does.
+    return () => {
+      finishPen();
+      stop();
+    };
+  }, [docId]);
 
   useEffect(() => {
     if (doc) document.title = `${doc.name} – Zibel`;
@@ -161,16 +168,16 @@ export function Viewer({ docId }: { docId: string }) {
     }
     if (pen) {
       // The path so far in its Fill and Stroke, then its outline, rubber band and Anchors.
-      const rubber = pen.commandId === null && pointer && !pen.closed;
+      const rubber = drawing(useStore.getState()) && pointer;
       const points = rubber ? [...pen.points, pointer] : pen.points;
       const path = new Path2D(pathD(points, pen.closed));
-      if (paint.fill) {
-        ctx.fillStyle = paint.fill;
+      if (fillStroke.fill) {
+        ctx.fillStyle = fillStroke.fill;
         ctx.fill(path);
       }
-      if (paint.stroke) {
+      if (fillStroke.stroke) {
         ctx.lineWidth = 1;
-        ctx.strokeStyle = paint.stroke;
+        ctx.strokeStyle = fillStroke.stroke;
         ctx.stroke(path);
       }
       ctx.lineWidth = 1 / scale;
@@ -194,7 +201,7 @@ export function Viewer({ docId }: { docId: string }) {
     drag,
     pen,
     pointer,
-    paint,
+    fillStroke,
     marqueeRect,
     fontReady,
     images,
@@ -238,16 +245,18 @@ export function Viewer({ docId }: { docId: string }) {
       const key = e.key.toLowerCase();
       // Its paste event comes between keydown and keyup.
       if (key === "v") inPlace.current = down && mod && e.shiftKey;
-      if (!down || mod || e.target instanceof HTMLInputElement) return;
+      // Typing in a text field is not a tool key; the Fill and Stroke boxes' color inputs are not text.
+      const t = e.target;
+      if (!down || mod || (t instanceof HTMLInputElement && t.type !== "color")) return;
       const keys = keysOf(e);
       const tool = TOOL_KEYS[keys];
-      const paint = paintKey(useStore.getState().paint, keys);
+      const fillStroke = fillStrokeKey(useStore.getState().fillStroke, keys);
       if (tool) setTool(tool);
-      else if (paint) useStore.setState({ paint });
+      else if (fillStroke) useStore.setState({ fillStroke });
       else if (keys === "Enter") finishPen();
       else if (keys === "Escape") {
         // Esc ends a path the Pen is drawing, else leaves the Zoom tool.
-        if (useStore.getState().pen?.commandId === null) finishPen();
+        if (drawing(useStore.getState())) finishPen();
         else if (useStore.getState().tool === "zoom") setTool("selection");
       }
     };
@@ -418,6 +427,7 @@ export function Viewer({ docId }: { docId: string }) {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerCancel}
+        onPointerLeave={() => setPointer(null)}
         onDragOver={(e) => e.preventDefault()}
         onDrop={onDrop}
       />

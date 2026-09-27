@@ -292,10 +292,11 @@ export class DocumentObject extends DurableObject<Env> {
       };
     }
     if (command.type === "create") {
-      // Sync, unlike createNodes: a browser sends no data URLs to store first.
+      // No image data URLs to store first, unlike this.createNodes: a browser places images by HTTP.
       return this.write(USER, { commandId }, "Create", (doc) => {
         const { nodes, keyMap, failed } = createNodes(doc, command.nodes);
-        return { created: nodes, keyMap, warnings: fontWarnings(nodes), failed };
+        const warnings = [...fontWarnings(nodes), ...overflowWarnings(nodes)];
+        return { created: nodes, keyMap, warnings, failed };
       });
     }
     if (command.type === "transform")

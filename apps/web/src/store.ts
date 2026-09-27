@@ -3,7 +3,7 @@ import type { ClientMessage, Command, ServerMessage } from "@zibel/sync";
 import { create } from "zustand";
 import type { ImageCache } from "./images.ts";
 import { receive, type ViewState } from "./receive.ts";
-import type { Paint, Tool } from "./tools.ts";
+import type { FillStroke, Tool } from "./tools.ts";
 import type { Viewport } from "./viewport.ts";
 
 export interface State extends ViewState {
@@ -19,11 +19,15 @@ export interface State extends ViewState {
   layersShown: boolean;
   tool: Tool;
   /** The Fill and Stroke boxes, kept across Document Tabs as in Illustrator. */
-  paint: Paint;
+  fillStroke: FillStroke;
 }
 
 /** Illustrator's default: a white Fill and a 1 pt black Stroke. */
-export const DEFAULT_PAINT: Paint = { fill: "#FFFFFF", stroke: "#000000", active: "fill" };
+export const DEFAULT_FILL_STROKE: FillStroke = {
+  fill: "#FFFFFF",
+  stroke: "#000000",
+  active: "fill",
+};
 
 export const useStore = create<State>(() => ({
   doc: null,
@@ -37,7 +41,7 @@ export const useStore = create<State>(() => ({
   images: null,
   layersShown: true,
   tool: "selection",
-  paint: DEFAULT_PAINT,
+  fillStroke: DEFAULT_FILL_STROKE,
 }));
 
 let socket: WebSocket | null = null;
