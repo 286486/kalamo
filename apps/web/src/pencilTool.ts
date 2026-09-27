@@ -27,8 +27,16 @@ export const pencilTool: CanvasTool = {
   },
   move(e) {
     if (!pencilInk()) return;
-    pencilMove(e.points, e);
-    e.redraw();
+    const from = pencilMove(e.points, e);
+    const { fillStroke } = useStore.getState();
+    // A freehand move draws only its own piece of the Ink over the canvas as it is, in well under a
+    // frame whatever the Document's size (F-FREE-02); a straight segment or a Fill redraws it all.
+    if (!from || pencilFill(fillStroke.fill)) {
+      e.redraw();
+      return;
+    }
+    const piece = new Path2D(`M ${[from, ...e.points].map((p) => p.join(" ")).join(" L ")}`);
+    drawDrawing(e.ctx, piece, { ...fillStroke, fill: null }, e.viewport.scale);
   },
   up(e) {
     pencilUp(e.viewport.scale);

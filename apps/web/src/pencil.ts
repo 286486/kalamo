@@ -311,18 +311,21 @@ export function pencilDown(p: Point) {
 
 /**
  * The pointer moved through `points`. Alt draws a straight segment from where it was pressed, and
- * Shift one at 0, 45 or 90°; releasing it goes on freehand from the segment's end.
+ * Shift one at 0, 45 or 90°; releasing it goes on freehand from the segment's end. Returns the
+ * Ink's last point before a freehand move, which only added to it; null when it redrew its end.
  */
-export function pencilMove(points: Point[], mods: { shift: boolean; alt: boolean }) {
+export function pencilMove(points: Point[], mods: { shift: boolean; alt: boolean }): Point | null {
   const p = points.at(-1);
-  if (!ink || !p) return;
+  if (!ink || !p) return null;
   if (mods.alt || mods.shift) {
     straight ??= { from: ink.at(-1) as Point, kept: ink.length };
     ink = [...ink.slice(0, straight.kept), mods.shift ? constrain(straight.from, p) : p];
-  } else {
-    straight = null;
-    ink.push(...points);
+    return null;
   }
+  straight = null;
+  const from = ink.at(-1) as Point;
+  ink.push(...points);
+  return from;
 }
 
 export function pencilCancel() {
