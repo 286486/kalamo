@@ -1,6 +1,7 @@
 import type { Rect } from "@zibel/core";
 import { send, useStore } from "./store.ts";
 import type { ToolEvent } from "./toolbox.ts";
+import type { FillStroke } from "./tools.ts";
 
 /** Illustrator's first Layer colour, used for the Selection and the marquee. */
 export const SELECTION = "#4F80FF";
@@ -34,6 +35,28 @@ export function drawMarquee(ctx: CanvasRenderingContext2D, rect: Rect, scale: nu
   ctx.setLineDash([4 / scale, 4 / scale]);
   ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
   ctx.setLineDash([]);
+}
+
+/** A path being drawn: in the current Fill and Stroke, then its outline, with the Selection's colour set. */
+export function drawDrawing(
+  ctx: CanvasRenderingContext2D,
+  path: Path2D,
+  { fill, stroke }: FillStroke,
+  scale: number,
+) {
+  if (fill) {
+    ctx.fillStyle = fill;
+    ctx.fill(path);
+  }
+  if (stroke) {
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = stroke;
+    ctx.stroke(path);
+  }
+  ctx.lineWidth = 1 / scale;
+  ctx.strokeStyle = SELECTION;
+  ctx.fillStyle = SELECTION;
+  ctx.stroke(path);
 }
 
 /** Releasing a drag commits it as one Transaction. */

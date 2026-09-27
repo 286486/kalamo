@@ -1,4 +1,4 @@
-import { dragged, type Press, SELECTION, SLOP } from "./canvas.ts";
+import { dragged, drawDrawing, type Press, SLOP } from "./canvas.ts";
 import { useStore } from "./store.ts";
 import type { CanvasTool } from "./toolbox.ts";
 import {
@@ -59,7 +59,8 @@ export const penTool: CanvasTool = {
   draw(ctx, _doc, scale) {
     const s = useStore.getState();
     const { pen, fillStroke } = s;
-    if (!pen) return;
+    // The Curvature tool draws its own.
+    if (!pen || pen.points) return;
     // The path so far in its Fill and Stroke, then its outline, rubber band, Anchors and Handles.
     const last = pen.anchors.at(-1);
     let anchors = pen.anchors;
@@ -68,19 +69,7 @@ export const penTool: CanvasTool = {
       anchors = [...anchors, { anchor: at, handleIn: null, handleOut: null }];
     }
     const path = new Path2D(pathD(anchors, pen.closed));
-    if (fillStroke.fill) {
-      ctx.fillStyle = fillStroke.fill;
-      ctx.fill(path);
-    }
-    if (fillStroke.stroke) {
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = fillStroke.stroke;
-      ctx.stroke(path);
-    }
-    ctx.lineWidth = 1 / scale;
-    ctx.strokeStyle = SELECTION;
-    ctx.fillStyle = SELECTION;
-    ctx.stroke(path);
+    drawDrawing(ctx, path, fillStroke, scale);
     const r = 2.5 / scale;
     // The last Anchor is solid, as the selected one, and shows its Handles; so does the first while
     // a drag on it closes the path.

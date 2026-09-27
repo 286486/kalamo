@@ -169,7 +169,7 @@ export function marqueeAnchors(doc: Document, rect: Rect): string[] {
 }
 
 /** A move by (dx, dy) in document coordinates, in `n`'s own. */
-function localDelta(doc: Document, n: Node, dx: number, dy: number): Point {
+export function localDelta(doc: Document, n: Node, dx: number, dy: number): Point {
   const inv = invert(worldTransform(doc, n));
   const [x0, y0] = applyTo(inv, 0, 0);
   const [x1, y1] = applyTo(inv, dx, dy);

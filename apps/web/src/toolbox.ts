@@ -1,4 +1,5 @@
 import type { Document, Node } from "@zibel/core";
+import { curvatureTool } from "./curvatureTool.ts";
 import { directTool } from "./directTool.ts";
 import { penTool } from "./penTool.ts";
 import { selectionTool } from "./selectionTool.ts";
@@ -62,6 +63,7 @@ export const TOOLS = {
   direct: directTool,
   zoom: zoomTool,
   pen: penTool,
+  curvature: curvatureTool,
 } satisfies Record<string, CanvasTool>;
 
 export type Tool = keyof typeof TOOLS;
