@@ -1,7 +1,7 @@
-// SVG gradients folded into Zibel's (ADR-0026): whatever maps a gradient's own space into the leaf's
-// coordinates (gradientTransform, objectBoundingBox, the leaf's bake) is applied to its geometry,
-// and SVG's reflect and repeat are unrolled into stops, so what is stored draws the same pixels.
-import type { ColorStop, Point } from "@zibel/core";
+// SVG gradients folded into Zibel's (ADR-0026): SVG's reflect and repeat are unrolled into stops, so
+// what is stored draws the same pixels. Core's mapGradient then applies whatever maps the gradient's
+// own space into the Node's coordinates (gradientTransform, objectBoundingBox, a leaf's bake).
+import type { ColorStop, Gradient, Point } from "@zibel/core";
 
 const n3 = (n: number) => Math.round(n * 1000) / 1000 || 0;
 
@@ -9,6 +9,12 @@ const n3 = (n: number) => Math.round(n * 1000) / 1000 || 0;
 export type Geometry =
   | { type: "linear"; p1: Point; p2: Point }
   | { type: "radial"; c: Point; r: number; f: Point };
+
+/** The geometry as a Zibel gradient with `stops`: SVG's circle is a radial of aspectRatio 1. */
+export const asGradient = (g: Geometry, stops: ColorStop[]): Gradient =>
+  g.type === "linear"
+    ? { type: "linear", stops, start: g.p1, end: g.p2 }
+    : { type: "radial", stops, center: g.c, radius: g.r, aspectRatio: 1, angle: 0, focus: g.f };
 
 /** Where `q` falls along the gradient: 0 at the first stop, 1 at the last. */
 function along(g: Geometry, q: Point): number {

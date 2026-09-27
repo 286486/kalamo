@@ -103,7 +103,7 @@ interface Out {
   nodes: Node[];
   keyMap: Record<string, string>;
   /** Containers whose Appearance waits for their children. */
-  painted: { node: Node; appearance: ContainerAppearanceInput; path: string }[];
+  painted: { node: LayerNode | GroupNode; appearance: ContainerAppearanceInput; path: string }[];
 }
 
 /**
@@ -139,11 +139,16 @@ export function createNodes(
     const name = input.name ?? "";
     let node: Node;
     if (input.type === "layer" || input.type === "group") {
-      node = { ...at, type: input.type, name };
+      const container: LayerNode | GroupNode = { ...at, type: input.type, name };
       // Painted once its inline children are in, so a gradient spans them (ADR-0043).
       if ("appearance" in input && input.appearance) {
-        out.painted.push({ node, appearance: input.appearance, path: `${path}.appearance` });
+        out.painted.push({
+          node: container,
+          appearance: input.appearance,
+          path: `${path}.appearance`,
+        });
       }
+      node = container;
     } else if (input.type === "text") {
       const { ranges, ...parsed } = TextShape.superRefine(textFrame).parse(input);
       const canonical = canonicalRanges(ranges, `${path}.ranges`);
@@ -205,9 +210,7 @@ export function createNodes(
         nodes: new Map([...doc.nodes, ...out.nodes.map((n) => [n.id, n] as const)]),
       };
       for (const { node, appearance, path } of out.painted) {
-        (node as LayerNode | GroupNode).appearance = paintContainer(appearance, path, () =>
-          bounds(view, node),
-        );
+        node.appearance = paintContainer(appearance, path, () => bounds(view, node));
       }
     }
     return { nodes: out.nodes, keyMap: out.keyMap };
@@ -378,9 +381,9 @@ function placed(
       path: `${at}.gradient`,
     });
   };
-  const centre = () => point(own().x + own().width / 2, own().y + own().height / 2);
+  const middle = () => point(own().x + own().width / 2, own().y + own().height / 2);
   if (g.type === "linear") {
-    const { x: cx, y: cy } = centre();
+    const { x: cx, y: cy } = middle();
     const { width, height } = own();
     const t = ((g.angle ?? 0) * Math.PI) / 180;
     const [ux, uy] = [Math.cos(t), Math.sin(t)];
@@ -391,7 +394,7 @@ function placed(
     return { type: "linear", stops, start, end: point(cx + half * ux, cy + half * uy) };
   }
   const { aspectRatio, angle } = g;
-  const center = g.center ?? centre();
+  const center = g.center ?? middle();
   // Illustrator's default: half the width on a square.
   const radius = g.radius ?? (r3(Math.sqrt((own().width ** 2 + own().height ** 2) / 8)) || 1);
   let focus = g.focus ?? center;
@@ -483,9 +486,9 @@ export const mapPaint = <P extends Fill>(p: P, m: Matrix): P =>
 
 /** Parses the colours, fills in `type` and every gradient's geometry, and sorts its stops. */
 export const paint = (a: AppearanceInput, path: string, leaf: Shape | TextShape): Appearance =>
-  paints(a, path, () => ownBounds(leaf));
+  paintOn(a, path, () => ownBounds(leaf));
 
-function paints(a: AppearanceInput, path: string, box: () => Rect | null): Appearance {
+function paintOn(a: AppearanceInput, path: string, box: () => Rect | null): Appearance {
   const one = <T extends AppearanceInput["fills" | "strokes"][number]>(p: T, at: string) => {
     if (p.type !== "gradient") {
       return { ...p, type: "solid", color: parseColor(p.color, `${at}.color`) };
@@ -520,7 +523,7 @@ export function paintContainer(
       path: `${path}.contents`,
     });
   }
-  return { ...paints(a, path, box), contents: a.contents };
+  return { ...paintOn(a, path, box), contents: a.contents };
 }
 
 type FillRule = "nonzero" | "evenodd";

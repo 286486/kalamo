@@ -260,9 +260,9 @@ export const COMPOSITING: CompositingCase[] = [
     ],
   },
   {
-    // #107. The text's stem spans x 22.5..28.2, y 16..40 in its own coordinates, 45..56.4 by 32..80
-    // once doubled. Painted in the text's own space, the stem would take the colour at half its x.
-    name: "a Group gradient Fill runs one field across a shape and a doubled text",
+    // #107. The text's stem spans x 22.5..28.2, y 16..40 in its own coordinates, and x 40..88, y 45..56.4
+    // once doubled and turned 90°. Painted in its own space, the stem would take the colour at y / 2.
+    name: "a Group gradient Fill runs one field across a shape and a doubled, turned text",
     nodes: [
       {
         type: "group",
@@ -273,7 +273,7 @@ export const COMPOSITING: CompositingCase[] = [
         ],
       },
     ],
-    transforms: { t: { matrix: [2, 0, 0, 2, 0, 0], pivot: { x: 0, y: 0 } } },
+    transforms: { t: { matrix: [0, 2, -2, 0, 120, 0], pivot: { x: 0, y: 0 } } },
     patches: {
       g: {
         appearance: {
@@ -299,8 +299,8 @@ export const COMPOSITING: CompositingCase[] = [
     probes: [
       { x: 130, y: 50, rgb: across(130) },
       { x: 170, y: 30, rgb: across(170) },
-      { x: 50, y: 56, rgb: across(50) },
-      { x: 52, y: 75, rgb: across(52) },
+      { x: 64, y: 50, rgb: across(64) },
+      { x: 78, y: 52, rgb: across(78) },
       { x: 100, y: 50, rgb: WHITE },
     ],
   },

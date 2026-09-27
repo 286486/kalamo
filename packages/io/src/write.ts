@@ -458,7 +458,8 @@ function containerPaints(doc: Document, n: LayerNode | GroupNode): string[] {
   const { fills, strokes } = containerAppearance(n);
   if (fills.length + strokes.length === 0) return [];
   const leaves = paintedLeaves(doc, n);
-  const group = (list: "fill" | "stroke", p: Fill, i: number, stroke?: Stroke) => {
+  const group = (list: "fill" | "stroke", p: Fill | Stroke, i: number) => {
+    const stroke = list === "stroke" ? (p as Stroke) : undefined;
     const id = gradientId(list, i, n.id);
     const gradients: string[] = [];
     const copies = leaves.map((l) => {
@@ -467,9 +468,9 @@ function containerPaints(doc: Document, n: LayerNode | GroupNode): string[] {
         const m = worldTransform(doc, l.node);
         const k = scaleOf(m);
         const moved = m.some((v, i) => v !== IDENTITY[i]);
-        let own: string | false = false;
+        let textPaint: string | false = false;
         if (p.type === "gradient" && moved) {
-          own = `${list}:url(#${id}-${l.node.id})`;
+          textPaint = `${list}:url(#${id}-${l.node.id})`;
           gradients.push(gradient(`${id}-${l.node.id}`, mapGradient(p.gradient, invert(m))));
         }
         copy = text(
@@ -478,7 +479,7 @@ function containerPaints(doc: Document, n: LayerNode | GroupNode): string[] {
             transform: moved ? `matrix(${round(m).join(" ")})` : undefined,
             ...(stroke && k !== 1 && strokeStyle(unscaledStroke(stroke, k))),
           },
-          [own],
+          [textPaint],
         );
       } else {
         copy = `<path${attrs({ d: formatPath(l.segments), "fill-rule": l.fillRule === "evenodd" ? "evenodd" : undefined })}/>`;
@@ -507,7 +508,7 @@ function containerPaints(doc: Document, n: LayerNode | GroupNode): string[] {
   };
   return [
     ...fills.map((f, i) => group("fill", f, i)),
-    ...strokes.map((k, i) => group("stroke", k, i, k)),
+    ...strokes.map((k, i) => group("stroke", k, i)),
   ];
 }
 

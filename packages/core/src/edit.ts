@@ -111,7 +111,7 @@ export function transformNodes(
     for (const c of all) {
       if (!isContainer(c) || !c.appearance) continue;
       const { fills, strokes } = c.appearance;
-      const s = input.scaleStrokes ? k : 1;
+      const widths = input.scaleStrokes ? k : 1;
       const mapped = [...fills, ...strokes].some((p) => p.type === "gradient");
       if (!mapped && !(input.scaleStrokes && strokes.length > 0)) continue;
       const next = {
@@ -121,8 +121,8 @@ export function transformNodes(
           fills: fills.map((f) => mapPaint(f, m)),
           strokes: strokes.map((t) => ({
             ...mapPaint(t, m),
-            width: t.width * s,
-            dash: t.dash.map((v) => v * s),
+            width: t.width * widths,
+            dash: t.dash.map((v) => v * widths),
           })),
         },
       };

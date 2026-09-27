@@ -13,7 +13,6 @@ import {
   fontStyleName,
   formatPath,
   frameShape,
-  type Gradient,
   IDENTITY,
   IMAGE_ID,
   type ImageFile,
@@ -58,7 +57,7 @@ import {
   xmlId,
   type ZibelAttr,
 } from "./dialect.ts";
-import { type Geometry, unroll } from "./gradient.ts";
+import { asGradient, type Geometry, unroll } from "./gradient.ts";
 import { computeStyle, type Rule, type Style, stylesheet } from "./style.ts";
 
 export type Warning = WriteReceipt["warnings"][number];
@@ -1043,19 +1042,7 @@ class Reader {
       });
       ({ g, stops: placed } = unroll(g, stops, spread, corners));
     }
-    const gradient: Gradient =
-      g.type === "linear"
-        ? { type: "linear", stops: placed, start: g.p1, end: g.p2 }
-        : {
-            type: "radial",
-            stops: placed,
-            center: g.c,
-            radius: g.r,
-            aspectRatio: 1,
-            angle: 0,
-            focus: g.f,
-          };
-    return { type: "gradient", gradient: mapGradient(gradient, multiply(own, space)) };
+    return { type: "gradient", gradient: mapGradient(asGradient(g, placed), multiply(own, space)) };
   }
 
   /** An element's geometric bounding box in its user space, as objectBoundingBox measures it. */
