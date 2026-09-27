@@ -20,6 +20,7 @@ import {
   layoutText,
   lookup,
   MISSING_LINK_STROKE,
+  mapGradient,
   type Node,
   paintedLeaves,
   type Rect,
@@ -449,52 +450,65 @@ function node(doc: Document, n: Node, walk: Walk): string {
  * Each Fill, then each Stroke, of a container's Appearance as a locked `<g zibel:paint>` holding a
  * bare copy of every leaf it paints, in document coordinates (ADR-0043): a shape's outline, or a
  * text laid out in its own transform, each in a `<g clip-path>` per inner Clipping Mask it is in.
+ * A gradient is in a `<defs>` just before the group: Inkscape 1.2.2 never finishes updating a group
+ * holding the `<defs>` it paints from. SVG resolves it in each painting element's user space, so a
+ * transformed text copy paints with its own copy of it, mapped back through that transform.
  */
 function containerPaints(doc: Document, n: LayerNode | GroupNode): string[] {
   const { fills, strokes } = containerAppearance(n);
   if (fills.length + strokes.length === 0) return [];
   const leaves = paintedLeaves(doc, n);
-  const copies = (stroke?: Stroke) =>
-    leaves
-      .map((l) => {
-        let copy: string;
-        if (l.node.type === "text") {
-          const m = worldTransform(doc, l.node);
-          const k = scaleOf(m);
-          copy = text(
-            l.node,
-            {
-              transform: m.every((v, i) => v === IDENTITY[i])
-                ? undefined
-                : `matrix(${round(m).join(" ")})`,
-              ...(stroke && k !== 1 && strokeStyle(unscaledStroke(stroke, k))),
-            },
-            [],
-          );
-        } else {
-          copy = `<path${attrs({ d: formatPath(l.segments), "fill-rule": l.fillRule === "evenodd" ? "evenodd" : undefined })}/>`;
+  const group = (list: "fill" | "stroke", p: Fill | Stroke, i: number) => {
+    const stroke = list === "stroke" ? (p as Stroke) : undefined;
+    const id = gradientId(list, i, n.id);
+    const gradients: string[] = [];
+    const copies = leaves.map((l) => {
+      let copy: string;
+      if (l.node.type === "text") {
+        const m = worldTransform(doc, l.node);
+        const k = scaleOf(m);
+        const moved = m.some((v, i) => v !== IDENTITY[i]);
+        let textPaint: string | false = false;
+        if (p.type === "gradient" && moved) {
+          textPaint = `${list}:url(#${id}-${l.node.id})`;
+          gradients.push(gradient(`${id}-${l.node.id}`, mapGradient(p.gradient, invert(m))));
         }
-        // Each inner Clipping Mask's own <clipPath>, outermost first.
-        return l.clips.reduceRight(
-          (inner, c) => `<g${attrs({ "clip-path": `url(#${clipId(c.maskId)})` })}>${inner}</g>`,
-          copy,
+        copy = text(
+          l.node,
+          {
+            transform: moved ? `matrix(${round(m).join(" ")})` : undefined,
+            ...(stroke && k !== 1 && strokeStyle(unscaledStroke(stroke, k))),
+          },
+          [textPaint],
         );
-      })
-      .join("");
-  const group = (label: string, a: Attrs, body: string) =>
-    `<g${attrs({ [zibel("paint")]: "true", "sodipodi:insensitive": "true", "inkscape:label": label, ...a })}>${body}</g>`;
-  // paintContainer refuses gradients until #107.
-  const color = (p: Fill) => (p.type === "solid" ? p.color : "#000000");
-  const filled = fills.length > 0 ? copies() : "";
+      } else {
+        copy = `<path${attrs({ d: formatPath(l.segments), "fill-rule": l.fillRule === "evenodd" ? "evenodd" : undefined })}/>`;
+      }
+      // Each inner Clipping Mask's own <clipPath>, outermost first.
+      return l.clips.reduceRight(
+        (inner, c) => `<g${attrs({ "clip-path": `url(#${clipId(c.maskId)})` })}>${inner}</g>`,
+        copy,
+      );
+    });
+    let paint: Attrs;
+    if (p.type === "solid") paint = paintAttrs(list, p.color);
+    else {
+      gradients.unshift(gradient(id, p.gradient));
+      paint = { [list]: `url(#${id})` };
+    }
+    const defs = gradients.length > 0 ? `<defs>${gradients.join("")}</defs>` : "";
+    return `${defs}<g${attrs({
+      [zibel("paint")]: "true",
+      "sodipodi:insensitive": "true",
+      "inkscape:label": stroke ? "Stroke" : "Fill",
+      ...(stroke && { fill: "none" }),
+      ...paint,
+      ...(stroke && strokeStyle(stroke)),
+    })}>${copies.join("")}</g>`;
+  };
   return [
-    ...fills.map((f) => group("Fill", paintAttrs("fill", color(f)), filled)),
-    ...strokes.map((k) =>
-      group(
-        "Stroke",
-        { fill: "none", ...paintAttrs("stroke", color(k)), ...strokeStyle(k) },
-        copies(k),
-      ),
-    ),
+    ...fills.map((f, i) => group("fill", f, i)),
+    ...strokes.map((k, i) => group("stroke", k, i)),
   ];
 }
 

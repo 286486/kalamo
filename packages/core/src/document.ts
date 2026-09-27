@@ -4,7 +4,7 @@ import type { z } from "zod";
 import { parseColor } from "./color.ts";
 import { collect, type Failed, ZibelError } from "./errors.ts";
 import { fileProblem, MAX_FILE_LENGTH, preserveAspectRatio } from "./image.ts";
-import { IDENTITY, multiply, scaleOf, transformSegments } from "./matrix.ts";
+import { applyTo, IDENTITY, multiply, scaleOf, transformSegments } from "./matrix.ts";
 import { formatPath, parsePath, pathBounds, type Segment, shapeSegments } from "./path.ts";
 import {
   type Appearance,
@@ -99,6 +99,13 @@ const countNodes = (items: { children?: unknown[] }[]): number =>
     0,
   );
 
+interface Out {
+  nodes: Node[];
+  keyMap: Record<string, string>;
+  /** Containers whose Appearance waits for their children. */
+  painted: { node: LayerNode | GroupNode; appearance: ContainerAppearanceInput; path: string }[];
+}
+
 /**
  * Validates every input first, then adds all Nodes, so a bad item leaves the Document unchanged.
  * Returns the new Nodes depth first in input order (a Group before its inline children), and the
@@ -122,7 +129,7 @@ export function createNodes(
     input: z.output<typeof NodeInput> | ChildInput,
     parentId: string | null,
     path: string,
-    out: { nodes: Node[]; keyMap: Record<string, string> },
+    out: Out,
   ) => {
     const at = {
       ...base(parentId, nextIndex(parentId)),
@@ -132,11 +139,16 @@ export function createNodes(
     const name = input.name ?? "";
     let node: Node;
     if (input.type === "layer" || input.type === "group") {
-      const appearance =
-        "appearance" in input && input.appearance
-          ? paintContainer(input.appearance, `${path}.appearance`)
-          : undefined;
-      node = { ...at, type: input.type, name, ...(appearance && { appearance }) };
+      const container: LayerNode | GroupNode = { ...at, type: input.type, name };
+      // Painted once its inline children are in, so a gradient spans them (ADR-0043).
+      if ("appearance" in input && input.appearance) {
+        out.painted.push({
+          node: container,
+          appearance: input.appearance,
+          path: `${path}.appearance`,
+        });
+      }
+      node = container;
     } else if (input.type === "text") {
       const { ranges, ...parsed } = TextShape.superRefine(textFrame).parse(input);
       const canonical = canonicalRanges(ranges, `${path}.ranges`);
@@ -188,11 +200,20 @@ export function createNodes(
   }
   const { ok, failed } = collect(inputs, partial, (raw, i) => {
     // Each item collects into its own lists, so a failure halfway through a Group leaves no trace.
-    const out = { nodes: [] as Node[], keyMap: {} as Record<string, string> };
+    const out: Out = { nodes: [], keyMap: {}, painted: [] };
     const input = NodeInput.parse(raw);
     assertParent(doc, input, input.parentId, `nodes[${i}].parentId`);
     add(input, input.parentId, `nodes[${i}]`, out);
-    return out;
+    if (out.painted.length > 0) {
+      const view = {
+        ...doc,
+        nodes: new Map([...doc.nodes, ...out.nodes.map((n) => [n.id, n] as const)]),
+      };
+      for (const { node, appearance, path } of out.painted) {
+        node.appearance = paintContainer(appearance, path, () => bounds(view, node));
+      }
+    }
+    return { nodes: out.nodes, keyMap: out.keyMap };
   });
   for (const item of ok) for (const node of item.nodes) doc.nodes.set(node.id, node);
   return {
@@ -335,31 +356,47 @@ const ownBounds = (leaf: Shape | TextShape): Rect =>
     height: 0,
   };
 
-/** The gradient with the geometry left out filled in from the leaf's own bounds (ADR-0026). */
+/**
+ * The gradient with the geometry left out filled in from `box`, a leaf's own bounds or a
+ * container's geometric bounds (ADR-0026, ADR-0043); null is no bounds, which needs full geometry.
+ */
 function placed(
   g: z.output<typeof Gradient>,
   stops: ColorStop[],
-  leaf: Shape | TextShape,
+  box: () => Rect | null,
+  at: string,
 ): Gradient {
   if (g.type === "linear" && g.start && g.end) {
     return { type: "linear", stops, start: g.start, end: g.end };
   }
-  const own = ownBounds(leaf);
-  const cx = own.x + own.width / 2;
-  const cy = own.y + own.height / 2;
+  let measured: Rect | undefined;
+  const own = () => {
+    measured ??= box() ?? undefined;
+    if (measured) return measured;
+    throw new ZibelError({
+      code: "INVALID_INPUT",
+      message:
+        "The gradient leaves out its geometry, and the Layer or Group has no bounds to span.",
+      hint: "Give start and end (linear) or center and radius (radial) in document coordinates, or add children first.",
+      path: `${at}.gradient`,
+    });
+  };
+  const middle = () => point(own().x + own().width / 2, own().y + own().height / 2);
   if (g.type === "linear") {
+    const { x: cx, y: cy } = middle();
+    const { width, height } = own();
     const t = ((g.angle ?? 0) * Math.PI) / 180;
     const [ux, uy] = [Math.cos(t), Math.sin(t)];
     // Half the bounds' extent along the direction, so the stops touch opposite sides.
-    const extent = (Math.abs(own.width * ux) + Math.abs(own.height * uy)) / 2;
+    const extent = (Math.abs(width * ux) + Math.abs(height * uy)) / 2;
     const half = extent > 1e-9 ? extent : 0.5;
     const start = point(cx - half * ux, cy - half * uy);
     return { type: "linear", stops, start, end: point(cx + half * ux, cy + half * uy) };
   }
   const { aspectRatio, angle } = g;
-  const center = g.center ?? point(cx, cy);
+  const center = g.center ?? middle();
   // Illustrator's default: half the width on a square.
-  const radius = g.radius ?? (r3(Math.sqrt((own.width ** 2 + own.height ** 2) / 8)) || 1);
+  const radius = g.radius ?? (r3(Math.sqrt((own().width ** 2 + own().height ** 2) / 8)) || 1);
   let focus = g.focus ?? center;
   // A focus outside the ellipse moves onto it, as SVG 1.1 does, so every renderer agrees.
   const t = (angle * Math.PI) / 180;
@@ -389,8 +426,69 @@ export function ellipseMatrix(g: Extract<Gradient, { type: "radial" }>): Matrix 
   );
 }
 
+/**
+ * The gradient in the space `m` maps its own space into, at 3 decimals. A linear gradient stays
+ * linear, its end recomputed so the stops keep their places; a radial one becomes an ellipse, its
+ * focus mapped.
+ */
+export function mapGradient(g: Gradient, m: Matrix): Gradient {
+  if (g.type === "linear") {
+    const [a, b, c, d] = m;
+    const [dx, dy] = [g.end.x - g.start.x, g.end.y - g.start.y];
+    // The gradient's direction goes through the inverse transpose; its length through 1 / |g|².
+    const det = a * d - b * c;
+    const len = dx * dx + dy * dy;
+    const [gx, gy] = [(d * dx - b * dy) / det / len, (a * dy - c * dx) / det / len];
+    const [sx, sy] = applyTo(m, g.start.x, g.start.y);
+    const g2 = gx * gx + gy * gy;
+    return {
+      type: "linear",
+      stops: g.stops,
+      start: point(sx, sy),
+      end: point(sx + gx / g2, sy + gy / g2),
+    };
+  }
+  // The circle of `radius` about `center`, through the ellipse and then `m`.
+  const e = ellipseMatrix(g);
+  const [a, b, c, d] = e ? multiply(m, e) : m;
+  let angle: number;
+  let major: number;
+  let minor: number;
+  if (Math.abs(a * c + b * d) < 1e-5 * (a * a + b * b + c * c + d * d)) {
+    // Columns at right angles, as a move, turn and scale make, and Zibel's own export: the ellipse's
+    // axes are the images of the circle's, so the radius stays along the first.
+    angle = Math.atan2(b, a);
+    major = Math.hypot(a, b);
+    minor = Math.hypot(c, d);
+  } else {
+    // A skew: the axes from the singular value decomposition.
+    const [p, f, h, k] = [(a + d) / 2, (a - d) / 2, (b + c) / 2, (b - c) / 2];
+    const [q, r] = [Math.hypot(p, k), Math.hypot(f, h)];
+    angle = (Math.atan2(h, f) + Math.atan2(k, p)) / 2;
+    major = q + r;
+    minor = Math.abs(q - r);
+  }
+  const degrees = (((angle * 180) / Math.PI) % 360) + 360;
+  return {
+    type: "radial",
+    stops: g.stops,
+    center: point(...applyTo(m, g.center.x, g.center.y)),
+    radius: r3(g.radius * major),
+    aspectRatio: r3(minor / major),
+    angle: r3(degrees % 360),
+    focus: point(...applyTo(m, g.focus.x, g.focus.y)),
+  };
+}
+
+/** The paint with its gradient, if it has one, mapped through `m`. */
+export const mapPaint = <P extends Fill>(p: P, m: Matrix): P =>
+  p.type === "gradient" ? ({ ...p, gradient: mapGradient(p.gradient, m) } as P) : p;
+
 /** Parses the colours, fills in `type` and every gradient's geometry, and sorts its stops. */
-export function paint(a: AppearanceInput, path: string, leaf: Shape | TextShape): Appearance {
+export const paint = (a: AppearanceInput, path: string, leaf: Shape | TextShape): Appearance =>
+  paintOn(a, path, () => ownBounds(leaf));
+
+function paintOn(a: AppearanceInput, path: string, box: () => Rect | null): Appearance {
   const one = <T extends AppearanceInput["fills" | "strokes"][number]>(p: T, at: string) => {
     if (p.type !== "gradient") {
       return { ...p, type: "solid", color: parseColor(p.color, `${at}.color`) };
@@ -398,7 +496,7 @@ export function paint(a: AppearanceInput, path: string, leaf: Shape | TextShape)
     const stops = p.gradient.stops
       .map((s, k) => ({ ...s, color: parseColor(s.color, `${at}.gradient.stops[${k}].color`) }))
       .sort((s, t) => s.offset - t.offset);
-    return { ...p, gradient: placed(p.gradient, stops, leaf) };
+    return { ...p, gradient: placed(p.gradient, stops, box, at) };
   };
   return {
     fills: a.fills.map((f, i) => one(f, `${path}.fills[${i}]`) as Fill),
@@ -408,32 +506,24 @@ export function paint(a: AppearanceInput, path: string, leaf: Shape | TextShape)
 
 /**
  * A Layer's or Group's Appearance as stored (ADR-0043): its colours parsed, `contents` inside the
- * stack.
+ * stack, a gradient's geometry left out filled in from `box`, the container's geometric bounds, in
+ * document coordinates.
  */
-export function paintContainer(a: ContainerAppearanceInput, path: string): ContainerAppearance {
-  for (const list of ["fills", "strokes"] as const) {
-    const i = a[list].findIndex((p) => p.type === "gradient");
-    if (i < 0) continue;
-    // ponytail: container gradients span the container's bounds once #107 lands.
+export function paintContainer(
+  a: ContainerAppearanceInput,
+  path: string,
+  box: () => Rect | null,
+): ContainerAppearance {
+  const count = a.fills.length + a.strokes.length;
+  if (!Number.isInteger(a.contents) || a.contents < 0 || a.contents > count) {
     throw new ZibelError({
       code: "INVALID_INPUT",
-      message: "A Layer's or Group's Appearance takes solid colours only for now.",
-      hint: "Give the container a solid {color}, or put the gradient on each child.",
-      path: `${path}.${list}[${i}].type`,
-    });
-  }
-  const paints = a.fills.length + a.strokes.length;
-  if (!Number.isInteger(a.contents) || a.contents < 0 || a.contents > paints) {
-    throw new ZibelError({
-      code: "INVALID_INPUT",
-      message: `contents is ${a.contents}, outside 0 to ${paints}, the number of fills and strokes.`,
+      message: `contents is ${a.contents}, outside 0 to ${count}, the number of fills and strokes.`,
       hint: "contents counts the paints drawn below the children, from the first Fill up through the Strokes: 0 puts every paint above them.",
       path: `${path}.contents`,
     });
   }
-  // Solid paints only, so no gradient needs the leaf's bounds.
-  const { fills, strokes } = paint(a, path, frameShape({ x: 0, y: 0, width: 0, height: 0 }));
-  return { fills, strokes, contents: a.contents };
+  return { ...paintOn(a, path, box), contents: a.contents };
 }
 
 type FillRule = "nonzero" | "evenodd";

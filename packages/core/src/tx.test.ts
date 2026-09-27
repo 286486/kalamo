@@ -212,6 +212,24 @@ describe("revert", () => {
       "a scale of a Group with a Stroke",
       (doc, { group }) => transformNodes(doc, { nodeIds: [group.id], scale: 3 }),
     ],
+    [
+      "a gradient on a Group, then a turn that maps it",
+      (doc, { group }) => {
+        const stops = [
+          { offset: 0, color: "#000000" },
+          { offset: 1, color: "#FFFFFF" },
+        ];
+        updateNodes(doc, [
+          {
+            nodeId: group.id,
+            patch: {
+              appearance: { fills: [{ type: "gradient", gradient: { type: "radial", stops } }] },
+            },
+          },
+        ]);
+        transformNodes(doc, { nodeIds: [group.id], rotate: 30, scale: { x: 2, y: 1 } });
+      },
+    ],
     ["a delete of a Group", (doc, { group }) => deleteNodes(doc, [group.id])],
     [
       "a committed overlay that updates a child and deletes its Group",

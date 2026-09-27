@@ -16,6 +16,7 @@ import {
   layoutText,
   type Matrix,
   MISSING_LINK_STROKE,
+  mapPaint,
   type Node,
   type PaintedLeaf,
   paintedLeaves,
@@ -221,12 +222,9 @@ function paint(ctx: Canvas2D, n: Node, scene: Scene) {
     const leaves = fills.length + strokes.length > 0 ? paintedLeaves(doc, n) : [];
     /**
      * Paints every leaf, each inside its inner Clipping Masks; a text in its glyphs, placed by its
-     * transform, which `glyphs` is given the scale of.
+     * transform, which `glyphs` is given.
      */
-    const over = (
-      glyphs: (t: TextNode, scale: number) => void,
-      shape: (l: PaintedLeaf) => void,
-    ) => {
+    const over = (glyphs: (t: TextNode, m: Matrix) => void, shape: (l: PaintedLeaf) => void) => {
       for (const l of leaves) {
         ctx.save();
         for (const c of l.clips) {
@@ -237,7 +235,7 @@ function paint(ctx: Canvas2D, n: Node, scene: Scene) {
           const m = worldTransform(doc, l.node);
           ctx.transform(...m);
           font(ctx, l.node);
-          glyphs(l.node, scaleOf(m));
+          glyphs(l.node, m);
         } else {
           trace(ctx, l.segments);
           shape(l);
@@ -245,20 +243,36 @@ function paint(ctx: Canvas2D, n: Node, scene: Scene) {
         ctx.restore();
       }
     };
-    // No range fills on a text: a container Fill paints every glyph in its own colour.
+    // No range fills on a text: a container Fill paints every glyph in its own colour. A gradient
+    // is in document coordinates, so a text, drawn in its transform, takes it mapped back through it.
+    // ponytail: an elliptical radial draws as its circle on text and Strokes, as on a leaf.
     const paints = [
       ...fills.map((f) => () => {
         ctx.fillStyle = styleOf(ctx, f, false).style;
         over(
-          (t) => text(ctx, t, (c, x, y) => ctx.fillText(c, x, y)),
-          (l) => ctx.fill(l.fillRule),
+          (t, m) => {
+            if (f.type === "gradient") {
+              ctx.fillStyle = styleOf(ctx, mapPaint(f, invert(m)), false).style;
+            }
+            text(ctx, t, (c, x, y) => ctx.fillText(c, x, y));
+          },
+          (l) => {
+            if (f.type === "gradient") {
+              const { style, m } = styleOf(ctx, f, true);
+              ctx.fillStyle = style;
+              if (m) ctx.transform(...m);
+            }
+            ctx.fill(l.fillRule);
+          },
         );
       }),
       ...strokes.map((s) => () => {
         pen(ctx, s);
         over(
-          (t, k) => {
-            if (k !== 1) pen(ctx, unscaledStroke(s, k));
+          (t, m) => {
+            const k = scaleOf(m);
+            if (k !== 1 || s.type === "gradient")
+              pen(ctx, mapPaint(unscaledStroke(s, k), invert(m)));
             text(ctx, t, (c, x, y) => ctx.strokeText(c, x, y));
           },
           () => ctx.stroke(),
