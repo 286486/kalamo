@@ -1,4 +1,4 @@
-import { bounds, formatPath, fromAnchors, type Rect } from "@zibel/core";
+import { bounds } from "@zibel/core";
 import { toSvg } from "@zibel/io/write";
 import { drawDocument } from "@zibel/render/canvas";
 import blackUrl from "@zibel/render/fonts/SourceSans3-Black.ttf?url";
@@ -7,61 +7,22 @@ import boldUrl from "@zibel/render/fonts/SourceSans3-Bold.ttf?url";
 import boldItalicUrl from "@zibel/render/fonts/SourceSans3-BoldIt.ttf?url";
 import italicUrl from "@zibel/render/fonts/SourceSans3-It.ttf?url";
 import regularUrl from "@zibel/render/fonts/SourceSans3-Regular.ttf?url";
-import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  allKeys,
-  anchorKey,
-  anchorsOf,
-  hasAnchors,
-  marqueeAnchors,
-  moveAnchors,
-  moveHandle,
-  moveSegment,
-  parseKey,
-  pick,
-  splitWhole,
-} from "./direct.ts";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { SELECTION } from "./canvas.ts";
 import { imageCache } from "./images.ts";
 import { Layers } from "./Layers.tsx";
 import { menuOpen } from "./MenuBar.tsx";
 import { keysOf } from "./menu.ts";
 import { pastedArt, place, placeable } from "./place.ts";
 import { preview, previewEdit } from "./receive.ts";
-import { combine, editable, hitTest, marquee } from "./selection.ts";
+import { editable } from "./selection.ts";
 import { connect, send, useStore } from "./store.ts";
 import { Tools } from "./Tools.tsx";
-import { drawing, fillStrokeKey, finishPen, pathD, penClick, setTool, TOOL_KEYS } from "./tools.ts";
-import { artboardsRect, fit, toDoc, type Viewport, zoomAt } from "./viewport.ts";
+import { type CanvasTool, TOOL_KEYS, TOOLS, type ToolEvent } from "./toolbox.ts";
+import { fillStrokeKey, finishPen, setTool } from "./tools.ts";
+import { artboardsRect, fit, toDoc, zoomAt } from "./viewport.ts";
 
 const PASTEBOARD = "#E6E6E6";
-/** Illustrator's first Layer colour, used for the Selection and the marquee. */
-const SELECTION = "#4F80FF";
-/** Screen px the pointer may wander before a press becomes a drag, and the hit tolerance. */
-const SLOP = 3;
-/** Direct Selection hits an Anchor, Handle or segment within 2 screen px (research §4). */
-const DIRECT_HIT = 2;
-
-type Point = { x: number; y: number };
-type Mods = { shift: boolean; alt: boolean };
-/**
- * A press on the canvas: moving objects or drawing a marquee, as both selection tools do, or with
- * Direct Selection dragging Anchors, one Handle, or a segment grabbed at `t`.
- */
-type Gesture = { start: Point; moved: boolean } & (
-  | { kind: "move"; nodeIds: string[] }
-  | { kind: "marquee"; mods: Mods }
-  | { kind: "anchors"; keys: string[] }
-  | { kind: "handle"; key: string; which: "handleIn" | "handleOut" }
-  | { kind: "segment"; nodeId: string; subpath: number; segment: number; t: number }
-);
-
-const rectOf = (a: Point, b: Point): Rect => ({
-  x: Math.min(a.x, b.x),
-  y: Math.min(a.y, b.y),
-  width: Math.abs(a.x - b.x),
-  height: Math.abs(a.y - b.y),
-});
-
 /** Pinch sends small deltas and passes through; a mouse-wheel notch (about 100) is capped to x1.65. */
 const wheelZoom = (deltaY: number) => Math.exp(-Math.max(-50, Math.min(50, deltaY)) * 0.01);
 
@@ -105,12 +66,14 @@ export function Viewer({ docId }: { docId: string }) {
   /** Space held: drag pans. */
   const [hand, setHand] = useState(false);
   const [alt, setAlt] = useState(false);
-  /** Where the Pen's rubber band ends, in document coordinates. */
-  const [pointer, setPointer] = useState<[number, number] | null>(null);
   /** Pointer position at the last pan step; movementX/Y scale with devicePixelRatio in some Chromes. */
   const last = useRef({ x: 0, y: 0 });
-  const gesture = useRef<Gesture | null>(null);
-  const [marqueeRect, setMarqueeRect] = useState<Rect | null>(null);
+  /** Space was held at the press: the drag pans. */
+  const panning = useRef(false);
+  /** The tool that captured the pointer, which gets its moves and release even if the tool changes. */
+  const pressed = useRef<CanvasTool | null>(null);
+  /** Counts changes to a tool's overlay, so the canvas redraws. */
+  const [overlay, redraw] = useReducer((n: number) => n + 1, 0);
   /** True once the faces have settled; until then text draws in a fallback font. */
   const [fontReady, setFontReady] = useState(false);
   /** Counts image files decoded, so the canvas redraws as each arrives. */
@@ -169,7 +132,7 @@ export function Viewer({ docId }: { docId: string }) {
   }, [doc, viewport, size]);
 
   // ponytail: redraws everything on every change; add viewport culling and dirty rects for 5k+ Nodes (F-VIEW-08).
-  // biome-ignore lint/correctness/useExhaustiveDependencies: fontReady and imagesLoaded redraw text and Images once their font or files are in
+  // biome-ignore lint/correctness/useExhaustiveDependencies: fontReady and imagesLoaded redraw text and Images once their font or files are in; anchors, pen, fillStroke and overlay redraw the tools' overlays
   useEffect(() => {
     const el = canvas.current;
     const ctx = el?.getContext("2d");
@@ -197,63 +160,14 @@ export function Viewer({ docId }: { docId: string }) {
     drawDocument(ctx, shown, images.get);
     ctx.lineWidth = 1 / scale;
     ctx.strokeStyle = SELECTION;
-    const r = 2.5 / scale;
+    const active = TOOLS[tool];
     for (const id of selection) {
       const node = shown.nodes.get(id);
-      if (tool === "direct" && hasAnchors(node)) {
-        // Its outline and Anchors, hollow unless selected; a selected Anchor shows its Handles.
-        const subpaths = anchorsOf(shown, node);
-        ctx.stroke(new Path2D(formatPath(fromAnchors(subpaths))));
-        for (const [k, s] of subpaths.entries()) {
-          for (const [i, a] of s.anchors.entries()) {
-            const [ax, ay] = a.anchor;
-            const on = anchors.includes(anchorKey(id, k, i));
-            for (const h of on ? [a.handleIn, a.handleOut] : []) {
-              if (!h) continue;
-              ctx.beginPath();
-              ctx.moveTo(ax, ay);
-              ctx.lineTo(h[0], h[1]);
-              ctx.stroke();
-              ctx.beginPath();
-              ctx.arc(h[0], h[1], r, 0, 2 * Math.PI);
-              ctx.fillStyle = SELECTION;
-              ctx.fill();
-            }
-            ctx.fillStyle = on ? SELECTION : "#FFFFFF";
-            ctx.fillRect(ax - r, ay - r, 2 * r, 2 * r);
-            ctx.strokeRect(ax - r, ay - r, 2 * r, 2 * r);
-          }
-        }
-        continue;
-      }
-      const b = node && bounds(shown, node);
+      if (!node || active.drawSelected?.(ctx, shown, node, scale)) continue;
+      const b = bounds(shown, node);
       if (b) ctx.strokeRect(b.x, b.y, b.width, b.height);
     }
-    if (pen) {
-      // The path so far in its Fill and Stroke, then its outline, rubber band and Anchors.
-      const rubber = drawing(useStore.getState()) && pointer;
-      const points = rubber ? [...pen.points, pointer] : pen.points;
-      const path = new Path2D(pathD(points, pen.closed));
-      if (fillStroke.fill) {
-        ctx.fillStyle = fillStroke.fill;
-        ctx.fill(path);
-      }
-      if (fillStroke.stroke) {
-        ctx.lineWidth = 1;
-        ctx.strokeStyle = fillStroke.stroke;
-        ctx.stroke(path);
-      }
-      ctx.lineWidth = 1 / scale;
-      ctx.strokeStyle = SELECTION;
-      ctx.stroke(path);
-      for (const [px, py] of pen.points) ctx.strokeRect(px - r, py - r, 2 * r, 2 * r);
-    }
-    if (marqueeRect) {
-      ctx.setLineDash([4 / scale, 4 / scale]);
-      const { x: mx, y: my, width, height } = marqueeRect;
-      ctx.strokeRect(mx, my, width, height);
-      ctx.setLineDash([]);
-    }
+    for (const t of Object.values(TOOLS)) t.draw?.(ctx, shown, scale);
   }, [
     doc,
     docId,
@@ -265,9 +179,8 @@ export function Viewer({ docId }: { docId: string }) {
     drag,
     edit,
     pen,
-    pointer,
     fillStroke,
-    marqueeRect,
+    overlay,
     fontReady,
     images,
     imagesLoaded,
@@ -318,12 +231,7 @@ export function Viewer({ docId }: { docId: string }) {
       const fillStroke = fillStrokeKey(useStore.getState().fillStroke, keys);
       if (tool) setTool(tool);
       else if (fillStroke) useStore.setState({ fillStroke });
-      else if (keys === "Enter") finishPen();
-      else if (keys === "Escape") {
-        // Esc ends a path the Pen is drawing, else leaves the Zoom tool.
-        if (drawing(useStore.getState())) finishPen();
-        else if (useStore.getState().tool === "zoom") setTool("selection");
-      }
+      else TOOLS[useStore.getState().tool].onKey?.(keys);
     };
     addEventListener("keydown", onKey);
     addEventListener("keyup", onKey);
@@ -383,188 +291,63 @@ export function Viewer({ docId }: { docId: string }) {
     if (file) place(file);
   };
 
-  /** The pointer in document coordinates. */
-  const docPoint = (e: React.PointerEvent<HTMLCanvasElement>, v: Viewport) => {
-    const r = e.currentTarget.getBoundingClientRect();
-    return toDoc(v, e.clientX - r.left, e.clientY - r.top);
+  /** A pointer event for a tool, or null before the Document and viewport are in. */
+  const toolEvent = (e: React.PointerEvent<HTMLCanvasElement>): ToolEvent | null => {
+    const { doc, viewport } = useStore.getState();
+    const el = e.currentTarget;
+    const ctx = el.getContext("2d");
+    if (!doc || !viewport || !ctx) return null;
+    const r = el.getBoundingClientRect();
+    return {
+      ...toDoc(viewport, e.clientX - r.left, e.clientY - r.top),
+      shift: e.shiftKey,
+      alt: e.altKey,
+      doc,
+      viewport,
+      ctx,
+      capture: () => el.setPointerCapture(e.pointerId),
+      redraw,
+    };
   };
+  const target = () => pressed.current ?? TOOLS[tool];
 
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    const { doc, viewport: v, selection } = useStore.getState();
-    if (!doc || !v) return;
+    const ev = toolEvent(e);
+    if (!ev) return;
     if (hand) {
-      e.currentTarget.setPointerCapture(e.pointerId);
+      ev.capture();
+      panning.current = true;
       last.current = { x: e.clientX, y: e.clientY };
       return;
     }
-    if (tool === "zoom") {
-      const r = e.currentTarget.getBoundingClientRect();
-      const factor = e.altKey ? 0.5 : 2;
-      useStore.setState({ viewport: zoomAt(v, factor, e.clientX - r.left, e.clientY - r.top) });
-      return;
-    }
-    if (tool === "pen") {
-      const p = docPoint(e, v);
-      penClick([p.x, p.y], SLOP / v.scale);
-      return;
-    }
-    const ctx = e.currentTarget.getContext("2d");
-    if (!ctx) return;
-    const start = docPoint(e, v);
-    const mods = { shift: e.shiftKey, alt: e.altKey };
-    useStore.setState({ notice: null });
-    if (tool === "direct") return directDown(e, ctx, start, mods);
-    const hit = hitTest(ctx, doc, start.x, start.y, SLOP / v.scale);
-    if (hit && mods.shift) {
-      useStore.setState({ selection: combine(selection, [hit], mods) });
-      return;
-    }
-    e.currentTarget.setPointerCapture(e.pointerId);
-    if (hit) {
-      // Pressing a selected object keeps the Selection, so all of it that is editable moves.
-      const kept = selection.includes(hit);
-      if (!kept) useStore.setState({ selection: [hit] });
-      const nodeIds = kept ? selection.filter((id) => editable(doc, doc.nodes.get(id))) : [hit];
-      gesture.current = { kind: "move", start, nodeIds, moved: false };
-    } else {
-      gesture.current = { kind: "marquee", start, mods, moved: false };
-    }
-  };
-
-  /**
-   * A Direct Selection press (research §4): a selected Anchor's Handle, an Anchor, a segment, inside
-   * a filled path (all its Anchors), or a marquee. Shift adds or removes, without a drag.
-   */
-  const directDown = (
-    e: React.PointerEvent<HTMLCanvasElement>,
-    ctx: CanvasRenderingContext2D,
-    start: Point,
-    mods: Mods,
-  ) => {
-    const { doc, viewport: v, selection, anchors } = useStore.getState();
-    if (!doc || !v) return;
-    const tolerance = DIRECT_HIT / v.scale;
-    const target = pick(doc, selection, anchors, start.x, start.y, tolerance);
-    const leaf = target ? null : hitTest(ctx, doc, start.x, start.y, tolerance, true);
-    const nodeId =
-      target?.kind === "segment" ? target.nodeId : target ? parseKey(target.key).nodeId : leaf;
-    const node = doc.nodes.get(nodeId ?? "");
-    const keys =
-      target?.kind === "anchor" ? [target.key] : !target && hasAnchors(node) ? allKeys(node) : [];
-    if (nodeId && mods.shift) {
-      const shown = selection.includes(nodeId) ? selection : [...selection, nodeId];
-      useStore.setState({ selection: shown, anchors: combine(anchors, keys, mods) });
-      return;
-    }
-    e.currentTarget.setPointerCapture(e.pointerId);
-    const g = { start, moved: false };
-    if (target?.kind === "handle") {
-      gesture.current = { ...g, kind: "handle", key: target.key, which: target.which };
-    } else if (nodeId) {
-      // Pressing a selected Anchor, or inside a path whose Anchors are all selected, keeps the
-      // Anchor selection, so all of it moves.
-      const kept = keys.length > 0 && keys.every((k) => anchors.includes(k));
-      if (!kept) useStore.setState({ selection: [nodeId], anchors: keys });
-      const moving = kept ? anchors : keys;
-      if (target?.kind === "segment") gesture.current = { ...g, ...target };
-      else if (moving.length > 0) gesture.current = { ...g, kind: "anchors", keys: moving };
-      else gesture.current = { ...g, kind: "move", nodeIds: [nodeId] };
-    } else {
-      gesture.current = { ...g, kind: "marquee", mods };
-    }
+    const t = TOOLS[tool];
+    t.down(ev);
+    pressed.current = e.currentTarget.hasPointerCapture(e.pointerId) ? t : null;
   };
 
   const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    const v = useStore.getState().viewport;
-    if (v && tool === "pen") {
-      const p = docPoint(e, v);
-      setPointer([p.x, p.y]);
-    }
-    if (!v || !e.currentTarget.hasPointerCapture(e.pointerId)) return;
-    const g = gesture.current;
-    if (!g) {
+    const ev = toolEvent(e);
+    if (!ev) return;
+    if (panning.current) {
+      const v = ev.viewport;
       const dx = e.clientX - last.current.x;
       const dy = e.clientY - last.current.y;
       last.current = { x: e.clientX, y: e.clientY };
       useStore.setState({ viewport: { ...v, x: v.x + dx, y: v.y + dy } });
-      return;
     }
-    const p = docPoint(e, v);
-    const [dx, dy] = [p.x - g.start.x, p.y - g.start.y];
-    g.moved ||= Math.hypot(dx, dy) * v.scale >= SLOP;
-    if (!g.moved) return;
-    const { doc } = useStore.getState();
-    if (g.kind === "move")
-      useStore.setState({ drag: { nodeIds: g.nodeIds, dx, dy, commandId: null } });
-    else if (g.kind === "marquee") setMarqueeRect(rectOf(g.start, p));
-    else if (doc) {
-      // Paths with every Anchor selected move whole, so a Live Shape stays live; the rest by
-      // their Anchors.
-      const { whole, partial } = splitWhole(doc, g.kind === "anchors" ? g.keys : []);
-      const inputs =
-        g.kind === "anchors"
-          ? moveAnchors(doc, partial, dx, dy)
-          : [
-              g.kind === "handle"
-                ? moveHandle(doc, g.key, g.which, dx, dy, e.altKey)
-                : moveSegment(doc, g.nodeId, g.subpath, g.segment, g.t, dx, dy),
-            ].filter((input) => input !== null);
-      useStore.setState({
-        drag: whole.length > 0 ? { nodeIds: whole, dx, dy, commandId: null } : null,
-        edit: inputs.length > 0 ? { inputs, commandIds: null } : null,
-      });
-    }
+    target().move?.(ev);
   };
 
-  /** Releasing commits a move as one Transaction, or applies the marquee (a click if it never moved). */
-  const onPointerUp = () => {
-    const g = gesture.current;
-    gesture.current = null;
-    const { doc, drag, edit, selection, anchors } = useStore.getState();
-    if (!g || !doc) return;
-    if (g.kind === "marquee" && tool === "direct") {
-      // A marquee selects Anchors; the Selection is the paths they are on.
-      const keys = g.moved && marqueeRect ? marqueeAnchors(doc, marqueeRect) : [];
-      const next = combine(anchors, keys, g.mods);
-      const paths = next.map((k) => parseKey(k).nodeId);
-      const kept = g.mods.shift ? selection : [];
-      useStore.setState({ anchors: next, selection: [...new Set([...kept, ...paths])] });
-      setMarqueeRect(null);
-    } else if (g.kind === "marquee") {
-      const ids = g.moved && marqueeRect ? marquee(doc, marqueeRect) : [];
-      useStore.setState({ selection: combine(selection, ids, g.mods) });
-      setMarqueeRect(null);
-    } else if (g.moved) {
-      // One path_edit per path the drag reshaped (ADR-0032), and one transform for what moved whole.
-      if (edit && edit.commandIds === null) {
-        const commandIds = edit.inputs.map((input) => send({ type: "path_edit", input }));
-        useStore.setState({ edit: { ...edit, commandIds } });
-      }
-      if (drag && drag.commandId === null) {
-        // ponytail: TransformInput takes at most 1000 nodeIds: a larger drag crashes preview() and
-        // is closed with 1007 by the DO; chunk the command or lift the max when Documents grow.
-        const translate = { x: drag.dx, y: drag.dy };
-        const commandId = send({ type: "transform", input: { nodeIds: drag.nodeIds, translate } });
-        useStore.setState({ drag: { ...drag, commandId } });
-      }
-    }
+  const onPointerEnd = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const t = target();
+    panning.current = false;
+    pressed.current = null;
+    const ev = toolEvent(e);
+    if (ev && e.type === "pointerup") t.up?.(ev);
+    else t.cancel?.(redraw);
   };
 
-  const onPointerCancel = () => {
-    gesture.current = null;
-    setMarqueeRect(null);
-    if (useStore.getState().drag?.commandId === null) useStore.setState({ drag: null });
-    if (useStore.getState().edit?.commandIds === null) useStore.setState({ edit: null });
-  };
-
-  const cursor = hand
-    ? "grab"
-    : {
-        selection: "default",
-        direct: "default",
-        pen: "crosshair",
-        zoom: alt ? "zoom-out" : "zoom-in",
-      }[tool];
+  const cursor = hand ? "grab" : (alt && TOOLS[tool].altCursor) || TOOLS[tool].cursor;
 
   return (
     <div style={{ position: "absolute", inset: 0, background: PASTEBOARD }}>
@@ -573,9 +356,12 @@ export function Viewer({ docId }: { docId: string }) {
         style={{ width: "100%", height: "100%", display: "block", cursor }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerCancel}
-        onPointerLeave={() => setPointer(null)}
+        onPointerUp={onPointerEnd}
+        onPointerCancel={onPointerEnd}
+        onPointerLeave={(e) => {
+          const ev = toolEvent(e);
+          if (ev) for (const t of Object.values(TOOLS)) t.leave?.(ev);
+        }}
         onDragOver={(e) => e.preventDefault()}
         onDrop={onDrop}
       />

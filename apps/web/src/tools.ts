@@ -2,10 +2,7 @@ import type { Document, NodeInput } from "@zibel/core";
 import type { PenPath } from "./receive.ts";
 import { editable, placeParent } from "./selection.ts";
 import { DEFAULT_FILL_STROKE, type State, send, useStore } from "./store.ts";
-
-/** The Tools panel's tools. Their keys stay here, not in the menu table (ADR-0031). */
-export type Tool = "selection" | "direct" | "zoom" | "pen";
-export const TOOL_KEYS: Record<string, Tool> = { V: "selection", A: "direct", Z: "zoom", P: "pen" };
+import type { Tool } from "./toolbox.ts";
 
 /** The Fill and Stroke boxes (F-DRAW-12): what new art is painted with; null is None. */
 export interface FillStroke {

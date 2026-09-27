@@ -1,20 +1,13 @@
 import { memo } from "react";
 import { useStore } from "./store.ts";
-import { type FillStroke, fillStrokeKey, setTool, type Tool } from "./tools.ts";
+import { TOOLS, type Tool } from "./toolbox.ts";
+import { type FillStroke, fillStrokeKey, setTool } from "./tools.ts";
 
 const glyph = (d: string, fill = "none") => (
   <svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true">
     <path d={d} fill={fill} stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
   </svg>
 );
-const ARROW = "M4 2 L4 13 L7 10 L9 14 L11 13 L9 9 L13 9 Z";
-/** Illustrator's black and white arrows. */
-const TOOLS: [Tool, string, React.ReactNode][] = [
-  ["selection", "Selection Tool (V)", glyph(ARROW, "currentColor")],
-  ["direct", "Direct Selection Tool (A)", glyph(ARROW)],
-  ["zoom", "Zoom Tool (Z)", glyph("M2 7 A5 5 0 1 0 12 7 A5 5 0 1 0 2 7 M10.5 10.5 L14.5 14.5")],
-  ["pen", "Pen Tool (P)", glyph("M8 1 L12 8 L10 14 H6 L4 8 Z M8 1 V8 M7 8 A1 1 0 1 0 9 8")],
-];
 const button: React.CSSProperties = {
   width: 28,
   height: 28,
@@ -117,19 +110,23 @@ export const Tools = memo(function Tools() {
         borderRadius: 4,
       }}
     >
-      {TOOLS.map(([t, label, icon]) => (
-        <button
-          key={t}
-          type="button"
-          title={label}
-          aria-label={label}
-          aria-pressed={tool === t}
-          onClick={() => setTool(t)}
-          style={{ ...button, background: tool === t ? "#DCE6FF" : "none" }}
-        >
-          {icon}
-        </button>
-      ))}
+      {(Object.keys(TOOLS) as Tool[]).map((t) => {
+        const { title, shortcut, icon, iconFill } = TOOLS[t];
+        const label = `${title} (${shortcut})`;
+        return (
+          <button
+            key={t}
+            type="button"
+            title={label}
+            aria-label={label}
+            aria-pressed={tool === t}
+            onClick={() => setTool(t)}
+            style={{ ...button, background: tool === t ? "#DCE6FF" : "none" }}
+          >
+            {glyph(icon, iconFill)}
+          </button>
+        );
+      })}
       <div style={{ position: "relative", width: 32, height: 32, marginTop: 6 }}>
         <Box fillStroke={fillStroke} box="fill" />
         <Box fillStroke={fillStroke} box="stroke" />

@@ -70,6 +70,12 @@ import {
   type WriteOptions,
 } from "@zibel/sync";
 
+type EditCommand = Exclude<Command, { type: "undo" | "redo" }>;
+type EditEntry<C> = {
+  nodeIds: (command: C) => string[];
+  run: (command: C, commandId: string) => Result<WriteReceipt>;
+};
+
 /** RPC results carry errors as data: Workers RPC keeps only the message of a thrown error. */
 export type Result<T> = T | { error: ErrorData };
 
@@ -260,27 +266,61 @@ export class DocumentObject extends DurableObject<Env> {
   }
 
   /**
-   * A create, transform, delete, update, Clipping Mask or path command from a browser. The browser only names
-   * Nodes it was sent, so a missing one was deleted: delete beats edit (ADR-0010).
+   * Each browser edit Command: the Nodes it names, and how it runs as a Transaction of the User
+   * Actor. A new Command is one entry.
    */
-  private edit(
-    command: Exclude<Command, { type: "undo" | "redo" }>,
-    commandId: string,
-  ): Result<WriteReceipt> {
-    const nodeIds =
-      command.type === "create"
-        ? command.nodes.flatMap((n) => n.parentId ?? [])
-        : command.type === "transform"
-          ? command.input.nodeIds
-          : command.type === "update"
-            ? [command.nodeId]
-            : command.type === "mask_make"
-              ? [command.input.clipNodeId, ...command.input.contentIds]
-              : command.type === "path_edit"
-                ? [command.input.nodeId]
-                : command.type === "path_op"
-                  ? command.input.nodeIds
-                  : command.nodeIds;
+  private readonly edits: {
+    [T in EditCommand["type"]]: EditEntry<Extract<EditCommand, { type: T }>>;
+  } = {
+    create: {
+      nodeIds: (c) => c.nodes.flatMap((n) => n.parentId ?? []),
+      // No image data URLs to store first, unlike this.createNodes: a browser places images by HTTP.
+      run: (c, commandId) =>
+        this.write(USER, { commandId }, "Create", (doc) => {
+          const { nodes, keyMap, failed } = createNodes(doc, c.nodes);
+          const warnings = [...fontWarnings(nodes), ...overflowWarnings(nodes)];
+          return { created: nodes, keyMap, warnings, failed };
+        }),
+    },
+    transform: {
+      nodeIds: (c) => c.input.nodeIds,
+      run: (c, commandId) => this.transformNodes(c.input, USER, { commandId }),
+    },
+    update: {
+      nodeIds: (c) => [c.nodeId],
+      run: (c, commandId) =>
+        this.updateNodes([{ nodeId: c.nodeId, patch: c.patch }], USER, { commandId }),
+    },
+    delete: {
+      nodeIds: (c) => c.nodeIds,
+      run: (c, commandId) => this.deleteNodes(c.nodeIds, USER, { commandId }),
+    },
+    mask_make: {
+      nodeIds: (c) => [c.input.clipNodeId, ...c.input.contentIds],
+      run: (c, commandId) => this.makeMask(c.input, USER, { commandId }),
+    },
+    mask_release: {
+      nodeIds: (c) => c.nodeIds,
+      run: (c, commandId) => this.releaseMask(c.nodeIds, USER, { commandId }),
+    },
+    path_edit: {
+      nodeIds: (c) => [c.input.nodeId],
+      run: (c, commandId) => this.pathEdit(c.input, USER, { commandId }),
+    },
+    path_op: {
+      nodeIds: (c) => c.input.nodeIds,
+      run: (c, commandId) => this.pathOp(c.input, USER, { commandId }),
+    },
+  };
+
+  /**
+   * A browser edit Command. The browser only names Nodes it was sent, so a missing one was
+   * deleted: delete beats edit (ADR-0010).
+   */
+  private edit(command: EditCommand, commandId: string): Result<WriteReceipt> {
+    // The entry matches command.type, which TypeScript cannot correlate across the union.
+    const entry = this.edits[command.type] as EditEntry<EditCommand>;
+    const nodeIds = entry.nodeIds(command);
     // The socket was accepted for an existing Document, so load() cannot throw DOC_NOT_FOUND.
     const { nodes } = this.load();
     const gone = nodeIds.filter((n) => !nodes.has(n));
@@ -295,28 +335,7 @@ export class DocumentObject extends DurableObject<Env> {
         },
       };
     }
-    if (command.type === "create") {
-      // No image data URLs to store first, unlike this.createNodes: a browser places images by HTTP.
-      return this.write(USER, { commandId }, "Create", (doc) => {
-        const { nodes, keyMap, failed } = createNodes(doc, command.nodes);
-        const warnings = [...fontWarnings(nodes), ...overflowWarnings(nodes)];
-        return { created: nodes, keyMap, warnings, failed };
-      });
-    }
-    if (command.type === "transform")
-      return this.transformNodes(command.input, USER, { commandId });
-    if (command.type === "update") {
-      return this.updateNodes([{ nodeId: command.nodeId, patch: command.patch }], USER, {
-        commandId,
-      });
-    }
-    if (command.type === "mask_make") return this.makeMask(command.input, USER, { commandId });
-    if (command.type === "mask_release") {
-      return this.releaseMask(command.nodeIds, USER, { commandId });
-    }
-    if (command.type === "path_edit") return this.pathEdit(command.input, USER, { commandId });
-    if (command.type === "path_op") return this.pathOp(command.input, USER, { commandId });
-    return this.deleteNodes(command.nodeIds, USER, { commandId });
+    return entry.run(command, commandId);
   }
 
   /** Sends to every browser. Called after the SQLite transaction, so a dead socket cannot undo a write. */
