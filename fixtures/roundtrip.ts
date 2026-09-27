@@ -201,8 +201,8 @@ const contains = (r: Rect, x: number, y: number) =>
 interface Region {
   name: string;
   kind: keyof typeof BUDGET;
-  /** A text region's Node: a text's first 16 characters, or an Image's name. */
-  node?: string;
+  /** What a text region holds: a text's first 16 characters, or an Image's name. */
+  subject?: string;
   /** Pixels in the region, and those of them that differ. */
   area: number;
   differ: number;
@@ -221,7 +221,7 @@ interface RegionMap {
 
 const share = (r: Region) => r.differ / r.area;
 const percent = (n: number) => `${Number((n * 100).toFixed(2))}%`;
-const label = (r: Region) => [r.name, r.kind, r.node].filter(Boolean).join(" ");
+const label = (r: Region) => [r.name, r.kind, r.subject].filter(Boolean).join(" ");
 const against = (r: Region) => `${percent(share(r))} of ${percent(BUDGET[r.kind])}`;
 const describe = (r: Region) => `${label(r)} ${r.differ} px of ${r.area} (${against(r)})`;
 
@@ -302,15 +302,16 @@ async function main() {
         appearance?: { strokes?: { width: number }[] };
       }[];
       const byId = new Map(views.map((v) => [v.id, v]));
-      const rects: { rect: Rect; node?: string }[] = [];
+      const rects: { rect: Rect; subject: string; unchecked: boolean }[] = [];
       for (const v of views) {
         if ((v.type !== "text" && v.type !== "image") || !v.visibleBounds) continue;
         const chain = [];
         for (let n: typeof v | undefined = v; n; n = byId.get(n.parentId ?? "")) chain.push(n);
         if (!chain.every((n) => n.visible)) continue;
+        // visibleBounds already holds the Node's own Stroke; a container's outlines it as well.
         const stroke = Math.max(
           0,
-          ...chain.flatMap((n) => {
+          ...chain.slice(1).flatMap((n) => {
             const [a = 1, b = 0, c = 0, d = 1] = n.worldTransform ?? [];
             return (n.appearance?.strokes ?? []).map(
               (s) => s.width * Math.sqrt(Math.abs(a * d - b * c)),
@@ -321,11 +322,11 @@ async function main() {
         const { x, y, width, height } = v.visibleBounds;
         rects.push({
           rect: { x: x - grow, y: y - grow, width: width + 2 * grow, height: height + 2 * grow },
+          subject: JSON.stringify(
+            (v.content ?? (v.name || v.id)).replace(/\s+/g, " ").slice(0, 16),
+          ),
           // Inkscape draws its own icon for a missing link (ADR-0042): no budget covers it.
-          node:
-            v.type === "image" && !v.src
-              ? undefined
-              : JSON.stringify((v.content ?? (v.name || v.id)).replace(/\s+/g, " ").slice(0, 16)),
+          unchecked: v.type === "image" && !v.src,
         });
       }
       const names = [...doc.artboards.map((a) => String(a.name)), "outside Artboards"];
@@ -340,15 +341,16 @@ async function main() {
           const found = frames.findIndex((f) => contains(f, x, y));
           const artboard = found < 0 ? frames.length : found;
           const t = rects.findIndex((r) => contains(r.rect, x, y));
+          const rect = rects[t];
           let i = artboard;
-          if (t >= 0 && !rects[t]?.node) i = UNCHECKED;
-          else if (t >= 0) {
+          if (rect?.unchecked) i = UNCHECKED;
+          else if (rect) {
             const key = `${artboard} ${t}`;
             i = index.get(key) ?? regions.length;
             if (i === regions.length) {
               index.set(key, i);
               const name = names[artboard] as string;
-              regions.push({ name, kind: "text", node: rects[t]?.node, area: 0, differ: 0 });
+              regions.push({ name, kind: "text", subject: rect.subject, area: 0, differ: 0 });
             }
           }
           of[py * docRect.width + px] = i;
@@ -436,35 +438,45 @@ async function main() {
         const map = await regionMap(docId, docRect);
         line = report(structure, inkscapeDiff(dir, pixelsSvg, map));
 
-        // Each probe hidden from resvg must fail on its own Artboard and region kind.
-        for (const [probe, nodeId] of Object.entries(PROBES)) {
-          if (!want.nodes.some((n) => n.id === nodeId)) continue;
-          const copy = await open(json);
-          await call("zibel_node_update", {
-            docId: copy.docId,
-            updates: [{ nodeId, patch: { visible: false } }],
-          });
-          const probeDir = join(dir, "probes", probe);
-          mkdirSync(probeDir, { recursive: true });
-          await resvg(probeDir, copy.docId, docRect);
-          const regions = compare(
-            map,
-            join(probeDir, "resvg.png"),
-            join(dir, "inkscape.png"),
-            join(probeDir, "diff.png"),
-          );
-          const [view] = (
-            await call("zibel_node_get", { docId, nodeIds: [nodeId], detail: "full" })
-          ).structuredContent.nodes as { visibleBounds: Rect }[];
-          const b = view?.visibleBounds as Rect;
-          const px = Math.floor(b.x + b.width / 2 - docRect.x);
-          const py = Math.floor(b.y + b.height / 2 - docRect.y);
-          const own = regions[map.of[py * docRect.width + px] ?? 0] as Region;
-          const detected = judge(regions).over.includes(own);
-          if (!detected) failed++;
-          probes.push(
-            `probe ${probe}: ${detected ? `detected (${describe(own)})` : `not detected, ${label(own)} ${percent(share(own))} under ${percent(BUDGET[own.kind])}`}`,
-          );
+        // Each probe hidden from resvg must fail on its own Artboard and region kind. The probes
+        // are the edit target's fixture's: there a missing one fails, as a buried one does.
+        const probing = want.nodes.some((n) => n.id === PAINTED);
+        for (const [probe, nodeId] of Object.entries(probing ? PROBES : {})) {
+          try {
+            const [view] = (
+              await call("zibel_node_get", { docId, nodeIds: [nodeId], detail: "full" })
+            ).structuredContent.nodes as { visibleBounds: Rect | null }[];
+            const b = view?.visibleBounds;
+            if (!b) throw new Error("draws nothing");
+            const px = Math.floor(b.x + b.width / 2 - docRect.x);
+            const py = Math.floor(b.y + b.height / 2 - docRect.y);
+            const at = px >= 0 && px < docRect.width && py >= 0 ? py * docRect.width + px : -1;
+            const copy = await open(json);
+            await call("zibel_node_update", {
+              docId: copy.docId,
+              updates: [{ nodeId, patch: { visible: false } }],
+            });
+            const probeDir = join(dir, "probes", probe);
+            mkdirSync(probeDir, { recursive: true });
+            await resvg(probeDir, copy.docId, docRect);
+            const regions = compare(
+              map,
+              join(probeDir, "resvg.png"),
+              join(dir, "inkscape.png"),
+              join(probeDir, "diff.png"),
+            );
+            const own = regions[map.of[at] ?? UNCHECKED];
+            if (!own) throw new Error("its centre is in no region");
+            const detected = judge(regions).over.includes(own);
+            if (!detected) failed++;
+            const under = `${label(own)} ${percent(share(own))} under ${percent(BUDGET[own.kind])}`;
+            probes.push(
+              `probe ${probe}: ${detected ? `detected (${describe(own)})` : `not detected, ${under}`}`,
+            );
+          } catch (e) {
+            failed++;
+            probes.push(`probe ${probe}: FAIL ${(e as Error).message}`);
+          }
         }
       } catch (e) {
         failed++;
