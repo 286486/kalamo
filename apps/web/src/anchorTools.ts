@@ -194,7 +194,7 @@ export const anchorPointTool: CanvasTool = {
     const { nodeId, subpath, index } = parseKey(g.key);
     const n = e.doc.nodes.get(nodeId);
     const a = hasAnchors(n) ? localAnchors(n)[subpath]?.anchors[index] : undefined;
-    if (!a?.handleIn && !a?.handleOut) return;
+    if (g.kind === "anchor" ? !a?.handleIn && !a?.handleOut : !a?.[g.which]) return;
     const input: PathEditInput = {
       nodeId,
       ops: [

@@ -148,7 +148,7 @@ it("Shift+C: dragging a curved segment bends it through the pointer", () => {
   expect(anchors[1]?.handleOut).toEqual([15, 5]);
 });
 
-it("Shift+C: Shift bends a segment with perpendicular Handles of equal length", () => {
+it("Shift+C: Shift bends a segment into a semicircle on the pointer's side", () => {
   const doc = agentRect();
   anchorPointTool.down(event(doc, 20, 0));
   anchorPointTool.move?.(event(doc, 20, -15, false, true));
@@ -156,8 +156,9 @@ it("Shift+C: Shift bends a segment with perpendicular Handles of equal length", 
   const [a, b] = edited(doc);
   expect(a?.handleOut?.[0]).toBeCloseTo(0);
   expect(b?.handleIn?.[0]).toBeCloseTo(40);
-  expect(a?.handleOut?.[1]).toBeCloseTo(-20);
-  expect(b?.handleIn?.[1]).toBeCloseTo(-20);
+  // Handles 4/3 of the radius long, perpendicular to the segment.
+  expect(a?.handleOut?.[1]).toBeCloseTo(-80 / 3);
+  expect(b?.handleIn?.[1]).toBeCloseTo(-80 / 3);
 });
 
 it("Shift+C: a click on a Handle's end retracts it alone; both retracted leave a line", () => {

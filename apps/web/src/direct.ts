@@ -277,8 +277,8 @@ export function moveSegment(
 /**
  * Bending a segment grabbed at `t` by (dx, dy): its inner Handles move so the grabbed point
  * follows the pointer, weighted as Inkscape does; a straight one pulls them out of its Anchors.
- * `semicircle` (Shift with the Anchor Point tool) keeps them perpendicular to the segment and of
- * equal length instead, the grabbed point following the pointer across it.
+ * `semicircle` (Shift with the Anchor Point tool) sets them perpendicular to the segment and of
+ * equal length instead, bulging to the pointer's side.
  */
 export function bendSegment(
   doc: Document,
@@ -308,15 +308,15 @@ export function bendSegment(
     ],
   });
   if (semicircle) {
-    const [cx, cy] = [b.anchor[0] - a.anchor[0], b.anchor[1] - a.anchor[1]];
-    const l = Math.hypot(cx, cy);
+    const chord: Point = [b.anchor[0] - a.anchor[0], b.anchor[1] - a.anchor[1]];
+    const l = Math.hypot(...chord);
     if (!l) return null;
-    const normal: Point = [-cy / l, cx / l];
+    const normal: Point = [-chord[1] / l, chord[0] / l];
     const at = bezier(a, b, u);
     const across =
       (at[0] + d[0] - a.anchor[0]) * normal[0] + (at[1] + d[1] - a.anchor[1]) * normal[1];
-    // Equal perpendicular Handles h put the point at t 3t(1-t)h across the segment.
-    const h = across / (3 * u * (1 - u));
+    // A cubic's semicircle has Handles 4/3 of its radius long.
+    const h = Math.sign(across) * (2 / 3) * l;
     const off: Point = [normal[0] * h, normal[1] * h];
     return set(plus(a.anchor, off), plus(b.anchor, off));
   }
