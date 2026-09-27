@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   combine,
   editable,
+  expandable,
   hitTest,
   inverse,
   marquee,
@@ -251,4 +252,9 @@ describe("placeParent", () => {
     expect(placeParent(doc, [id("e")])).toBe(id("l3"));
     expect(placeParent(doc, [])).toBe(id("l2"));
   });
+});
+
+it("expandable lists the selected editable Live Shapes only", () => {
+  const { doc, id } = fixture();
+  expect(expandable(doc, [id("c"), id("g"), id("h"), id("e")])).toEqual([id("c"), id("e")]);
 });

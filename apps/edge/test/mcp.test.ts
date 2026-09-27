@@ -41,6 +41,7 @@ it("lists the tools over HTTP (their schemas and annotations: packages/mcp serve
     "zibel_node_transform",
     "zibel_node_update",
     "zibel_path_edit",
+    "zibel_path_op",
     "zibel_render",
     "zibel_svg_import",
     "zibel_tx_begin",
@@ -98,14 +99,22 @@ it("makes a Clipping Mask from a circle over a Group, renders it clipped and rel
   expect(nodes[1]).toMatchObject({ parentId: maskId });
 });
 
-it("edits a path's Anchors with path_edit and refuses a Live Shape", async () => {
+it("edits a path's Anchors with path_edit and converts a Live Shape first, with a warning", async () => {
   const { docId, defaultLayerId } = await newDoc();
   const { keyMap } = (
     await call("zibel_node_create", {
       docId,
       nodes: [
         { type: "path", parentId: defaultLayerId, clientKey: "p", d: "M 0 0 L 10 0" },
-        { type: "rect", parentId: defaultLayerId, clientKey: "r", x: 0, y: 0, width: 5, height: 5 },
+        {
+          type: "ellipse",
+          parentId: defaultLayerId,
+          clientKey: "e",
+          x: 0,
+          y: 0,
+          width: 5,
+          height: 5,
+        },
       ],
     })
   ).structuredContent;
@@ -121,9 +130,37 @@ it("edits a path's Anchors with path_edit and refuses a Live Shape", async () =>
   const { nodes } = (await call("zibel_node_get", { docId, nodeIds: [keyMap.p], detail: "full" }))
     .structuredContent;
   expect(nodes[0].d).toBe("M 0 0 L 5 0 L 10 0 Z");
-  const refused = await call("zibel_path_edit", { docId, nodeId: keyMap.r, ops: [{ op: "open" }] });
-  expect(refused.isError).toBe(true);
-  expect(refused.content[0].text).toMatch(/convert_to_path/);
+  const converted = (
+    await call("zibel_path_edit", { docId, nodeId: keyMap.e, ops: [{ op: "open" }] })
+  ).structuredContent;
+  expect(converted).toMatchObject({
+    updatedIds: [keyMap.e],
+    subpaths: [{ closed: false }],
+    warnings: [{ code: "CONVERTED_TO_PATH", nodeId: keyMap.e }],
+  });
+});
+
+it("converts a rect to a path with path_op, keeping its id", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const rect = {
+    type: "rect",
+    parentId: defaultLayerId,
+    name: "Box",
+    x: 20,
+    y: 10,
+    width: 120,
+    height: 60,
+    radius: 15,
+  };
+  const [id] = (await call("zibel_node_create", { docId, nodes: [rect] })).structuredContent
+    .createdIds as string[];
+  const receipt = (await call("zibel_path_op", { docId, nodeIds: [id], op: "convert_to_path" }))
+    .structuredContent;
+  expect(receipt).toMatchObject({ updatedIds: [id], createdIds: [], deletedIds: [] });
+  const { nodes } = (await call("zibel_node_get", { docId, nodeIds: [id], detail: "full" }))
+    .structuredContent;
+  expect(nodes[0]).toMatchObject({ id, type: "path", name: "Box", parentId: defaultLayerId });
+  expect(nodes[0]).not.toHaveProperty("radius");
 });
 
 it("places a PNG as an Image: node_get has its id, render draws it, export and open keep it", async () => {

@@ -168,6 +168,14 @@ describe("write tools pass the write and its options apart", () => {
     expect(result.structuredContent).toEqual(out);
   });
 
+  it("path_op", async () => {
+    const { service, call } = await harness({ pathOp: async () => receipt });
+    const { partial: _, ...write } = { ...opts, partial: false };
+    const input = { nodeIds: ["r"], op: "convert_to_path" };
+    await call("zibel_path_op", { docId: "d", ...input, ...write });
+    expect(service.pathOp).toHaveBeenCalledWith("d", input, write);
+  });
+
   it("mask_release", async () => {
     const { service, call } = await harness({ releaseMask: async () => receipt });
     const { partial: _, ...write } = { ...opts, partial: false };
@@ -533,6 +541,7 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
     "zibel_node_transform",
     "zibel_node_update",
     "zibel_path_edit",
+    "zibel_path_op",
     "zibel_render",
     "zibel_svg_import",
     "zibel_tx_begin",
@@ -563,7 +572,12 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
   expect(inputKeys("zibel_image_place").sort()).toEqual(
     ["asTemplate", "docId", "frame", "ifRev", "intent", "parentId", "src", "txId"].sort(),
   );
-  for (const name of ["zibel_mask_make", "zibel_mask_release", "zibel_path_edit"]) {
+  for (const name of [
+    "zibel_mask_make",
+    "zibel_mask_release",
+    "zibel_path_edit",
+    "zibel_path_op",
+  ]) {
     expect(inputKeys(name)).toEqual(expect.arrayContaining(["docId", "intent", "txId", "ifRev"]));
     expect(inputKeys(name)).not.toContain("partial");
   }

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { convertToPath } from "./anchor.ts";
 import { createDocument, createNodes } from "./document.ts";
 import { deleteNodes, transformNodes, updateNodes } from "./edit.ts";
 import { ZibelError } from "./errors.ts";
@@ -164,6 +165,21 @@ const diff = (before: Document, after: Document): DeltaRow[] =>
     .map((id) => ({ id, before: before.nodes.get(id) ?? null, after: after.nodes.get(id) ?? null }))
     .filter((r) => r.before !== r.after);
 
+it("drops an overlay's edit to a Live Shape parameter once the shape was converted meanwhile", () => {
+  const { doc, rect } = setup();
+  const working = { ...rect, width: 20, name: "b" } as ShapeNode;
+  convertToPath(doc, [rect.id]);
+  commitTransaction(doc, [{ id: rect.id, base: rect, working }]);
+  const node = doc.nodes.get(rect.id);
+  expect(node).toMatchObject({ type: "path", name: "b" });
+  expect(node).not.toHaveProperty("width");
+});
+
+it("lists a Node named twice once", () => {
+  const { doc, rect } = setup();
+  expect(convertToPath(doc, [rect.id, rect.id]).updated).toHaveLength(1);
+});
+
 describe("revert", () => {
   const edits: [string, (doc: Document, s: ReturnType<typeof setup>) => void][] = [
     [
@@ -182,6 +198,7 @@ describe("revert", () => {
       "a transform",
       (doc, { rect, group }) => transformNodes(doc, { nodeIds: [rect.id, group.id], rotate: 30 }),
     ],
+    ["a Convert to Path", (doc, { rect }) => convertToPath(doc, [rect.id])],
     ["a delete of a Group", (doc, { group }) => deleteNodes(doc, [group.id])],
     [
       "a committed overlay that updates a child and deletes its Group",

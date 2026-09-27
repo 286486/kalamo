@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PathNode } from "./anchor.ts";
-import { editPath, fromAnchors, type PathOp, toAnchors } from "./anchor.ts";
+import { convertToPath, editPath, fromAnchors, type PathOp, toAnchors } from "./anchor.ts";
 import { createDocument, createNodes } from "./document.ts";
 import { ZibelError } from "./errors.ts";
 import { formatPath, parsePath, type Segment } from "./path.ts";
@@ -273,13 +273,63 @@ describe("editPath", () => {
     expect((doc.nodes.get(node.id) as PathNode).d).toBe("M 0 0 L 10 0");
   });
 
-  it("refuses a Live Shape with a hint naming convert_to_path", () => {
+  it("converts a Live Shape first and says so in a warning", () => {
     const { doc, defaultLayerId } = setup("M 0 0");
-    const [rect] = createNodes(doc, [
-      { type: "rect", parentId: defaultLayerId, x: 0, y: 0, width: 10, height: 10 },
+    const [ellipse] = createNodes(doc, [
+      { type: "ellipse", parentId: defaultLayerId, x: 0, y: 0, width: 10, height: 10 },
     ]).nodes;
-    const e = errorOf(() => editPath(doc, { nodeId: rect?.id ?? "", ops: [{ op: "close" }] }));
+    const id = ellipse?.id ?? "";
+    const { node, warnings } = editPath(doc, { nodeId: id, ops: [{ op: "open" }] });
+    expect(node).toMatchObject({ id, type: "path" });
+    expect(node).not.toHaveProperty("width");
+    expect(warnings).toEqual([expect.objectContaining({ code: "CONVERTED_TO_PATH", nodeId: id })]);
+  });
+
+  it("refuses a Node without Anchors", () => {
+    const { doc, defaultLayerId } = setup("M 0 0");
+    const e = errorOf(() => editPath(doc, { nodeId: defaultLayerId, ops: [{ op: "close" }] }));
     expect(e).toMatchObject({ code: "INVALID_PATH", path: "nodeId" });
-    expect(e.hint).toMatch(/convert_to_path/);
+  });
+});
+
+describe("convertToPath", () => {
+  it("keeps a rect's id, place, name and appearance, swapping its parameters for d", () => {
+    const { doc, defaultLayerId: layer } = setup("M 0 0");
+    const [rect] = createNodes(doc, [
+      {
+        type: "rect",
+        parentId: layer,
+        name: "Box",
+        x: 1,
+        y: 2,
+        width: 10,
+        height: 20,
+        appearance: { fills: [{ color: "#FF0000" }] },
+      },
+    ]).nodes;
+    if (!rect) throw new Error("no rect");
+    const { updated } = convertToPath(doc, [rect.id]);
+    const {
+      x: _x,
+      y: _y,
+      width: _w,
+      height: _h,
+      radius: _r,
+      ...kept
+    } = rect as typeof rect & {
+      type: "rect";
+    };
+    expect(updated).toEqual([
+      { ...kept, type: "path", d: "M 1 2 L 11 2 L 11 22 L 1 22 Z", fillRule: "nonzero" },
+    ]);
+    expect(doc.nodes.get(rect.id)).toBe(updated[0]);
+  });
+
+  it("leaves a path as it is and refuses a Node without Anchors", () => {
+    const { doc, node, defaultLayerId } = setup("M 0 0 L 10 0");
+    expect(convertToPath(doc, [node.id]).updated).toEqual([]);
+    expect(doc.nodes.get(node.id)).toBe(node);
+    const e = errorOf(() => convertToPath(doc, [defaultLayerId]));
+    expect(e).toMatchObject({ code: "INVALID_PATH", path: "nodeIds[0]" });
   });
 });
