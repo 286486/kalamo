@@ -4,6 +4,7 @@ import {
   type PencilOptions,
   pencilCancel,
   pencilDown,
+  pencilFill,
   pencilInk,
   pencilMove,
   pencilOptions,
@@ -44,12 +45,7 @@ export const pencilTool: CanvasTool = {
     // The Ink as drawn, then the fitted path until its Transaction arrives.
     if (ink && ink.length > 1) {
       const path = new Path2D(`M ${ink.map((p) => p.join(" ")).join(" L ")}`);
-      drawDrawing(
-        ctx,
-        path,
-        { ...fillStroke, fill: pencilOptions().fillNew ? fillStroke.fill : null },
-        scale,
-      );
+      drawDrawing(ctx, path, { ...fillStroke, fill: pencilFill(fillStroke.fill) }, scale);
     } else if (pen?.pencil) {
       const path = new Path2D(pathD(pen.anchors, pen.closed));
       drawDrawing(ctx, path, { ...fillStroke, fill: pen.pencil.fill }, scale);
@@ -89,16 +85,16 @@ ${check("keepSelected", "Keep selected")}
   dialog.onclose = () => {
     dialog.remove();
     if (dialog.returnValue !== "ok") return;
-    const count = (name: keyof PencilOptions) =>
+    const clampedPx = (name: keyof PencilOptions) =>
       Math.min(100, Math.max(1, Number(field(name).value) || (DEFAULT_PENCIL[name] as number)));
     savePencilOptions({
       fidelity: Number(field("fidelity").value),
       fillNew: field("fillNew").checked,
       keepSelected: field("keepSelected").checked,
       close: field("close").checked,
-      closeWithin: count("closeWithin"),
+      closeWithin: clampedPx("closeWithin"),
       editSelected: field("editSelected").checked,
-      editWithin: count("editWithin"),
+      editWithin: clampedPx("editWithin"),
     });
   };
   document.body.append(dialog);

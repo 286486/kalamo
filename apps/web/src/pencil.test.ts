@@ -185,3 +185,24 @@ it("a stroke away from an unselected path draws a new one", () => {
   stroke(range(10, (t) => [50 + 100 * t, 100 + 20 * t]));
   expect(createdD().d).toMatch(/^M 50 100 /);
 });
+
+it("a wiggle on a selected path does not cut it", () => {
+  withPath("M 0 100 L 200 100");
+  stroke([
+    [100, 101],
+    [101, 101],
+  ]);
+  expect(commands().some((c) => c.type === "path_edit")).toBe(false);
+});
+
+it("Ink starting between two selected paths edits the nearer", () => {
+  const doc = structuredClone(created.doc);
+  const ids = createNodes(doc, [
+    { type: "path", parentId: defaultLayerId, d: "M 0 100 L 200 100" },
+    { type: "path", parentId: defaultLayerId, d: "M 0 110 L 200 110" },
+  ] as never).nodes.map((n) => n.id);
+  useStore.setState({ doc, selection: ids });
+  stroke(range(20, (t) => [50 + 100 * t, 108 + 30 * Math.sin(t * Math.PI)]));
+  const [command] = commands();
+  expect(command?.type === "path_edit" && command.input.nodeId).toBe(ids[1]);
+});

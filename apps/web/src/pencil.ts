@@ -49,14 +49,28 @@ const KEY = "zibel:pencil";
 /** Set once saved, so a blocked storage still keeps them for the page. */
 let saved: PencilOptions | null = null;
 
+/** The saved options, read once per page; a stored value of the wrong type is its default. */
 export function pencilOptions(): PencilOptions {
   if (saved) return saved;
+  let stored: Record<string, unknown> = {};
   try {
-    return { ...DEFAULT_PENCIL, ...JSON.parse(localStorage.getItem(KEY) ?? "{}") };
+    const value: unknown = JSON.parse(localStorage.getItem(KEY) ?? "{}");
+    if (value && typeof value === "object") stored = value as Record<string, unknown>;
   } catch {
-    return DEFAULT_PENCIL;
+    // Storage blocked or garbled: the defaults.
   }
+  saved = Object.fromEntries(
+    Object.entries(DEFAULT_PENCIL).map(([k, v]) => {
+      const got = stored[k];
+      const ok = typeof got === typeof v && (typeof got !== "number" || Number.isFinite(got));
+      return [k, ok ? got : v];
+    }),
+  ) as unknown as PencilOptions;
+  return saved;
 }
+
+/** The Fill new Pencil paths get: the current one only if Fill new pencil strokes is on. */
+export const pencilFill = (fill: string | null) => (pencilOptions().fillNew ? fill : null);
 
 export function savePencilOptions(o: PencilOptions) {
   try {
@@ -158,10 +172,11 @@ function fitted(ink: Point[], tolerance: number): Seg[] {
 const distinct = (ink: Point[]) => ink.some((p) => dist(p, ink[0] as Point) > 1e-9);
 
 /**
- * A stroke that starts within `reach` of a selected path: from an open subpath's Endpoint it
- * extends it, closing it when it ends within `closeWithin` of the other Endpoint; from elsewhere
- * on it, it redraws the part it runs along, up to where it comes back within `reach`, or to the
- * end it heads for. All in document coordinates; null when it starts on no selected path.
+ * Ink that starts within `reach` of a selected path edits the nearest: from an open subpath's
+ * Endpoint it extends it, closing it when it ends within `closeWithin` of the other Endpoint; from
+ * elsewhere on it, it redraws the part it runs along, up to where it comes back within `reach`, or
+ * to the end it heads for. All in document coordinates; null when it starts on no selected path,
+ * or never leaves `reach` of where it started on one, which would cut the path at a wiggle.
  */
 export function pencilEdit(
   doc: Document,
@@ -173,86 +188,91 @@ export function pencilEdit(
 ): PathEditInput | null {
   const start = ink[0] as Point;
   const end = ink.at(-1) as Point;
-  for (const nodeId of selection) {
+  const hits = selection.flatMap((nodeId) => {
     const n = doc.nodes.get(nodeId);
-    if (!hasAnchors(n) || !editable(doc, n)) continue;
+    if (!hasAnchors(n) || !editable(doc, n)) return [];
     const subpaths = anchorsOf(doc, n);
     const hit = nearestSegment(subpaths, ...start);
-    const sub = hit && subpaths[hit.subpath];
-    if (!hit || !sub || hit.dist > reach) continue;
-    const segs = segsOf(sub);
-    const count = segs.length;
-    const { closed } = sub;
-    const at = (u: number) => pointAt(segs, u, closed);
-    const first = (sub.anchors[0] as BareAnchor).anchor;
-    const last = (sub.anchors.at(-1) as BareAnchor).anchor;
-    let uA = param(segs, hit);
-    if (!closed && near(start, last, reach)) uA = count;
-    else if (!closed && near(start, first, reach)) uA = 0;
-    if (!distinct([at(uA), ...ink.slice(1)])) return null;
-    // The Ink from the path, to `to` if it ends on it.
-    const run = (to: Point | null) => fitted([at(uA), ...ink.slice(1, -1), to ?? end], tolerance);
+    return hit && hit.dist <= reach ? [{ nodeId, n, subpaths, hit }] : [];
+  });
+  const nearest = hits.sort((a, b) => a.hit.dist - b.hit.dist)[0];
+  if (!nearest) return null;
+  const { nodeId, n, subpaths, hit } = nearest;
+  const sub = subpaths[hit.subpath] as (typeof subpaths)[number];
+  const segs = segsOf(sub);
+  const count = segs.length;
+  const { closed } = sub;
+  const at = (u: number) => pointAt(segs, u, closed);
+  const first = (sub.anchors[0] as BareAnchor).anchor;
+  const last = (sub.anchors.at(-1) as BareAnchor).anchor;
+  let uA = param(segs, hit);
+  // The nearer Endpoint within reach.
+  const [toFirst, toLast] = [dist(start, first), dist(start, last)];
+  if (!closed && Math.min(toFirst, toLast) <= reach) uA = toLast <= toFirst ? count : 0;
+  const extend = !closed && (uA === 0 || uA === count);
+  if (!distinct([at(uA), ...ink.slice(1)])) return null;
+  if (!extend && ink.every((p) => dist(p, start) <= reach)) return null;
+  // The Ink from the path, to `to` if it ends on it.
+  const run = (to: Point | null) => fitted([at(uA), ...ink.slice(1, -1), to ?? end], tolerance);
 
-    let result: Seg[];
-    let shut = closed;
-    if (!closed && (uA === 0 || uA === count)) {
-      const other = uA === 0 ? last : first;
-      shut = closeWithin !== null && ink.length > 2 && near(end, other, closeWithin);
-      const tail = run(shut ? other : null);
-      // Closing from the first Endpoint runs the Ink backwards from the last.
-      if (uA === count) result = [...segs, ...tail];
-      else result = shut ? [...segs, ...reverse(tail)] : [...reverse(tail), ...segs];
+  let result: Seg[];
+  let shut = closed;
+  if (extend) {
+    const other = uA === 0 ? last : first;
+    shut = closeWithin !== null && ink.length > 2 && near(end, other, closeWithin);
+    const tail = run(shut ? other : null);
+    // Closing from the first Endpoint runs the Ink backwards from the last.
+    if (uA === count) result = [...segs, ...tail];
+    else result = shut ? [...segs, ...reverse(tail)] : [...reverse(tail), ...segs];
+  } else {
+    const back = nearestSegment([sub], ...end);
+    const uB = back && back.dist <= reach && ink.length > 2 ? param(segs, back) : null;
+    // Which way along the path the Ink heads from its start.
+    const ahead = ink.find((p) => dist(p, start) >= reach) ?? end;
+    const [p, q] = [at(uA - 1e-3), at(uA + 1e-3)];
+    const forward =
+      (q[0] - p[0]) * (ahead[0] - start[0]) + (q[1] - p[1]) * (ahead[1] - start[1]) >= 0;
+    const tail = run(uB === null ? null : at(uB));
+    if (closed && uB !== null) {
+      result = forward
+        ? [...tail, ...piece(segs, uB, uA < uB ? uA + count : uA)]
+        : [...piece(segs, uA, uB < uA ? uB + count : uB), ...reverse(tail)];
+    } else if (closed) {
+      shut = false;
+      const around = piece(segs, uA, uA + count);
+      result = forward ? [...around, ...tail] : [...reverse(tail), ...around];
+    } else if (uB !== null) {
+      result =
+        uB >= uA
+          ? [...piece(segs, 0, uA), ...tail, ...piece(segs, uB, count)]
+          : [...piece(segs, 0, uB), ...reverse(tail), ...piece(segs, uA, count)];
     } else {
-      const back = nearestSegment([sub], ...end);
-      const uB = back && back.dist <= reach && ink.length > 2 ? param(segs, back) : null;
-      // Which way along the path the stroke heads from its start.
-      const ahead = ink.find((p) => dist(p, start) >= reach) ?? end;
-      const [p, q] = [at(uA - 1e-3), at(uA + 1e-3)];
-      const forward =
-        (q[0] - p[0]) * (ahead[0] - start[0]) + (q[1] - p[1]) * (ahead[1] - start[1]) >= 0;
-      const tail = run(uB === null ? null : at(uB));
-      if (closed && uB !== null) {
-        result = forward
-          ? [...tail, ...piece(segs, uB, uA < uB ? uA + count : uA)]
-          : [...piece(segs, uA, uB < uA ? uB + count : uB), ...reverse(tail)];
-      } else if (closed) {
-        shut = false;
-        const around = piece(segs, uA, uA + count);
-        result = forward ? [...around, ...tail] : [...reverse(tail), ...around];
-      } else if (uB !== null) {
-        result =
-          uB >= uA
-            ? [...piece(segs, 0, uA), ...tail, ...piece(segs, uB, count)]
-            : [...piece(segs, 0, uB), ...reverse(tail), ...piece(segs, uA, count)];
-      } else {
-        result = forward
-          ? [...piece(segs, 0, uA), ...tail]
-          : [...reverse(tail), ...piece(segs, uA, count)];
-      }
+      result = forward
+        ? [...piece(segs, 0, uA), ...tail]
+        : [...reverse(tail), ...piece(segs, uA, count)];
     }
-    const redrawn = toSubpath(result, shut);
-    if (!redrawn) return null;
-    // Back into the path's own coordinates; its other subpaths stay as they are.
-    const m = invert(worldTransform(doc, n));
-    const local = (p: Point | null) => p && applyTo(m, p[0], p[1]);
-    const anchors = redrawn.anchors.map((a) => ({
-      anchor: applyTo(m, ...a.anchor),
-      handleIn: local(a.handleIn),
-      handleOut: local(a.handleOut),
-    }));
-    const all: { closed: boolean; anchors: BareAnchor[] }[] = localAnchors(n);
-    all[hit.subpath] = { closed: redrawn.closed, anchors };
-    return { nodeId, ops: [{ op: "set_d", d: formatPath(fromAnchors(all)) }] };
   }
-  return null;
+  const redrawn = toSubpath(result, shut);
+  if (!redrawn) return null;
+  // Back into the path's own coordinates; its other subpaths stay as they are.
+  const m = invert(worldTransform(doc, n));
+  const local = (p: Point | null) => p && applyTo(m, p[0], p[1]);
+  const anchors = redrawn.anchors.map((a) => ({
+    anchor: applyTo(m, ...a.anchor),
+    handleIn: local(a.handleIn),
+    handleOut: local(a.handleOut),
+  }));
+  const all: { closed: boolean; anchors: BareAnchor[] }[] = localAnchors(n);
+  all[hit.subpath] = { closed: redrawn.closed, anchors };
+  return { nodeId, ops: [{ op: "set_d", d: formatPath(fromAnchors(all)) }] };
 }
 
 /**
- * The finished stroke, at the zoom `scale`: its tolerance and distances are in screen px, as
- * Illustrator's are. A stroke starting on a selected path edits it; any other becomes a new path,
+ * The finished drag's Ink, at the zoom `scale`: its tolerance and distances are in screen px, as
+ * Illustrator's are. Ink starting on a selected path edits it; any other becomes a new path,
  * closed when its ends are within the close distance.
  */
-export function pencilStroke(
+export function pencilResult(
   doc: Document,
   selection: string[],
   ink: Point[],
@@ -272,7 +292,9 @@ export function pencilStroke(
     ink.length > 3 &&
     near(ink[0] as Point, ink.at(-1) as Point, closeWithin);
   // Ending the Ink on its first point closes the fit (ADR-0033).
-  const [sub] = toAnchors(fitInk(shut ? [...ink, ink[0] as Point] : ink, tolerance));
+  const [sub] = toAnchors(
+    fitInk(shut ? [...ink, ink[0] as Point] : ink, tolerance, { closed: shut }),
+  );
   return sub ? { path: { anchors: sub.anchors, closed: sub.closed } } : null;
 }
 
@@ -309,7 +331,7 @@ export function pencilCancel() {
 }
 
 /**
- * Releasing: the stroke as one `path_edit` on the path it started on, or one `create` in the
+ * Releasing: the Ink as one `path_edit` on the path it started on, or one `create` in the
  * current Stroke, with the current Fill only if Fill new pencil strokes is on.
  */
 export function pencilUp(scale: number) {
@@ -318,14 +340,14 @@ export function pencilUp(scale: number) {
   const s = useStore.getState();
   if (!done || !s.doc) return;
   const o = pencilOptions();
-  const r = pencilStroke(s.doc, s.selection, done, o, scale);
+  const r = pencilResult(s.doc, s.selection, done, o, scale);
   if (!r) return;
   if ("edit" in r) {
     const commandIds = [send({ type: "path_edit", input: r.edit })];
     useStore.setState({ edit: { inputs: [r.edit], commandIds } });
     return;
   }
-  const fillStroke = { ...s.fillStroke, fill: o.fillNew ? s.fillStroke.fill : null };
+  const fillStroke = { ...s.fillStroke, fill: pencilFill(s.fillStroke.fill) };
   const node = penNode({ ...s, doc: s.doc, fillStroke }, { ...r.path, commandId: null });
   if (!node) {
     useStore.setState({ notice: "The Layer is hidden or locked; nothing was drawn." });
