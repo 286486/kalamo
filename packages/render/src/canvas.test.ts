@@ -278,6 +278,7 @@ describe("container Appearance (ADR-0043)", () => {
     for (const n of doc.nodes.values()) Object.assign(n, style[n.name ?? ""]);
     const { ctx, log, layer } = recorder();
     drawDocument(ctx, doc, layer, () => ({ image: "IMG", width: 1, height: 1 }));
+    // Without the Artboard background's two lines.
     return log;
   };
   /** Each fill or stroke as its style and the x its outline starts at, "#CCCCCC@0". */
@@ -297,9 +298,7 @@ describe("container Appearance (ADR-0043)", () => {
   it("draws each paint over every leaf before the next, the first `contents` below the children", () => {
     const children = [rect(0, "#AAAAAA"), rect(20, "#BBBBBB")];
     const at = (contents: number) =>
-      paints(
-        drawn([group({ fills: ["#CCCCCC"], strokes: ["#DDDDDD"], contents }, children)]).slice(2),
-      );
+      paints(drawn([group({ fills: ["#CCCCCC"], strokes: ["#DDDDDD"], contents }, children)]));
     expect(at(0)).toEqual([
       "#AAAAAA@0",
       "#BBBBBB@20",
@@ -329,7 +328,7 @@ describe("container Appearance (ADR-0043)", () => {
   it("paints a nested Group's leaves with the outer Appearance, over the inner Group's own", () => {
     const inner = group({ strokes: ["#EEEEEE"] }, [rect(20, "#BBBBBB")]);
     const log = drawn([group({ strokes: ["#111111"] }, [rect(0, "#AAAAAA"), inner])]);
-    expect(paints(log.slice(2))).toEqual([
+    expect(paints(log)).toEqual([
       "#AAAAAA@0",
       "#BBBBBB@20",
       "#EEEEEE@20",
@@ -343,9 +342,9 @@ describe("container Appearance (ADR-0043)", () => {
     const children = [rect(0), { ...rect(20), name: "h" }, image];
     const g = { ...group({ strokes: ["#DDDDDD"] }, children), name: "g" };
     const hide = { visible: false };
-    expect(paints(drawn([g], { h: hide }).slice(2))).toEqual(["#DDDDDD@0"]);
+    expect(paints(drawn([g], { h: hide }))).toEqual(["#DDDDDD@0"]);
     const hidden = drawn([g], { h: hide, g: hide });
-    expect(paints(hidden.slice(2))).toEqual([]);
+    expect(paints(hidden)).toEqual([]);
   });
 
   it("fills an evenodd Path with evenodd and a Live Shape with nonzero", () => {

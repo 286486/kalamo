@@ -123,7 +123,7 @@ it("is not editable when the Node is gone", () => {
  * A context whose paths are their d's bounding box, enough for rects: a Stroke is the band
  * `lineWidth` wide centred on the box's edge.
  */
-function boxes() {
+function boxContext() {
   vi.stubGlobal(
     "Path2D",
     class {
@@ -211,7 +211,7 @@ describe("hitTest", () => {
   });
 
   it("hits a Clipping Mask's content only inside its Clipping Path, which is never a hit itself", () => {
-    const ctx = boxes();
+    const ctx = boxContext();
     const { doc, defaultLayerId: parentId } = createDocument({
       id: "d",
       name: "Doc",
@@ -262,10 +262,11 @@ describe("hitTest", () => {
           children,
         },
       ] as never);
+      // By name, or by id for the default Layer and what hitTest returns.
       const node = (name: string) =>
         [...doc.nodes.values()].find((n) => n.name === name || n.id === name) as Node;
       const hit = (x: number, y: number, leaf = false) => {
-        const id = hitTest(boxes(), doc, x, y, 1, leaf);
+        const id = hitTest(boxContext(), doc, x, y, 1, leaf);
         return id && node(id).name;
       };
       return { doc, node, hit, parentId };
@@ -276,6 +277,13 @@ describe("hitTest", () => {
       expect([hit(11.5, 5), hit(11.5, 5, true)]).toEqual(["g", "a"]);
       Object.assign(node("g"), { appearance: undefined });
       expect(hit(11.5, 5)).toBeNull();
+    });
+
+    it("hits a hairline Stroke within the click tolerance, over the child it covers", () => {
+      const { doc } = scene({ strokes: [stroke(0.1)] }, [rect("a", 0), rect("b", 8)]);
+      const leafAt = (tolerance: number) => hitTest(boxContext(), doc, 11.5, 5, tolerance, true);
+      expect(doc.nodes.get(leafAt(4) ?? "")?.name).toBe("a");
+      expect(doc.nodes.get(leafAt(1) ?? "")?.name).toBe("b");
     });
 
     it("hits a Fill inside an unfilled child", () => {

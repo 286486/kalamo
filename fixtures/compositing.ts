@@ -1,7 +1,7 @@
 /**
  * Documents whose pixels depend on a translucent or blended Node composing as one image (ADR-0044),
- * or on a container's Appearance (ADR-0043), each with the colour expected at chosen Document points. `render` and the browser canvas are both
- * checked against them. Every case draws on one 200 × 100 Artboard with a white background.
+ * or on a container's Appearance (ADR-0043), each with the colour expected at chosen Document
+ * points. `render` and the browser canvas are both checked against them. Every case draws on one 200 × 100 Artboard with a white background.
  */
 
 type RGB = [number, number, number];
@@ -50,7 +50,10 @@ const appearance = (fills: RGB[], strokes: [RGB, number][], contents: number) =>
   })),
   contents,
 });
-/** A Group Stroke 10 wide over `pair(RED, BLUE)`: at 23 inside the lower rect, at 80 inside the upper. */
+/**
+ * A Group Stroke 10 wide over `pair(RED, BLUE)`, probed at 23 inside the lower rect and at 80
+ * inside the upper.
+ */
 const strokedPair = (contents: number, rgb: { at23: RGB; at80: RGB }): CompositingCase => ({
   name: `a Group Stroke at contents ${contents} draws ${contents ? "below" : "above"} every child`,
   nodes: [{ type: "group", name: "g", children: pair(RED, BLUE) }],
@@ -69,7 +72,10 @@ export interface CompositingCase {
   /** Made into a Clipping Mask, by the names of its Clipping Path and content; it is then "mask". */
   mask?: { clip: string; content: string[] };
   /** `node_update` patches by Node name, applied last; "Layer" is the default Layer. */
-  patches: Record<string, { opacity?: number; blendMode?: string; appearance?: object }>;
+  patches: Record<
+    string,
+    { opacity?: number; blendMode?: string; appearance?: ReturnType<typeof appearance> }
+  >;
   /** Document points and their colour. */
   probes: { x: number; y: number; rgb: RGB }[];
 }
