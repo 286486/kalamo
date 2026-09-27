@@ -3,6 +3,7 @@ import {
   type AuthRequest,
   CimdFetchError,
   type ClientInfo,
+  type GrantSummary,
   OAuthProvider,
   type OAuthResourceContext,
 } from "@cloudflare/workers-oauth-provider";
@@ -140,9 +141,11 @@ async function decide(request: Request, env: Env) {
   const client = await oauth.lookupClient(authRequest.clientId);
   const now = new Date().toISOString();
   const upsert = env.DB.prepare(
-    `INSERT INTO actors (id, user_id, kind, client_id, redirect_uri, name, access, created_at)
-     VALUES (?, ?, 'agent', ?, ?, ?, ?, ?)
-     ON CONFLICT (id) DO UPDATE SET name = excluded.name, access = excluded.access`,
+    `INSERT INTO actors
+       (id, user_id, kind, client_id, redirect_uri, name, access, created_at, granted_at)
+     VALUES (?, ?, 'agent', ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (id) DO UPDATE SET name = excluded.name, access = excluded.access,
+       granted_at = excluded.granted_at`,
   ).bind(
     actor,
     user.id,
@@ -150,6 +153,7 @@ async function decide(request: Request, env: Env) {
     authRequest.redirectUri,
     `${client?.clientName || authRequest.clientId} (${user.login})`,
     access,
+    now,
     now,
   );
   // The library replaced every earlier grant of a DCR client for this User, whatever its
@@ -181,10 +185,33 @@ async function agentActorId(env: Env, user: User, authRequest: AuthRequest) {
   return existing ?? `agent_${newId()}`;
 }
 
-/** `GET /api/agents`: the signed-in User's connected Agents, newest first. */
+/** How long after approval a missing grant is taken for KV list lag rather than gone. */
+const GRANT_GRACE_MS = 5 * 60_000;
+
+/**
+ * `GET /api/agents`: the signed-in User's connected Agents, newest first. An Agent none of whose
+ * grants is live expired or was revoked through the token endpoint, which the library reports to
+ * no one, so it is retired here first. If the grants cannot be read, nothing is retired.
+ */
 async function agents(request: Request, env: Env) {
   const user = await sessionUser(request, env);
   if (!user) return signInRequired();
+  const now = Date.now();
+  // The library's own refresh check: a grant still in KV past its `expiresAt` is gone.
+  const live = (await userGrants(env, user.id)).flatMap((grant) =>
+    grant.expiresAt === undefined || grant.expiresAt * 1000 > now ? [grant.metadata.actor] : [],
+  );
+  await env.DB.prepare(
+    `UPDATE actors SET revoked_at = ? WHERE user_id = ? AND kind = 'agent' AND revoked_at IS NULL
+     AND coalesce(granted_at, created_at) < ? AND id NOT IN (SELECT value FROM json_each(?) WHERE value IS NOT NULL)`,
+  )
+    .bind(
+      new Date(now).toISOString(),
+      user.id,
+      new Date(now - GRANT_GRACE_MS).toISOString(),
+      JSON.stringify(live),
+    )
+    .run();
   const { results } = await env.DB.prepare(
     `SELECT id AS actorId, name, access, created_at AS createdAt FROM actors
      WHERE user_id = ? AND kind = 'agent' AND revoked_at IS NULL ORDER BY created_at DESC`,
@@ -208,16 +235,22 @@ async function revokeAgent(request: Request, env: Env, actorId: string) {
     .bind(new Date().toISOString(), actorId, user.id)
     .run();
   if (!meta.changes) return new Response("not found", { status: 404 });
-  const oauth = env.OAUTH_PROVIDER;
+  for (const grant of await userGrants(env, user.id)) {
+    if (grant.metadata?.actor === actorId) await env.OAUTH_PROVIDER.revokeGrant(grant.id, user.id);
+  }
+  return new Response(null, { status: 204 });
+}
+
+/** Every grant the provider stores for the User, across all pages. */
+async function userGrants(env: Env, userId: string) {
+  const grants: GrantSummary[] = [];
   let cursor: string | undefined;
   do {
-    const page = await oauth.listUserGrants(user.id, { cursor });
-    for (const grant of page.items) {
-      if (grant.metadata?.actor === actorId) await oauth.revokeGrant(grant.id, user.id);
-    }
+    const page = await env.OAUTH_PROVIDER.listUserGrants(userId, { cursor });
+    grants.push(...page.items);
     cursor = page.cursor;
   } while (cursor);
-  return new Response(null, { status: 204 });
+  return grants;
 }
 
 /**

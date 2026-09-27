@@ -13,7 +13,10 @@ import {
 } from "./authorize.ts";
 import { APP_ORIGIN, githubEnv, hosted, signIn } from "./signin.ts";
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+});
 
 const userId = (githubId: number) =>
   env.DB.prepare("SELECT id FROM users WHERE github_id = ?").bind(githubId).first<string>("id");
@@ -360,6 +363,85 @@ describe("Connected Agents", () => {
       client_id: old.clientId,
     });
     expect(refreshed.res.status).toBe(200);
+  });
+
+  const listed = async (cookie: string) =>
+    (
+      await (
+        await hosted("/api/agents", { headers: { cookie } })
+      ).json<{
+        agents: { actorId: string; name: string }[];
+      }>()
+    ).agents.map((a) => a.name);
+  // RFC 7009 revocation, which workers-oauth-provider 1.1.0 serves at its token endpoint.
+  const revoke = (tokenValue: string, clientId: string) =>
+    hosted("/oauth/token", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ token: tokenValue, client_id: clientId }).toString(),
+    });
+  const MINUTE = 60_000;
+
+  it("retires an Agent whose client revoked its refresh token, after the grace window", async () => {
+    const { cookie } = await signIn({ id: 215, login: "ola" });
+    const claude = await authorizeMcp(cookie);
+    const cursor = await authorizeMcp(cookie, { name: "Cursor" });
+    const other = await signIn({ id: 216, login: "pat" });
+    const foreign = await authorizeMcp(other.cookie);
+
+    expect((await revoke(claude.tokens.refresh_token, claude.clientId)).status).toBe(200);
+    // Within the grace window a missing grant may be KV list lag, so the Agent stays.
+    expect((await listed(cookie)).sort()).toEqual(["Claude Code (ola)", "Cursor (ola)"]);
+
+    vi.useFakeTimers({ now: Date.now() + 6 * MINUTE, toFake: ["Date"] });
+    expect(await listed(cookie)).toEqual(["Cursor (ola)"]);
+    const rows = await agentRows(215);
+    expect(rows.find((r) => r.name === "Claude Code (ola)")).toMatchObject({
+      revoked_at: expect.any(String),
+    });
+    expect(rows.find((r) => r.name === "Cursor (ola)")?.revoked_at).toBeNull();
+    const refused = await hostedRpc(claude.tokens.access_token, "ping");
+    expect(refused.res.status).toBe(401);
+    expect(refused.res.headers.get("www-authenticate")).toContain('error="invalid_token"');
+    expect(refused.res.headers.get("www-authenticate")).toContain("resource_metadata=");
+    expect((await hostedRpc(cursor.tokens.access_token, "ping")).res.status).toBe(200);
+    expect((await hostedRpc(foreign.tokens.access_token, "ping")).res.status).toBe(200);
+    expect((await agentRows(216))[0]?.revoked_at).toBeNull();
+  });
+
+  it("keeps an Agent whose client revoked only its access token", async () => {
+    const { cookie } = await signIn({ id: 217, login: "quinn" });
+    const claude = await authorizeMcp(cookie);
+    expect((await revoke(claude.tokens.access_token, claude.clientId)).status).toBe(200);
+    vi.useFakeTimers({ now: Date.now() + 6 * MINUTE, toFake: ["Date"] });
+    expect(await listed(cookie)).toEqual(["Claude Code (quinn)"]);
+    const refreshed = await token({
+      grant_type: "refresh_token",
+      refresh_token: claude.tokens.refresh_token,
+      client_id: claude.clientId,
+    });
+    expect(refreshed.res.status).toBe(200);
+  });
+
+  it("retires an Agent whose grant expired, and lists it once when it connects again", async () => {
+    const { cookie } = await signIn({ id: 218, login: "ray" });
+    const claude = await authorizeMcp(cookie);
+    const other = await signIn({ id: 219, login: "sam" });
+    await authorizeMcp(other.cookie);
+
+    vi.useFakeTimers({ now: Date.now() + 31 * 1440 * MINUTE, toFake: ["Date"] });
+    // The 31 days also end the browser session, so the person signs in again.
+    const again = await signIn({ id: 218, login: "ray" });
+    const cursor = await authorizeMcp(again.cookie, { name: "Cursor" });
+    expect(await listed(again.cookie)).toEqual(["Cursor (ray)"]);
+    expect((await agentRows(218)).find((r) => r.name === "Claude Code (ray)")).toMatchObject({
+      revoked_at: expect.any(String),
+    });
+    expect((await hostedRpc(cursor.tokens.access_token, "ping")).res.status).toBe(200);
+    expect((await agentRows(219))[0]?.revoked_at).toBeNull();
+
+    await authorizeMcp(again.cookie, { clientId: claude.clientId });
+    expect((await listed(again.cookie)).sort()).toEqual(["Claude Code (ray)", "Cursor (ray)"]);
   });
 
   it("refuses the Agent routes without a session", async () => {
