@@ -24,7 +24,7 @@
     {
       "binding": "DB",
       "database_name": "zibel",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "bfad6d7b-8e8a-4b69-93e5-d7d00958c16f",
       "migrations_dir": "migrations"
     }
   ],
