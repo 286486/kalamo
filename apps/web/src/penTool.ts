@@ -1,21 +1,52 @@
-import { SELECTION, SLOP } from "./canvas.ts";
+import { dragged, type Press, SELECTION, SLOP } from "./canvas.ts";
 import { useStore } from "./store.ts";
 import type { CanvasTool } from "./toolbox.ts";
-import { drawing, finishPen, pathD, penClick } from "./tools.ts";
+import {
+  constrain,
+  drawing,
+  finishPen,
+  pathD,
+  penCancel,
+  penClosing,
+  penDown,
+  penDrag,
+  penPressed,
+  penUp,
+} from "./tools.ts";
 
-/** Where the rubber band ends, in document coordinates. */
-let pointer: [number, number] | null = null;
+type Point = [number, number];
 
-/** Clicks place Corner Anchors; see tools.ts. */
+/** Where the rubber band ends, in document coordinates, and whether Shift constrains it. */
+let pointer: { at: Point; shift: boolean } | null = null;
+let gesture: Press | null = null;
+
+/** Clicks place Corner Anchors and drags Smooth ones; see tools.ts. */
 export const penTool: CanvasTool = {
   title: "Pen Tool",
   shortcut: "P",
   icon: "M8 1 L12 8 L10 14 H6 L4 8 Z M8 1 V8 M7 8 A1 1 0 1 0 9 8",
   cursor: "crosshair",
-  down: (e) => penClick([e.x, e.y], SLOP / e.viewport.scale),
+  down(e) {
+    e.capture();
+    gesture = { start: { x: e.x, y: e.y }, moved: false };
+    penDown([e.x, e.y], SLOP / e.viewport.scale, e.shift);
+  },
   move(e) {
-    pointer = [e.x, e.y];
+    pointer = { at: [e.x, e.y], shift: e.shift };
+    // ponytail: a modifier pressed or released applies at the next move, where Illustrator
+    // applies it at once; replay the last move from Viewer's key handler if that shows.
+    if (gesture && dragged(gesture, e)) penDrag([e.x, e.y], e);
     e.redraw();
+  },
+  up(e) {
+    gesture = null;
+    penUp();
+    e.redraw();
+  },
+  cancel(redraw) {
+    gesture = null;
+    penCancel();
+    redraw();
   },
   leave(e) {
     pointer = null;
@@ -29,10 +60,14 @@ export const penTool: CanvasTool = {
     const s = useStore.getState();
     const { pen, fillStroke } = s;
     if (!pen) return;
-    // The path so far in its Fill and Stroke, then its outline, rubber band and Anchors.
-    const rubber = drawing(s) && pointer;
-    const points = rubber ? [...pen.points, rubber] : pen.points;
-    const path = new Path2D(pathD(points, pen.closed));
+    // The path so far in its Fill and Stroke, then its outline, rubber band, Anchors and Handles.
+    const last = pen.anchors.at(-1);
+    let anchors = pen.anchors;
+    if (drawing(s) && pointer && last && !penPressed()) {
+      const at = pointer.shift ? constrain(last.anchor, pointer.at) : pointer.at;
+      anchors = [...anchors, { anchor: at, handleIn: null, handleOut: null }];
+    }
+    const path = new Path2D(pathD(anchors, pen.closed));
     if (fillStroke.fill) {
       ctx.fillStyle = fillStroke.fill;
       ctx.fill(path);
@@ -44,8 +79,26 @@ export const penTool: CanvasTool = {
     }
     ctx.lineWidth = 1 / scale;
     ctx.strokeStyle = SELECTION;
+    ctx.fillStyle = SELECTION;
     ctx.stroke(path);
     const r = 2.5 / scale;
-    for (const [px, py] of pen.points) ctx.strokeRect(px - r, py - r, 2 * r, 2 * r);
+    // The last Anchor is solid, as the selected one, and shows its Handles; so does the first while
+    // a drag on it closes the path.
+    for (const a of pen.anchors) {
+      const [x, y] = a.anchor;
+      if (a === last) ctx.fillRect(x - r, y - r, 2 * r, 2 * r);
+      else ctx.strokeRect(x - r, y - r, 2 * r, 2 * r);
+      if (a !== last && !(a === pen.anchors[0] && penClosing())) continue;
+      for (const h of [a.handleIn, a.handleOut]) {
+        if (!h) continue;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(h[0], h[1]);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(h[0], h[1], r * 0.8, 0, 2 * Math.PI);
+        ctx.fill();
+      }
+    }
   },
 };

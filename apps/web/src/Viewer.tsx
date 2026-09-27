@@ -302,6 +302,8 @@ export function Viewer({ docId }: { docId: string }) {
       ...toDoc(viewport, e.clientX - r.left, e.clientY - r.top),
       shift: e.shiftKey,
       alt: e.altKey,
+      ctrl: e.ctrlKey || e.metaKey,
+      space: hand,
       doc,
       viewport,
       ctx,

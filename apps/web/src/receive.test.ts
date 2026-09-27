@@ -146,10 +146,10 @@ it("selects the Group a selected Node was just moved into, as Make Clipping Mask
 });
 
 const pen = (commandId: string | null) => ({
-  points: [
-    [0, 0],
-    [10, 0],
-  ] as [number, number][],
+  anchors: [
+    { anchor: [0, 0] as [number, number], handleIn: null, handleOut: null },
+    { anchor: [10, 0] as [number, number], handleIn: null, handleOut: null },
+  ],
   closed: false,
   commandId,
 });
