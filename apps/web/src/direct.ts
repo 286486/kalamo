@@ -89,7 +89,7 @@ function bezier(a: Anchor, b: Anchor, t: number): Point {
 }
 
 /** The segment nearest (x, y), where along it, and how far, by 32 chords per segment. */
-function nearestSegment(subpaths: Subpath[], x: number, y: number) {
+export function nearestSegment(subpaths: Subpath[], x: number, y: number) {
   let best: { subpath: number; segment: number; t: number; dist: number } | null = null;
   const N = 32;
   for (const [s, sub] of subpaths.entries()) {

@@ -121,6 +121,7 @@ export const Tools = memo(function Tools() {
             aria-label={label}
             aria-pressed={tool === t}
             onClick={() => setTool(t)}
+            onDoubleClick={() => TOOLS[t].options?.()}
             style={{ ...button, background: tool === t ? "#DCE6FF" : "none" }}
           >
             {glyph(icon, iconFill)}
