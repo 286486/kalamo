@@ -43,12 +43,20 @@ _Avoid_: Default name、Placeholder name
 _Avoid_: Shape（泛指时）、Curve、Polyline
 
 **Anchor（锚点）**：
-Path 上的一个顶点。分角点（Corner）与平滑点（Smooth）。
+Path 上的一个顶点。分角点（Corner）与平滑点（Smooth）：两侧 Handle 共线的是平滑点，其余是角点（ADR-0032）。
 _Avoid_: Vertex、Point、Node（几何意义上）
 
 **Handle（手柄）**：
 从 Anchor 伸出、控制相邻曲线段方向与曲率的控制点。
 _Avoid_: Control point、Direction point、Bezier point
+
+**Endpoint（端点）**：
+开放 Path 某条子路径的首个或末个 Anchor。钢笔和铅笔从 Endpoint 续画；Join 连接两个 Endpoint。
+_Avoid_: End point、Tip、Terminal
+
+**Stray Point（游离点）**：
+只有一个 Anchor、没有线段的 Path。它不可见也无法打印，Object > Path > Clean Up 删除它。
+_Avoid_: Orphan point、Lone anchor
 
 **Live Shape（实时形状）**：
 由参数（宽高、圆角、边数、内外半径、起止角）定义的 Node，如矩形、椭圆、多边形、星形。多边形和星形另有 Inkscape 的 `angle`（首个顶点方向）、`rounded`（圆滑）、`randomized`（随机扰动），星形还有 `twist`（内顶点扭转）（ADR-0024）。椭圆的起止角 `startAngle` / `endAngle` 从 3 点钟方向顺时针量，弧类型 `arcType` 为 `slice`（扇形）、`chord`（弓形）或 `open`（开放弧）（ADR-0025）。锚点级编辑会把它转为 Path。它的派生几何以 `d` 形式只读暴露。
