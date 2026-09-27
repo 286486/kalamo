@@ -19,6 +19,7 @@ import {
   moveSegment,
   parseKey,
   pick,
+  splitWhole,
 } from "./direct.ts";
 import { imageCache } from "./images.ts";
 import { Layers } from "./Layers.tsx";
@@ -37,12 +38,14 @@ const PASTEBOARD = "#E6E6E6";
 const SELECTION = "#4F80FF";
 /** Screen px the pointer may wander before a press becomes a drag, and the hit tolerance. */
 const SLOP = 3;
+/** Direct Selection hits an Anchor, Handle or segment within 2 screen px (research §4). */
+const DIRECT_HIT = 2;
 
 type Point = { x: number; y: number };
 type Mods = { shift: boolean; alt: boolean };
 /**
- * A press of the Selection tool: moving the Selection, or drawing a marquee. Direct Selection also
- * drags Anchors, one Handle, or a segment grabbed at `t`.
+ * A press on the canvas: moving objects or drawing a marquee, as both selection tools do, or with
+ * Direct Selection dragging Anchors, one Handle, or a segment grabbed at `t`.
  */
 type Gesture = { start: Point; moved: boolean } & (
   | { kind: "move"; nodeIds: string[] }
@@ -440,7 +443,7 @@ export function Viewer({ docId }: { docId: string }) {
   ) => {
     const { doc, viewport: v, selection, anchors } = useStore.getState();
     if (!doc || !v) return;
-    const tolerance = SLOP / v.scale;
+    const tolerance = DIRECT_HIT / v.scale;
     const target = pick(doc, selection, anchors, start.x, start.y, tolerance);
     const leaf = target ? null : hitTest(ctx, doc, start.x, start.y, tolerance, true);
     const nodeId =
@@ -458,13 +461,13 @@ export function Viewer({ docId }: { docId: string }) {
     if (target?.kind === "handle") {
       gesture.current = { ...g, kind: "handle", key: target.key, which: target.which };
     } else if (nodeId) {
-      // Pressing a selected Anchor keeps the Anchor selection, so all of it moves.
-      const kept =
-        keys.length === 1 && anchors.includes(target?.kind === "anchor" ? target.key : "");
+      // Pressing a selected Anchor, or inside a path whose Anchors are all selected, keeps the
+      // Anchor selection, so all of it moves.
+      const kept = keys.length > 0 && keys.every((k) => anchors.includes(k));
       if (!kept) useStore.setState({ selection: [nodeId], anchors: keys });
+      const moving = kept ? anchors : keys;
       if (target?.kind === "segment") gesture.current = { ...g, ...target };
-      else if (keys.length > 0)
-        gesture.current = { ...g, kind: "anchors", keys: kept ? anchors : keys };
+      else if (moving.length > 0) gesture.current = { ...g, kind: "anchors", keys: moving };
       else gesture.current = { ...g, kind: "move", nodeIds: [nodeId] };
     } else {
       gesture.current = { ...g, kind: "marquee", mods };
@@ -495,15 +498,21 @@ export function Viewer({ docId }: { docId: string }) {
       useStore.setState({ drag: { nodeIds: g.nodeIds, dx, dy, commandId: null } });
     else if (g.kind === "marquee") setMarqueeRect(rectOf(g.start, p));
     else if (doc) {
+      // Paths with every Anchor selected move whole, so a Live Shape stays live; the rest by
+      // their Anchors.
+      const { whole, partial } = splitWhole(doc, g.kind === "anchors" ? g.keys : []);
       const inputs =
         g.kind === "anchors"
-          ? moveAnchors(doc, g.keys, dx, dy)
+          ? moveAnchors(doc, partial, dx, dy)
           : [
               g.kind === "handle"
                 ? moveHandle(doc, g.key, g.which, dx, dy, e.altKey)
                 : moveSegment(doc, g.nodeId, g.subpath, g.segment, g.t, dx, dy),
             ].filter((input) => input !== null);
-      useStore.setState({ edit: { inputs, commandIds: null } });
+      useStore.setState({
+        drag: whole.length > 0 ? { nodeIds: whole, dx, dy, commandId: null } : null,
+        edit: inputs.length > 0 ? { inputs, commandIds: null } : null,
+      });
     }
   };
 
@@ -525,18 +534,19 @@ export function Viewer({ docId }: { docId: string }) {
       const ids = g.moved && marqueeRect ? marquee(doc, marqueeRect) : [];
       useStore.setState({ selection: combine(selection, ids, g.mods) });
       setMarqueeRect(null);
-    } else if (g.kind !== "move") {
-      // One path_edit per path the drag changed (ADR-0032).
-      if (g.moved && edit && edit.commandIds === null && edit.inputs.length > 0) {
+    } else if (g.moved) {
+      // One path_edit per path the drag reshaped (ADR-0032), and one transform for what moved whole.
+      if (edit && edit.commandIds === null) {
         const commandIds = edit.inputs.map((input) => send({ type: "path_edit", input }));
         useStore.setState({ edit: { ...edit, commandIds } });
       }
-    } else if (g.moved && drag && drag.commandId === null) {
-      // ponytail: TransformInput takes at most 1000 nodeIds: a larger drag crashes preview() and
-      // is closed with 1007 by the DO; chunk the command or lift the max when Documents grow.
-      const translate = { x: drag.dx, y: drag.dy };
-      const commandId = send({ type: "transform", input: { nodeIds: drag.nodeIds, translate } });
-      useStore.setState({ drag: { ...drag, commandId } });
+      if (drag && drag.commandId === null) {
+        // ponytail: TransformInput takes at most 1000 nodeIds: a larger drag crashes preview() and
+        // is closed with 1007 by the DO; chunk the command or lift the max when Documents grow.
+        const translate = { x: drag.dx, y: drag.dy };
+        const commandId = send({ type: "transform", input: { nodeIds: drag.nodeIds, translate } });
+        useStore.setState({ drag: { ...drag, commandId } });
+      }
     }
   };
 

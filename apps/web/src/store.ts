@@ -1,6 +1,7 @@
 import { newId } from "@zibel/core";
 import type { ClientMessage, Command, ServerMessage } from "@zibel/sync";
 import { create } from "zustand";
+import { parseKey } from "./direct.ts";
 import type { ImageCache } from "./images.ts";
 import { receive, type ViewState } from "./receive.ts";
 import type { FillStroke, Tool } from "./tools.ts";
@@ -18,8 +19,6 @@ export interface State extends ViewState {
   /** Window > Layers. */
   layersShown: boolean;
   tool: Tool;
-  /** Direct Selection's selected Anchors (direct.ts's keys): UI state, like the Selection. */
-  anchors: string[];
   /** The Fill and Stroke boxes, kept across Document Tabs as in Illustrator. */
   fillStroke: FillStroke;
 }
@@ -47,6 +46,13 @@ export const useStore = create<State>(() => ({
   tool: "selection",
   fillStroke: DEFAULT_FILL_STROKE,
 }));
+
+// Selected Anchors live only on selected Nodes, whatever changed the Selection.
+useStore.subscribe((s, prev) => {
+  if (s.selection === prev.selection) return;
+  const anchors = s.anchors.filter((k) => s.selection.includes(parseKey(k).nodeId));
+  if (anchors.length < s.anchors.length) useStore.setState({ anchors });
+});
 
 let socket: WebSocket | null = null;
 

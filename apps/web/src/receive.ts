@@ -1,5 +1,6 @@
 import { type Document, editPath, type PathEditInput, transformNodes } from "@zibel/core";
 import { applyBroadcast, type ServerMessage } from "@zibel/sync";
+import { inRange, parseKey } from "./direct.ts";
 
 /** The Selection being dragged by (dx, dy) pt. `commandId` is set once its move has been sent. */
 export interface Drag {
@@ -20,8 +21,8 @@ export interface PenPath {
 }
 
 /**
- * A Direct Selection drag: one `path_edit` per path. `commandIds` is set once they are sent, and
- * each answer takes its id out; the preview lasts until the last one.
+ * A Direct Selection drag: one `path_edit` per path. `commandIds`, one per input, is set once they
+ * are sent; each answer or rejection takes its path out, and the preview lasts until the last one.
  */
 export interface PathDrag {
   inputs: PathEditInput[];
@@ -36,6 +37,8 @@ export interface ViewState {
   drag: Drag | null;
   pen: PenPath | null;
   edit: PathDrag | null;
+  /** Direct Selection's selected Anchors (direct.ts's keys): UI state, like the Selection. */
+  anchors: string[];
   /** Why the last command was rejected. */
   notice: string | null;
 }
@@ -54,7 +57,7 @@ export function receive(
     return {
       ...(s.drag?.commandId === msg.id && { drag: null }),
       ...(s.pen?.commandId === msg.id && { pen: null }),
-      ...(s.edit?.commandIds?.includes(msg.id) && { edit: null }),
+      ...settle(s.edit, msg.id),
       notice: gone
         ? "Someone else deleted that object first; it stays deleted."
         : msg.error.message,
@@ -82,8 +85,16 @@ export function receive(
   const answered =
     msg.type === "document" || (!!msg.commandId && msg.commandId === s.drag?.commandId);
   const drawn = msg.type === "tx" && !!msg.commandId && msg.commandId === s.pen?.commandId;
-  const pending = s.edit?.commandIds ?? [];
-  const left = msg.type === "tx" ? pending.filter((id) => id !== msg.commandId) : [];
+  // Someone else's change to a path renumbers its Anchors, so its selected ones go; after our own
+  // command, and on a reconnect, those it still has stay.
+  const ours = [...(s.edit?.commandIds ?? []), s.drag?.commandId];
+  const own = msg.type === "tx" && !!msg.commandId && ours.includes(msg.commandId);
+  const touched =
+    msg.type === "tx" ? new Set([...msg.updated.map((n) => n.id), ...msg.deletedIds]) : null;
+  const anchors = s.anchors.filter((key) => {
+    const changed = !touched || touched.has(parseKey(key).nodeId);
+    return !changed || ((own || !touched) && inRange(doc, key));
+  });
   const skipped = msg.type === "tx" ? (msg.skippedIds?.length ?? 0) : 0;
   // A selected Node that a browser's command moved into a new Group selects that Group, as Make
   // Clipping Mask does; an Agent's edit leaves the person's Selection alone.
@@ -98,10 +109,8 @@ export function receive(
     // The path the Pen drew becomes the Selection, as in Illustrator.
     selection: drawn ? [...made] : [...new Set(selection)],
     ...(answered && { drag: null }),
-    ...(s.edit &&
-      left.length < pending.length && {
-        edit: left.length > 0 ? { ...s.edit, commandIds: left } : null,
-      }),
+    anchors,
+    ...(msg.type === "document" ? { edit: null } : settle(s.edit, msg.commandId)),
     ...((drawn || (msg.type === "document" && s.pen?.commandId)) && { pen: null }),
     ...(skipped > 0 && { notice: `Skipped ${skipped} deleted object(s); they stay deleted.` }),
   };
@@ -128,7 +137,18 @@ export function previewEdit(doc: Document, { inputs }: PathDrag): Document {
   for (const input of inputs) {
     try {
       editPath(shown, input);
-    } catch {}
+    } catch (e) {
+      console.warn("A Direct Selection preview skipped a path core refuses to edit.", e);
+    }
   }
   return shown;
+}
+
+/** The drag without the path whose command `id` was answered or rejected; null once none is left. */
+function settle(edit: PathDrag | null, id: string | undefined): { edit?: PathDrag | null } {
+  const k = id && edit?.commandIds ? edit.commandIds.indexOf(id) : -1;
+  if (!edit?.commandIds || k < 0) return {};
+  const inputs = edit.inputs.filter((_, i) => i !== k);
+  const commandIds = edit.commandIds.filter((_, i) => i !== k);
+  return { edit: inputs.length > 0 ? { inputs, commandIds } : null };
 }

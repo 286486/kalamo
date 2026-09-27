@@ -18,7 +18,6 @@ import {
   worldTransform,
 } from "@zibel/core";
 import { editable } from "./selection.ts";
-import { send, useStore } from "./store.ts";
 
 /** Direct Selection (research §4): Anchors, Handles and segments of paths and Live Shapes. */
 
@@ -276,12 +275,15 @@ export function moveSegment(
 }
 
 /**
- * Delete on Anchors ("subpath index"): removes them and the segments on both sides, opening the
- * path there, as Illustrator does. A piece left with one Anchor would be a Stray Point and goes too.
+ * Delete on Anchors: removes them and the segments on both sides, opening the path there, as
+ * Illustrator does. A piece left with one Anchor would be a Stray Point and goes too.
  */
-export function deleteAnchors(subpaths: Subpath[], gone: Set<string>): Subpath[] {
+export function deleteAnchors(
+  subpaths: Subpath[],
+  refs: Pick<Ref, "subpath" | "index">[],
+): Subpath[] {
   return subpaths.flatMap((s, k) => {
-    const cut = s.anchors.map((_, i) => gone.has(`${k} ${i}`));
+    const cut = s.anchors.map((_, i) => refs.some((r) => r.subpath === k && r.index === i));
     if (!cut.includes(true)) return [s];
     // A closed subpath is walked from just after a deleted Anchor, so each piece is in order.
     const start = s.closed ? cut.indexOf(true) + 1 : 0;
@@ -301,28 +303,43 @@ export function deleteAnchors(subpaths: Subpath[], gone: Set<string>): Subpath[]
   });
 }
 
+/** Whether `key` names an Anchor its Node has now. */
+export function inRange(doc: Document, key: string): boolean {
+  const { nodeId, subpath, index } = parseKey(key);
+  const n = doc.nodes.get(nodeId);
+  return hasAnchors(n) && !!localAnchors(n)[subpath]?.anchors[index];
+}
+
 /**
- * Edit > Clear with Anchors selected: one `path_edit` per path, and one `delete` for the paths
- * left without a segment. False when no Anchor is selected.
+ * Edit > Clear under Direct Selection: a `set_d` per path with selected Anchors, and the ids to
+ * delete: paths left without a segment, and selected objects with no selected Anchor. Keys out of
+ * range are ignored, never sent as a no-op that would convert a Live Shape.
  */
-export function clearAnchors(): boolean {
-  const { doc, anchors } = useStore.getState();
-  if (!doc || anchors.length === 0) return false;
-  const emptied: string[] = [];
-  for (const [nodeId, refs] of byNode(anchors)) {
+export function clearInputs(doc: Document, selection: string[], anchors: string[]) {
+  const edits: PathEditInput[] = [];
+  const grouped = byNode(anchors);
+  const deleteIds = selection.filter((id) => !grouped.has(id) && editable(doc, doc.nodes.get(id)));
+  for (const [nodeId, refs] of grouped) {
     const n = doc.nodes.get(nodeId);
-    if (!hasAnchors(n) || !editable(doc, n)) continue;
-    const left = deleteAnchors(
-      localAnchors(n),
-      new Set(refs.map((r) => `${r.subpath} ${r.index}`)),
-    );
-    if (left.length === 0) emptied.push(nodeId);
-    else {
-      const d = formatPath(fromAnchors(left));
-      send({ type: "path_edit", input: { nodeId, ops: [{ op: "set_d", d }] } });
-    }
+    const live = refs.filter((r) => inRange(doc, anchorKey(nodeId, r.subpath, r.index)));
+    if (!hasAnchors(n) || !editable(doc, n) || live.length === 0) continue;
+    const left = deleteAnchors(localAnchors(n), live);
+    if (left.length === 0) deleteIds.push(nodeId);
+    else edits.push({ nodeId, ops: [{ op: "set_d", d: formatPath(fromAnchors(left)) }] });
   }
-  if (emptied.length > 0) send({ type: "delete", nodeIds: emptied });
-  useStore.setState({ anchors: [] });
-  return true;
+  return { edits, deleteIds };
+}
+
+/** The paths with every Anchor in `keys`, which move whole, and the keys of the rest. */
+export function splitWhole(doc: Document, keys: string[]) {
+  const whole: string[] = [];
+  const partial: string[] = [];
+  for (const [nodeId, refs] of byNode(keys)) {
+    const n = doc.nodes.get(nodeId);
+    const all = hasAnchors(n) ? allKeys(n) : [];
+    const mine = refs.map((r) => anchorKey(nodeId, r.subpath, r.index));
+    if (all.length > 0 && all.every((k) => mine.includes(k))) whole.push(nodeId);
+    else partial.push(...mine);
+  }
+  return { whole, partial };
 }

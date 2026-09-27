@@ -9,12 +9,14 @@ import {
 import { expect, it } from "vitest";
 import {
   anchorKey,
+  clearInputs,
   deleteAnchors,
   marqueeAnchors,
   moveAnchors,
   moveHandle,
   moveSegment,
   pick,
+  splitWhole,
 } from "./direct.ts";
 
 /** A 10 pt square rect at (0, 0), a curve moved by (100, 0), and a hidden line. */
@@ -128,14 +130,48 @@ it("a straight segment moves both its Anchors; a curved one bends through its Ha
 
 it("Delete removes Anchors and their segments, opening the path there", () => {
   const closed = toAnchors(parsePath("M 0 0 L 10 0 L 10 10 L 0 10 Z", "d"));
-  expect(deleteAnchors(closed, new Set(["0 1"]))).toMatchObject([
+  expect(deleteAnchors(closed, [{ subpath: 0, index: 1 }])).toMatchObject([
     { closed: false, anchors: [{ anchor: [10, 10] }, { anchor: [0, 10] }, { anchor: [0, 0] }] },
   ]);
   // An interior Anchor of an open path leaves two pieces; a piece of one Anchor goes.
   const open = toAnchors(parsePath("M 0 0 L 10 0 L 20 0 L 30 0 L 40 0", "d"));
-  expect(deleteAnchors(open, new Set(["0 2"]))).toMatchObject([
+  expect(deleteAnchors(open, [{ subpath: 0, index: 2 }])).toMatchObject([
     { anchors: [{ anchor: [0, 0] }, { anchor: [10, 0] }] },
     { anchors: [{ anchor: [30, 0] }, { anchor: [40, 0] }] },
   ]);
-  expect(deleteAnchors(open, new Set(["0 1", "0 3"]))).toEqual([]);
+  expect(
+    deleteAnchors(open, [
+      { subpath: 0, index: 1 },
+      { subpath: 0, index: 3 },
+    ]),
+  ).toEqual([]);
+});
+
+it("Clear deletes selected Anchors, and whole the selected objects without any", () => {
+  const { doc, rect, curve } = fixture();
+  const other = createNodes(doc, [
+    { type: "rect", parentId: rect.parentId, x: 0, y: 0, width: 1, height: 1 },
+  ] as never).nodes[0] as Node;
+  const selection = [rect.id, curve.id, other.id];
+  // An Anchor out of range, as after someone else's edit, is ignored: no set_d converts the rect.
+  expect(clearInputs(doc, selection, [anchorKey(rect.id, 0, 9)])).toEqual({
+    edits: [],
+    deleteIds: [curve.id, other.id],
+  });
+  expect(clearInputs(doc, selection, [anchorKey(rect.id, 0, 1)])).toEqual({
+    edits: [{ nodeId: rect.id, ops: [{ op: "set_d", d: "M 10 10 L 0 10 L 0 0" }] }],
+    deleteIds: [curve.id, other.id],
+  });
+  // Every Anchor of the curve leaves nothing: the curve goes.
+  const all = [0, 1, 2].map((i) => anchorKey(curve.id, 0, i));
+  expect(clearInputs(doc, [curve.id], all)).toEqual({ edits: [], deleteIds: [curve.id] });
+});
+
+it("a path with every Anchor selected moves whole; a partly selected one by its Anchors", () => {
+  const { doc, rect, curve } = fixture();
+  const keys = [0, 1, 2, 3].map((i) => anchorKey(rect.id, 0, i));
+  expect(splitWhole(doc, [...keys, anchorKey(curve.id, 0, 1)])).toEqual({
+    whole: [rect.id],
+    partial: [anchorKey(curve.id, 0, 1)],
+  });
 });
