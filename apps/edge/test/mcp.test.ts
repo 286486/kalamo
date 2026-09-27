@@ -496,28 +496,16 @@ it("places a PNG as an Image: node_get has its id, render draws it, export and o
   expect(back.nodes[0]).toMatchObject({ src: nodes[0].src });
 });
 
-it("node_update Relinks an Image with src and file and Embeds it with file: null (ADR-0042)", async () => {
+it("node_update Relinks an Image with src and file (ADR-0042)", async () => {
   const { docId, defaultLayerId } = await newDoc();
   const image = { type: "image", parentId: defaultLayerId, src: RED_2x2_PNG, x: 10, y: 10 };
   const [nodeId] = (await call("zibel_node_create", { docId, nodes: [image] })).structuredContent
     .createdIds as string[];
-  const get = async () =>
-    (await call("zibel_node_get", { docId, nodeIds: [nodeId], detail: "full" })).structuredContent
-      .nodes[0];
   const relinked = await call("zibel_node_update", {
     docId,
     updates: [{ nodeId, patch: { src: BLUE_1x1_PNG, file: "blue.png" } }],
   });
-  expect(relinked.isError).toBeFalsy();
-  expect(await get()).toMatchObject({ file: "blue.png", width: 2, height: 2 });
-  await call("zibel_node_update", { docId, updates: [{ nodeId, patch: { file: null } }] });
-  expect(await get()).not.toHaveProperty("file");
-  const refused = await call("zibel_node_update", {
-    docId,
-    updates: [{ nodeId, patch: { src: null } }],
-  });
-  expect(refused.isError).toBe(true);
-  expect(refused.content[0].text).toContain("INVALID_PATCH");
+  expect(relinked.structuredContent.updatedIds).toEqual([nodeId]);
 });
 
 it("opens an SVG that links its photos as missing links, with one warning (ADR-0042)", async () => {

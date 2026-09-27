@@ -407,28 +407,28 @@ export class DocumentObject extends DurableObject<Env> {
       async (input, path) => (await this.ingest(input, path)) as NodeInput,
     );
     if ("error" in ingested) return ingested;
-    const { ready, refused, own } = ingested;
+    const { ready, merge } = ingested;
     return this.write(actor, opts, "Create", (doc) => {
       const { nodes, keyMap, failed } = createNodes(doc, ready, opts);
       return {
         created: nodes,
         keyMap,
         warnings: [...fontWarnings(nodes), ...overflowWarnings(nodes)],
-        failed: [...refused, ...failed.map(own)].sort((a, b) => a.index - b.index),
+        failed: merge(failed),
       };
     });
   }
 
   /**
-   * Runs `ingest` on each item; with `partial`, an item it refuses fails alone. `own` puts back an
-   * item's own index in what core, numbering only the ready items, reports.
+   * Runs `ingest` on each item; with `partial`, an item it refuses fails alone. `merge` adds those
+   * to what core, numbering only the ready items, reports, with each item's own index put back.
    */
   private async ingestAll<T>(
     items: T[],
     key: "nodes" | "updates",
     opts: WriteOptions,
     ingest: (item: T, path: string) => Promise<T>,
-  ): Promise<{ ready: T[]; refused: Failed[]; own: (f: Failed) => Failed } | { error: ErrorData }> {
+  ): Promise<{ ready: T[]; merge: (failed: Failed[]) => Failed[] } | { error: ErrorData }> {
     const kept: number[] = [];
     const refused: Failed[] = [];
     const ready: T[] = [];
@@ -457,7 +457,9 @@ export class DocumentObject extends DurableObject<Env> {
         }),
       };
     };
-    return { ready, refused, own };
+    const merge = (failed: Failed[]) =>
+      [...refused, ...failed.map(own)].sort((a, b) => a.index - b.index);
+    return { ready, merge };
   }
 
   /** `input` with each Image's data URL, inline children's too, stored and replaced by its id. */
@@ -465,7 +467,7 @@ export class DocumentObject extends DurableObject<Env> {
     if (typeof input !== "object" || input === null) return input;
     const item = input as { type?: unknown; src?: unknown; children?: unknown };
     if (item.type === "image" && typeof item.src === "string" && item.src.startsWith("data:")) {
-      return { ...item, src: await this.store(item.src, `${path}.src`) };
+      return { ...item, src: await this.storeDataUrl(item.src, `${path}.src`) };
     }
     if (Array.isArray(item.children)) {
       const children = [];
@@ -478,7 +480,7 @@ export class DocumentObject extends DurableObject<Env> {
   }
 
   /** Stores a data URL's file and returns its id. */
-  private async store(src: string, path: string): Promise<string> {
+  private async storeDataUrl(src: string, path: string): Promise<string> {
     const file = readImage(src, path);
     const id = await imageId(file.bytes);
     this.storeImages(new Map([[id, file]]));
@@ -550,16 +552,19 @@ export class DocumentObject extends DurableObject<Env> {
     const ingested = await this.ingestAll(updates, "updates", opts, async (u, path) => {
       const src = (u.patch as { src?: unknown }).src;
       if (typeof src !== "string" || !src.startsWith("data:")) return u;
-      return { ...u, patch: { ...u.patch, src: await this.store(src, `${path}.patch.src`) } };
+      return {
+        ...u,
+        patch: { ...u.patch, src: await this.storeDataUrl(src, `${path}.patch.src`) },
+      };
     });
     if ("error" in ingested) return ingested;
-    const { ready, refused, own } = ingested;
+    const { ready, merge } = ingested;
     return this.write(actor, opts, "Update", (doc) => {
       const { nodes, failed } = updateNodes(doc, ready, opts);
       return {
         updated: nodes,
         warnings: [...fontWarnings(nodes), ...overflowWarnings(nodes)],
-        failed: [...refused, ...failed.map(own)].sort((a, b) => a.index - b.index),
+        failed: merge(failed),
       };
     });
   }
