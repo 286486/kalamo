@@ -76,7 +76,7 @@ test("menu commands run from the menu bar, by their shortcuts, and with the keyb
   await page.keyboard.press("i");
   await expect(item("Inverse")).toBeFocused();
   await page.keyboard.press("ArrowLeft");
-  await expect(item("Clipping Mask")).toBeFocused();
+  await expect(item("Shape")).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(item("Object")).toBeFocused();
   await page.keyboard.press("ArrowRight");
