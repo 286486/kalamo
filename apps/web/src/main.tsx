@@ -33,12 +33,13 @@ function App() {
     addEventListener("popstate", follow);
     return () => removeEventListener("popstate", follow);
   }, []);
-  if (me === null) return null;
-  if (me === "signed-out") {
-    if (path === "/") return <SignIn />;
-    location.replace(`/?return=${encodeURIComponent(path + location.search)}`);
-    return null;
-  }
+  const away = me === "signed-out" && path !== "/";
+  useEffect(() => {
+    if (away)
+      location.replace(`/?return=${encodeURIComponent(location.pathname + location.search)}`);
+  }, [away]);
+  if (me === null || away) return null;
+  if (me === "signed-out") return <SignIn />;
   const docId = path.match(/^\/docs\/([^/]+)$/)?.[1];
   return (
     <>

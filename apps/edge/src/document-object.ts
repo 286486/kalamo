@@ -359,7 +359,10 @@ export class DocumentObject extends DurableObject<Env> {
     // A malformed message is a client bug; the browser reconnects and gets the Document again.
     if (!parsed.success) return ws.close(1007, "Expected a command message.");
     const { id, command } = parsed.data;
-    const { actor } = ws.deserializeAttachment() as Attachment;
+    const attachment = ws.deserializeAttachment() as Attachment | null;
+    // A socket accepted before ADR-0047 has no Actor: the browser reconnects and gets one.
+    if (!attachment) return ws.close(1012, "Reconnect.");
+    const { actor } = attachment;
     const result =
       command.type === "undo" || command.type === "redo"
         ? this[command.type](actor, { commandId: id })

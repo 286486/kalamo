@@ -88,6 +88,10 @@ describe("sign-in", () => {
     const { cookie } = await signIn({ id: 102, login: "new-name" });
     const { results } = await env.DB.prepare("SELECT login FROM users WHERE github_id = 102").all();
     expect(results).toEqual([{ login: "new-name" }]);
+    const actors = await env.DB.prepare(
+      "SELECT name FROM actors WHERE user_id = (SELECT id FROM users WHERE github_id = 102)",
+    ).all();
+    expect(actors.results).toEqual([{ name: "new-name" }]);
     expect(await (await me(cookie)).json()).toMatchObject({ login: "new-name" });
   });
 

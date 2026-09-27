@@ -58,7 +58,7 @@ const isMcp = (request: Request) => new URL(request.url).pathname === "/mcp";
 
 function devPrincipal(request: Request, env: Env): Principal | null {
   const actor = actorFor(request, env.DEV_TOKENS ?? "");
-  return actor ? { userId: "local", actor, access: "write" } : null;
+  return actor ? { ...LOCAL, actor } : null;
 }
 
 /** Resolves the Agent Actor for a request from `Authorization: Bearer <dev token>`, or null. */
@@ -91,7 +91,10 @@ async function sessionUser(request: Request, env: Env): Promise<User | null> {
     .first<User & { lastSeen: string }>();
   if (!row) return null;
   const idle = Date.now() - Date.parse(row.lastSeen);
-  if (idle > IDLE) return null;
+  if (idle > IDLE) {
+    await env.DB.prepare("DELETE FROM sessions WHERE token_hash = ?").bind(hash).run();
+    return null;
+  }
   if (idle > DAY) {
     await env.DB.prepare("UPDATE sessions SET last_seen_at = ? WHERE token_hash = ?")
       .bind(new Date().toISOString(), hash)
@@ -116,7 +119,7 @@ export function authRoute(request: Request, env: Env): Promise<Response> | null 
 
 async function me(request: Request, env: Env) {
   if (!githubMode(env)) {
-    return Response.json({ userId: "local", login: "local", avatarUrl: null, mode: "dev" });
+    return Response.json({ userId: LOCAL.userId, login: "local", avatarUrl: null, mode: "dev" });
   }
   const user = await sessionUser(request, env);
   if (!user) return signInRequired();
@@ -136,7 +139,7 @@ function signIn(env: Env, url: URL) {
   const github = new URL("https://github.com/login/oauth/authorize");
   github.search = new URLSearchParams({
     client_id: env.GITHUB_CLIENT_ID,
-    redirect_uri: `${env.APP_ORIGIN}/auth/github/callback`,
+    redirect_uri: callbackUrl(env),
     state,
   }).toString();
   return new Response(null, {
@@ -177,8 +180,9 @@ async function callback(request: Request, env: Env, url: URL) {
        ON CONFLICT (github_id) DO UPDATE SET login = excluded.login, avatar_url = excluded.avatar_url`,
     ).bind(newId(), gh.id, gh.login, gh.avatarUrl, now),
     env.DB.prepare(
-      `INSERT OR IGNORE INTO actors (id, user_id, kind, name, created_at)
-       SELECT 'user_' || id, id, 'user', login, ? FROM users WHERE github_id = ?`,
+      `INSERT INTO actors (id, user_id, kind, name, created_at)
+       SELECT 'user_' || id, id, 'user', login, ? FROM users WHERE github_id = ?
+       ON CONFLICT (id) DO UPDATE SET name = excluded.name`,
     ).bind(now, gh.id),
     env.DB.prepare(
       `INSERT INTO sessions (token_hash, user_id, created_at, last_seen_at)
@@ -188,7 +192,7 @@ async function callback(request: Request, env: Env, url: URL) {
   const headers = new Headers({ location: returnPath(decodeURIComponent(back ?? "")) });
   headers.append("set-cookie", clear);
   // The server ends an idle session; the cookie only needs to outlive it (400 days is Chrome's cap).
-  headers.append("set-cookie", cookie(SESSION_COOKIE, token, 400 * 86_400));
+  headers.append("set-cookie", cookie(SESSION_COOKIE, token, (400 * DAY) / 1000));
   return new Response(null, { status: 302, headers });
 }
 
@@ -201,7 +205,7 @@ async function githubUser(env: Env, code: string) {
       client_id: env.GITHUB_CLIENT_ID,
       client_secret: env.GITHUB_CLIENT_SECRET,
       code,
-      redirect_uri: `${env.APP_ORIGIN}/auth/github/callback`,
+      redirect_uri: callbackUrl(env),
     }),
   });
   const { access_token } = await exchange.json<{ access_token?: string }>();
@@ -236,6 +240,8 @@ async function signOut(request: Request, env: Env) {
     headers: { location: "/", "set-cookie": cookie(SESSION_COOKIE, "", 0) },
   });
 }
+
+const callbackUrl = (env: Env) => `${env.APP_ORIGIN}/auth/github/callback`;
 
 /** A same-site path to come back to; anything else, such as `//evil.example`, is the list. */
 const returnPath = (path: string | null) => (path && /^\/(?![/\\])/.test(path) ? path : "/");
