@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import freehand from "../../../fixtures/agent-benchmarks/freehand.ts";
 import grid from "../../../fixtures/agent-benchmarks/grid.ts";
 import labels from "../../../fixtures/agent-benchmarks/labels.ts";
 import type { Bounds, Call } from "../../../fixtures/agent-benchmarks/mcp.ts";
@@ -56,6 +57,30 @@ describe("grid", () => {
 
   it("rejects 99 rects", async () => {
     await expect(grid(call, await draw(99), [])).rejects.toThrow("99 rects");
+  });
+});
+
+describe("freehand", () => {
+  const points = Array.from({ length: 61 }, (_, k) => ({
+    x: 50 + 5 * k,
+    y: 200 - 50 * Math.sin((Math.PI * k) / 15),
+  }));
+  const appearance = { strokes: [{ color: "#000000", width: 2 }] };
+
+  it("accepts the wave drawn with freehand_stroke", async () => {
+    const { docId, defaultLayerId: parentId } = await newDoc(400, 400);
+    await call("zibel_freehand_stroke", { docId, parentId, points, tool: "pencil", appearance });
+    await expect(freehand(call, docId, ["zibel_freehand_stroke"])).resolves.toBeUndefined();
+  });
+
+  it("rejects the wave as a polyline from node_create", async () => {
+    const { docId, defaultLayerId: parentId } = await newDoc(400, 400);
+    const d = `M ${points.map((p) => `${p.x} ${p.y}`).join(" L ")}`;
+    await call("zibel_node_create", { docId, nodes: [{ type: "path", parentId, d, appearance }] });
+    await expect(freehand(call, docId, ["zibel_node_create"])).rejects.toThrow(
+      "no zibel_freehand_stroke",
+    );
+    await expect(freehand(call, docId, ["zibel_freehand_stroke"])).rejects.toThrow("60 segments");
   });
 });
 
