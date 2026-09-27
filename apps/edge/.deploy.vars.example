@@ -1,0 +1,6 @@
+# Worker secrets for `pnpm deploy` (README, Hosting). The Worker runs in GitHub mode.
+APP_ORIGIN="https://zibel.example.workers.dev"
+GITHUB_CLIENT_ID="replace-with-the-oauth-app-client-id"
+GITHUB_CLIENT_SECRET="replace-with-the-oauth-app-client-secret"
+# Optional until MCP OAuth: comma-separated token=actor pairs of long random tokens.
+DEV_TOKENS="replace-with-a-long-random-token=agent-a"

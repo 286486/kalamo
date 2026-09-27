@@ -1,7 +1,17 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { checkImage, IMAGE_ID, ZibelError } from "@zibel/core";
 import { createMcpServer } from "@zibel/mcp";
-import { actorFor, permissionDenied } from "./auth.ts";
+import {
+  ACTOR_HEADER,
+  authenticate,
+  authRoute,
+  crossOrigin,
+  foreignOrigin,
+  misconfigured,
+  type Principal,
+  permissionDenied,
+  signInRequired,
+} from "./auth.ts";
 import { imageKey } from "./document-object.ts";
 import { documentService, listDocuments, unwrap } from "./service.ts";
 
@@ -9,47 +19,63 @@ export { DocumentObject } from "./document-object.ts";
 
 export default {
   async fetch(request, env): Promise<Response> {
+    if (misconfigured(env)) return new Response("server misconfigured", { status: 500 });
+    if (crossOrigin(request, env)) return foreignOrigin();
+    const auth = authRoute(request, env);
+    if (auth) return auth;
     const url = new URL(request.url);
-    // Browsers are not authenticated in M0: the viewer is read-only and local (ADR-0009).
+    const principal = await authenticate(request, env);
+    if (url.pathname === "/mcp") return mcp(request, env, principal);
+    if (!principal) return signInRequired();
+    const { actor } = principal;
     const ws = url.pathname.match(/^\/api\/docs\/([^/]+)\/ws$/)?.[1];
-    if (ws) return env.DOCUMENT.get(env.DOCUMENT.idFromName(ws)).fetch(request);
-    if (url.pathname === "/api/docs" && request.method === "POST") return openFile(request, env);
+    if (ws) {
+      // The Document DO records the Worker's Actor, never one a client sends (ADR-0047).
+      const headers = new Headers(request.headers);
+      headers.set(ACTOR_HEADER, actor);
+      return env.DOCUMENT.get(env.DOCUMENT.idFromName(ws)).fetch(new Request(request, { headers }));
+    }
+    if (url.pathname === "/api/docs" && request.method === "POST")
+      return openFile(request, env, actor);
     const [, imageDoc, imageSrc] =
       url.pathname.match(/^\/api\/docs\/([^/]+)\/images\/([^/]+)$/) ?? [];
     if (imageDoc && imageSrc && request.method === "GET") return image(env, imageDoc, imageSrc);
     const place = url.pathname.match(/^\/api\/docs\/([^/]+)\/place$/)?.[1];
-    if (place && request.method === "POST") return placeFile(place, request, env);
+    if (place && request.method === "POST") return placeFile(place, request, env, actor);
     const placeImage = url.pathname.match(/^\/api\/docs\/([^/]+)\/place-image$/)?.[1];
-    if (placeImage && request.method === "POST") return placeBitmap(placeImage, request, env);
+    if (placeImage && request.method === "POST")
+      return placeBitmap(placeImage, request, env, actor);
     const relink = url.pathname.match(/^\/api\/docs\/([^/]+)\/relink-image$/)?.[1];
-    if (relink && request.method === "POST") return relinkBitmap(relink, request, env);
+    if (relink && request.method === "POST") return relinkBitmap(relink, request, env, actor);
     if (url.pathname === "/api/docs") return Response.json({ documents: await listDocuments(env) });
-    if (url.pathname !== "/mcp") return new Response("not found", { status: 404 });
-    const actor = actorFor(request, env.DEV_TOKENS);
-    if (!actor) return permissionDenied();
-    // GET would open a server-to-client stream and DELETE ends a session; stateless MCP has neither.
-    if (request.method !== "POST") {
-      return new Response(null, { status: 405, headers: { allow: "POST" } });
-    }
-    // Stateless (ADR-0006): no session id, a new server and transport per request.
-    const server = createMcpServer(documentService(env, actor), actor);
-    const transport = new WebStandardStreamableHTTPServerTransport({
-      sessionIdGenerator: undefined,
-      enableJsonResponse: true,
-    });
-    await server.connect(transport);
-    return transport.handleRequest(request);
+    return new Response("not found", { status: 404 });
   },
 } satisfies ExportedHandler<Env>;
 
+async function mcp(request: Request, env: Env, principal: Principal | null): Promise<Response> {
+  if (!principal) return permissionDenied();
+  // GET would open a server-to-client stream and DELETE ends a session; stateless MCP has neither.
+  if (request.method !== "POST") {
+    return new Response(null, { status: 405, headers: { allow: "POST" } });
+  }
+  // Stateless (ADR-0006): no session id, a new server and transport per request.
+  const server = createMcpServer(documentService(env, principal.actor), principal.actor);
+  const transport = new WebStandardStreamableHTTPServerTransport({
+    sessionIdGenerator: undefined,
+    enableJsonResponse: true,
+  });
+  await server.connect(transport);
+  return transport.handleRequest(request);
+}
+
 /**
  * The browser's Open file: the file's text as the body, its name in `?name=`. Over HTTP, not the
- * WebSocket, since a file does not belong in a gesture message (ADR-0017); by the user.
+ * WebSocket, since a file does not belong in a gesture message (ADR-0017); by the request's User Actor.
  */
-async function openFile(request: Request, env: Env): Promise<Response> {
+async function openFile(request: Request, env: Env, actor: string): Promise<Response> {
   const name = new URL(request.url).searchParams.get("name") ?? undefined;
   return answer(async () => {
-    const { docId, warnings } = await documentService(env, "user").open({
+    const { docId, warnings } = await documentService(env, actor).open({
       content: await request.text(),
       name,
     });
@@ -60,14 +86,19 @@ async function openFile(request: Request, env: Env): Promise<Response> {
 /**
  * The browser's paste or drop of an SVG (Place, ADR-0017): the SVG as the body; `parentId`, the
  * centre `x`, `y`, `inPlace` for Paste in Place (ADR-0030) and the file's `name` in the query. By
- * the user, like Open.
+ * the User Actor, like Open.
  */
-async function placeFile(docId: string, request: Request, env: Env): Promise<Response> {
+async function placeFile(
+  docId: string,
+  request: Request,
+  env: Env,
+  actor: string,
+): Promise<Response> {
   const q = new URL(request.url).searchParams;
   const x = Number(q.get("x") ?? Number.NaN);
   const y = Number(q.get("y") ?? Number.NaN);
   return answer(async () =>
-    documentService(env, "user").place(docId, {
+    documentService(env, actor).place(docId, {
       svg: await request.text(),
       parentId: q.get("parentId") ?? "",
       ...(Number.isFinite(x) && Number.isFinite(y) && { position: { x, y } }),
@@ -79,9 +110,14 @@ async function placeFile(docId: string, request: Request, env: Env): Promise<Res
 
 /**
  * The browser's paste or drop of a bitmap (ADR-0023): the file's bytes as the body; `parentId` and
- * the centre `x`, `y` in the query. An Image at its pixel size, by the user, like Place.
+ * the centre `x`, `y` in the query. An Image at its pixel size, by the User Actor, like Place.
  */
-async function placeBitmap(docId: string, request: Request, env: Env): Promise<Response> {
+async function placeBitmap(
+  docId: string,
+  request: Request,
+  env: Env,
+  actor: string,
+): Promise<Response> {
   const q = new URL(request.url).searchParams;
   const x = Number(q.get("x") ?? Number.NaN);
   const y = Number(q.get("y") ?? Number.NaN);
@@ -92,7 +128,7 @@ async function placeBitmap(docId: string, request: Request, env: Env): Promise<R
       await env.DOCUMENT.get(env.DOCUMENT.idFromName(docId)).placeImage(
         // The name only titles a Template Layer, which paste and drop never make.
         { ...file, name: "Image" },
-        "user",
+        actor,
         {
           parentId: q.get("parentId") ?? "",
           ...(frame && { frame: { x: x - file.width / 2, y: y - file.height / 2 } }),
@@ -109,16 +145,21 @@ const bitmap = async (request: Request) =>
 
 /**
  * Object > Relink… (ADR-0042): the file's bytes as the body; the Image's `nodeId` and the file's
- * `name`, which a linked Image takes as its `file`, in the query. By the user, like Place.
+ * `name`, which a linked Image takes as its `file`, in the query. By the User Actor, like Place.
  */
-async function relinkBitmap(docId: string, request: Request, env: Env): Promise<Response> {
+async function relinkBitmap(
+  docId: string,
+  request: Request,
+  env: Env,
+  actor: string,
+): Promise<Response> {
   const q = new URL(request.url).searchParams;
   return answer(async () => {
     const file = await bitmap(request);
     return unwrap(
       await env.DOCUMENT.get(env.DOCUMENT.idFromName(docId)).relinkImage(
         { ...file, name: q.get("name") ?? undefined },
-        "user",
+        actor,
         { nodeId: q.get("nodeId") ?? "" },
       ),
     );
@@ -127,8 +168,8 @@ async function relinkBitmap(docId: string, request: Request, env: Env): Promise<
 
 /**
  * An Image's file for the canvas, streamed from R2 without the Document Durable Object (ADR-0046).
- * An id always names the same bytes, so it is cached for good. Unauthenticated like the WebSocket
- * until M1 (ADR-0009).
+ * An id always names the same bytes, so it is cached for good. Any signed-in User reaches it, like
+ * every Document route, until Roles (ADR-0047).
  */
 async function image(env: Env, docId: string, src: string): Promise<Response> {
   const object = IMAGE_ID.test(src) ? await env.IMAGES.get(imageKey(docId, src)) : null;

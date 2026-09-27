@@ -1,2 +1,5 @@
+# `dev`: MCP by the DEV_TOKENS below, and browsers act as the one local User without signing in.
+# Safe only on a private network. Deployed Workers default to `github` (see README, Hosting).
+AUTH_MODE="dev"
 # Comma-separated token=actor pairs. Replace the token before deploying.
 DEV_TOKENS="replace-with-a-long-random-token=agent-a"

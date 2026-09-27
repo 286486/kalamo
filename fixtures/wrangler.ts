@@ -9,12 +9,21 @@ export async function startServer(port: number, state: string): Promise<{ stop()
   const log = openSync(join(state, "wrangler.log"), "w");
   const server = spawn(
     "wrangler",
-    ["dev", "-c", "apps/edge/wrangler.jsonc", "--port", String(port), "--persist-to", state],
-    {
-      detached: true,
-      stdio: ["ignore", log, log],
-      env: { ...process.env, DEV_TOKENS: "dev-token-a=agent-a,dev-token-b=agent-b" },
-    },
+    // Dev mode with the scripts' own tokens, over whatever apps/edge/.dev.vars says (ADR-0047).
+    [
+      "dev",
+      "-c",
+      "apps/edge/wrangler.jsonc",
+      "--port",
+      String(port),
+      "--persist-to",
+      state,
+      "--var",
+      "AUTH_MODE:dev",
+      "--var",
+      "DEV_TOKENS:dev-token-a=agent-a,dev-token-b=agent-b",
+    ],
+    { detached: true, stdio: ["ignore", log, log] },
   );
   const stop = () => {
     try {

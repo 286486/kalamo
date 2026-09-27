@@ -21,4 +21,4 @@ There is no browser authentication in M0: the viewer is read-only and runs on lo
 
 - Message size follows Node size; a `node_create` of 2000 Nodes is one large message.
 - Delete beats edit (ADR-0004) reaches the browser as `deletedIds`, which include descendants.
-- REQUIREMENTS §7.5's authenticated WebSocket upgrade is deferred to M1.
+- REQUIREMENTS §7.5's authenticated WebSocket upgrade is deferred to M1. ADR-0047 authenticates it by the session cookie and an `Origin` check in GitHub mode, and has the Worker set the socket's Actor.

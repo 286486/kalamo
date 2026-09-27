@@ -17,6 +17,7 @@ coverage/
 .dev.vars
 .dev.vars.*
 !.dev.vars.example
+.deploy.vars
 
 # env
 .env

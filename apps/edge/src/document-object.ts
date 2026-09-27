@@ -73,21 +73,28 @@ import {
   type Viewport,
   type WriteOptions,
 } from "@zibel/sync";
+import { ACTOR_HEADER } from "./auth.ts";
 
 type EditCommand = Exclude<Command, { type: "undo" | "redo" }>;
 type EditEntry<C> = {
   nodeIds: (command: C) => string[];
-  run: (command: C, commandId: string) => Result<WriteReceipt> | Promise<Result<WriteReceipt>>;
+  run: (
+    command: C,
+    actor: string,
+    commandId: string,
+  ) => Result<WriteReceipt> | Promise<Result<WriteReceipt>>;
 };
+
+/** What a browser socket keeps across hibernation: the Actor the Worker authenticated it as. */
+interface Attachment {
+  actor: string;
+}
 
 /** RPC results carry errors as data: Workers RPC keeps only the message of a thrown error. */
 export type Result<T> = T | { error: ErrorData };
 
 /** A Transaction rolls back after this long without a call carrying its `txId` (F-HIST-02). */
 const TX_IDLE_MS = 5 * 60_000;
-
-/** Every browser acts as this one Actor until OAuth (ADR-0010). */
-const USER = "user";
 
 /** Transactions the undo stack keeps (F-HIST-01). */
 const UNDO_DEPTH = 200;
@@ -307,17 +314,22 @@ export class DocumentObject extends DurableObject<Env> {
   }
 
   /**
-   * A browser subscribes by upgrading to a WebSocket (ADR-0009). Nothing awaits between load and
-   * accept, so no commit can slip in before the Document message.
+   * A browser subscribes by upgrading to a WebSocket (ADR-0009), as the Actor the Worker sets
+   * (ADR-0047). Nothing awaits between load and accept, so no commit can slip in before the
+   * Document message.
    */
   override fetch(request: Request): Response {
     if (request.headers.get("upgrade") !== "websocket") {
       return new Response("Expected a WebSocket upgrade.", { status: 426 });
     }
+    const actor = request.headers.get(ACTOR_HEADER);
+    if (!actor) return new Response(`Expected the Worker's ${ACTOR_HEADER}.`, { status: 400 });
     const doc = guard(() => this.load());
     if ("error" in doc) return Response.json(doc.error, { status: 404 });
     const [client, server] = Object.values(new WebSocketPair()) as [WebSocket, WebSocket];
     this.ctx.acceptWebSocket(server);
+    // Kept on the socket, so it outlives hibernation.
+    server.serializeAttachment({ actor } satisfies Attachment);
     const msg: DocumentMessage = {
       type: "document",
       rev: doc.rev,
@@ -335,7 +347,7 @@ export class DocumentObject extends DurableObject<Env> {
   }
 
   /**
-   * One browser gesture: commits it as one Transaction of the User Actor, or answers that browser
+   * One browser gesture: commits it as one Transaction of the socket's User Actor, or answers that browser
    * alone with `rejected` (ADR-0010).
    */
   override async webSocketMessage(ws: WebSocket, data: string | ArrayBuffer) {
@@ -347,10 +359,11 @@ export class DocumentObject extends DurableObject<Env> {
     // A malformed message is a client bug; the browser reconnects and gets the Document again.
     if (!parsed.success) return ws.close(1007, "Expected a command message.");
     const { id, command } = parsed.data;
+    const { actor } = ws.deserializeAttachment() as Attachment;
     const result =
       command.type === "undo" || command.type === "redo"
-        ? this[command.type](USER, { commandId: id })
-        : await this.edit(command, id);
+        ? this[command.type](actor, { commandId: id })
+        : await this.edit(command, actor, id);
     if ("error" in result) {
       const msg: RejectedMessage = { type: "rejected", id, error: result.error };
       ws.send(JSON.stringify(msg));
@@ -367,8 +380,8 @@ export class DocumentObject extends DurableObject<Env> {
     create: {
       nodeIds: (c) => c.nodes.flatMap((n) => n.parentId ?? []),
       // No image data URLs to store first, unlike this.createNodes: a browser places images by HTTP.
-      run: (c, commandId) =>
-        this.write(USER, { commandId }, "Create", (doc) => {
+      run: (c, actor, commandId) =>
+        this.write(actor, { commandId }, "Create", (doc) => {
           const { nodes, keyMap, failed } = createNodes(doc, c.nodes);
           const warnings = [...fontWarnings(nodes), ...overflowWarnings(nodes)];
           return { created: nodes, keyMap, warnings, failed };
@@ -376,45 +389,45 @@ export class DocumentObject extends DurableObject<Env> {
     },
     transform: {
       nodeIds: (c) => c.input.nodeIds,
-      run: (c, commandId) => this.transformNodes(c.input, USER, { commandId }),
+      run: (c, actor, commandId) => this.transformNodes(c.input, actor, { commandId }),
     },
     update: {
       nodeIds: (c) => [c.nodeId],
-      run: (c, commandId) =>
-        this.updateNodes([{ nodeId: c.nodeId, patch: c.patch }], USER, { commandId }),
+      run: (c, actor, commandId) =>
+        this.updateNodes([{ nodeId: c.nodeId, patch: c.patch }], actor, { commandId }),
     },
     delete: {
       nodeIds: (c) => c.nodeIds,
-      run: (c, commandId) => this.deleteNodes(c.nodeIds, USER, { commandId }),
+      run: (c, actor, commandId) => this.deleteNodes(c.nodeIds, actor, { commandId }),
     },
     embed: {
       nodeIds: (c) => c.nodeIds,
-      run: (c, commandId) =>
-        this.write(USER, { commandId }, "Embed", (doc) => {
+      run: (c, actor, commandId) =>
+        this.write(actor, { commandId }, "Embed", (doc) => {
           const updates = c.nodeIds.map((nodeId) => ({ nodeId, patch: { file: null } }));
           return { updated: updateNodes(doc, updates).nodes, failed: [] };
         }),
     },
     mask_make: {
       nodeIds: (c) => [c.input.clipNodeId, ...c.input.contentIds],
-      run: (c, commandId) => this.makeMask(c.input, USER, { commandId }),
+      run: (c, actor, commandId) => this.makeMask(c.input, actor, { commandId }),
     },
     mask_release: {
       nodeIds: (c) => c.nodeIds,
-      run: (c, commandId) => this.releaseMask(c.nodeIds, USER, { commandId }),
+      run: (c, actor, commandId) => this.releaseMask(c.nodeIds, actor, { commandId }),
     },
     path_edit: {
       nodeIds: (c) => [c.input.nodeId],
-      run: (c, commandId) => this.pathEdit(c.input, USER, { commandId }),
+      run: (c, actor, commandId) => this.pathEdit(c.input, actor, { commandId }),
     },
     path_op: {
       nodeIds: (c) => c.input.nodeIds ?? [],
-      run: (c, commandId) => this.pathOp(c.input, USER, { commandId }),
+      run: (c, actor, commandId) => this.pathOp(c.input, actor, { commandId }),
     },
     path_join: {
       nodeIds: (c) => [c.edit.nodeId, ...(c.join.nodeIds ?? [])],
-      run: (c, commandId) =>
-        this.write(USER, { commandId }, PATH_OP_TEXT.join.summary, (doc) => {
+      run: (c, actor, commandId) =>
+        this.write(actor, { commandId }, PATH_OP_TEXT.join.summary, (doc) => {
           const { warnings } = editPath(doc, c.edit);
           const joined = pathOp(doc, c.join);
           return {
@@ -433,6 +446,7 @@ export class DocumentObject extends DurableObject<Env> {
    */
   private edit(
     command: EditCommand,
+    actor: string,
     commandId: string,
   ): Result<WriteReceipt> | Promise<Result<WriteReceipt>> {
     // The entry matches command.type, which TypeScript cannot correlate across the union.
@@ -452,7 +466,7 @@ export class DocumentObject extends DurableObject<Env> {
         },
       };
     }
-    return entry.run(command, commandId);
+    return entry.run(command, actor, commandId);
   }
 
   /** Sends to every browser. Called after the SQLite transaction, so a dead socket cannot undo a write. */
