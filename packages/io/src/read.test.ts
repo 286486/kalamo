@@ -69,13 +69,136 @@ it.each([
   ["hello", "not an SVG or .zibel.json file"],
   ["<svg><g></svg>", "mismatch"],
   ["<html/>", "<svg>"],
-  [`<!DOCTYPE svg [<!ENTITY xxe "BOOM">]>${svg("", "<text>&xxe;</text>")}`, "entity"],
+  [`<!DOCTYPE svg [<!ENTITY a "x"><!ENTITY b "&a;&a;">]>${svg("", "<text>&a;&b;</text>")}`, "&b;"],
+  [`<!DOCTYPE svg [<!ENTITY n "&a;"><!ENTITY n "plain">]>${svg("", "<text>&n;</text>")}`, "&n;"],
+  [`<!DOCTYPE svg [<!ENTITY x SYSTEM "file:///etc/passwd">]>${svg("", "<text>&x;</text>")}`, "&x;"],
+  [
+    `<!DOCTYPE svg [<!ENTITY % p "<!ENTITY q 'Q'>"> %p; <!ENTITY y "Y">]>${svg("", "<text>&y;</text>")}`,
+    "&y;",
+  ],
 ])("refuses %j as INVALID_DOCUMENT", (content, message) => {
   expect(errorOf(() => parseFile(content))).toMatchObject({
     code: "INVALID_DOCUMENT",
     path: "content",
     message: expect.stringContaining(message),
   });
+});
+
+// Saved by Illustrator's legacy SVG Export Plug-In with Preserve Illustrator Editing Capabilities
+// and Style Attributes (Entity References).
+const ILLUSTRATOR = `<?xml version="1.0" encoding="utf-8"?>
+<!-- Generator: Adobe Illustrator 16.0.0, SVG Export Plug-In . SVG Version: 6.00 Build 0)  -->
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd" [
+	<!ENTITY ns_extend "http://ns.adobe.com/Extensibility/1.0/">
+	<!ENTITY ns_ai "http://ns.adobe.com/AdobeIllustrator/10.0/">
+	<!ENTITY ns_graphs "http://ns.adobe.com/Graphs/1.0/">
+	<!ENTITY ns_vars "http://ns.adobe.com/Variables/1.0/">
+	<!ENTITY ns_imrep "http://ns.adobe.com/ImageReplacement/1.0/">
+	<!ENTITY ns_sfw "http://ns.adobe.com/SaveForWeb/1.0/">
+	<!ENTITY ns_custom "http://ns.adobe.com/GenericCustomNamespace/1.0/">
+	<!ENTITY ns_adobe_xpath "http://ns.adobe.com/XPath/1.0/">
+	<!ENTITY ns_svg "http://www.w3.org/2000/svg">
+	<!ENTITY ns_xlink "http://www.w3.org/1999/xlink">
+	<!ENTITY st0 "fill:none;stroke:#333333;stroke-miterlimit:10;">
+	<!ENTITY st1 "font-family:'MyriadPro-Regular';font-size:12;">
+]>
+<svg version="1.1" id="Layer_1" xmlns:x="&ns_extend;" xmlns:i="&ns_ai;" xmlns:graph="&ns_graphs;"
+	 xmlns="&ns_svg;" xmlns:xlink="&ns_xlink;" x="0px" y="0px" width="200px" height="100px"
+	 viewBox="0 0 200 100" enable-background="new 0 0 200 100" xml:space="preserve">
+<metadata>
+	<sfw  xmlns="&ns_sfw;">
+		<slices></slices>
+		<sliceSourceBounds  width="80" height="70" y="10" x="10" bottomLeftOrigin="true"></sliceSourceBounds>
+	</sfw>
+</metadata>
+<switch>
+	<foreignObject requiredExtensions="&ns_ai;" x="0" y="0" width="1" height="1">
+		<i:pgfRef  xlink:href="#adobe_illustrator_pgf">
+		</i:pgfRef>
+	</foreignObject>
+	<g i:extraneous="self">
+		<rect x="10" y="10" style="&st0;" width="80" height="40"/>
+		<text transform="matrix(1 0 0 1 20 80)" style="&st1;">Hello</text>
+	</g>
+</switch>
+<i:pgf  id="adobe_illustrator_pgf">
+	<![CDATA[
+	eJzsvVmTHUeSLvbcZvwPpQfZiGbDbnFlvhOSm2dnKqQ&st0;
+	]]>
+</i:pgf>
+</svg>
+`;
+
+it("opens Illustrator's legacy SVG, its namespaces and styles declared as DTD entities", () => {
+  const file = parseFile(ILLUSTRATOR);
+  const [rect, text] = leaves(file);
+  expect(rect).toMatchObject({
+    type: "rect",
+    appearance: {
+      fills: [],
+      strokes: [{ color: "#333333", width: 1, miterLimit: 10 }],
+    },
+  });
+  expect(text).toMatchObject({
+    type: "text",
+    content: "Hello",
+    fontFamily: "MyriadPro-Regular",
+    fontSize: 12,
+  });
+  expect(file.warnings.map((w) => w.code)).toEqual(["FONT_MISSING"]);
+});
+
+it.each([`"`, `'`])("expands an entity with quotes inside a %s-quoted attribute", (q) => {
+  const file = parseFile(
+    `<!DOCTYPE svg [<!ENTITY f "font-family:'A B';"><!ENTITY t 'say "hi"'>]>` +
+      svg("", `<text style=${q}&f;${q} data-t=${q}&t;${q}>&t;</text>`),
+  );
+  expect(leaves(file)[0]).toMatchObject({ fontFamily: "A B", content: 'say "hi"' });
+});
+
+it("keeps the predefined entities, the first declaration, and CDATA and comments as written", () => {
+  const file = parseFile(
+    `<!DOCTYPE svg [<!ENTITY amp "X"><!ENTITY lt "Y"><!ENTITY e "one"><!ENTITY e "two">]>` +
+      svg("", "<text>&amp;&lt;&e;<!-- &e; --><?p &e;?><![CDATA[&e;]]></text>"),
+  );
+  expect(leaves(file)[0]).toMatchObject({ content: "&<one&e;" });
+  const boom = parseFile(`<!DOCTYPE svg [<!ENTITY xxe "BOOM">]>${svg("", "<text>&xxe;</text>")}`);
+  expect(leaves(boom)[0]).toMatchObject({ content: "BOOM" });
+});
+
+it.each([
+  [
+    '<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">',
+  ],
+  ['<!DOCTYPE svg [<!ATTLIST svg a CDATA "&amp;"><!ELEMENT svg ANY>]>'],
+])("reads %s as before", (doctype) => {
+  const body = '<rect width="1" height="1"/><text>&amp;</text>';
+  const withoutIds = (file: ReturnType<typeof parseFile>) =>
+    file.nodes.map(({ id, parentId, index, ...rest }) => rest);
+  expect(withoutIds(parseFile(doctype + svg("", body)))).toEqual(
+    withoutIds(parseFile(svg("", body))),
+  );
+});
+
+it("refuses entities that expand past 5 MB before building the text", () => {
+  const mb = "x".repeat(1024 * 1024);
+  const content = `<!DOCTYPE svg [<!ENTITY big "${mb}">]>${svg("", `<desc>${"&big;".repeat(6)}</desc>`)}`;
+  expect(errorOf(() => parseFile(content))).toMatchObject({
+    code: "LIMIT_EXCEEDED",
+    path: "content",
+    message: expect.stringContaining("&big;"),
+    hint: expect.stringContaining("Entity References"),
+  });
+  expect(leaves(parseFile(content.replace("&big;".repeat(6), "&big;".repeat(4))))).toEqual([]);
+});
+
+it("never reads an external entity into the error", () => {
+  const data = errorOf(() =>
+    parseFile(
+      `<!DOCTYPE svg [<!ENTITY x SYSTEM "file:///etc/passwd">]>${svg("", "<text>&x;</text>")}`,
+    ),
+  );
+  expect(JSON.stringify(data)).not.toMatch(/root:/);
 });
 
 it("refuses an SVG over 5 MB before parsing it", () => {
