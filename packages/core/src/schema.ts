@@ -661,7 +661,7 @@ export type UpdateInput = z.input<typeof UpdateInput>;
 
 const clipNodeId = z
   .string()
-  .describe("The Live Shape or Path that clips; it loses its Appearance.");
+  .describe("The Live Shape, Path or text that clips; it loses its Appearance.");
 const contentIds = z
   .array(z.string())
   .min(1)

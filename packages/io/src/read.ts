@@ -493,7 +493,7 @@ class Reader {
         this.warn(
           "UNSUPPORTED_ATTRIBUTE",
           "clip-path",
-          "A Group clipped by more than one clip-path keeps only the first.",
+          "A Layer or Group clipped by more than one clip-path keeps only the first.",
         );
       }
       const clip = this.clipOf(clips[0]);

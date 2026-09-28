@@ -10,7 +10,8 @@ const invalid = (path: string, message: string, hint: string) =>
 /**
  * Illustrator's Object > Clipping Mask > Make (ADR-0021): a new Group at the topmost member's place
  * holds the clip Node and the content, each keeping its stacking order, and the clip Node becomes
- * its Clipping Path with an empty Appearance. Validates everything before changing anything.
+ * its Clipping Path with an empty Appearance. With `layerId`, the Layers panel's Make instead
+ * (ADR-0053): no Group, see makeLayerMask. Validates everything before changing anything.
  */
 export function makeMask(
   doc: Document,

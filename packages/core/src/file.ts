@@ -334,14 +334,14 @@ export function parseDocument(
     if ("clipping" in n && n.clipping) {
       const hint =
         "A Clipping Path is the one clipping child of a Layer or Group, and visible (ADR-0021, ADR-0053).";
-      const parent = doc.nodes.get(n.parentId ?? "")?.type;
-      if (parent !== "group" && parent !== "layer") {
+      const parentType = doc.nodes.get(n.parentId ?? "")?.type;
+      if (parentType !== "group" && parentType !== "layer") {
         throw invalid(`${at}.clipping`, "A Clipping Path's parent is a Layer or Group.", hint);
       }
       if (clipped.has(n.parentId)) {
         throw invalid(
           `${at}.clipping`,
-          `Its ${parent === "layer" ? "Layer" : "Group"} already has a Clipping Path.`,
+          `Its ${parentType === "layer" ? "Layer" : "Group"} already has a Clipping Path.`,
           hint,
         );
       }
