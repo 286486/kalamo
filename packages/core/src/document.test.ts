@@ -21,14 +21,9 @@ import { AppearanceInput, type Node, NodeQuery } from "./schema.ts";
 const newDoc = () =>
   createDocument({ id: "d", name: "Doc", artboards: [{ width: 200, height: 100 }] });
 
-const rect = (parentId: string) => ({
-  type: "rect" as const,
-  parentId,
-  x: 10,
-  y: 10,
-  width: 50,
-  height: 30,
-});
+/** A rect inline in a Group, which takes no parentId. */
+const child = () => ({ type: "rect" as const, x: 10, y: 10, width: 50, height: 30 });
+const rect = (parentId: string) => ({ ...child(), parentId });
 
 const codeOf = (fn: () => unknown) => {
   try {
@@ -424,7 +419,7 @@ it("creates a Group with inline children, depth first, with a keyMap for every c
       parentId: defaultLayerId,
       clientKey: "g",
       children: [
-        { ...rect(defaultLayerId), clientKey: "a" },
+        { ...child(), clientKey: "a" },
         {
           type: "group",
           clientKey: "inner",
@@ -457,7 +452,7 @@ describe("tree rules (ADR-0005)", () => {
       {
         type: "group",
         parentId: layer,
-        children: [{ type: "group", children: [rect(layer)] }],
+        children: [{ type: "group", children: [child()] }],
       },
     ]).nodes;
     const [sub] = createNodes(doc, [{ type: "layer", parentId: layer }]).nodes;
@@ -635,7 +630,7 @@ it("rejects an inline Layer in a Group's children with INVALID_PARENT, creating 
         {
           type: "group",
           parentId: defaultLayerId,
-          children: [rect(defaultLayerId), { type: "layer" }],
+          children: [child(), { type: "layer" }],
         },
       ]),
     ),
@@ -687,9 +682,7 @@ describe("bounds honour transform", () => {
       {
         type: "group",
         parentId: defaultLayerId,
-        children: [
-          { ...rect(defaultLayerId), appearance: { strokes: [{ color: "#000000", width: 2 }] } },
-        ],
+        children: [{ ...child(), appearance: { strokes: [{ color: "#000000", width: 2 }] } }],
       },
     ]).nodes;
     if (!g || !r) throw new Error("setup");
@@ -742,7 +735,7 @@ it("creates the valid items with partial and reports the invalid one", () => {
         type: "group",
         parentId: defaultLayerId,
         clientKey: "g",
-        children: [rect(defaultLayerId), { type: "layer" }],
+        children: [child(), { type: "layer" }],
       },
     ],
     { partial: true },
@@ -1264,7 +1257,11 @@ describe("an Image", () => {
   it("is created inline in a Group", () => {
     const { doc, defaultLayerId } = withImage();
     const { nodes } = createNodes(doc, [
-      { type: "group", parentId: defaultLayerId, children: [image(defaultLayerId)] },
+      {
+        type: "group",
+        parentId: defaultLayerId,
+        children: [(({ parentId: _, ...child }) => child)(image(defaultLayerId))],
+      },
     ]);
     expect(nodes.map((n) => n.type)).toEqual(["group", "image"]);
   });
@@ -1345,19 +1342,19 @@ describe("container Appearance (ADR-0043)", () => {
         type: "group",
         parentId: defaultLayerId,
         children: [
-          rect(defaultLayerId),
+          child(),
           {
             type: "group",
             children: [
-              { ...rect(defaultLayerId), x: 100 },
-              { ...rect(defaultLayerId), name: "hidden" },
+              { ...child(), x: 100 },
+              { ...child(), name: "hidden" },
               { type: "image", src: "i", x: 0, y: 0 },
             ],
           },
           { type: "path", d: "M 0 0 L 10 0 L 10 10 Z", fillRule: "evenodd" },
           { type: "text", x: 0, y: 50, content: "Hi" },
-          rect(defaultLayerId),
-          rect(defaultLayerId),
+          child(),
+          child(),
         ],
       } as never,
     ]).nodes;
@@ -1389,7 +1386,7 @@ describe("container Appearance (ADR-0043)", () => {
         type: "group",
         parentId: defaultLayerId,
         appearance: { strokes: [stroke(4), stroke(10)] },
-        children: [{ ...rect(defaultLayerId), appearance: {} }],
+        children: [{ ...child(), appearance: {} }],
       },
     ]).nodes;
     if (!group) throw new Error("setup");

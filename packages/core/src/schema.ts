@@ -7,7 +7,7 @@ import { FONT_STYLES } from "./text.ts";
 /**
  * `#RRGGBB` or `#RRGGBBAA`, case-insensitive (REQUIREMENTS §6.5). The published schema carries the
  * pattern, but any value parses so core can answer INVALID_COLOR with a conversion hint instead of
- * the MCP SDK's generic validation text.
+ * a generic INVALID_INPUT.
  */
 export const Color = z.unknown().meta({
   type: "string",
@@ -15,7 +15,7 @@ export const Color = z.unknown().meta({
   description: "#RRGGBB or #RRGGBBAA, e.g. #FF8800.",
 });
 
-export const Rect = z.object({
+export const Rect = z.strictObject({
   x: z.number(),
   y: z.number(),
   width: z.number(),
@@ -36,10 +36,10 @@ export type RenderScope = z.infer<typeof RenderScope>;
 export const RenderOverlay = z.enum(["bounds", "ids", "artboards"]);
 export type RenderOverlay = z.infer<typeof RenderOverlay>;
 
-const Point = z.object({ x: z.number(), y: z.number() });
+const Point = z.strictObject({ x: z.number(), y: z.number() });
 export type Point = z.infer<typeof Point>;
 
-export const ColorStop = z.object({
+export const ColorStop = z.strictObject({
   offset: z.number().min(0).max(1).describe("0 at the gradient's start, 1 at its end."),
   color: Color.describe("#RRGGBB or #RRGGBBAA; the alpha is the stop's opacity."),
 });
@@ -77,7 +77,7 @@ const distinct = (g: { start?: Point; end?: Point }, ctx: z.RefinementCtx) => {
 /** A gradient as written; geometry left out comes from the leaf's own bounds. */
 export const Gradient = z.discriminatedUnion("type", [
   z
-    .object({
+    .strictObject({
       ...linear,
       start: Point.optional().describe("Where the first stop sits. Default: from angle."),
       end: Point.optional().describe("Where the last stop sits; with start or neither."),
@@ -89,7 +89,7 @@ export const Gradient = z.discriminatedUnion("type", [
         ),
     })
     .superRefine(distinct),
-  z.object({
+  z.strictObject({
     ...radial,
     center: Point.optional().describe("Default: the bounds' centre."),
     radius: positive
@@ -124,10 +124,10 @@ const line = {
     .describe("Alternating dash and gap lengths in pt, e.g. [4, 2]; empty for a solid Stroke."),
 };
 // `type` is optional, not defaulted: zod refuses a defaulted discriminator. `paint` writes it.
-export const Fill = z.discriminatedUnion("type", [z.object(solid), z.object(gradient)]);
+export const Fill = z.discriminatedUnion("type", [z.strictObject(solid), z.strictObject(gradient)]);
 export const Stroke = z.discriminatedUnion("type", [
-  z.object({ ...solid, ...line }),
-  z.object({ ...gradient, ...line }),
+  z.strictObject({ ...solid, ...line }),
+  z.strictObject({ ...gradient, ...line }),
 ]);
 /** The same, with every gradient's geometry, as a file stores them. */
 export const StoredFill = z.discriminatedUnion("type", [
@@ -140,7 +140,7 @@ export const StoredStroke = z.discriminatedUnion("type", [
 ]);
 
 export type AppearanceInput = z.output<typeof AppearanceInput>;
-export const AppearanceInput = z.object({
+export const AppearanceInput = z.strictObject({
   fills: z.array(Fill).default([]).describe("Painted bottom to top."),
   strokes: z.array(Stroke).default([]).describe("Painted bottom to top, above every Fill."),
 });
@@ -168,7 +168,7 @@ export interface ContainerAppearance extends Appearance {
   contents: number;
 }
 
-export const ArtboardInput = z.object({
+export const ArtboardInput = z.strictObject({
   name: z.string().optional(),
   x: z
     .number()
@@ -294,7 +294,7 @@ export const Shape = z.discriminatedUnion("type", [rect, ...Object.values(others
 export type Shape = z.output<typeof Shape>;
 
 /** Overrides for the characters from `start` up to `end` of a text's content (ADR-0029). */
-export const CharacterRange = z.object({
+export const CharacterRange = z.strictObject({
   start: z.number().int().min(0),
   end: z.number().int().min(1),
   fill: Color.optional().describe("Replaces every Fill's paint for these characters."),
@@ -499,19 +499,26 @@ const leaf = {
     "Omit for Illustrator's default, a white Fill and a 1 pt black Stroke; {} paints nothing.",
   ),
 };
-const RectItem = RectShape.extend(leaf);
-const EllipseItem = EllipseShape.extend(leaf);
-const LineItem = LineShape.extend(leaf);
-const PolygonItem = PolygonShape.extend(leaf);
-const StarItem = StarShape.extend(leaf);
-const PathItem = PathShape.extend(leaf);
-const TextItem = TextShape.extend({
-  ...leaf,
-  appearance: AppearanceInput.optional().describe(
-    "Omit for Illustrator's default type Appearance, a black Fill and no Stroke; {} paints nothing.",
-  ),
-}).superRefine(textFrame);
-const ImageItem = ImageShape.extend(item).superRefine(imageFrame).superRefine(imagePixels);
+// Strict, unlike the shapes: core parses a shape out of an item to drop the item's other keys.
+const RectItem = z.strictObject({ ...RectShape.shape, ...leaf });
+const EllipseItem = z.strictObject({ ...EllipseShape.shape, ...leaf });
+const LineItem = z.strictObject({ ...LineShape.shape, ...leaf });
+const PolygonItem = z.strictObject({ ...PolygonShape.shape, ...leaf });
+const StarItem = z.strictObject({ ...StarShape.shape, ...leaf });
+const PathItem = z.strictObject({ ...PathShape.shape, ...leaf });
+const TextItem = z
+  .strictObject({
+    ...TextShape.shape,
+    ...leaf,
+    appearance: AppearanceInput.optional().describe(
+      "Omit for Illustrator's default type Appearance, a black Fill and no Stroke; {} paints nothing.",
+    ),
+  })
+  .superRefine(textFrame);
+const ImageItem = z
+  .strictObject({ ...ImageShape.shape, ...item })
+  .superRefine(imageFrame)
+  .superRefine(imagePixels);
 const LEAF_ITEMS = [
   RectItem,
   EllipseItem,
@@ -538,11 +545,11 @@ interface GroupChildIn extends Omit<GroupChild, "children" | "appearance"> {
 }
 /**
  * A Node created inline in a Group, without `parentId`. `layer` parses only so core can reject it with
- * INVALID_PARENT and a hint rather than the MCP SDK's generic validation text.
+ * INVALID_PARENT and a hint rather than a generic INVALID_INPUT.
  */
 export type ChildInput = z.output<LeafItem> | GroupChild | z.output<typeof InlineLayer>;
 type ChildIn = z.input<LeafItem> | GroupChildIn | z.input<typeof InlineLayer>;
-const InlineLayer = z.object({ type: z.literal("layer"), ...item });
+const InlineLayer = z.strictObject({ type: z.literal("layer"), ...item });
 const ChildInput: z.ZodType<ChildInput, ChildIn> = z.lazy(() =>
   z.discriminatedUnion("type", [...LEAF_ITEMS, GroupItem, InlineLayer]),
 );
@@ -551,7 +558,7 @@ const container = {
     "Paints every descendant Live Shape's and path's outline, each in its stacking order; omit for none.",
   ),
 };
-const GroupItem = z.object({
+const GroupItem = z.strictObject({
   type: z.literal("group"),
   ...item,
   ...container,
@@ -562,7 +569,7 @@ const parentId = z
   .string()
   .describe("Id of a Layer or Group, never an Artboard. doc_create returns the default Layer id.");
 export const NodeInput = z.discriminatedUnion("type", [
-  z.object({
+  z.strictObject({
     type: z.literal("layer"),
     ...item,
     ...container,
@@ -638,7 +645,7 @@ export const NodePatch = z
       Object.entries({
         ...Writable.shape,
         appearance: z
-          .object({ fills: z.array(Fill), strokes: z.array(Stroke), contents })
+          .strictObject({ fills: z.array(Fill), strokes: z.array(Stroke), contents })
           .partial()
           .describe("contents only on a Layer or Group."),
         ...parameters,
@@ -649,11 +656,11 @@ export const NodePatch = z
     "JSON Merge Patch (RFC 7396) of the Node's writable properties: objects merge, null deletes, arrays and everything else replace.",
   );
 
-export const UpdateInput = z.object({ nodeId: z.string(), patch: NodePatch });
+export const UpdateInput = z.strictObject({ nodeId: z.string(), patch: NodePatch });
 export type UpdateInput = z.input<typeof UpdateInput>;
 
 /** Illustrator's Object > Clipping Mask > Make (ADR-0021). */
-export const MaskInput = z.object({
+export const MaskInput = z.strictObject({
   clipNodeId: z.string().describe("The Live Shape or Path that clips; it loses its Appearance."),
   contentIds: z
     .array(z.string())
@@ -685,15 +692,15 @@ export const PIVOTS = {
   bottomRight: [1, 1],
 } as const;
 const nonZero = z.number().refine((n) => n !== 0, "Scale by a non-zero factor.");
-const xy = z.object({ x: z.number().default(0), y: z.number().default(0) });
+const xy = z.strictObject({ x: z.number().default(0), y: z.number().default(0) });
 
 export const TransformInput = z
-  .object({
+  .strictObject({
     nodeIds,
     translate: xy.optional().describe("Move by x, y in pt, after everything else."),
     rotate: z.number().optional().describe("Degrees, clockwise on screen."),
     scale: z
-      .union([nonZero, z.object({ x: nonZero, y: nonZero })])
+      .union([nonZero, z.strictObject({ x: nonZero, y: nonZero })])
       .optional()
       .describe("A factor, or one per axis; negative mirrors."),
     skew: xy.optional().describe("Degrees, as SVG skewX (x) and skewY (y)."),
@@ -704,7 +711,7 @@ export const TransformInput = z
     pivot: z
       .union([
         z.enum(Object.keys(PIVOTS) as [keyof typeof PIVOTS]),
-        z.object({ x: z.number(), y: z.number() }),
+        z.strictObject({ x: z.number(), y: z.number() }),
       ])
       .default("center")
       .describe("Reference point on the targets' geometricBounds, or document coordinates."),
@@ -856,7 +863,7 @@ const compiles = (pattern: string) => {
 };
 
 /** A Node Query's filters and page (ADR-0015): every filter given must hold. */
-export const NodeQuery = z.object({
+export const NodeQuery = z.strictObject({
   types: z.array(NodeType).min(1).optional(),
   // ponytail: the length cap is the only guard against a slow pattern; add a time budget with a spatial index.
   nameRegex: z

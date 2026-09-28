@@ -1,5 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type { CallToolResult, ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import {
   ArtboardInput,
   Color,
@@ -22,6 +22,7 @@ import {
 } from "@zibel/core";
 import type { DocumentService, Viewport } from "@zibel/sync";
 import { z } from "zod";
+import { parseArgs } from "./args.ts";
 import conventions from "./drawing-conventions.md";
 import {
   ChangesOutput,
@@ -39,6 +40,15 @@ import {
   RenderOutput,
   TxOutput,
 } from "./schemas.ts";
+
+interface ToolConfig {
+  title: string;
+  description: string;
+  outputSchema: z.ZodRawShape;
+  annotations: ToolAnnotations;
+}
+/** A tool's input schema as `tool` parses it: its object, or its shape, rejecting unknown keys. */
+type Strict<S> = S extends z.ZodRawShape ? z.ZodObject<S, z.core.$strict> : S;
 
 const CONVENTIONS = "skill://zibel/drawing-conventions";
 const docId = z.string().describe("Document id returned by zibel_doc_create.");
@@ -148,7 +158,30 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
     return result;
   };
 
-  server.registerTool(
+  /**
+   * Registers a tool whose arguments Zibel parses, strictly: the SDK advertises the real schema
+   * through `.meta()` but validates only that the arguments are an object, so a bad argument is
+   * INVALID_INPUT like any other error and is logged by `run` (ADR-0050).
+   */
+  const tool = <S extends z.ZodRawShape | z.ZodObject>(
+    name: string,
+    { inputSchema, ...config }: ToolConfig & { inputSchema: S },
+    handler: (args: z.output<Strict<S>>) => Promise<CallToolResult>,
+  ) => {
+    const real = (
+      inputSchema instanceof z.ZodObject
+        ? inputSchema.strict()
+        : z.strictObject(inputSchema as z.ZodRawShape)
+    ) as Strict<S>;
+    const advertised = z.toJSONSchema(real, { target: "draft-7", io: "input" });
+    server.registerTool(
+      name,
+      { ...config, inputSchema: z.looseObject({}).meta(advertised) },
+      (raw) => run(name, () => handler(parseArgs(name, real, raw) as z.output<Strict<S>>)),
+    );
+  };
+
+  tool(
     "zibel_doc_create",
     {
       title: "Create Document",
@@ -166,10 +199,10 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         openWorldHint: false,
       },
     },
-    (args) => run("zibel_doc_create", async () => json(await service.create(args))),
+    async (args) => json(await service.create(args)),
   );
 
-  server.registerTool(
+  tool(
     "zibel_doc_open",
     {
       title: "Open Document",
@@ -190,10 +223,10 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         openWorldHint: false,
       },
     },
-    (args) => run("zibel_doc_open", async () => json(await service.open(args))),
+    async (args) => json(await service.open(args)),
   );
 
-  server.registerTool(
+  tool(
     "zibel_node_create",
     {
       title: "Create Nodes",
@@ -230,11 +263,10 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         openWorldHint: false,
       },
     },
-    ({ docId, nodes, ...opts }) =>
-      run("zibel_node_create", async () => json(await service.createNodes(docId, nodes, opts))),
+    async ({ docId, nodes, ...opts }) => json(await service.createNodes(docId, nodes, opts)),
   );
 
-  server.registerTool(
+  tool(
     "zibel_svg_import",
     {
       title: "Place SVG",
@@ -250,7 +282,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         svg: z.string().min(1).describe("The whole .svg text."),
         parentId: z.string().describe("A Layer or Group id to place the new Group in."),
         position: z
-          .object({ x: z.number(), y: z.number() })
+          .strictObject({ x: z.number(), y: z.number() })
           .optional()
           .describe("Where the Group's centre lands, in document coordinates."),
         fit: z
@@ -269,11 +301,10 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         openWorldHint: false,
       },
     },
-    ({ docId, ...input }) =>
-      run("zibel_svg_import", async () => json(await service.place(docId, input))),
+    async ({ docId, ...input }) => json(await service.place(docId, input)),
   );
 
-  server.registerTool(
+  tool(
     "zibel_image_place",
     {
       title: "Place Image",
@@ -290,7 +321,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         src: z.string().min(1).describe("An http(s) URL of the file, or a data: URL."),
         parentId: z.string().describe("A Layer or Group id to place the Image in."),
         frame: z
-          .object({
+          .strictObject({
             x: z.number(),
             y: z.number(),
             width: z.number().positive().optional(),
@@ -315,11 +346,10 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         openWorldHint: true,
       },
     },
-    ({ docId, ...input }) =>
-      run("zibel_image_place", async () => json(await service.placeImage(docId, input))),
+    async ({ docId, ...input }) => json(await service.placeImage(docId, input)),
   );
 
-  server.registerTool(
+  tool(
     "zibel_node_update",
     {
       title: "Update Nodes",
@@ -338,11 +368,10 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       outputSchema: WriteReceipt.shape,
       annotations: edit,
     },
-    ({ docId, updates, ...opts }) =>
-      run("zibel_node_update", async () => json(await service.updateNodes(docId, updates, opts))),
+    async ({ docId, updates, ...opts }) => json(await service.updateNodes(docId, updates, opts)),
   );
 
-  server.registerTool(
+  tool(
     "zibel_node_delete",
     {
       title: "Delete Nodes",
@@ -356,11 +385,10 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       outputSchema: WriteReceipt.shape,
       annotations: edit,
     },
-    ({ docId, nodeIds, ...opts }) =>
-      run("zibel_node_delete", async () => json(await service.deleteNodes(docId, nodeIds, opts))),
+    async ({ docId, nodeIds, ...opts }) => json(await service.deleteNodes(docId, nodeIds, opts)),
   );
 
-  server.registerTool(
+  tool(
     "zibel_node_transform",
     {
       title: "Transform Nodes",
@@ -380,15 +408,13 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         openWorldHint: false,
       },
     },
-    ({ docId, intent, partial, txId, ifRev, ...input }) =>
-      run("zibel_node_transform", async () =>
-        json(await service.transformNodes(docId, input, { intent, partial, txId, ifRev })),
-      ),
+    async ({ docId, intent, partial, txId, ifRev, ...input }) =>
+      json(await service.transformNodes(docId, input, { intent, partial, txId, ifRev })),
   );
 
   /** The write options of a tool without partial. */
   const txWrite = { intent, txId: writeFields.txId, ifRev };
-  server.registerTool(
+  tool(
     "zibel_mask_make",
     {
       title: "Make Clipping Mask",
@@ -406,11 +432,10 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         openWorldHint: false,
       },
     },
-    (args) =>
-      run("zibel_mask_make", async () => json(await service.makeMask(...splitTxWrite(args)))),
+    async (args) => json(await service.makeMask(...splitTxWrite(args))),
   );
 
-  server.registerTool(
+  tool(
     "zibel_mask_release",
     {
       title: "Release Clipping Mask",
@@ -425,11 +450,10 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         openWorldHint: false,
       },
     },
-    ({ docId, nodeIds, ...opts }) =>
-      run("zibel_mask_release", async () => json(await service.releaseMask(docId, nodeIds, opts))),
+    async ({ docId, nodeIds, ...opts }) => json(await service.releaseMask(docId, nodeIds, opts)),
   );
 
-  server.registerTool(
+  tool(
     "zibel_path_edit",
     {
       title: "Edit Path",
@@ -445,11 +469,10 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       outputSchema: PathEditOutput.shape,
       annotations: edit,
     },
-    (args) =>
-      run("zibel_path_edit", async () => json(await service.pathEdit(...splitTxWrite(args)))),
+    async (args) => json(await service.pathEdit(...splitTxWrite(args))),
   );
 
-  server.registerTool(
+  tool(
     "zibel_path_op",
     {
       title: "Path Operation",
@@ -471,10 +494,10 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       outputSchema: WriteReceipt.shape,
       annotations: edit,
     },
-    (args) => run("zibel_path_op", async () => json(await service.pathOp(...splitTxWrite(args)))),
+    async (args) => json(await service.pathOp(...splitTxWrite(args))),
   );
 
-  server.registerTool(
+  tool(
     "zibel_freehand_stroke",
     {
       title: "Freehand Stroke",
@@ -493,20 +516,19 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         openWorldHint: false,
       },
     },
-    (args) =>
-      run("zibel_freehand_stroke", async () => {
-        const [docId, input, write] = splitTxWrite(args);
-        const item = freehandPath(input);
-        try {
-          return json(await service.createNodes(docId, [item], write));
-        } catch (e) {
-          if (!(e instanceof ZibelError)) throw e;
-          throw new ZibelError({ ...e.data, path: e.data.path?.replace(/^nodes\[0\]\./, "") });
-        }
-      }),
+    async (args) => {
+      const [docId, input, write] = splitTxWrite(args);
+      const item = freehandPath(input);
+      try {
+        return json(await service.createNodes(docId, [item], write));
+      } catch (e) {
+        if (!(e instanceof ZibelError)) throw e;
+        throw new ZibelError({ ...e.data, path: e.data.path?.replace(/^nodes\[0\]\./, "") });
+      }
+    },
   );
 
-  server.registerTool(
+  tool(
     "zibel_node_get",
     {
       title: "Get Nodes",
@@ -526,11 +548,11 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       outputSchema: NodeGetOutput.shape,
       annotations: read,
     },
-    ({ docId, nodeIds, detail, txId }) =>
-      run("zibel_node_get", async () => json(await service.get(docId, nodeIds, detail, txId))),
+    async ({ docId, nodeIds, detail, txId }) =>
+      json(await service.get(docId, nodeIds, detail, txId)),
   );
 
-  server.registerTool(
+  tool(
     "zibel_node_query",
     {
       title: "Query Nodes",
@@ -543,11 +565,10 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       outputSchema: NodeQueryOutput.shape,
       annotations: read,
     },
-    ({ docId, txId, ...q }) =>
-      run("zibel_node_query", async () => json(await service.query(docId, q, txId))),
+    async ({ docId, txId, ...q }) => json(await service.query(docId, q, txId)),
   );
 
-  server.registerTool(
+  tool(
     "zibel_doc_outline",
     {
       title: "Document outline",
@@ -567,11 +588,10 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       outputSchema: OutlineOutput.shape,
       annotations: read,
     },
-    ({ docId, txId, ...opts }) =>
-      run("zibel_doc_outline", async () => json(await service.outline(docId, opts, txId))),
+    async ({ docId, txId, ...opts }) => json(await service.outline(docId, opts, txId)),
   );
 
-  server.registerTool(
+  tool(
     "zibel_render",
     {
       title: "Render",
@@ -601,17 +621,16 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       outputSchema: RenderOutput.shape,
       annotations: read,
     },
-    ({ docId, background, ...req }) =>
-      run("zibel_render", async () => {
-        const { png, viewport } = await service.render(docId, {
-          ...req,
-          background: color(background),
-        });
-        return image(png, viewport);
-      }),
+    async ({ docId, background, ...req }) => {
+      const { png, viewport } = await service.render(docId, {
+        ...req,
+        background: color(background),
+      });
+      return image(png, viewport);
+    },
   );
 
-  server.registerTool(
+  tool(
     "zibel_export",
     {
       title: "Export",
@@ -633,23 +652,22 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       outputSchema: ExportOutput.shape,
       annotations: read,
     },
-    ({ docId, format, scale, background, ...req }) =>
-      run("zibel_export", async () => {
-        if (format === "zibel_json") {
-          const { text } = await service.file(docId, req.txId);
-          return { structuredContent: {}, content: [{ type: "text", text }] };
-        }
-        const opts = { ...req, background: color(background) };
-        if (format === "png") {
-          const { png, viewport } = await service.png(docId, { ...opts, scale });
-          return image(png, viewport);
-        }
-        const { svg, docRect } = await service.svg(docId, opts);
-        return { structuredContent: { docRect }, content: [{ type: "text", text: svg }] };
-      }),
+    async ({ docId, format, scale, background, ...req }) => {
+      if (format === "zibel_json") {
+        const { text } = await service.file(docId, req.txId);
+        return { structuredContent: {}, content: [{ type: "text", text }] };
+      }
+      const opts = { ...req, background: color(background) };
+      if (format === "png") {
+        const { png, viewport } = await service.png(docId, { ...opts, scale });
+        return image(png, viewport);
+      }
+      const { svg, docRect } = await service.svg(docId, opts);
+      return { structuredContent: { docRect }, content: [{ type: "text", text: svg }] };
+    },
   );
 
-  server.registerTool(
+  tool(
     "zibel_doc_list",
     {
       title: "List Documents",
@@ -659,10 +677,10 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       outputSchema: DocListOutput.shape,
       annotations: read,
     },
-    () => run("zibel_doc_list", async () => json(await service.list())),
+    async () => json(await service.list()),
   );
 
-  server.registerTool(
+  tool(
     "zibel_doc_delete",
     {
       title: "Delete Document",
@@ -677,10 +695,10 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         openWorldHint: false,
       },
     },
-    ({ docId }) => run("zibel_doc_delete", async () => json(await service.delete(docId))),
+    async ({ docId }) => json(await service.delete(docId)),
   );
 
-  server.registerTool(
+  tool(
     "zibel_doc_get_info",
     {
       title: "Document info",
@@ -690,10 +708,10 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       outputSchema: DocInfoOutput.shape,
       annotations: read,
     },
-    ({ docId }) => run("zibel_doc_get_info", async () => json(await service.info(docId))),
+    async ({ docId }) => json(await service.info(docId)),
   );
 
-  server.registerTool(
+  tool(
     "zibel_doc_changes",
     {
       title: "Document changes",
@@ -709,11 +727,10 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       outputSchema: ChangesOutput.shape,
       annotations: read,
     },
-    ({ docId, sinceRev, limit }) =>
-      run("zibel_doc_changes", async () => json(await service.changes(docId, sinceRev, limit))),
+    async ({ docId, sinceRev, limit }) => json(await service.changes(docId, sinceRev, limit)),
   );
 
-  server.registerTool(
+  tool(
     "zibel_tx_begin",
     {
       title: "Begin Transaction",
@@ -731,11 +748,10 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         openWorldHint: false,
       },
     },
-    ({ docId, label }) =>
-      run("zibel_tx_begin", async () => json(await service.begin(docId, label))),
+    async ({ docId, label }) => json(await service.begin(docId, label)),
   );
 
-  server.registerTool(
+  tool(
     "zibel_tx_commit",
     {
       title: "Commit Transaction",
@@ -752,13 +768,11 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         openWorldHint: false,
       },
     },
-    ({ docId, txId, ifRev, intent }) =>
-      run("zibel_tx_commit", async () =>
-        json(await service.commitTx(docId, txId, { ifRev, intent })),
-      ),
+    async ({ docId, txId, ifRev, intent }) =>
+      json(await service.commitTx(docId, txId, { ifRev, intent })),
   );
 
-  server.registerTool(
+  tool(
     "zibel_tx_rollback",
     {
       title: "Roll back Transaction",
@@ -773,8 +787,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         openWorldHint: false,
       },
     },
-    ({ docId, txId }) =>
-      run("zibel_tx_rollback", async () => json(await service.rollback(docId, txId))),
+    async ({ docId, txId }) => json(await service.rollback(docId, txId)),
   );
 
   return server;

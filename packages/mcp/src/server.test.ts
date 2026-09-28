@@ -375,6 +375,9 @@ describe("write tools pass the write and its options apart", () => {
   });
 });
 
+const errorOf = (result: unknown) =>
+  JSON.parse((result as { content: { text: string }[] }).content[0]?.text ?? "null");
+
 describe("reads pass their filters and txId, and bad arguments never reach the service", () => {
   const view = { rev: 1, nodes: [] };
 
@@ -439,35 +442,41 @@ describe("reads pass their filters and txId, and bad arguments never reach the s
   });
 
   it.each([
-    ["zibel_doc_create", { name: "D", artboards: Array(1001).fill({ width: 1, height: 1 }) }],
-    ["zibel_node_get", { docId: "d", nodeIds: [] }],
-    ["zibel_node_query", { docId: "d", nameRegex: "(" }],
-    ["zibel_node_transform", { docId: "d", nodeIds: ["a"] }],
-    ["zibel_node_transform", { docId: "d", nodeIds: ["a"], matrix: [1, 0, 0, 1, 0, 0], rotate: 9 }],
-    ["zibel_node_transform", { docId: "d", nodeIds: ["a"], matrix: [1, 1, 1, 1, 0, 0] }],
+    [
+      "zibel_doc_create",
+      { name: "D", artboards: Array(1001).fill({ width: 1, height: 1 }) },
+      "artboards",
+    ],
+    ["zibel_node_get", { docId: "d", nodeIds: [] }, "nodeIds"],
+    ["zibel_node_query", { docId: "d", nameRegex: "(" }, "nameRegex"],
+    ["zibel_node_transform", { docId: "d", nodeIds: ["a"] }, undefined],
+    [
+      "zibel_node_transform",
+      { docId: "d", nodeIds: ["a"], matrix: [1, 0, 0, 1, 0, 0], rotate: 9 },
+      undefined,
+    ],
+    ["zibel_node_transform", { docId: "d", nodeIds: ["a"], matrix: [1, 1, 1, 1, 0, 0] }, undefined],
     [
       "zibel_node_create",
       { docId: "d", nodes: [{ type: "image", parentId: "p", file: "a.png", x: 0, y: 0 }] },
+      "nodes[0].width",
     ],
-    ["zibel_node_create", { docId: "d", nodes: [{ type: "image", parentId: "p", x: 0, y: 0 }] }],
-    ["zibel_render", { docId: "d", scale: 5 }],
-    ["zibel_export", { docId: "d", format: "pdf" }],
-  ])("%s refuses %j by its published schema", async (name, args) => {
-    const { service, call } = await harness();
+    [
+      "zibel_node_create",
+      { docId: "d", nodes: [{ type: "image", parentId: "p", x: 0, y: 0 }] },
+      "nodes[0].src",
+    ],
+    ["zibel_render", { docId: "d", scale: 5 }, "scale"],
+    ["zibel_export", { docId: "d", format: "pdf" }, "format"],
+  ])("%s refuses %j by its published schema", async (name, args, path) => {
+    const { call, called } = await harness();
     const result = await call(name, args);
     expect(result.isError).toBe(true);
-    expect(JSON.stringify(result.content)).toContain("Input validation error");
-    for (const method of [
-      "create",
-      "createNodes",
-      "get",
-      "query",
-      "transformNodes",
-      "render",
-      "svg",
-    ] as const) {
-      expect(service[method]).not.toHaveBeenCalled();
-    }
+    const error = errorOf(result);
+    expect(error).toMatchObject({ code: "INVALID_INPUT", message: expect.stringContaining(name) });
+    expect(error.path).toBe(path);
+    expect(error.hint).toEqual(expect.any(String));
+    expect(called()).toEqual([]);
   });
 
   it("names nameRegex when it does not compile", async () => {
@@ -479,8 +488,150 @@ describe("reads pass their filters and txId, and bad arguments never reach the s
   });
 });
 
-const errorOf = (result: unknown) =>
-  JSON.parse((result as { content: { text: string }[] }).content[0]?.text ?? "null");
+describe("arguments are parsed strictly: a bad one is INVALID_INPUT and nothing runs (ADR-0050)", () => {
+  it("refuses a filter it does not know instead of dropping it, naming the one meant", async () => {
+    const { call, called } = await harness();
+    const result = await call("zibel_node_query", { docId: "d", name: "Cloud right" });
+    expect(result).toEqual({
+      isError: true,
+      content: [{ type: "text", text: expect.any(String) }],
+    });
+    expect(errorOf(result)).toEqual({
+      code: "INVALID_INPUT",
+      message: "zibel_node_query has no argument name.",
+      hint: "Did you mean nameRegex? zibel_node_query takes: docId, types, nameRegex, tags, parentId, withinRect, intersectsRect, limit, cursor, txId.",
+      path: "name",
+    });
+    expect(called()).toEqual([]);
+  });
+
+  it("refuses a misspelled ifRev, so the conflict guard is never dropped", async () => {
+    const { call, called } = await harness();
+    const result = await call("zibel_node_create", {
+      docId: "d",
+      nodes: [{ type: "layer", name: "L" }],
+      ifrev: 3,
+    });
+    expect(errorOf(result)).toMatchObject({
+      code: "INVALID_INPUT",
+      path: "ifrev",
+      hint: expect.stringMatching(/^Did you mean ifRev\? /),
+    });
+    expect(called()).toEqual([]);
+  });
+
+  it.each([
+    [
+      { type: "rect", parentId: "p", x: 0, y: 0, width: 1, height: 1, fill: "#FF0000" },
+      "nodes[0].fill",
+      "nodes[0] takes: type, x, y, width, height, radius, clientKey, name, tags, meta, appearance, parentId.",
+    ],
+    [
+      {
+        type: "group",
+        parentId: "p",
+        children: [
+          { type: "ellipse", x: 0, y: 0, width: 1, height: 1 },
+          {
+            type: "rect",
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+            appearance: { fills: [{ colr: "red" }] },
+          },
+        ],
+      },
+      "nodes[0].children[1].appearance.fills[0].colr",
+      "Did you mean color? nodes[0].children[1].appearance.fills[0] takes: type, color.",
+    ],
+  ])("points into nested arguments: %j", async (node, path, hint) => {
+    const { call, called } = await harness();
+    const result = await call("zibel_node_create", { docId: "d", nodes: [node] });
+    expect(errorOf(result)).toMatchObject({ code: "INVALID_INPUT", path, hint });
+    expect(called()).toEqual([]);
+  });
+
+  it.each([
+    ["zibel_node_get", { nodeIds: ["a"] }, "docId", "docId is required."],
+    ["zibel_node_get", { docId: 3, nodeIds: ["a"] }, "docId", "Send a string as docId."],
+    ["zibel_node_get", { docId: "d", nodeIds: [] }, "nodeIds", "nodeIds must be at least 1 item."],
+    ["zibel_render", { docId: "d", scale: 5 }, "scale", "scale must be at most 4."],
+    ["zibel_export", { docId: "d", format: "pdf" }, "format", "Send one of: svg, png, zibel_json."],
+    [
+      "zibel_node_create",
+      { docId: "d", nodes: [{ type: "circle", parentId: "p" }] },
+      "nodes[0].type",
+      "Send one of: layer, rect, ellipse, line, polygon, star, path, text, image, group.",
+    ],
+    [
+      "zibel_render",
+      { docId: "d", scope: { artboard: "a" } },
+      "scope",
+      "scope matches none of the forms zibel_render takes; see its description.",
+    ],
+  ])("%s %j: %s, with a hint on what to send", async (name, args, path, hint) => {
+    const { call, called } = await harness();
+    expect(errorOf(await call(name, args))).toMatchObject({ code: "INVALID_INPUT", path, hint });
+    expect(called()).toEqual([]);
+  });
+
+  it("takes any keys in a Node's meta", async () => {
+    const { service, call } = await harness({ createNodes: async () => receipt });
+    const meta = { anything: 1, nested: { deep: [true] } };
+    const result = await call("zibel_node_create", {
+      docId: "d",
+      nodes: [{ type: "layer", name: "L", meta }],
+    });
+    expect(result.isError).toBeFalsy();
+    expect(service.createNodes.mock.calls[0]?.[1]).toMatchObject([{ meta }]);
+  });
+
+  it("leaves a patch's own keys to core, which answers INVALID_PATCH, but not the objects in it", async () => {
+    const { service, call } = await harness({ updateNodes: async () => receipt });
+    const updates = [{ nodeId: "a", patch: { fil: "#FF0000" } }];
+    await call("zibel_node_update", { docId: "d", updates });
+    expect(service.updateNodes.mock.calls[0]?.[1]).toEqual(updates);
+    const nested = await call("zibel_node_update", {
+      docId: "d",
+      updates: [{ nodeId: "a", patch: { appearance: { fils: [] } } }],
+    });
+    expect(errorOf(nested)).toMatchObject({
+      code: "INVALID_INPUT",
+      path: "updates[0].patch.appearance.fils",
+      hint: expect.stringMatching(/^Did you mean fills\? /),
+    });
+    expect(service.updateNodes).toHaveBeenCalledTimes(1);
+  });
+
+  it("logs the refusal on the call's line with its code (§7.7)", async () => {
+    const { call, log } = await harness();
+    await call("zibel_node_query", { docId: "d", name: "x" });
+    expect(log.mock.calls.map(([line]) => JSON.parse(String(line)))).toEqual([
+      expect.objectContaining({ tool: "zibel_node_query", code: "INVALID_INPUT", nodes: 0 }),
+    ]);
+  });
+});
+
+it("advertises each tool's real input schema, refusing unknown keys but in meta and a patch (ADR-0050)", async () => {
+  const { client } = await harness();
+  const loose: string[] = [];
+  const walk = (schema: unknown, at: string): void => {
+    if (typeof schema !== "object" || schema === null) return;
+    const s = schema as Record<string, unknown>;
+    if (s.type === "object" && s.additionalProperties !== false) loose.push(at);
+    for (const [k, v] of Object.entries(s)) walk(v, `${at}.${k}`);
+  };
+  for (const { name, inputSchema } of (await client.listTools()).tools) {
+    expect(inputSchema.properties, name).toBeDefined();
+    if (name !== "zibel_doc_list") expect(inputSchema.required ?? [], name).not.toHaveLength(0);
+    walk(inputSchema, name);
+  }
+  // A failing SDK upgrade advertises the catch-all object instead, which fails every tool here.
+  expect(loose.filter((at) => !/\.properties\.(meta(\.anyOf\.\d)?|patch)$/.test(at))).toEqual([]);
+  expect(loose).toContain("zibel_node_update.properties.updates.items.properties.patch");
+  expect(loose).toContain("zibel_node_create.properties.nodes.items.oneOf.0.properties.meta");
+});
 
 describe("a ZibelError becomes the error result (F-MCP-15)", () => {
   it("carries every field of the error, and no structuredContent", async () => {

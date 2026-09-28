@@ -11,7 +11,7 @@ CONTEXT.md and F-DOC-04 say a Layer or Group can carry an Appearance, but only l
 
 - `LayerNode` and `GroupNode` gain an optional `appearance {fills, strokes, contents}`. `fills` and `strokes` are the leaf's `Fill` and `Stroke`. `contents` is an integer from 0 to `fills.length + strokes.length`: how many paints, counted from the first Fill up through the Strokes, draw below the children. 0, the default, puts every paint above, as Illustrator does with a new paint.
 - Missing means empty, so files saved before this open unchanged and `version` stays 1. `node_get` `full` reports `{fills: [], strokes: [], contents: 0}` for a container without one. An omitted `appearance` on `node_create` stores nothing: Illustrator has no default paint for a container.
-- `node_update` merges it by RFC 7396 like a leaf's, and `appearance: null` removes it. `contents` outside its range, after the merge too, is the new error code `INVALID_INPUT` with `path` `…appearance.contents`. A leaf's patch with `contents` is `INVALID_PATCH` with a hint; `node_create` drops it, as it drops any key a type does not have. A Fill cannot sit above a Stroke, the limit a leaf has too.
+- `node_update` merges it by RFC 7396 like a leaf's, and `appearance: null` removes it. `contents` outside its range, after the merge too, is the new error code `INVALID_INPUT` with `path` `…appearance.contents`. A leaf's patch with `contents` is `INVALID_PATCH` with a hint; `node_create` drops it, as it drops any key a type does not have (since ADR-0050 it refuses it with `INVALID_INPUT`). A Fill cannot sit above a Stroke, the limit a leaf has too.
 - A Fill or Stroke may be a gradient, with a leaf's inline shape, defaults and validation (ADR-0026) (#107). Illustrator runs a Group's gradient as one field across every object in it, so its geometry is in document coordinates: a container has no matrix (ADR-0007), and its own coordinates are the Document's. Geometry left out takes a leaf's placement on the container's `geometricBounds` instead of the leaf's own bounds, measured after the write, so a `node_create` with inline `children` fits them. A container without bounds (nothing in it) cannot place it: `INVALID_INPUT` at `…appearance.fills[i].gradient` (or `strokes[i]`), with a hint to give `start`/`end` or `center`/`radius`; explicit geometry is taken. Like a leaf's, the gradient is not refitted when children change; sending it again without geometry refits it.
 
 ## What it paints
@@ -57,6 +57,6 @@ Open and Place both read them, so Place and paste keep container Appearance on t
 
 ## Consequences
 
-- `ErrorCode` gains `INVALID_INPUT` (F-MCP-15).
+- `ErrorCode` gains `INVALID_INPUT` (F-MCP-15). ADR-0050 widens it to every argument the input schema rejects.
 - `render` and the browser canvas draw container paints from the same `paintedLeaves` list, and a click on one hits the leaf it paints (#105): the Selection tool picks its object, Direct Selection the leaf.
 - A container Stroke's width is in document units and changes on `node_transform`, so a Group scaled with `scaleStrokes: false` and back with `true` does not return to its first width; the same holds for leaves.

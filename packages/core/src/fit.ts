@@ -340,11 +340,11 @@ function newton(cubic: Cubic, p: Point, t: number): number {
 const coordinate = z.number().min(-1e6).max(1e6).describe("In pt, within ±1,000,000.");
 
 /** `freehand_stroke` (REQUIREMENTS §6.4, F-FREE-06): Ink an Agent draws, fitted as the Pencil does. */
-export const FreehandStrokeInput = z.object({
+export const FreehandStrokeInput = z.strictObject({
   parentId: z.string().describe("A Layer or Group id to draw the path in."),
   points: z
     .array(
-      z.object({
+      z.strictObject({
         x: coordinate,
         y: coordinate,
         pressure: z.number().min(0).max(1).optional().describe("0 to 1; the Pencil ignores it."),

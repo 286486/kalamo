@@ -100,7 +100,7 @@ Go from coarse to fine: `zibel_doc_outline` for the Layer tree, `zibel_node_quer
 ## Errors
 
 - A failed call returns `{code, message, hint, path}`: `hint` says what to do next and `path` names the field.
-- A value the input schema rejects returns text starting `Input validation error:` that names the field.
+- Arguments the input schema rejects, unknown names included, return `INVALID_INPUT`: `path` names the field and `hint` the closest known name, or what to send. A misspelled argument fails the call; it is never ignored.
 - A hosted beta Quota's `LIMIT_EXCEEDED` also carries `limit: {name, limit, used, resetsAt?}`: `name` is `documents` (50 you own), `storage` (200 MB of image files across the Documents you own), `document_storage` (20 MB in one Document), `render` or `export` (500 and 200 calls per UTC day, every export format counted; `resetsAt` is when the count resets) or `connections`. Tell the user the numbers; do not retry a daily limit before `resetsAt`.
 - Common mistakes: an Artboard id as `parentId` (`INVALID_PARENT`), `rgb()` or named colours (`INVALID_COLOR`), lowercase or `H`/`V`/`A` path commands (`INVALID_PATH`), `transform` in a `zibel_node_update` patch (`INVALID_PATCH`: use `zibel_node_transform`), `parentId` in a patch (`INVALID_PATCH`: a Node cannot move to another parent yet), `clipping` in a patch (`INVALID_PATCH`: use `zibel_mask_make` or `zibel_mask_release`).
 
