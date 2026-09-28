@@ -74,6 +74,7 @@ export function renderSvg(doc: Document, rect?: Rect, opts: RenderOptions = {}):
     ...svg,
     linked: "draw",
     hairline: 1 / scale,
+    // One image side each way, per axis (ADR-0054).
     cull: { x: r.x - r.width, y: r.y - r.height, width: 3 * r.width, height: 3 * r.height },
     trailer: on?.length ? (drawn) => overlays(doc, drawn, new Set(on), scale) : undefined,
   });

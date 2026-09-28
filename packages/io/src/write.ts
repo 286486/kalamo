@@ -35,6 +35,7 @@ import {
   shapeSegments,
   type TextNode,
   textBox,
+  touches,
   transformSegments,
   union,
   unscaledStroke,
@@ -332,14 +333,10 @@ const transformAttr = (m: Matrix) =>
 
 const style = (...parts: (string | false)[]) => parts.filter(Boolean).join(";") || undefined;
 
-/** Whether two rects share more than an edge. */
-const overlaps = (a: Rect, b: Rect) =>
-  a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
-
 function node(doc: Document, n: Node, walk: Walk): string {
   if (walk.cull) {
     const b = visibleBounds(doc, n);
-    if (!b || !overlaps(b, walk.cull.rect)) return "";
+    if (!b || !touches(b, walk.cull.rect)) return "";
     walk.cull.kept.add(n.id);
   }
   // A hidden Node is written, so Inkscape shows it in the Layers panel, but never drawn.
