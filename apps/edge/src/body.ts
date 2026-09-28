@@ -13,8 +13,8 @@ export async function readCapped(
   cap: number,
   refuse: (declared?: number) => ZibelError,
 ): Promise<Uint8Array<ArrayBuffer>> {
-  const header = Number(message.headers.get("content-length") ?? Number.NaN);
-  const declared = Number.isSafeInteger(header) && header >= 0 ? header : undefined;
+  const header = message.headers.get("content-length");
+  const declared = header && /^\d+$/.test(header) ? Number(header) : undefined;
   if (declared !== undefined && declared > cap) {
     await message.body?.cancel();
     throw refuse(declared);

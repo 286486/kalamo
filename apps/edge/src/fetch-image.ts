@@ -13,6 +13,13 @@ const notAUrl = () =>
     hint: "The server cannot read your disk: read the file and send it as a data: URL, or give a public http(s) URL.",
     path: "src",
   });
+const tooLarge = () =>
+  new ZibelError({
+    code: "LIMIT_EXCEEDED",
+    message: "The file is over 20 MB, the most the server reads.",
+    hint: "Place an image of at most 5 MB: scale it down or compress it first.",
+    path: "src",
+  });
 const failed = (message: string) =>
   new ZibelError({
     code: "FETCH_FAILED",
@@ -51,23 +58,8 @@ export async function fetchImage(src: string): Promise<ImageFile & { name: strin
         throw failed(`${url.href} answered ${res.status} ${res.statusText}`.trim());
       }
       if (!res.body) throw failed(`${url.href} answered ${res.status} with no body.`);
-      return {
-        ...checkImage(
-          await readCapped(
-            res,
-            MAX_FETCH_BYTES,
-            () =>
-              new ZibelError({
-                code: "LIMIT_EXCEEDED",
-                message: "The file is over 20 MB, the most the server reads.",
-                hint: "Place an image of at most 5 MB: scale it down or compress it first.",
-                path: "src",
-              }),
-          ),
-          "src",
-        ),
-        name: fileName(url),
-      };
+      const bytes = await readCapped(res, MAX_FETCH_BYTES, tooLarge);
+      return { ...checkImage(bytes, "src"), name: fileName(url) };
     }
   } catch (e) {
     if (e instanceof ZibelError) throw e;
