@@ -128,3 +128,53 @@ test("dropping a PNG places an Image; a WebP shows the Worker's hint and places 
   await expect(page.locator("body")).toContainText("Convert the image to PNG");
   expect(await children(request, docId, defaultLayerId)).toHaveLength(1);
 });
+
+// #136: with a leaf isolated, only a Place the Worker accepts goes up one level (ADR-0058).
+test("a refused paste leaves an isolated leaf isolated; an accepted one goes up and selects it", async ({
+  page,
+  request,
+}) => {
+  const { docId, defaultLayerId } = await open(page, request);
+  await call(request, "zibel_node_create", {
+    docId,
+    nodes: [
+      {
+        type: "rect",
+        parentId: defaultLayerId,
+        name: "Red",
+        x: 20,
+        y: 20,
+        width: 160,
+        height: 60,
+        appearance: { fills: [{ color: "#FF0000" }], strokes: [] },
+      },
+    ],
+  });
+  await page.keyboard.press("Control+1");
+  await expect(page.getByTestId("status-bar")).toContainText("100%");
+  const box = await page.getByTestId("canvas").boundingBox();
+  if (!box) throw new Error("no canvas");
+  await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
+  const bar = page.getByRole("navigation", { name: "Isolation Mode" });
+  await expect(bar.locator("[aria-current=location]")).toContainText("Red");
+  const paste = (text: string) =>
+    page.evaluate((text) => {
+      const data = new DataTransfer();
+      data.setData("text/plain", text);
+      document.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true }));
+    }, text);
+
+  await paste("<svg");
+  await expect(page.locator("body")).toContainText("Could not place the pasted SVG");
+  await expect(bar.locator("[aria-current=location]")).toContainText("Red");
+  expect(await children(request, docId, defaultLayerId)).toHaveLength(1);
+
+  await paste(SVG);
+  await expect(bar).toBeHidden();
+  await expect.poll(async () => (await children(request, docId, defaultLayerId)).length).toBe(2);
+  const [, group] = await children(request, docId, defaultLayerId);
+  await expect(page.getByRole("button", { name: group?.name, exact: true })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+});
