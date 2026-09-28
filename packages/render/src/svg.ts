@@ -63,9 +63,10 @@ export interface RenderOptions {
 }
 
 /**
- * The SVG `render` rasterises: io's (ADR-0019), with Render Overlays on top, and without the Nodes
- * that lie more than the rect's width to its left or right, or its height above or below it
- * (ADR-0054). `export` SVG writes them all.
+ * The SVG `render` rasterises: io's (ADR-0019), with Render Overlays on top, written for resvg:
+ * without the Nodes that lie more than the rect's width to its left or right, or its height above
+ * or below it (ADR-0054), and with far-reaching isolated layers bounded (ADR-0055). `export` SVG
+ * writes them all, unbounded.
  */
 export function renderSvg(doc: Document, rect?: Rect, opts: RenderOptions = {}): string {
   const { overlays: on, scale = 1, ...svg } = opts;
@@ -74,8 +75,7 @@ export function renderSvg(doc: Document, rect?: Rect, opts: RenderOptions = {}):
     ...svg,
     linked: "draw",
     hairline: 1 / scale,
-    // One image side each way, per axis (ADR-0054).
-    cull: { x: r.x - r.width, y: r.y - r.height, width: 3 * r.width, height: 3 * r.height },
+    resvg: true,
     trailer: on?.length ? (drawn) => overlays(doc, drawn, new Set(on), scale) : undefined,
   });
 }

@@ -289,3 +289,38 @@ it("renders and exports a scope while a Clipping Mask or a translucent Node lies
   expect(updated.isError).toBeFalsy();
   await render({ docId: lone.docId });
 });
+
+it("renders and exports an Artboard while a translucent Group over far artwork holds a translucent child (#129)", async () => {
+  const doc = await newDoc([{ width: 100, height: 100 }]);
+  const { docId, defaultLayerId: parentId } = doc;
+  const [groupId, , innerId] = (
+    await call("zibel_node_create", {
+      docId,
+      nodes: [
+        {
+          type: "group",
+          parentId,
+          children: [
+            { type: "rect", x: -500, y: 10, width: 520, height: 20 },
+            { type: "rect", x: 30, y: 30, width: 20, height: 20 },
+          ],
+        },
+      ],
+    })
+  ).structuredContent.createdIds;
+  const updated = await call("zibel_node_update", {
+    docId,
+    updates: [
+      { nodeId: groupId, patch: { opacity: 0.5 } },
+      { nodeId: innerId, patch: { opacity: 0.5 } },
+    ],
+  });
+  expect(updated.isError).toBeFalsy();
+  const artboardId = doc.artboards[0]?.id;
+  expect(await render({ docId, scope: { artboardId } })).toMatchObject({
+    pixelSize: { width: 100, height: 100 },
+  });
+  const png = await call("zibel_export", { docId, format: "png", scope: { artboardId } });
+  expect(png.isError).toBeFalsy();
+  expect(pngSize(png)).toEqual({ width: 100, height: 100 });
+});

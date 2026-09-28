@@ -690,7 +690,8 @@ const intersection = (a: Rect | null, b: Rect | null): Rect | null => {
   return right < x || bottom < y ? null : { x, y, width: right - x, height: bottom - y };
 };
 
-const grown = (b: Rect | null, by: number): Rect | null =>
+/** `b` grown by `by` on every side. */
+export const grown = (b: Rect | null, by: number): Rect | null =>
   b && { x: b.x - by, y: b.y - by, width: b.width + 2 * by, height: b.height + 2 * by };
 
 /**
