@@ -217,3 +217,18 @@ function settle(edit: PathDrag | null, id: string | undefined): { edit?: PathDra
   const commandIds = edit.commandIds.filter((_, i) => i !== k);
   return { edit: inputs.length > 0 ? { inputs, commandIds } : null };
 }
+
+/** `GET /api/docs/:docId` after a socket closed unopened: its status and error code, or null. */
+export type Probe = { status: number; code?: string } | null;
+
+/**
+ * What a tab does after a socket that never opened, from the probe: a browser cannot read the
+ * upgrade's refusal. Only a readable 404 or 401 ends retrying; a network error or 5xx says nothing
+ * about access. No Role and a deleted Document read alike (ADR-0047).
+ */
+export function afterProbe(probe: Probe): "retry" | "sign-in" | { notice: string } {
+  if (probe?.status === 401) return "sign-in";
+  if (probe?.status === 404 && probe.code === "DOC_NOT_FOUND")
+    return { notice: "This Document is no longer available to you." };
+  return "retry";
+}

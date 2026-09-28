@@ -10,7 +10,7 @@ import {
 import { create } from "zustand";
 import { parseKey } from "./direct.ts";
 import type { ImageCache } from "./images.ts";
-import { receive, type ViewState } from "./receive.ts";
+import { afterProbe, type Probe, receive, type ViewState } from "./receive.ts";
 import type { Tool } from "./toolbox.ts";
 import type { FillStroke } from "./tools.ts";
 import type { Viewport } from "./viewport.ts";
@@ -93,6 +93,17 @@ export function send(command: Command): string {
   return id;
 }
 
+/** `GET /api/docs/:docId`'s status and error code; null if the request itself failed. */
+async function probe(docId: string): Promise<Probe> {
+  try {
+    const res = await fetch(`/api/docs/${docId}`);
+    const body = (await res.json().catch(() => ({}))) as { code?: string };
+    return { status: res.status, code: body.code };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Shows a Document (ADR-0009) until the returned function is called. Only the active tab is
  * connected, so switching tabs starts over from the Document sent on connect (ADR-0030).
@@ -122,10 +133,18 @@ export function connect(docId: string): () => void {
     stopped = true;
     useStore.setState({ live: false, notice });
   };
+  // ponytail: fixed 1 s retry, forever; back off if many tabs hammer a dead server.
+  const later = () => {
+    retry = setTimeout(open, 1000);
+  };
   const open = () => {
     const scheme = location.protocol === "https:" ? "wss" : "ws";
     ws = new WebSocket(`${scheme}://${location.host}/api/docs/${docId}/ws`);
     socket = ws;
+    let opened = false;
+    ws.onopen = () => {
+      opened = true;
+    };
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data) as ServerMessage;
       const next = receive(useStore.getState(), msg, docId);
@@ -144,8 +163,17 @@ export function connect(docId: string): () => void {
       if (accessChanged) return stop("This Document is no longer shared with you.");
       accessChanged = e.code === ACCESS_CHANGED;
       useStore.setState({ live: false });
-      // ponytail: fixed 1 s retry, forever; back off if many tabs hammer a dead server.
-      retry = setTimeout(open, 1000);
+      if (opened) return later();
+      // The upgrade's refusal is unreadable (1006); the same check over HTTP says why.
+      probe(docId).then((p) => {
+        if (stopped) return;
+        const next = afterProbe(p);
+        if (next === "retry") later();
+        else if (next === "sign-in") {
+          stopped = true;
+          location.replace(`/?return=${encodeURIComponent(location.pathname + location.search)}`);
+        } else stop(next.notice);
+      });
     };
   };
   open();

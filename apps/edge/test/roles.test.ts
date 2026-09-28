@@ -180,6 +180,15 @@ const FAMILIES: Record<
     }
     return outcomeOf(res);
   },
+  "Document read": async (who, { docId }) => {
+    const res = await browser(who, `/api/docs/${docId}`);
+    if (res.ok) {
+      const role = ROLES[Object.values(await cast()).indexOf(who)];
+      expect(await res.json()).toEqual({ docId, name: "Shared", role });
+      return "ok";
+    }
+    return outcomeOf(res);
+  },
   members: async (who, { docId }) => outcomeOf(await browser(who, `/api/docs/${docId}/members`)),
   delete: async (who, { docId }) =>
     outcomeOf(await browser(who, `/api/docs/${docId}`, { method: "DELETE" })),
@@ -205,6 +214,7 @@ const EXPECTED: Record<keyof typeof FAMILIES, Outcome[]> = {
   "WebSocket command": [N, D, "ok", "ok"],
   "Place, place-image, relink": [N, D, "ok", "ok"],
   "image route": [N, "ok", "ok", "ok"],
+  "Document read": [N, "ok", "ok", "ok"],
   members: [N, D, D, "ok"],
   delete: [N, D, D, "ok"],
 };
@@ -308,6 +318,15 @@ describe("sharing", () => {
     expect(removed.status).toBe(200);
     expect((await viewer.closed)?.code).toBe(4003);
     expect((await socket(p.viewer, docId)).res.status).toBe(404);
+    expect(await outcomeOf(await browser(p.viewer, `/api/docs/${docId}`))).toBe("DOC_NOT_FOUND");
+    expect((await browser(p.owner, `/api/docs/${docId}`)).status).toBe(200);
+  });
+
+  it("answers the Document read route with 401 without a session", async () => {
+    const { docId } = await sharedDoc();
+    const res = await hosted(`/api/docs/${docId}`, { headers: { origin: APP_ORIGIN } });
+    expect(res.status).toBe(401);
+    await res.body?.cancel();
   });
 
   it("lists members for the owner", async () => {
