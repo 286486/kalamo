@@ -4,6 +4,7 @@ import { type ErrorCode, formatPath, type ShapeNode, shapeSegments } from "@zibe
 import { afterEach, describe, expect, it, vi } from "vitest";
 import exported from "../../../fixtures/documents/inkscape.svg?raw";
 import { BLUE_1x1_PNG, RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
+import { decodePng } from "../../../fixtures/png.ts";
 import { counted, fullZibelFile, MiB } from "./bodies.ts";
 import { call, errorOf, rpc } from "./rpc.ts";
 
@@ -110,6 +111,49 @@ it("makes a Clipping Mask from a circle over a Group, renders it clipped and rel
   expect(nodes[0]).toMatchObject({ parentId: maskId, appearance: { fills: [], strokes: [] } });
   expect(nodes[0].clipping).toBeUndefined();
   expect(nodes[1]).toMatchObject({ parentId: maskId });
+});
+
+it("places and opens Illustrator's painted <use> Clip Group as one Clipping Mask, rendered as Illustrator draws it (ADR-0056)", async () => {
+  const illustrator = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 100 100" width="100" height="100">
+    <g><defs><rect id="SVGID_1_" x="20" y="20" width="50" height="40"/></defs>
+    <use xlink:href="#SVGID_1_" style="overflow:visible;fill:#00FF00;"/>
+    <clipPath id="SVGID_2_"><use xlink:href="#SVGID_1_" style="overflow:visible;"/></clipPath>
+    <rect style="clip-path:url(#SVGID_2_);fill:#FF0000;" width="40" height="100"/>
+    <use xlink:href="#SVGID_1_" style="overflow:visible;fill:none;stroke:#0000FF;stroke-width:4;stroke-miterlimit:10;"/></g></svg>`;
+  const { docId, defaultLayerId } = await newDoc();
+  const placed = await call("zibel_svg_import", {
+    docId,
+    svg: illustrator,
+    parentId: defaultLayerId,
+    // Where the Clipping Path's centre is in the file, so the file's coordinates stay.
+    position: { x: 45, y: 40 },
+  });
+  expect(placed.structuredContent.warnings).toEqual([]);
+  const rendered = await call("zibel_render", {
+    docId,
+    scope: { rect: { x: 0, y: 0, width: 100, height: 100 } },
+    scale: 1,
+    background: "#FFFFFF",
+  });
+  const image = rendered.content.find((c: { type: string }) => c.type === "image");
+  const { width, data } = await decodePng(Uint8Array.fromBase64(image.data));
+  const at = (x: number, y: number) => [
+    ...data.subarray((y * width + x) * 4, (y * width + x) * 4 + 3),
+  ];
+  expect(at(30, 40)).toEqual([255, 0, 0]); // content inside the clip
+  expect(at(10, 40)).toEqual([255, 255, 255]); // content outside it
+  expect(at(55, 40)).toEqual([0, 255, 0]); // the Clipping Path's Fill, behind the content
+  expect(at(71, 40)).toEqual([0, 0, 255]); // its Stroke's outer half, unclipped
+
+  const opened = (await call("zibel_doc_open", { content: illustrator })).structuredContent;
+  expect(opened.warnings).toEqual([]);
+  const [layer] = opened.nodes;
+  const [group] = (
+    await call("zibel_doc_outline", { docId: opened.docId, rootId: layer.id, depth: 2 })
+  ).structuredContent.nodes;
+  // The Clipping Path's bounds, not the 40 × 100 content's.
+  expect(group).toMatchObject({ type: "group", bounds: { x: 20, y: 20, width: 50, height: 40 } });
+  expect(group.children).toHaveLength(2);
 });
 
 it("clips a Layer by its topmost child, clipping Nodes created in it later, and releases it by the Layer's id (ADR-0053)", async () => {
