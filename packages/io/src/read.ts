@@ -40,6 +40,7 @@ import {
   shapeSegments,
   textBox,
   transformSegments,
+  unfilledRanges,
   union,
   type WriteReceipt,
   ZibelError,
@@ -231,10 +232,7 @@ function lineHeight(value: string | undefined, fontSize: number, k: number) {
 function unfilled(text: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
   if (!text) return text;
   const { ranges, ...rest } = text;
-  const kept = canonicalRanges(
-    (ranges as CharacterRange[] | undefined)?.map(({ fill: _, ...r }) => r),
-    "ranges",
-  );
+  const kept = unfilledRanges(ranges as CharacterRange[] | undefined);
   return { ...rest, ...(kept && { ranges: kept }) };
 }
 
@@ -723,7 +721,18 @@ class Reader {
       e.localName === "text"
         ? unfilled(this.text(e, style, m)?.shape)
         : this.shape(e, m, { ...style, "fill-rule": style["clip-rule"] ?? "nonzero" });
-    if (!shape) return;
+    if (!shape) {
+      // ponytail: Zibel clips a text of only spaces everything away, but import holds no such
+      // text; keep it as a Clipping Path if files with one turn up.
+      if (e.localName === "text") {
+        this.warn(
+          "UNSUPPORTED_ATTRIBUTE",
+          "clip-path",
+          "A clip-path whose text draws no character was dropped; the artwork imports unclipped.",
+        );
+      }
+      return;
+    }
     const appearance: Appearance = { fills: [], strokes: [] };
     let looks: Style | undefined;
     let rangeFills: CharacterRange[] | undefined;

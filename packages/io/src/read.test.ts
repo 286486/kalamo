@@ -1393,6 +1393,7 @@ describe("Clipping Masks (ADR-0021)", () => {
       clip('<text x="0" y="5">Hi</text><text x="0" y="9">Ho</text>'),
       clip('<text x="0" y="5">Hi</text><rect width="1" height="1"/>'),
       clip('<text><textPath href="#p">Hi</textPath></text>'),
+      clip('<text x="0" y="5">   </text>'),
       clip('<rect width="1" height="1"/><rect width="2" height="2"/>'),
       clip('<g><rect width="1" height="1"/></g>'),
       clip('<rect width="1" height="1"/>', 'clipPathUnits="objectBoundingBox"'),

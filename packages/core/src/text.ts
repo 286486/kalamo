@@ -95,6 +95,13 @@ export function canonicalRanges(
   return out.length ? out : undefined;
 }
 
+/** Character Ranges without their fills, canonical, as a Clipping Path keeps them (ADR-0052). */
+export const unfilledRanges = (ranges: CharacterRange[] | undefined) =>
+  canonicalRanges(
+    ranges?.map(({ fill: _, ...r }) => r),
+    "ranges",
+  );
+
 /** What lays out a text: its kind, anchor or frame, content and character attributes. */
 interface TextLayout {
   kind?: "point" | "area";

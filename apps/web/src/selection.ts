@@ -180,6 +180,8 @@ const within = (ctx: CanvasRenderingContext2D, doc: Document, c: LeafClip, x: nu
     ? glyphsAt(doc, c.text, x, y)
     : ctx.isPointInPath(new Path2D(formatPath(c.segments)), x, y, c.fillRule);
 
+// ponytail: one pixel read back per test, exact to a document unit at any zoom; hit-test glyph
+// outlines as Path2D once HarfBuzz draws text (F-TEXT-09).
 let scratch: OffscreenCanvasRenderingContext2D | null | undefined;
 
 /**

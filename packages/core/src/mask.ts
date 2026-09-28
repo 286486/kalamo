@@ -2,7 +2,7 @@ import { clippingPath, createNodes } from "./document.ts";
 import { lookup } from "./edit.ts";
 import { collect, ZibelError } from "./errors.ts";
 import type { Document, GroupNode, LeafNode, MaskInput, Node } from "./schema.ts";
-import { canonicalRanges } from "./text.ts";
+import { unfilledRanges } from "./text.ts";
 
 const invalid = (path: string, message: string, hint: string) =>
   new ZibelError({ code: "INVALID_MASK", message, hint, path });
@@ -100,10 +100,7 @@ function emptied(clip: LeafNode): LeafNode {
   const appearance = { fills: [], strokes: [] };
   if (clip.type !== "text") return { ...clip, clipping: true, appearance };
   const { ranges, ...text } = clip;
-  const kept = canonicalRanges(
-    ranges?.map(({ fill: _, ...r }) => r),
-    "ranges",
-  );
+  const kept = unfilledRanges(ranges);
   return { ...text, ...(kept && { ranges: kept }), clipping: true, appearance };
 }
 
