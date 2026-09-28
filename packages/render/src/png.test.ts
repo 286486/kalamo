@@ -16,7 +16,7 @@ import { COMPOSITING, near } from "../../../fixtures/compositing.ts";
 import fixture from "../../../fixtures/documents/inkscape.zibel.json?raw";
 import { RED_2x2_PNG } from "../../../fixtures/images.ts";
 import { svgToPixels, svgToPng } from "./png.ts";
-import { renderSvg } from "./svg.ts";
+import { fit, renderSvg } from "./svg.ts";
 
 it("rasterises SVG with resvg-wasm inside workerd", async () => {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" width="10" height="10"><rect width="10" height="10" fill="#FF0000"/></svg>`;
@@ -328,22 +328,51 @@ it("draws the fixture Document with known pixels", async () => {
   );
 });
 
-it("draws the fixture's Layer Clipping Mask inside its Clipping Path, its Stroke over it (ADR-0053)", async () => {
+/** The fixture Document, with the file of each of its Images. */
+function fixtureDoc() {
   const file = parseDocument(fixture);
-  const layer = file.nodes.find((n) => n.name === "Clipped layer");
-  const inLayer = (n: Node | undefined): boolean =>
-    !!n && (n === layer || inLayer(file.nodes.find((p) => p.id === n.parentId)));
-  // Only the Layer: resvg panics on a Clipping Mask wholly outside the image.
-  const nodes = file.nodes.filter(inLayer);
   const doc = {
     id: "d",
     version: 1 as const,
     rev: 0,
     ...file,
-    nodes: new Map(nodes.map((n) => [n.id, n])),
+    nodes: new Map(file.nodes.map((n) => [n.id, n])),
   };
-  const frame = file.artboards.find((a) => a.name === "Layer Clipping")?.frame;
-  const { pixels, width } = await svgToPixels(toSvg(doc, frame), 4);
+  return { doc, images: imageSource(file.images) };
+}
+
+it("draws each fixture Artboard by its scope as the whole Document draws it there (ADR-0054)", async () => {
+  const { doc, images } = fixtureDoc();
+  const all = fit(docRect(doc), 2);
+  const whole = await svgToPixels(renderSvg(doc, all.rect, { scale: 2, images }), 2);
+  expect(doc.artboards).toHaveLength(12);
+  for (const a of doc.artboards) {
+    const scope = { artboardId: a.id };
+    const { rect, pixelSize } = fit(scopeRect(doc, scope), 2);
+    const one = await svgToPixels(renderSvg(doc, rect, { scope, scale: 2, images }), 2);
+    expect({ width: one.width, height: one.height }).toEqual(pixelSize);
+    const [dx, dy] = [(rect.x - all.rect.x) * 2, (rect.y - all.rect.y) * 2];
+    let worst = 0;
+    for (let y = 0; y < one.height; y++) {
+      for (let x = 0; x < one.width * 4; x++) {
+        const got = one.pixels[y * one.width * 4 + x] ?? 0;
+        const want = whole.pixels[(y + dy) * whole.width * 4 + dx * 4 + x] ?? 0;
+        worst = Math.max(worst, Math.abs(got - want));
+      }
+    }
+    // Only antialiasing may differ, which resvg's f32 geometry moves with the image's origin: by
+    // up to 16/255 at the edges of "Containers", 2770 px from the whole Document's, as it does when
+    // the same SVG is drawn from a rect grown to x = 0. A Node left out would differ by far more.
+    expect(worst, a.name).toBeLessThanOrEqual(16);
+  }
+});
+
+it("draws the fixture's Layer Clipping Mask inside its Clipping Path, its Stroke over it (ADR-0053)", async () => {
+  const { doc, images } = fixtureDoc();
+  const artboard = doc.artboards.find((a) => a.name === "Layer Clipping");
+  const scope = { artboardId: artboard?.id ?? "" };
+  const svg = renderSvg(doc, artboard?.frame, { scope, scale: 4, images });
+  const { pixels, width } = await svgToPixels(svg, 4);
   // The Artboard's (1180, 130) is pixel 0; a Document point reads the pixel it starts.
   const at = (x: number, y: number) => {
     const i = (Math.floor((y - 130) * 4) * width + Math.floor((x - 1180) * 4)) * 4;

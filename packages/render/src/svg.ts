@@ -9,7 +9,7 @@ import {
   type RenderScope,
   ZibelError,
 } from "@zibel/core";
-import { attrs, esc, toSvg } from "@zibel/io/write";
+import { attrs, esc, svgRect, toSvg } from "@zibel/io/write";
 
 /** The longest side `render` and `export` rasterise (REQUIREMENTS §7). */
 export const MAX_RENDER_SIDE = 4096;
@@ -62,13 +62,20 @@ export interface RenderOptions {
   images?: ImageSource;
 }
 
-/** The SVG `render` rasterises: io's, as `export` writes it (ADR-0019), with Render Overlays on top. */
+/**
+ * The SVG `render` rasterises: io's (ADR-0019), with Render Overlays on top, and without the Nodes
+ * that lie more than the rect's width to its left or right, or its height above or below it
+ * (ADR-0054). `export` SVG writes them all.
+ */
 export function renderSvg(doc: Document, rect?: Rect, opts: RenderOptions = {}): string {
   const { overlays: on, scale = 1, ...svg } = opts;
-  return toSvg(doc, rect, {
+  const r = rect ?? svgRect(doc, svg.scope);
+  return toSvg(doc, r, {
     ...svg,
     linked: "draw",
     hairline: 1 / scale,
+    // One image side each way, per axis (ADR-0054).
+    cull: { x: r.x - r.width, y: r.y - r.height, width: 3 * r.width, height: 3 * r.height },
     trailer: on?.length ? (drawn) => overlays(doc, drawn, new Set(on), scale) : undefined,
   });
 }
