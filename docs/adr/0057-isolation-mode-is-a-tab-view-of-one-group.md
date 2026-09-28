@@ -1,0 +1,46 @@
+---
+status: accepted
+date: 2026-09-29
+---
+
+# Isolation Mode is a tab's view of one Group, not Document state
+
+A designer cannot reach a Clipping Mask's content or its Clipping Path on the canvas. The Selection tool always picks the outermost object below a Layer, so every click inside a Clip Group selects the Clip Group (ADR-0021). Illustrator solves this with Isolation Mode (F-MASK-01, F-VIEW-05): a double-click on a group isolates it, the rest of the artwork dims and cannot be selected, and clicks pick objects inside the group (#53).
+
+## What Illustrator does
+
+- **Enter.** A double-click with the Selection tool on a group isolates it. Each double-click goes one level deeper into nested groups. The context menu's Isolate Selected Group, the Control panel's button and the Layers panel menu's Enter Isolation Mode do the same for the selected group. Illustrator can also isolate a single path and a sublayer.
+- **While isolated.** Everything outside the isolated group dims and cannot be selected or edited. The Layers panel shows only the isolated artwork. A bar at the top of the window shows the path to the isolated group (the breadcrumbs). New objects that are drawn or pasted go into the isolated group.
+- **Exit.** Esc, the bar's back arrow, and the Layers panel menu's Exit Isolation Mode each go up one level. A double-click outside the isolated group with the Selection tool exits too. A click on a breadcrumb goes to that level.
+- **Clipping Masks.** An isolated Clip Group shows its content clipped, as it prints. Its content and its Clipping Path can each be selected and edited.
+- **Files.** Isolation Mode is a window state. It is not saved in the file.
+
+Adobe's help pages refuse automated fetches. This record rests on the text of Adobe's "Isolate objects" page as search results quote it ("press Esc or select Exit Isolation Mode", "the Layers panel displays only the artwork in the isolated sublayer or group", "if you have isolated a sublayer, select Exit Isolation Mode multiple times"), on tutorials that say one double-click goes one level deeper, and on common practice, as ADR-0052 and ADR-0053 do. Adobe's help does not say what is selected right after a double-click. Zibel decides that below.
+
+## The rule
+
+- **State.** The Isolation is one Group id per Document Tab, or none. It is browser state next to the Selection and the viewport. It is not in the Document, the URL, `localStorage`, the undo history or MCP. Switching Document Tabs keeps it for the page's lifetime, as it keeps the Selection. Reloading clears it. A viewer can isolate, as a viewer can select (ADR-0047). Other browsers and Agents are not affected.
+- **Levels.** The levels are the isolated Group and every Group above it, up to the Layer. They are derived from the tree, not stored. So isolating a deeply nested Group from a Layers panel row gives the same breadcrumbs as double-clicking down to it.
+- **What can be isolated.** Only a Group, a Clip Group included. A Layer, a sub-Layer and a single leaf cannot be isolated yet. A Group that is hidden or locked, itself or through an ancestor, cannot be isolated.
+- **Scope.** While a Group is isolated, it takes the place of a Layer for every canvas selection rule. A click picks the outermost object below the isolated Group. A marquee, Select > All and Select > Inverse cover only its descendants. Direct Selection hits only leaves inside it. Hits outside it miss, and the clips of its ancestors still apply. New art from the Pen, Curvature, Pencil and shape tools, and Paste, Paste in Place, File > Place and drops go into the isolated Group, on top. In a Clip Group this new art is clipped (ADR-0021 makes position meaningless).
+- **The Clipping Path.** In an isolated Clip Group, an unpainted Clipping Path hits on its outline, within the click tolerance, as an unpainted Path does. An unpainted text Clipping Path hits on the edges of its frame, so the content inside the frame stays reachable. A painted Clipping Path hits as ADR-0051 and ADR-0052 describe. Outside Isolation Mode nothing changes: an unpainted Clipping Path still hits nothing, and its Clip Group is picked as one object.
+- **Enter.** A double-click with the Selection tool on an object that is a Group isolates it. The second click then acts as a click in the new scope: it selects the object under the pointer, or nothing. So one double-click on a Clip Group's content selects that content. A double-click on a leaf only selects it. Object > Isolate Selected Group does the same for a Selection of exactly one editable Group. It leaves the Selection empty.
+- **Exit.** Esc, the bar's Exit Isolation Mode button and Object > Exit Isolation Mode go up one level. A double-click with the Selection tool where nothing in scope is hit also goes up one level. Going up from the outermost level leaves Isolation Mode. After going up, the Group that was just left is the Selection. A Pen or Curvature path being drawn, or an open dialog such as Simplify, takes Esc first.
+- **Breadcrumbs.** A bar at the top of the canvas shows the Layer and then each level, by name or Auto-name. A click on the Layer leaves Isolation Mode. A click on a level above the innermost one goes to that level.
+- **When the tree changes.** After every change to the Document, from any Actor, and after undo or redo, the Isolation moves to the innermost level that still exists and is visible and unlocked, itself and through its ancestors. If no level is left, Isolation Mode ends. If the isolated Group was deleted, its levels are read from the Document before the change. Release and deleting the Clipping Path leave a plain Group, which stays isolated.
+- **Drawing.** The browser canvas draws the isolated Group's descendants as it draws them outside Isolation Mode, with the transforms, clips, opacity and blend modes of its ancestors. Everything else is drawn faded halfway toward white. `render`, export, the clipboard and the round trip do not change.
+- **Layers panel.** While isolated, the panel lists only the isolated Group and its descendants. The isolated Group's row is the root and starts expanded. Its name selects its objects, as a Layer row does. The Make/Release Clipping Mask button at the foot is disabled, because its target is a Layer (ADR-0053).
+
+## Considered Options
+
+- **Isolation in the Document or through MCP.** Isolation is one person's view, like the Selection. Storing it would make one person's focus change another person's canvas. An Agent already reaches any Node by id (F-SEL-07).
+- **A stack of isolated ids.** A stack can disagree with the tree: after an Agent moves a Group, the stack would hold a path that no longer exists. Deriving the levels from one id cannot disagree.
+- **Isolating only Clip Groups** (the first form of #53). A Clip Group is a Group (ADR-0021). Limiting the feature to Clip Groups would add a special case, and Illustrator isolates every group.
+- **Clearing the Selection on a double-click.** Two double-clicks and a click would reach a nested Clip Group's content. Selecting under the second click makes one double-click enough, and the double-click still means "one level deeper".
+- **Drawing the rest at half opacity.** Group opacity and isolated layers (ADR-0044) would make faded translucent art darker or lighter depending on where it sits. A wash toward white, with the isolated Group drawn again over it, looks the same everywhere.
+
+## Consequences
+
+- Canvas selection helpers take the isolated Group as their scope wherever they took a Layer. The Layers panel's row list and the place where new art goes follow the same scope.
+- The browser canvas renderer gains a way to draw one Node's subtree in the context of its ancestors. `render` in the Worker does not use it.
+- Isolating a sub-Layer or a single path, and Illustrator's Edit Contents and Edit Clipping Path commands, wait for their own issues.

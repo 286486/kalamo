@@ -32,6 +32,10 @@ _Avoid_: Container、Frame
 人类用户在 UI 中当前选中的 Node 集合。它是 UI 便利，不是文档状态；Agent 操作以显式 Node ID 为准。
 _Avoid_: 把 Selection 作为工具调用的隐式参数
 
+**Isolation Mode（隔离模式）**：
+双击一个 Group（含 Clip Group）后只编辑它的状态，对应 Illustrator 的 Isolation Mode：画布的点选、框选、Select All 与新绘图稿都限于该 Group 内，其余图稿淡化且不可选，Layers 面板只列出该 Group；Esc 或面包屑逐级退出。它与 Selection 一样是每个 Document Tab 的浏览器状态，不写入 Document，MCP 不感知（ADR-0057）。
+_Avoid_: Focus mode、Edit mode、Enter group
+
 **Auto-name（自动名称）**：
 `name` 为空的 Node 在 Layers 面板中显示的名称，如 `<Rectangle>`、`<Path>`、`<Group>`、`<Image>`；Text Node 取其内容。只用于显示，不写入 Document。
 _Avoid_: Default name、Placeholder name
