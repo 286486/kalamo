@@ -30,6 +30,9 @@ export const autoName = (doc: Document, node: Node) =>
           ? "<Linked File>"
           : AUTO_NAMES[node.type];
 
+/** A Node's name in the Layers panel and the isolation bar: its own, else its Auto-name. */
+export const nameOf = (doc: Document, node: Node) => node.name || autoName(doc, node);
+
 /** One line of the Layers panel. */
 export interface Row {
   node: Node;
@@ -44,39 +47,46 @@ export interface Row {
 
 /**
  * The Layers panel's rows, siblings topmost first (ADR-0012). `toggled` holds the containers
- * expanded or collapsed away from their default: Layers start expanded, Groups collapsed.
+ * expanded or collapsed away from their default: Layers start expanded, Groups collapsed. With the
+ * isolated Group `scope`, only it and what is in it (ADR-0057): its row is the root, always
+ * expanded.
  * ponytail: childrenOf scans every Node per container, O(n²); index children when Documents grow.
  */
-export function rows(doc: Document, toggled: Set<string>): Row[] {
+export function rows(doc: Document, toggled: Set<string>, scope: string | null = null): Row[] {
+  const row = (node: Node, depth: number, root = false): Row[] => {
+    const expandable =
+      !root &&
+      (node.type === "layer" || node.type === "group") &&
+      childrenOf(doc, node.id).length > 0;
+    const expanded = root || (expandable && (node.type === "layer") !== toggled.has(node.id));
+    const underlined = ("clipping" in node && !!node.clipping) || !!clippingPath(doc, node);
+    const dimmed = !editable(doc, node);
+    const it = { node, depth, expandable, expanded, dimmed, underlined };
+    return expanded ? [it, ...walk(node.id, depth + 1)] : [it];
+  };
   const walk = (parentId: string | null, depth: number): Row[] =>
     childrenOf(doc, parentId)
       .reverse()
-      .flatMap((node) => {
-        const expandable =
-          (node.type === "layer" || node.type === "group") && childrenOf(doc, node.id).length > 0;
-        const expanded = expandable && (node.type === "layer") !== toggled.has(node.id);
-        const underlined = ("clipping" in node && !!node.clipping) || !!clippingPath(doc, node);
-        const dimmed = !editable(doc, node);
-        const row = { node, depth, expandable, expanded, dimmed, underlined };
-        return expanded ? [row, ...walk(node.id, depth + 1)] : [row];
-      });
-  return walk(null, 0);
+      .flatMap((node) => row(node, depth));
+  const root = scope === null ? undefined : doc.nodes.get(scope);
+  return root ? row(root, 0, true) : walk(null, 0);
 }
 
 /**
  * The Layers panel's Make/Release Clipping Mask button (ADR-0053), on the Layer Place targets: it
  * makes that Layer's topmost child its Clipping Path, or releases it. No command when that Layer is
- * empty or locked.
+ * empty or locked, or while a Group is isolated, which hides the Layer (ADR-0057).
  */
 export function layerMask(
   doc: Document,
   selection: string[],
+  scope: string | null = null,
 ): { label: string; command: Command | null } {
   const layerId = placeParent(doc, selection);
   const layer = doc.nodes.get(layerId ?? "");
   const clipped = !!layer && !!clippingPath(doc, layer);
   const label = `${clipped ? "Release" : "Make"} Clipping Mask`;
-  if (!layer || lockedIn(doc, layer) || childrenOf(doc, layer.id).length === 0) {
+  if (!layer || scope !== null || lockedIn(doc, layer) || childrenOf(doc, layer.id).length === 0) {
     return { label, command: null };
   }
   const command: Command = clipped

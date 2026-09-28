@@ -57,13 +57,16 @@ export function constrain(from: Point, p: Point): Point {
   return [at(from[0] + ux * length), at(from[1] + uy * length)];
 }
 
-/** The `create` input for a finished path: the current Fill and Stroke, in placeParent's Layer. */
+/**
+ * The `create` input for a finished path: the current Fill and Stroke, in placeParent's Layer or
+ * isolated Group.
+ */
 export function penNode(
-  s: Pick<State, "selection" | "fillStroke"> & { doc: Document },
+  s: Pick<State, "selection" | "fillStroke" | "isolated"> & { doc: Document },
   pen: PenPath,
 ): NodeInput | null {
   const { fill, stroke } = s.fillStroke;
-  const parentId = placeParent(s.doc, s.selection);
+  const parentId = placeParent(s.doc, s.selection, s.isolated);
   // Illustrator refuses to draw into a hidden or locked Layer.
   if (!parentId || !editable(s.doc, s.doc.nodes.get(parentId))) return null;
   return {
@@ -216,14 +219,18 @@ function setPen(pen: PenPath | null) {
   useStore.setState({ pen, edit: { inputs: [input], commandIds: null } });
 }
 
-/** The Endpoint of a visible, unlocked open path within `tolerance` of `p`, topmost first. */
+/**
+ * The Endpoint of a visible, unlocked open path, in the isolated Group `scope` if any, within
+ * `tolerance` of `p`, topmost first.
+ */
 export function endpointAt(
   doc: Document,
   p: Point,
   tolerance: number,
   skip?: Endpoint,
+  scope: string | null = null,
 ): Endpoint | null {
-  for (const n of editableShapes(doc).reverse()) {
+  for (const n of editableShapes(doc, scope).reverse()) {
     for (const [subpath, s] of anchorsOf(doc, n).entries()) {
       if (s.closed || (skip?.nodeId === n.id && skip.subpath === subpath)) continue;
       const [first] = s.anchors;
@@ -270,7 +277,7 @@ export function penDown(p: Point, tolerance: number, shift = false) {
   const anchors = pen?.anchors ?? [];
   const first = anchors[0];
   const last = anchors.at(-1);
-  const end = s.doc && endpointAt(s.doc, p, tolerance, pen?.from);
+  const end = s.doc && endpointAt(s.doc, p, tolerance, pen?.from, s.isolated);
   if (first && anchors.length >= 2 && near(p, first.anchor, tolerance)) {
     press = { kind: "close", index: 0, at: p };
   } else if (pen && last && near(p, last.anchor, tolerance)) {

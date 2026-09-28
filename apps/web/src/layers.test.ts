@@ -199,3 +199,23 @@ describe("a Layer Clipping Mask (ADR-0053)", () => {
     expect(layerMask(doc, []).command).toBeNull();
   });
 });
+
+describe("in Isolation Mode (ADR-0057)", () => {
+  it("lists only the isolated Group, expanded at depth 0, and what is in it", () => {
+    const { doc, id, key } = fixture();
+    const scoped = rows(doc, new Set([id("g")]), id("g"));
+    expect(scoped.map((r) => `${key(r.node.id)}:${r.depth}`)).toEqual(["g:0", "b:1", "a:1"]);
+    expect(scoped[0]).toMatchObject({ expanded: true, expandable: false });
+    // Toggled or not outside Isolation Mode, the root stays expanded.
+    expect(rows(doc, new Set(), id("g")).map((r) => key(r.node.id))).toEqual(["g", "b", "a"]);
+  });
+
+  it("disables the Make/Release Clipping Mask button", () => {
+    const { doc, id } = fixture();
+    expect(layerMask(doc, [id("a")], id("g"))).toEqual({
+      label: "Make Clipping Mask",
+      command: null,
+    });
+    expect(layerMask(doc, [id("a")]).command).not.toBeNull();
+  });
+});

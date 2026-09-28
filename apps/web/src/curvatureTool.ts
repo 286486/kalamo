@@ -66,7 +66,9 @@ export const curvatureTool: CanvasTool = {
     e.redraw();
   },
   onKey(keys) {
-    if (keys === "Enter" || keys === "Escape") finishPen();
+    if ((keys !== "Enter" && keys !== "Escape") || !drawing(useStore.getState())) return false;
+    finishPen();
+    return true;
   },
   draw(ctx, _doc, scale) {
     const s = useStore.getState();

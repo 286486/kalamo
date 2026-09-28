@@ -1,5 +1,5 @@
 import { memo, useState } from "react";
-import { autoName, layerMask, rows } from "./layers.ts";
+import { layerMask, nameOf, rows } from "./layers.ts";
 import { combine, objects } from "./selection.ts";
 import { send, useStore } from "./store.ts";
 
@@ -26,6 +26,7 @@ export const Layers = memo(function Layers() {
   // memo and two selectors: a drag frame changes neither, so the panel does not re-render.
   const doc = useStore((s) => s.doc);
   const selection = useStore((s) => s.selection);
+  const isolated = useStore((s) => s.isolated);
   const [toggled, setToggled] = useState(() => new Set<string>());
   if (!doc) return null;
 
@@ -38,7 +39,8 @@ export const Layers = memo(function Layers() {
     useStore.setState({ notice: null });
     send({ type: "update", nodeId, patch });
   };
-  const mask = layerMask(doc, selection);
+  const mask = layerMask(doc, selection, isolated);
+  const listed = rows(doc, toggled, isolated);
 
   return (
     <div
@@ -56,15 +58,16 @@ export const Layers = memo(function Layers() {
       }}
     >
       <div style={{ flex: 1, overflow: "auto" }}>
-        {rows(doc, toggled).map(({ node, depth, expandable, expanded, dimmed, underlined }) => {
-          const label = node.name || autoName(doc, node);
+        {listed.map(({ node, depth, expandable, expanded, dimmed, underlined }) => {
+          const label = nameOf(doc, node);
           const selected = selection.includes(node.id);
           const pick = (e: React.MouseEvent) => {
             const { doc, selection } = useStore.getState();
             if (!doc) return;
-            // A Layer is never selected itself: its row selects the objects in it.
+            // A Layer or the isolated Group is never selected itself: its row selects the objects
+            // in it.
             const ids =
-              node.type !== "layer"
+              node.type !== "layer" && node.id !== isolated
                 ? [node.id]
                 : dimmed
                   ? []

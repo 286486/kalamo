@@ -4,6 +4,7 @@ import { sendAnchorEdits } from "./anchorTools.ts";
 import { cleanUpDialog } from "./cleanUp.ts";
 import { curvatureClearInputs, removeCurveAnchor } from "./curvature.ts";
 import { anchorOpTargets, clearInputs, inRange, removeAnchorInputs } from "./direct.ts";
+import { exitLevel, isolate } from "./isolation.ts";
 import { offsetDialog } from "./offset.ts";
 import { PLACEABLE, pasteClipboard, place, relink } from "./place.ts";
 import {
@@ -35,6 +36,8 @@ export interface MenuItem {
   keys?: string;
   /** The browser runs the shortcut itself: the clipboard events only a real key press fires. */
   native?: true;
+  /** The canvas runs the shortcut once no tool takes the key (Viewer.tsx), not the menu bar. */
+  canvas?: true;
   /** Greyed out when false; always enabled without it. */
   enabled?: (s: State) => boolean;
   checked?: (s: State) => boolean;
@@ -145,10 +148,17 @@ function averageDialog(then: (axis: Axis) => void) {
   dialog.showModal();
 }
 
-const select = (pick: (doc: Document, selection: string[]) => string[]) => () => {
-  const { doc, selection } = useStore.getState();
-  if (doc) useStore.setState({ selection: pick(doc, selection) });
-};
+const select =
+  (pick: (doc: Document, selection: string[], scope: string | null) => string[]) => () => {
+    const { doc, selection, isolated } = useStore.getState();
+    if (doc) useStore.setState({ selection: pick(doc, selection, isolated) });
+  };
+
+/** Object > Exit Isolation Mode, and Esc when no tool takes it: up one level (ADR-0057). */
+export function exitIsolation() {
+  const { doc, isolated } = useStore.getState();
+  if (doc && isolated) useStore.setState(exitLevel(doc, isolated));
+}
 
 const view =
   (next: (s: State & { viewport: NonNullable<State["viewport"]> }) => State["viewport"]) => () => {
@@ -321,123 +331,148 @@ export function documentMenus(tabs: {
     },
     {
       label: "Object",
-      items: edits([
+      items: [
+        ...edits([
+          {
+            // Illustrator's order; Smooth takes its place when it arrives.
+            label: "Path",
+            items: [
+              {
+                label: PATH_OP_TEXT.join.menu,
+                keys: "Ctrl+J",
+                enabled: join.enabled,
+                run: () => {
+                  const input = join.targets();
+                  if (input) send({ type: "path_op", input: { ...input, op: "join" } });
+                },
+              },
+              {
+                label: PATH_OP_TEXT.average.menu,
+                keys: "Alt+Ctrl+J",
+                enabled: average.enabled,
+                run: () => {
+                  if (!average.targets()) return;
+                  averageDialog((axis) => {
+                    // The Selection may have changed while the dialog was open.
+                    const input = average.targets();
+                    if (input) send({ type: "path_op", input: { ...input, op: "average", axis } });
+                  });
+                },
+              },
+              pathOp("outline_stroke"),
+              { label: PATH_OP_TEXT.offset.menu, enabled: hasPathTargets, run: offsetDialog },
+              pathOp("reverse"),
+              { label: PATH_OP_TEXT.simplify.menu, enabled: hasPathTargets, run: startSimplify },
+              pathOp("add_anchors"),
+              {
+                label: "Remove Anchor Points",
+                enabled: ({ doc, anchors }) => doc !== null && anchors.some((k) => inRange(doc, k)),
+                run: () => {
+                  const { doc, anchors } = useStore.getState();
+                  if (doc) sendAnchorEdits(removeAnchorInputs(doc, anchors));
+                },
+              },
+              {
+                ...pathOp("divide_below"),
+                // Illustrator's needs one object selected.
+                enabled: ({ doc, selection }) =>
+                  doc !== null && pathTargets(doc, selection).length === 1,
+              },
+              {
+                label: PATH_OP_TEXT.split_into_grid.menu,
+                enabled: hasPathTargets,
+                run: splitGridDialog,
+              },
+              { label: PATH_OP_TEXT.clean_up.menu, enabled: hasDoc, run: cleanUpDialog },
+            ],
+          },
+          {
+            label: "Shape",
+            items: [
+              {
+                label: PATH_OP_TEXT.convert_to_path.menu,
+                enabled: ({ doc, selection }) =>
+                  doc !== null && expandable(doc, selection).length > 0,
+                run: () => {
+                  const { doc, selection } = useStore.getState();
+                  const nodeIds = doc ? expandable(doc, selection) : [];
+                  if (nodeIds.length > 0) {
+                    send({ type: "path_op", input: { nodeIds, op: "convert_to_path" } });
+                  }
+                },
+              },
+            ],
+          },
+          {
+            label: "Clipping Mask",
+            items: [
+              {
+                label: "Make",
+                keys: "Ctrl+7",
+                enabled: ({ doc, selection }) => doc !== null && maskInput(doc, selection) !== null,
+                run: () => {
+                  const { doc, selection } = useStore.getState();
+                  const input = doc && maskInput(doc, selection);
+                  if (input) send({ type: "mask_make", input });
+                },
+              },
+              {
+                label: "Release",
+                keys: "Alt+Ctrl+7",
+                enabled: ({ doc, selection }) =>
+                  doc !== null && releasable(doc, selection).length > 0,
+                run: () => {
+                  const { doc, selection } = useStore.getState();
+                  const nodeIds = doc ? releasable(doc, selection) : [];
+                  if (nodeIds.length > 0) send({ type: "mask_release", nodeIds });
+                },
+              },
+            ],
+          },
+        ]),
+        // A viewer isolates as it selects (ADR-0057).
         {
-          // Illustrator's order; Smooth takes its place when it arrives.
-          label: "Path",
-          items: [
-            {
-              label: PATH_OP_TEXT.join.menu,
-              keys: "Ctrl+J",
-              enabled: join.enabled,
-              run: () => {
-                const input = join.targets();
-                if (input) send({ type: "path_op", input: { ...input, op: "join" } });
-              },
-            },
-            {
-              label: PATH_OP_TEXT.average.menu,
-              keys: "Alt+Ctrl+J",
-              enabled: average.enabled,
-              run: () => {
-                if (!average.targets()) return;
-                averageDialog((axis) => {
-                  // The Selection may have changed while the dialog was open.
-                  const input = average.targets();
-                  if (input) send({ type: "path_op", input: { ...input, op: "average", axis } });
-                });
-              },
-            },
-            pathOp("outline_stroke"),
-            { label: PATH_OP_TEXT.offset.menu, enabled: hasPathTargets, run: offsetDialog },
-            pathOp("reverse"),
-            { label: PATH_OP_TEXT.simplify.menu, enabled: hasPathTargets, run: startSimplify },
-            pathOp("add_anchors"),
-            {
-              label: "Remove Anchor Points",
-              enabled: ({ doc, anchors }) => doc !== null && anchors.some((k) => inRange(doc, k)),
-              run: () => {
-                const { doc, anchors } = useStore.getState();
-                if (doc) sendAnchorEdits(removeAnchorInputs(doc, anchors));
-              },
-            },
-            {
-              ...pathOp("divide_below"),
-              // Illustrator's needs one object selected.
-              enabled: ({ doc, selection }) =>
-                doc !== null && pathTargets(doc, selection).length === 1,
-            },
-            {
-              label: PATH_OP_TEXT.split_into_grid.menu,
-              enabled: hasPathTargets,
-              run: splitGridDialog,
-            },
-            { label: PATH_OP_TEXT.clean_up.menu, enabled: hasDoc, run: cleanUpDialog },
-          ],
-        },
-        {
-          label: "Shape",
-          items: [
-            {
-              label: PATH_OP_TEXT.convert_to_path.menu,
-              enabled: ({ doc, selection }) =>
-                doc !== null && expandable(doc, selection).length > 0,
-              run: () => {
-                const { doc, selection } = useStore.getState();
-                const nodeIds = doc ? expandable(doc, selection) : [];
-                if (nodeIds.length > 0) {
-                  send({ type: "path_op", input: { nodeIds, op: "convert_to_path" } });
-                }
-              },
-            },
-          ],
-        },
-        {
-          label: "Clipping Mask",
-          items: [
-            {
-              label: "Make",
-              keys: "Ctrl+7",
-              enabled: ({ doc, selection }) => doc !== null && maskInput(doc, selection) !== null,
-              run: () => {
-                const { doc, selection } = useStore.getState();
-                const input = doc && maskInput(doc, selection);
-                if (input) send({ type: "mask_make", input });
-              },
-            },
-            {
-              label: "Release",
-              keys: "Alt+Ctrl+7",
-              enabled: ({ doc, selection }) =>
-                doc !== null && releasable(doc, selection).length > 0,
-              run: () => {
-                const { doc, selection } = useStore.getState();
-                const nodeIds = doc ? releasable(doc, selection) : [];
-                if (nodeIds.length > 0) send({ type: "mask_release", nodeIds });
-              },
-            },
-          ],
-        },
-        "-",
-        {
-          label: "Relink…",
-          enabled: ({ doc, selection }) => doc !== null && relinkable(doc, selection) !== undefined,
+          label: "Isolate Selected Group",
+          enabled: ({ doc, selection: [id, ...rest] }) =>
+            doc !== null && id !== undefined && rest.length === 0 && isolate(doc, id) !== null,
           run: () => {
             const { doc, selection } = useStore.getState();
-            const nodeId = doc && relinkable(doc, selection);
-            if (nodeId) pickFile("image/*", (file) => relink(nodeId, file));
+            const isolated =
+              doc && selection.length === 1 ? isolate(doc, selection[0] ?? "") : null;
+            if (isolated) useStore.setState({ isolated, selection: [] });
           },
         },
         {
-          label: "Embed",
-          enabled: ({ doc, selection }) => doc !== null && embeddable(doc, selection).length > 0,
-          run: () => {
-            const { doc, selection } = useStore.getState();
-            const nodeIds = doc ? embeddable(doc, selection) : [];
-            if (nodeIds.length > 0) send({ type: "embed", nodeIds });
-          },
+          label: "Exit Isolation Mode",
+          keys: "Escape",
+          // A Pen or Curvature path, the Zoom tool, Simplify or a dialog takes Esc first.
+          canvas: true,
+          enabled: (s) => s.isolated !== null,
+          run: exitIsolation,
         },
-      ]),
+        ...edits([
+          "-",
+          {
+            label: "Relink…",
+            enabled: ({ doc, selection }) =>
+              doc !== null && relinkable(doc, selection) !== undefined,
+            run: () => {
+              const { doc, selection } = useStore.getState();
+              const nodeId = doc && relinkable(doc, selection);
+              if (nodeId) pickFile("image/*", (file) => relink(nodeId, file));
+            },
+          },
+          {
+            label: "Embed",
+            enabled: ({ doc, selection }) => doc !== null && embeddable(doc, selection).length > 0,
+            run: () => {
+              const { doc, selection } = useStore.getState();
+              const nodeIds = doc ? embeddable(doc, selection) : [];
+              if (nodeIds.length > 0) send({ type: "embed", nodeIds });
+            },
+          },
+        ]),
+      ],
     },
     {
       label: "Select",
@@ -446,7 +481,7 @@ export function documentMenus(tabs: {
           label: "All",
           keys: "Ctrl+A",
           enabled: hasDoc,
-          run: select((doc) => objects(doc).map((n) => n.id)),
+          run: select((doc, _, scope) => objects(doc, scope).map((n) => n.id)),
         },
         { label: "Deselect", keys: "Shift+Ctrl+A", enabled: hasSelection, run: select(() => []) },
         { label: "Inverse", enabled: hasDoc, run: select(inverse) },
@@ -516,7 +551,7 @@ const MAC_GLYPHS: Record<string, string> = { Alt: "⌥", Shift: "⇧", Ctrl: "�
 
 /** `keys` as the platform's menus show it: ⇧⌘Z on macOS, Shift+Ctrl+Z elsewhere. */
 export function shortcut(keys: string, mac: boolean): string {
-  const parts = keys.split("+").map((k) => (k === "=" ? "+" : k));
+  const parts = keys.split("+").map((k) => (k === "=" ? "+" : k === "Escape" ? "Esc" : k));
   return mac ? parts.map((k) => MAC_GLYPHS[k] ?? k).join("") : parts.join("+");
 }
 

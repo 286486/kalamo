@@ -75,7 +75,9 @@ export const penTool: CanvasTool = {
   },
   onKey(keys) {
     // Enter and Esc end the path.
-    if (keys === "Enter" || keys === "Escape") finishPen();
+    if ((keys !== "Enter" && keys !== "Escape") || !drawing(useStore.getState())) return false;
+    finishPen();
+    return true;
   },
   // A selected path shows its Anchors, which Auto Add/Delete and Alt act on.
   drawSelected: directTool.drawSelected,

@@ -50,7 +50,10 @@ function nearestOf(doc: Document, ids: string[], p: Point, tolerance: number) {
  * keeping its shape; `only` limits it to those paths. False when it hit no segment.
  */
 export function addAnchorAt(doc: Document, p: Point, tolerance: number, only?: string[]): boolean {
-  const hit = only ? nearestOf(doc, only, p, tolerance) : pick(doc, [], [], p[0], p[1], tolerance);
+  const scope = useStore.getState().isolated;
+  const hit = only
+    ? nearestOf(doc, only, p, tolerance)
+    : pick(doc, [], [], p[0], p[1], tolerance, [], scope);
   if (hit?.kind !== "segment") return false;
   const { nodeId, subpath, segment } = hit;
   const n = doc.nodes.get(nodeId);
@@ -79,7 +82,7 @@ export function deleteAnchorAt(
   tolerance: number,
   only?: string[],
 ): boolean {
-  const hit = pick(doc, only ?? [], [], p[0], p[1], tolerance);
+  const hit = pick(doc, only ?? [], [], p[0], p[1], tolerance, [], useStore.getState().isolated);
   if (hit?.kind !== "anchor" || (only && !only.includes(parseKey(hit.key).nodeId))) return false;
   sendAnchorEdits(removeAnchorInputs(doc, [hit.key]));
   return true;
@@ -153,9 +156,10 @@ export const anchorPointTool: CanvasTool = {
   icon: "M2 13 L8 3 L14 13 M5 3 H11",
   cursor: "default",
   down(e) {
-    const { selection, anchors, segments } = useStore.getState();
+    const { selection, anchors, segments, isolated } = useStore.getState();
     useStore.setState({ notice: null });
-    const target = pick(e.doc, selection, anchors, e.x, e.y, 3 / e.viewport.scale, segments);
+    const tolerance = 3 / e.viewport.scale;
+    const target = pick(e.doc, selection, anchors, e.x, e.y, tolerance, segments, isolated);
     if (!target) return;
     e.capture();
     const g = { start: { x: e.x, y: e.y }, moved: false };

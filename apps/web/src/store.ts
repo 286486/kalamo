@@ -47,6 +47,7 @@ export const useStore = create<State>(() => ({
   role: null,
   viewport: null,
   selection: [],
+  isolated: null,
   drag: null,
   pen: null,
   edit: null,
@@ -80,8 +81,11 @@ export const VIEWER_TOOLS: readonly Tool[] = ["selection", "zoom"];
 
 let socket: WebSocket | null = null;
 
-/** Each Document Tab's viewport and Selection while another tab is shown, for the page's lifetime. */
-const views = new Map<string, Pick<State, "viewport" | "selection">>();
+/**
+ * Each Document Tab's viewport, Selection and Isolation while another tab is shown, for the page's
+ * lifetime.
+ */
+const views = new Map<string, Pick<State, "viewport" | "selection" | "isolated">>();
 
 /**
  * Sends one gesture to the Document (ADR-0010) and returns its id, which its answer carries. While
@@ -127,6 +131,7 @@ export function connect(docId: string): () => void {
     notice: null,
     viewport: null,
     selection: [],
+    isolated: null,
     ...views.get(docId),
   });
   let ws: WebSocket;
@@ -186,8 +191,8 @@ export function connect(docId: string): () => void {
   };
   open();
   return () => {
-    const { viewport, selection } = useStore.getState();
-    views.set(docId, { viewport, selection });
+    const { viewport, selection, isolated } = useStore.getState();
+    views.set(docId, { viewport, selection, isolated });
     stopped = true;
     clearTimeout(retry);
     socket = null;
