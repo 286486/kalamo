@@ -13,7 +13,6 @@ import {
 } from "./pencil.ts";
 import { useStore } from "./store.ts";
 import type { CanvasTool } from "./toolbox.ts";
-import { pathD } from "./tools.ts";
 
 /** Drags draw freehand; see pencil.ts. */
 export const pencilTool: CanvasTool = {
@@ -40,15 +39,12 @@ export const pencilTool: CanvasTool = {
   },
   options: showOptions,
   draw(ctx, _doc, scale) {
-    const { pen, fillStroke } = useStore.getState();
+    const { fillStroke } = useStore.getState();
     const ink = pencilInk();
-    // The Ink as drawn, then the fitted path until its Transaction arrives.
+    // The Ink as drawn; the fitted path is a PendingCreate until its Transaction arrives.
     if (ink && ink.length > 1) {
       const path = new Path2D(`M ${ink.map((p) => p.join(" ")).join(" L ")}`);
       drawDrawing(ctx, path, { ...fillStroke, fill: pencilFill(fillStroke.fill) }, scale);
-    } else if (pen?.pencil) {
-      const path = new Path2D(pathD(pen.anchors, pen.closed));
-      drawDrawing(ctx, path, { ...fillStroke, fill: pen.pencil.fill }, scale);
     }
   },
 };

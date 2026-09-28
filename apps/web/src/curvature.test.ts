@@ -60,6 +60,7 @@ beforeEach(() => {
     anchors: [],
     segments: [],
     pen: null,
+    pending: [],
     tool: "curvature",
     fillStroke: DEFAULT_FILL_STROKE,
   });

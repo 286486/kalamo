@@ -41,6 +41,7 @@ it("keeps the drag preview until the tx answering its command arrives", () => {
     selection: [a.id],
     drag: drag([a.id], "c1"),
     pen: null,
+    pending: [],
     opPreview: null,
     notice: null,
     edit: null,
@@ -62,6 +63,7 @@ it("snaps back and shows a notice when its command is rejected", () => {
     selection: [a.id],
     drag: drag([a.id], "c1"),
     pen: null,
+    pending: [],
     opPreview: null,
     notice: null,
     edit: null,
@@ -81,6 +83,7 @@ it("drops deleted Nodes from the Selection", () => {
     selection: [a.id, b.id],
     drag: null,
     pen: null,
+    pending: [],
     opPreview: null,
     notice: null,
     edit: null,
@@ -100,6 +103,7 @@ it("asks to reconnect on a missed rev, and drops an unanswered drag on a new Doc
     selection: [a.id],
     drag: drag([a.id], "c1"),
     pen: null,
+    pending: [],
     opPreview: null,
     notice: null,
     edit: null,
@@ -134,6 +138,7 @@ it("tells the person when an undo skipped Nodes deleted meanwhile", () => {
     selection: [],
     drag: null,
     pen: null,
+    pending: [],
     opPreview: null,
     notice: null,
     edit: null,
@@ -154,6 +159,7 @@ it("selects the Group a selected Node was just moved into, as Make Clipping Mask
     selection: [a.id, b.id],
     drag: null,
     pen: null,
+    pending: [],
     opPreview: null,
     notice: null,
     edit: null,
@@ -170,22 +176,27 @@ it("selects the Group a selected Node was just moved into, as Make Clipping Mask
   expect(receive(state, tx(doc, made), "d")).toMatchObject({ selection: [a.id, b.id] });
 });
 
-const pen = (commandId: string | null) => ({
+const pen = {
   anchors: [
     { anchor: [0, 0] as [number, number], handleIn: null, handleOut: null },
     { anchor: [10, 0] as [number, number], handleIn: null, handleOut: null },
   ],
   closed: false,
+};
+const pending = (commandId: string, select = true) => ({
   commandId,
+  nodes: [{ type: "path" as const, parentId: "l", d: "M 0 0 L 10 0" }],
+  select,
 });
 
-it("keeps the Pen's path until its create is answered, then selects what it made", () => {
+it("keeps each drawn create until its own answer, which selects what it made", () => {
   const { doc, a } = fixture();
   const state = {
     doc,
     selection: [a.id],
     drag: null,
-    pen: pen("c1"),
+    pen,
+    pending: [pending("c1"), pending("c2", false)],
     opPreview: null,
     notice: null,
     edit: null,
@@ -194,25 +205,28 @@ it("keeps the Pen's path until its create is answered, then selects what it made
     isolated: null,
   };
   const other = receive(state, tx(doc, { actor: "agent-a" }), "d");
-  expect(other).not.toHaveProperty("pen");
+  expect(other).not.toHaveProperty("pending");
   expect(other?.selection).toEqual([a.id]);
   const path = { ...a, id: "p" };
-  const answer = tx(doc, { actor: "user", commandId: "c1", created: [path] });
-  expect(receive(state, answer, "d")).toMatchObject({
-    pen: null,
-    selection: ["p"],
-  });
+  const answer = (commandId: string) =>
+    receive(state, tx(doc, { actor: "user", commandId, created: [path] }), "d");
+  // The path being drawn is not the one answered.
+  expect(answer("c1")).not.toHaveProperty("pen");
+  expect(answer("c1")).toMatchObject({ pending: [pending("c2", false)], selection: ["p"] });
+  expect(answer("c2")).toMatchObject({ pending: [pending("c1")], selection: [] });
   const error = { code: "INVALID_PATH" as const, message: "no", hint: "" };
-  expect(receive(state, { type: "rejected", id: "c1", error }, "d")).toMatchObject({ pen: null });
+  const rejected = receive(state, { type: "rejected", id: "c1", error }, "d");
+  expect(rejected).toEqual({ pending: [pending("c2", false)], notice: "no" });
 });
 
-it("keeps a path the Pen is still drawing across a reconnect", () => {
+it("keeps a path the Pen is still drawing across a reconnect, and drops every create in flight", () => {
   const { doc, a } = fixture();
   const state = {
     doc,
-    selection: [],
+    selection: [a.id],
     drag: null,
-    pen: pen(null),
+    pen,
+    pending: [],
     opPreview: null,
     notice: null,
     edit: null,
@@ -229,7 +243,9 @@ it("keeps a path the Pen is still drawing across a reconnect", () => {
     role: "owner" as const,
   };
   expect(receive(state, msg, "d")).not.toHaveProperty("pen");
-  expect(receive({ ...state, pen: pen("c1") }, msg, "d")).toMatchObject({ pen: null });
+  expect(receive(state, msg, "d")).not.toHaveProperty("pending");
+  const sent = { ...state, pending: [pending("c1"), pending("c2")] };
+  expect(receive(sent, msg, "d")).toMatchObject({ pending: [], selection: [a.id], isolated: null });
 });
 
 const move = (nodeId: string, index = 0) => ({
@@ -245,6 +261,7 @@ it("keeps a Direct Selection drag's preview until every path_edit is answered", 
     selection: [a.id],
     drag: null,
     pen: null,
+    pending: [],
     opPreview: null,
     notice: null,
     edit,
@@ -286,6 +303,7 @@ it("drops selected Anchors of a Node someone else changed, and keeps ours still 
     selection: [a.id, b.id],
     drag: null,
     pen: null,
+    pending: [],
     opPreview: null,
     notice: null,
     edit: null,
@@ -329,6 +347,7 @@ it("keeps a Simplify preview until the answer to its path_op, and previews it wi
     selection: [a.id],
     drag: null,
     pen: null,
+    pending: [],
     opPreview: null,
     notice: null,
     edit: null,

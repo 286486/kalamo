@@ -1,9 +1,8 @@
-import { dragged, drawDrawing, type Press } from "./canvas.ts";
-import { forNewArt, leaving } from "./isolation.ts";
+import { dragged, drawDrawing, type Press, shapePath } from "./canvas.ts";
 import type { ShapeBox } from "./receive.ts";
-import { send, useStore } from "./store.ts";
+import { useStore } from "./store.ts";
 import type { CanvasTool, KeyMods } from "./toolbox.ts";
-import { NOTHING_DRAWN, newArtNode } from "./tools.ts";
+import { sendNewArt } from "./tools.ts";
 
 type Point = [number, number];
 
@@ -54,32 +53,6 @@ function update(p: Point, mods: KeyMods, moved: boolean) {
   if (moved) drag.box = { type: drag.type, ...dragBox(drag.origin, p, mods) };
 }
 
-function outline({ type, x, y, width, height }: ShapeBox) {
-  const path = new Path2D();
-  if (type === "rect") path.rect(x, y, width, height);
-  else path.ellipse(x + width / 2, y + height / 2, width / 2, height / 2, 0, 0, 2 * Math.PI);
-  return path;
-}
-
-/**
- * Sends the drag as one `create` (ADR-0032), placed as the Pen places new art; the Live Shape is
- * drawn until its Transaction arrives, which selects it (receive.ts).
- */
-function finish(shape: ShapeBox) {
-  const s = useStore.getState();
-  if (!s.doc) return;
-  const at = forNewArt(s.doc, s);
-  const node = newArtNode({ ...s, ...at, doc: s.doc }, shape);
-  if (!node) {
-    useStore.setState({ notice: NOTHING_DRAWN });
-    return;
-  }
-  const commandId = send({ type: "create", nodes: [node] });
-  useStore.setState({
-    pen: { anchors: [], closed: true, commandId, shape, leave: leaving(s.isolated, at) },
-  });
-}
-
 /** A drag draws a Live Shape of `type`, previewed in the current Fill and Stroke until release. */
 const shapeTool = (
   type: ShapeBox["type"],
@@ -113,7 +86,7 @@ const shapeTool = (
     const { box } = drag;
     drag = null;
     // One dragged back to a line or a point would be invisible.
-    if (box && box.width > 0 && box.height > 0) finish(box);
+    if (box && box.width > 0 && box.height > 0) sendNewArt([box]);
     e.redraw();
   },
   cancel(redraw) {
@@ -121,12 +94,8 @@ const shapeTool = (
     redraw();
   },
   draw(ctx, _doc, scale) {
-    const { pen, fillStroke } = useStore.getState();
-    if (drag?.type === type && drag.box) {
-      drawDrawing(ctx, outline(drag.box), fillStroke, scale);
-    } else if (pen?.shape?.type === type) {
-      drawDrawing(ctx, outline(pen.shape), fillStroke, scale);
-    }
+    const path = drag?.type === type && drag.box && shapePath(drag.box);
+    if (path) drawDrawing(ctx, path, useStore.getState().fillStroke, scale);
   },
 });
 

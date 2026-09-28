@@ -175,7 +175,7 @@ it("isolates one editable Group, and exits it from the menu or with Esc (ADR-005
   expect(exit({ isolated: null })).toBe(false);
   // The tools take Esc before the canvas runs the item; the menu bar never binds it.
   expect(findByKeys(menus, "Escape")?.canvas).toBe(true);
-  expect(exit({ tool: "pen", pen: { anchors: [], closed: false, commandId: null } })).toBe(true);
+  expect(exit({ tool: "pen", pen: { anchors: [], closed: false } })).toBe(true);
 });
 
 it("isolates one selected Live Shape or Path and keeps it selected (ADR-0058)", () => {

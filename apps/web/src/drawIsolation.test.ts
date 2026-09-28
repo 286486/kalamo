@@ -1,6 +1,7 @@
 import { createDocument, createNodes, type Document, type NodeInput } from "@zibel/core";
 import type { ServerMessage } from "@zibel/sync";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { drawPending } from "./canvas.ts";
 import { curvatureDown, curvatureUp } from "./curvature.ts";
 import { DEFAULT_PENCIL, pencilDown, pencilMove, pencilUp, savePencilOptions } from "./pencil.ts";
 import { receive } from "./receive.ts";
@@ -11,7 +12,7 @@ import { finishPen, penDown, penUp } from "./tools.ts";
 
 vi.mock("./store.ts", async (original) => ({
   ...(await original<typeof import("./store.ts")>()),
-  send: vi.fn(() => "sent"),
+  send: vi.fn(),
 }));
 
 type Point = [number, number];
@@ -34,6 +35,7 @@ function isolateLeaf(scope: "leaf" | "group" = "leaf") {
   useStore.setState({
     doc,
     pen: null,
+    pending: [],
     edit: null,
     drag: null,
     opPreview: null,
@@ -55,9 +57,15 @@ const deliver = (msg: ServerMessage) => {
   if (!next) throw new Error("missed rev");
   useStore.setState(next);
 };
-/** The Worker creating the one `create` sent: its `tx`, with the new path's id. */
-function accept(): string {
-  const [command] = vi.mocked(send).mock.lastCall ?? [];
+/** The command sent as `id`, or the last one sent, and its id. */
+function sent(id?: string) {
+  const { calls, results } = vi.mocked(send).mock;
+  const i = id ? results.findIndex((r) => r.value === id) : calls.length - 1;
+  return { command: calls[i]?.[0], commandId: results[i]?.value as string };
+}
+/** The Worker creating the `create` sent as `id`, or the last one: its `tx`, with the new path's id. */
+function accept(id?: string): string {
+  const { command, commandId } = sent(id);
   if (command?.type !== "create") throw new Error("no create");
   const doc = structuredClone(useStore.getState().doc) as Document;
   const { nodes } = createNodes(doc, command.nodes as NodeInput[]);
@@ -70,14 +78,14 @@ function accept(): string {
     created: nodes,
     updated: [],
     deletedIds: [],
-    commandId: "sent",
+    commandId,
   });
   return nodes[0]?.id as string;
 }
-const reject = () =>
+const reject = (id?: string) =>
   deliver({
     type: "rejected",
-    id: "sent",
+    id: sent(id).commandId,
     error: { code: "PERMISSION_DENIED", message: "Viewers cannot edit." },
   } as ServerMessage);
 /** The Document a reconnect sends: a command dropped while the socket was down never arrived. */
@@ -145,7 +153,10 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.advanceTimersByTime(1000);
   savePencilOptions(DEFAULT_PENCIL);
-  vi.mocked(send).mockClear();
+  let n = 0;
+  vi.mocked(send)
+    .mockReset()
+    .mockImplementation(() => `c${++n}`);
 });
 
 describe.each(tools)("the %s with a leaf isolated (ADR-0058, #137)", (_, draw) => {
@@ -162,7 +173,7 @@ describe.each(tools)("the %s with a leaf isolated (ADR-0058, #137)", (_, draw) =
     draw();
     const path = accept();
     expect(view()).toEqual({ isolated: id("g"), selection: [path] });
-    expect(useStore.getState().pen).toBeNull();
+    expect(useStore.getState().pending).toEqual([]);
   });
 
   it("leaves the Isolation and Selection alone when the create is rejected, and says why", () => {
@@ -170,7 +181,7 @@ describe.each(tools)("the %s with a leaf isolated (ADR-0058, #137)", (_, draw) =
     draw();
     reject();
     expect(view()).toEqual({ isolated: before.isolated, selection: before.selection });
-    expect(useStore.getState()).toMatchObject({ pen: null, notice: "Viewers cannot edit." });
+    expect(useStore.getState()).toMatchObject({ pending: [], notice: "Viewers cannot edit." });
   });
 
   it("leaves them alone when the command was dropped and the reconnect's Document arrives", () => {
@@ -178,7 +189,7 @@ describe.each(tools)("the %s with a leaf isolated (ADR-0058, #137)", (_, draw) =
     draw();
     reconnect();
     expect(view()).toEqual({ isolated: before.isolated, selection: before.selection });
-    expect(useStore.getState().pen).toBeNull();
+    expect(useStore.getState().pending).toEqual([]);
   });
 
   it("keeps an Isolation an Esc changed while the create was in flight", () => {
@@ -256,5 +267,95 @@ it("a tab switched away while the create is in flight keeps the leaf isolated on
   disconnect();
   connect("d")();
   expect(view()).toEqual({ isolated: before.isolated, selection: before.selection });
+  vi.unstubAllGlobals();
+});
+
+describe.each(tools)("the %s, then a Rectangle, both in flight from a leaf (#141)", (_, draw) => {
+  const drawBoth = () => {
+    const { id } = isolateLeaf();
+    draw();
+    drawShape(rectangleTool)();
+    // Both are previewed, each until its own answer.
+    expect(useStore.getState().pending.map((p) => p.commandId)).toEqual(["c1", "c2"]);
+    return id;
+  };
+
+  it("each tx selects its own Node, and the Isolation ends one level up", () => {
+    const id = drawBoth();
+    const first = accept("c1");
+    expect(view()).toEqual({ isolated: id("g"), selection: [first] });
+    expect(useStore.getState().pending.map((p) => p.commandId)).toEqual(["c2"]);
+    const second = accept("c2");
+    expect(view()).toEqual({ isolated: id("g"), selection: [second] });
+    expect(useStore.getState().pending).toEqual([]);
+  });
+
+  it("the first accepted and the second rejected: the first is selected, one level up", () => {
+    const id = drawBoth();
+    const first = accept("c1");
+    reject("c2");
+    expect(view()).toEqual({ isolated: id("g"), selection: [first] });
+    expect(useStore.getState()).toMatchObject({ pending: [], notice: "Viewers cannot edit." });
+  });
+
+  it("the first rejected and the second accepted: the second is selected, one level up", () => {
+    const id = drawBoth();
+    reject("c1");
+    const second = accept("c2");
+    expect(view()).toEqual({ isolated: id("g"), selection: [second] });
+  });
+
+  it("a reconnect drops both and leaves the Isolation and Selection alone", () => {
+    drawBoth();
+    const before = view();
+    reconnect();
+    expect(view()).toEqual(before);
+    expect(useStore.getState().pending).toEqual([]);
+  });
+});
+
+it("a path started while an earlier one is in flight is not ended by the earlier tx", () => {
+  isolateLeaf("group");
+  drawPen();
+  penDown([10, 10], 1);
+  penUp();
+  const pen = useStore.getState().pen;
+  expect(pen?.anchors).toHaveLength(1);
+  expect(useStore.getState().pending).toHaveLength(1);
+  accept("c1");
+  expect(useStore.getState()).toMatchObject({ pen, pending: [] });
+});
+
+it("the last drawn object decides the Selection, a Pencil with Keep selected off none", () => {
+  isolateLeaf("group");
+  drawPencil(false);
+  drawPen();
+  accept("c1");
+  const path = accept("c2");
+  expect(view().selection).toEqual([path]);
+  isolateLeaf("group");
+  drawPen();
+  drawPencil(false);
+  accept("c3");
+  accept("c4");
+  expect(view().selection).toEqual([]);
+});
+
+it("previews a create in flight in the Fill it was sent with", () => {
+  isolateLeaf("group");
+  useStore.setState({ fillStroke: { fill: "#FF0000", stroke: null, active: "fill" } });
+  drawShape(ellipseTool)();
+  useStore.setState({ fillStroke: { fill: "#00FF00", stroke: null, active: "fill" } });
+  vi.stubGlobal("Path2D", class {});
+  const fills: unknown[] = [];
+  const ctx = {
+    fillStyle: "",
+    fill() {
+      fills.push(ctx.fillStyle);
+    },
+    stroke() {},
+  };
+  drawPending(ctx as unknown as CanvasRenderingContext2D, useStore.getState().pending, 1);
+  expect(fills).toEqual(["#FF0000"]);
   vi.unstubAllGlobals();
 });

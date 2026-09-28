@@ -3,6 +3,7 @@ import {
   type Document,
   editPath,
   type Geometry,
+  type NodeInput,
   type PathEditInput,
   type PathOpInput,
   pathOp,
@@ -38,8 +39,8 @@ export interface ShapeBox {
 }
 
 /**
- * The path the Pen is drawing, in document coordinates (ADR-0032). It stays in the browser until
- * finished; `commandId` is set once its `create` has been sent, and it is drawn until the answer.
+ * The path the Pen or Curvature tool is drawing, in document coordinates (ADR-0032). It stays in
+ * the browser until finished, then is sent as a PendingCreate.
  */
 export interface PenPath {
   anchors: BareAnchor[];
@@ -52,12 +53,15 @@ export interface PenPath {
   /** The Curvature tool's Anchors as placed, which `anchors` follow. */
   curve?: CurveAnchor[];
   closed: boolean;
-  commandId: string | null;
-  /** A Rectangle or Ellipse tool's Live Shape, sent on release; `anchors` is empty. */
-  shape?: ShapeBox;
-  /** A Pencil stroke, sent on release: the Fill it is drawn with, and whether it stays selected. */
-  pencil?: { fill: string | null; keep: boolean };
-  /** A `create` from an isolated leaf `from`: the level `to` go up to once its `tx` creates the path. */
+}
+
+/** A drawing tool's `create`, sent and drawn until its own answer arrives (ADR-0032). */
+export interface PendingCreate {
+  commandId: string;
+  nodes: NodeInput[];
+  /** Whether its `tx` selects what it created: false for the Pencil with Keep selected off. */
+  select: boolean;
+  /** Sent from an isolated leaf `from`: the level `to` go up to once its `tx` creates it (#137). */
   leave?: { from: string; to: string | null };
 }
 
@@ -93,6 +97,8 @@ export interface ViewState {
   /** Drawn until the answer to its command arrives, so a committed move does not flicker. */
   drag: Drag | null;
   pen: PenPath | null;
+  /** Drawn art sent and not yet answered, oldest first. */
+  pending: PendingCreate[];
   edit: PathDrag | null;
   opPreview: PathOpPreview | null;
   /** Direct Selection's selected Anchors (direct.ts's keys): UI state, like the Selection. */
@@ -116,7 +122,7 @@ export function receive(
     const gone = msg.error.code === "NODE_GONE";
     return {
       ...(s.drag?.commandId === msg.id && { drag: null }),
-      ...(s.pen?.commandId === msg.id && { pen: null }),
+      ...settlePending(s.pending, msg.id),
       ...(s.opPreview?.commandId === msg.id && { opPreview: null }),
       ...settle(s.edit, msg.id),
       notice: gone
@@ -145,7 +151,8 @@ export function receive(
   // A reconnect loses the answer to a command in flight, so its preview goes with it.
   const answered =
     msg.type === "document" || (!!msg.commandId && msg.commandId === s.drag?.commandId);
-  const drawn = msg.type === "tx" && !!msg.commandId && msg.commandId === s.pen?.commandId;
+  const drawn =
+    msg.type === "tx" ? s.pending.find((p) => p.commandId === msg.commandId) : undefined;
   // Someone else's change to a path renumbers its Anchors, so its selected ones go; after our own
   // command, and on a reconnect, those it still has stay.
   const ours = [...(s.edit?.commandIds ?? []), s.drag?.commandId];
@@ -168,18 +175,20 @@ export function receive(
     return parentId && made.has(parentId) ? [parentId] : [id];
   });
   const isolated = prune(s.doc, doc, s.isolated);
-  // The drawn path leaves its leaf, unless an Esc or a prune moved the Isolation meanwhile.
-  const leave = drawn ? s.pen?.leave : undefined;
+  // Drawn art leaves its leaf, unless an Esc, a prune or earlier art moved the Isolation meanwhile.
+  const leave = drawn?.leave;
   return {
     doc,
     isolated: leave && isolated === leave.from ? prune(s.doc, doc, leave.to) : isolated,
-    // The path the Pen drew becomes the Selection, as in Illustrator.
-    selection: drawn ? (s.pen?.pencil?.keep === false ? [] : [...made]) : [...new Set(selection)],
+    // Drawn art becomes the Selection, as in Illustrator.
+    selection: drawn ? (drawn.select ? [...made] : []) : [...new Set(selection)],
     ...(answered && { drag: null }),
     anchors,
     segments,
     ...(msg.type === "document" ? { edit: null } : settle(s.edit, msg.commandId)),
-    ...((drawn || (msg.type === "document" && s.pen?.commandId)) && { pen: null }),
+    ...(msg.type === "document"
+      ? s.pending.length > 0 && { pending: [] }
+      : settlePending(s.pending, msg.commandId)),
     ...(s.opPreview?.commandId &&
       (msg.type === "document" || msg.commandId === s.opPreview.commandId) && { opPreview: null }),
     ...(skipped > 0 && { notice: `Skipped ${skipped} deleted object(s); they stay deleted.` }),
@@ -236,6 +245,12 @@ function settle(edit: PathDrag | null, id: string | undefined): { edit?: PathDra
   const inputs = edit.inputs.filter((_, i) => i !== k);
   const commandIds = edit.commandIds.filter((_, i) => i !== k);
   return { edit: inputs.length > 0 ? { inputs, commandIds } : null };
+}
+
+/** The pending creates without the one whose command `id` was answered or rejected. */
+function settlePending(pending: PendingCreate[], id: string | undefined) {
+  const left = pending.filter((p) => p.commandId !== id);
+  return left.length < pending.length ? { pending: left } : {};
 }
 
 /** `GET /api/docs/:docId` after a socket closed unopened: its status and error code, or null. */

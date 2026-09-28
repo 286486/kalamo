@@ -45,6 +45,11 @@ const corner = (x: number, y: number): BareAnchor => ({
   handleOut: null,
 });
 const anchors = () => useStore.getState().pen?.anchors;
+/** The path the last `create` sent, drawn until its answer. */
+const sentPath = () => {
+  const node = useStore.getState().pending.at(-1)?.nodes[0] as { d: string } | undefined;
+  return node && toAnchors(parsePath(node.d, "d"))[0];
+};
 /** The type core derives for an Anchor but the last, whose outgoing Handle `d` leaves out. */
 const typeAt = (i: number) => {
   const pen = useStore.getState().pen;
@@ -68,6 +73,7 @@ beforeEach(() => {
     doc,
     selection: [],
     pen: null,
+    pending: [],
     tool: "pen",
     fillStroke: DEFAULT_FILL_STROKE,
   });
@@ -94,10 +100,11 @@ it("Enter sends three Corner Anchors as one open path with the current Fill and 
   ] as [number, number][])
     penClick(p, 1);
   finishPen();
-  expect(pen()).toMatchObject({ closed: false, commandId: expect.any(String) });
+  expect(sentPath()).toMatchObject({ closed: false });
   // The next click starts another path; the sent one waits for its answer in receive.
   penClick([50, 50], 1);
-  expect(pen()).toEqual({ anchors: [corner(50, 50)], closed: false, commandId: null });
+  expect(pen()).toEqual({ anchors: [corner(50, 50)], closed: false });
+  expect(useStore.getState().pending).toHaveLength(1);
 });
 
 it("builds the create input from the path, the current fillStroke and placeParent's Layer", () => {
@@ -123,18 +130,18 @@ it("a click on the first Anchor closes the path", () => {
   penClick([2, 2], 1); // Not closing: a path needs two Anchors first.
   penClick([10, 0], 1);
   penClick([0.5, -0.5], 1);
-  expect(pen()).toMatchObject({
-    anchors: [corner(0, 0), corner(2, 2), corner(10, 0)],
+  expect(pen()).toBeNull();
+  expect(sentPath()).toMatchObject({
+    anchors: [{ anchor: [0, 0] }, { anchor: [2, 2] }, { anchor: [10, 0] }],
     closed: true,
   });
-  expect(pen()?.commandId).not.toBeNull();
 });
 
 it("Ctrl+Z removes the last Anchor and sends nothing", () => {
   penClick([0, 0], 1);
   penClick([10, 0], 1);
   expect(undoAnchor()).toBe(true);
-  expect(pen()).toEqual({ anchors: [corner(0, 0)], closed: false, commandId: null });
+  expect(pen()).toEqual({ anchors: [corner(0, 0)], closed: false });
   expect(undoAnchor()).toBe(true);
   expect(pen()).toBeNull();
   expect(undoAnchor()).toBe(false);
@@ -144,9 +151,9 @@ it("a tool switch finishes the path, and a single Anchor is dropped", () => {
   penClick([0, 0], 1);
   penClick([10, 0], 1);
   setTool("selection");
-  expect(pen()?.commandId).not.toBeNull();
+  expect(pen()).toBeNull();
+  expect(useStore.getState().pending).toHaveLength(1);
   expect(useStore.getState().tool).toBe("selection");
-  useStore.setState({ pen: null });
   penClick([0, 0], 1);
   finishPen();
   expect(pen()).toBeNull();
@@ -221,12 +228,11 @@ it("closing on the first Anchor with a drag shapes the closing segment", () => {
   penClick([5, 8], 1);
   penDown([0, 0], 1);
   penDrag([-5, 5], NONE);
-  expect(pen()?.commandId).toBeNull();
+  expect(useStore.getState().pending).toEqual([]);
   penUp();
-  expect(pen()).toMatchObject({
+  expect(sentPath()).toMatchObject({
     anchors: [{ anchor: [0, 0], handleIn: [5, -5], handleOut: [-5, 5] }, {}, {}],
     closed: true,
-    commandId: "sent",
   });
 });
 
@@ -234,7 +240,11 @@ it("Alt while closing keeps the first segment and shapes only the closing one", 
   penDragged([0, 0], [[5, -5]]);
   penClick([10, 0], 1);
   penDragged([0, 0], [[-5, 0], { alt: true }]);
-  expect(anchors()?.[0]).toEqual({ anchor: [0, 0], handleIn: [5, 0], handleOut: [5, -5] });
+  expect(sentPath()?.anchors[0]).toMatchObject({
+    anchor: [0, 0],
+    handleIn: [5, 0],
+    handleOut: [5, -5],
+  });
 });
 
 it("a path of Smooth Anchors commits as C segments in one Transaction", () => {
