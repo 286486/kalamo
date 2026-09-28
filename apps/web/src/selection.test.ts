@@ -497,8 +497,10 @@ describe("hitTest on a rotated text", () => {
     const { group } = makeMask(doc, { clipNodeId: t.id, contentIds: [far.id] });
     const hit = (x: number, y: number) =>
       hitTest(polygonContext(), doc, x, y, 1, { scope: group.id });
+    const b = bounds(doc, t) as Rect;
     expect(hit(...topEdge)).toBe(t.id);
-    expect(hit(...corner)).toBeNull();
+    // On its bounds' edge, at their bottom-left corner.
+    expect(hit(b.x, b.y + b.height)).toBeNull();
   });
 
   it("hits a painted text Clipping Path only inside its rotated frame", () => {
