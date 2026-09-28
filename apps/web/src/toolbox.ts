@@ -44,17 +44,20 @@ export interface Tap {
   count: number;
 }
 
+/** The platform's usual double-click time, in ms, and a fingertip's slack, in CSS px. */
+const DOUBLE_TAP_MS = 500;
+const DOUBLE_TAP_PX = 16;
+
 /**
- * The press after `last`: it counts on from `last` when it comes in 500 ms and 16 px of it, the
- * platform's usual double-click time and a fingertip's slack. A touch's compatibility mousedown
- * comes after its release, too late for its `clicks`, so touch and pen presses count their own.
+ * The press after `last`: it counts on from `last` when it comes in DOUBLE_TAP_MS and
+ * DOUBLE_TAP_PX of it. A touch's compatibility mousedown comes after its release, too late for
+ * its `clicks`, so touch and pen presses count their own.
  */
-export const nextTap = (last: Tap | null, x: number, y: number, t: number): Tap => ({
-  x,
-  y,
-  t,
-  count: last && t - last.t <= 500 && Math.hypot(x - last.x, y - last.y) <= 16 ? last.count + 1 : 1,
-});
+export const nextTap = (last: Tap | null, x: number, y: number, t: number): Tap => {
+  const near =
+    last && t - last.t <= DOUBLE_TAP_MS && Math.hypot(x - last.x, y - last.y) <= DOUBLE_TAP_PX;
+  return { x, y, t, count: near ? last.count + 1 : 1 };
+};
 
 /**
  * A tool of the Tools panel on the canvas. Viewer keeps what every tool shares (viewport, pan,

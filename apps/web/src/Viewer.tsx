@@ -95,9 +95,9 @@ export function Viewer({ docId }: { docId: string }) {
   const last = useRef({ x: 0, y: 0 });
   /** Space was held at the press: the drag pans. */
   const panning = useRef(false);
-  /** The press's click count (ToolEvent.clicks). */
+  /** The last mousedown's click count, for a mouse press (ToolEvent.clicks). */
   const clicks = useRef(0);
-  /** The last touch or pen press, null after a mouse press, whose count comes from mousedown. */
+  /** The last touch or pen press, which counts its own clicks; null after a mouse press. */
   const tap = useRef<Tap | null>(null);
   /** The tool that captured the pointer, which gets its moves and release even if the tool changes. */
   const pressed = useRef<CanvasTool | null>(null);
@@ -369,7 +369,7 @@ export function Viewer({ docId }: { docId: string }) {
       alt: e.altKey,
       ctrl: e.ctrlKey || e.metaKey,
       space: hand,
-      clicks: clicks.current,
+      clicks: tap.current?.count ?? clicks.current,
       doc,
       viewport,
       ctx,
@@ -382,7 +382,6 @@ export function Viewer({ docId }: { docId: string }) {
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     tap.current =
       e.pointerType === "mouse" ? null : nextTap(tap.current, e.clientX, e.clientY, e.timeStamp);
-    if (tap.current) clicks.current = tap.current.count;
     const ev = toolEvent(e);
     if (!ev) return;
     if (hand) {
@@ -433,7 +432,7 @@ export function Viewer({ docId }: { docId: string }) {
         style={{ position: "absolute", inset: 0, width: "100%", height: "100%", cursor }}
         onPointerDown={onPointerDown}
         onMouseDown={(e) => {
-          if (!tap.current) clicks.current = e.detail;
+          clicks.current = e.detail;
         }}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerEnd}
