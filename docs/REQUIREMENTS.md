@@ -767,7 +767,7 @@ flowchart LR
 - Cloudflare 托管：WAF 与速率限制（按用户与按文档）；R2 对象仅经预签名 URL 访问；D1 中密钥字段加密；DO 只接受来自 Worker 的内部调用与已鉴权的 WebSocket 升级。
 - 脚本沙箱：无网络、无文件系统、CPU / 内存 / 时间配额；宿主 API 白名单。
 - `image_place` 拉取 URL：Worker 拉取，读取上限 20 MB、10 秒；SSRF 防护：只允许 http / https，拒绝 localhost 与回环、私网、链路本地等 IP 字面量，重定向手动跟随至多 5 次且逐跳检查；解析到私网的域名由平台网络拦截（Cloudflare 边缘、workerd 缺省 `allow = ["public"]`）。用户确认需要 elicitation（ADR-0006 禁止），改由 `openWorldHint` 交给客户端；白名单待 M1 用户设置（ADR-0027）。
-- SVG 导入：剥离 `<script>`、事件属性、外部实体、`foreignObject`；位图 data URL 每个 ≤ 5 MB（解码后字节），SVG 的 5 MB 上限只计 data URL 之外的文本；链接的外部图像不拉取，读成缺失链接并警告 `IMAGE_LINK_MISSING`（ADR-0042）。
+- SVG 导入：剥离 `<script>`、事件属性、`foreignObject`；DTD 实体只展开纯文本的内部一般实体（值不含 `&`、`%`、`<`），展开增量上限 5 MB，外部实体和参数实体从不展开、从不拉取；位图 data URL 每个 ≤ 5 MB（解码后字节），SVG 的 5 MB 上限只计 data URL 之外的文本；链接的外部图像不拉取，读成缺失链接并警告 `IMAGE_LINK_MISSING`（ADR-0042）。
 - 文件存储：本地优先；托管模式数据加密静置；审计日志记录 Agent 的每个事务（who / what / when）。
 
 ### 7.6 可靠性与数据安全

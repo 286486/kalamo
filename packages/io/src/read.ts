@@ -446,7 +446,11 @@ class Reader {
       const layer = ctx.layerLevel && e.getAttributeNS(NS.inkscape, "groupmode") === "layer";
       const clip = this.clipOf(style, layer);
       const parentId = layer ? ctx.parentId : this.parent(ctx);
-      const kids = elements(e);
+      // Zibel supports no SVG extension, so a <switch> never renders a child that requires one, such
+      // as Illustrator's private-data <foreignObject>.
+      const kids = elements(e).filter(
+        (c) => tag !== "switch" || !c.hasAttribute("requiredExtensions"),
+      );
       const appearance = this.containerAppearance(kids, matrix, style);
       const node = this.add({
         ...this.base(e, parentId, undefined, style),
