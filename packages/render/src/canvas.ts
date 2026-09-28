@@ -22,7 +22,6 @@ import {
   paintedLeaves,
   type Rect,
   type Segment,
-  type ShapeNode,
   scaleOf,
   shapeSegments,
   type TextNode,
@@ -211,14 +210,16 @@ function paint(ctx: Canvas2D, n: Node, scene: Scene) {
   ctx.transform(...n.transform);
   if (n.type === "layer" || n.type === "group") {
     // A Clipping Mask draws everything inside its Clipping Path but that path's own Strokes
-    // (ADR-0021, ADR-0051).
+    // (ADR-0021, ADR-0051); a text clips through a layer, since Canvas2D cannot clip by glyphs
+    // (ADR-0052).
     const clip = clippingPath(doc, n);
-    const clipped = (draws: () => void) => {
-      if (!clip) return draws();
+    const clipped = (draws: (ctx: Canvas2D) => void) => {
+      if (!clip) return draws(ctx);
+      if (clip.type === "text") return masked(ctx, scene, [clip], draws);
       ctx.save();
       trace(ctx, transformSegments(shapeSegments(clip), clip.transform));
       ctx.clip(clip.type === "path" && clip.fillRule === "evenodd" ? "evenodd" : "nonzero");
-      draws();
+      draws(ctx);
       ctx.restore();
     };
     // Its Appearance paints every leaf's outline, in document coordinates since a container
@@ -227,25 +228,35 @@ function paint(ctx: Canvas2D, n: Node, scene: Scene) {
     const { fills, strokes, contents } = containerAppearance(n);
     const leaves = fills.length + strokes.length > 0 ? paintedLeaves(doc, n) : [];
     /**
-     * Paints every leaf, each inside its inner Clipping Masks; a text in its glyphs, placed by its
-     * transform, which `glyphs` is given.
+     * Paints every leaf in the paint `style` sets, each inside its inner Clipping Masks; a text in
+     * its glyphs, placed by its transform, which `glyphs` is given.
      */
-    const over = (glyphs: (t: TextNode, m: Matrix) => void, shape: (l: PaintedLeaf) => void) => {
+    const over = (
+      ctx: Canvas2D,
+      style: (ctx: Canvas2D) => void,
+      glyphs: (ctx: Canvas2D, t: TextNode, m: Matrix) => void,
+      shape: (ctx: Canvas2D, l: PaintedLeaf) => void,
+    ) => {
       for (const l of leaves) {
         ctx.save();
         for (const c of l.clips) {
+          if (c.text) continue;
           trace(ctx, c.segments);
           ctx.clip(c.fillRule);
         }
-        if (l.node.type === "text") {
-          const m = worldTransform(doc, l.node);
-          ctx.transform(...m);
-          font(ctx, l.node);
-          glyphs(l.node, m);
-        } else {
-          trace(ctx, l.segments);
-          shape(l);
-        }
+        const texts = l.clips.flatMap((c) => (c.text ? [c.text] : []));
+        masked(ctx, scene, texts, (ctx) => {
+          style(ctx);
+          if (l.node.type === "text") {
+            const m = worldTransform(doc, l.node);
+            ctx.transform(...m);
+            font(ctx, l.node);
+            glyphs(ctx, l.node, m);
+          } else {
+            trace(ctx, l.segments);
+            shape(ctx, l);
+          }
+        });
         ctx.restore();
       }
     };
@@ -253,16 +264,19 @@ function paint(ctx: Canvas2D, n: Node, scene: Scene) {
     // is in document coordinates, so a text, drawn in its transform, takes it mapped back through it.
     // ponytail: an elliptical radial draws as its circle on text and Strokes, as on a leaf.
     const paints = [
-      ...fills.map((f) => () => {
-        ctx.fillStyle = styleOf(ctx, f, false).style;
+      ...fills.map((f) => (ctx: Canvas2D) => {
         over(
-          (t, m) => {
+          ctx,
+          (ctx) => {
+            ctx.fillStyle = styleOf(ctx, f, false).style;
+          },
+          (ctx, t, m) => {
             if (f.type === "gradient") {
               ctx.fillStyle = styleOf(ctx, mapPaint(f, invert(m)), false).style;
             }
             text(ctx, t, (c, x, y) => ctx.fillText(c, x, y));
           },
-          (l) => {
+          (ctx, l) => {
             if (f.type === "gradient") {
               const { style, m } = styleOf(ctx, f, true);
               ctx.fillStyle = style;
@@ -272,34 +286,35 @@ function paint(ctx: Canvas2D, n: Node, scene: Scene) {
           },
         );
       }),
-      ...strokes.map((s) => () => {
-        pen(ctx, s);
+      ...strokes.map((s) => (ctx: Canvas2D) => {
         over(
-          (t, m) => {
+          ctx,
+          (ctx) => pen(ctx, s),
+          (ctx, t, m) => {
             const k = scaleOf(m);
             if (k !== 1 || s.type === "gradient")
               pen(ctx, mapPaint(unscaledStroke(s, k), invert(m)));
             text(ctx, t, (c, x, y) => ctx.strokeText(c, x, y));
           },
-          () => ctx.stroke(),
+          (ctx) => ctx.stroke(),
         );
       }),
     ];
     // The Clipping Path's Fills and its Strokes are two parts, each in its opacity and mode, with
     // the content between them.
-    const part = (c: ShapeNode, list: "fills" | "strokes") => {
+    const part = (ctx: Canvas2D, c: LeafNode, list: "fills" | "strokes") => {
       const appearance = { fills: [], strokes: [], [list]: c.appearance[list] };
       if (c.appearance[list].length > 0) draw(ctx, { ...c, appearance }, scene);
     };
-    clipped(() => {
-      for (const p of paints.slice(0, contents)) p();
-      if (clip) part(clip, "fills");
+    clipped((ctx) => {
+      for (const p of paints.slice(0, contents)) p(ctx);
+      if (clip) part(ctx, clip, "fills");
       for (const c of childrenOf(doc, n.id)) if (c !== clip) draw(ctx, c, scene);
     });
-    if (clip) part(clip, "strokes");
+    if (clip) part(ctx, clip, "strokes");
     if (contents < paints.length) {
-      clipped(() => {
-        for (const p of paints.slice(contents)) p();
+      clipped((ctx) => {
+        for (const p of paints.slice(contents)) p(ctx);
       });
     }
   } else if (n.type === "image") {
@@ -349,6 +364,51 @@ function paint(ctx: Canvas2D, n: Node, scene: Scene) {
       else ctx.stroke();
     }
   }
+}
+
+/**
+ * Runs `draws` through the glyphs of every text in `texts` (ADR-0052): into a layer, which keeps
+ * only what each text's glyphs cover, composited back in `ctx`'s opacity, mode and clip. A text's
+ * glyphs draw into a layer of their own and mask with one destination-in drawImage, since each
+ * fillText under destination-in would clear what the text's other glyphs drew. A text that draws no
+ * glyph keeps nothing.
+ */
+function masked(ctx: Canvas2D, scene: Scene, texts: TextNode[], draws: (ctx: Canvas2D) => void) {
+  if (texts.length === 0) return draws(ctx);
+  if (texts.some((t) => !layoutText(t).lines.some((l) => l.text.trim()))) return;
+  // ponytail: layers cover the whole canvas; crop them to the Clipping Mask's visible bounds in
+  // device space if text clips show up in a profile.
+  const { ctx: into, image } = scene.layer();
+  const { a, b, c, d, e, f } = ctx.getTransform();
+  into.setTransform(a, b, c, d, e, f);
+  into.save();
+  draws(into);
+  into.restore();
+  into.setTransform(1, 0, 0, 1, 0, 0);
+  into.globalCompositeOperation = "destination-in";
+  for (const t of texts) {
+    const { ctx: mask, image: glyphs } = scene.layer();
+    mask.setTransform(a, b, c, d, e, f);
+    drawClipGlyphs(mask, t, worldTransform(scene.doc, t));
+    into.drawImage(glyphs, 0, 0);
+  }
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.drawImage(image, 0, 0);
+  ctx.restore();
+}
+
+/**
+ * Draws the glyphs a text Clipping Path clips by, opaque and in no paint of its own, at its
+ * transform `m`: the same lines, faces and characters its leaf draws (ADR-0052).
+ */
+export function drawClipGlyphs(ctx: Canvas2D, t: TextNode, m: Matrix): void {
+  ctx.save();
+  ctx.transform(...m);
+  font(ctx, t);
+  ctx.fillStyle = "#000000";
+  text(ctx, t, (c, x, y) => ctx.fillText(c, x, y));
+  ctx.restore();
 }
 
 /** Sets `ctx` to draw the text's glyphs. */

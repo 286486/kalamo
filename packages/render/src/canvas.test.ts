@@ -444,7 +444,7 @@ describe("container Appearance (ADR-0043)", () => {
 
   it("paints a leaf of an inner Clipping Mask inside that mask's clip, and only that leaf", () => {
     const log = masked("rect");
-    const from = log.indexOf("strokeStyle=#DDDDDD");
+    const from = log.lastIndexOf("save", log.indexOf("strokeStyle=#DDDDDD"));
     const ops = log.slice(from).filter((l) => /^(save|restore|clip|moveTo|stroke$)/.test(l));
     expect(ops).toEqual([
       "save",
@@ -690,6 +690,99 @@ it("clips a Clipping Mask's children by its Clipping Path, in document coordinat
     "fillStyle=#FF0000",
     "fill",
   ]);
+});
+
+describe("a text Clipping Path (ADR-0052)", () => {
+  /** A red rect clipped by "Hi", its Clipping Path given `appearance`; `outer` strokes the rect's Group. */
+  const clippedByText = (content = "Hi", appearance = {}, outer = false) => {
+    const { doc, defaultLayerId: parentId } = newDoc();
+    const red = { fills: [{ color: "#FF0000" }] };
+    const [g, rect, text] = createNodes(doc, [
+      {
+        type: "group",
+        parentId,
+        appearance: { strokes: outer ? [{ color: "#DDDDDD", width: 4 }] : [] },
+        children: [
+          { type: "rect", x: 0, y: 0, width: 50, height: 50, appearance: red },
+          { type: "text", x: 5, y: 30, content },
+        ],
+      },
+    ] as never).nodes as Node[];
+    if (!g || !rect || !text) throw new Error("setup");
+    makeMask(doc, { clipNodeId: text.id, contentIds: [rect.id] });
+    Object.assign(doc.nodes.get(text.id) as Node, {
+      appearance: { fills: [], strokes: [], ...appearance },
+    });
+    const { ctx, log, layer } = recorder();
+    drawDocument(ctx, doc, layer);
+    return log;
+  };
+
+  it("draws the content in a layer masked by the glyphs, and the Strokes after, unclipped", () => {
+    const log = clippedByText("Hi", {
+      fills: [{ type: "solid", color: "#00FF00" }],
+      strokes: [
+        {
+          type: "solid",
+          color: "#0000FF",
+          width: 2,
+          cap: "butt",
+          join: "miter",
+          miterLimit: 4,
+          dash: [],
+        },
+      ],
+    });
+    expect(log).not.toContainEqual(expect.stringMatching(/^(> )*clip/));
+    const ops = log.filter((l) =>
+      /^(> )*(layer|drawImage|fill$|fillStyle=#(FF0|00)|fillText|strokeText|globalCompositeOperation)/.test(
+        l,
+      ),
+    );
+    expect(ops).toEqual([
+      "layer",
+      // The Fill behind, then the content, then the glyph mask, all inside the layer.
+      "> fillStyle=#00FF00",
+      "> fillText Hi 5 30",
+      "> fillStyle=#FF0000",
+      "> fill",
+      "> globalCompositeOperation=destination-in",
+      // The glyphs in a layer of their own, which masks the first in one drawImage: each glyph
+      // drawn under destination-in would clear the others.
+      "layer",
+      "> fillStyle=#000000",
+      "> fillText Hi 5 30",
+      "> drawImage L2 0 0",
+      "drawImage L1 0 0",
+      "strokeText Hi 5 30",
+    ]);
+  });
+
+  it("draws nothing it clips when its glyphs cover nothing", () => {
+    const log = clippedByText("   ");
+    expect(log).not.toContain("layer");
+    expect(log).not.toContain("fillStyle=#FF0000");
+  });
+
+  it("masks a container Stroke on a leaf it clips by the same glyphs", () => {
+    const log = clippedByText("Hi", {}, true);
+    const stroked = log.filter((l) =>
+      /^(> )*(layer|drawImage|strokeStyle=#DDDDDD|stroke$|globalCompositeOperation|fillText)/.test(
+        l,
+      ),
+    );
+    // The content's layer first, then the Stroke's own.
+    expect(stroked.slice(-8)).toEqual([
+      "layer",
+      "> strokeStyle=#DDDDDD",
+      "> stroke",
+      "> globalCompositeOperation=destination-in",
+      "layer",
+      "> fillText Hi 5 30",
+      "> drawImage L4 0 0",
+      "drawImage L3 0 0",
+    ]);
+  });
 });
 
 it.each([

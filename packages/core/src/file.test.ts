@@ -387,13 +387,14 @@ describe("validation", () => {
       () => "artboards[0].background",
     ],
     [
-      "clipping on a text",
+      "a clipping text beside a clipping rect",
       (f) => {
         byType(f, "text").clipping = true;
+        byType(f, "rect").clipping = true;
         return f;
       },
       "INVALID_DOCUMENT",
-      (f) => `nodes[${at(f, byType(f, "text"))}].clipping`,
+      (f) => `nodes[${Math.max(at(f, byType(f, "text")), at(f, byType(f, "rect")))}].clipping`,
     ],
     [
       "a Clipping Path in a Layer",
@@ -463,12 +464,12 @@ describe("validation", () => {
   });
 });
 
-it("reads a Clipping Mask back as it was written", () => {
+it.each(["rect", "text"])("reads a Clipping Mask of a %s back as it was written", (type) => {
   const f = JSON.parse(serializeDocument(scene()));
-  f.nodes.find((n: { type: string }) => n.type === "rect").clipping = true;
+  f.nodes.find((n: { type: string }) => n.type === type).clipping = true;
   const text = JSON.stringify(f, null, 2);
   const { nodes } = parseDocument(text);
-  expect(nodes.find((n) => n.type === "rect")).toMatchObject({ clipping: true });
+  expect(nodes.find((n) => n.type === type)).toMatchObject({ clipping: true });
 });
 
 it("reads Area Type back with its frame and no leading", () => {

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { bounds, childrenOf, createDocument, createNodes } from "./document.ts";
 import { ZibelError } from "./errors.ts";
 import { makeMask, releaseMask } from "./mask.ts";
-import type { Node } from "./schema.ts";
+import type { Node, TextNode } from "./schema.ts";
 
 const errorOf = (fn: () => unknown) => {
   try {
@@ -74,6 +74,37 @@ describe("makeMask", () => {
     expect(bounds(s.doc, group)).toEqual({ x: 20, y: 20, width: 20, height: 20 });
   });
 
+  it("makes a text the Clipping Path, emptying its Range Fills and keeping their other overrides (ADR-0052)", () => {
+    const s = scene();
+    const text = { ...(s.text as TextNode), content: "Hello" };
+    s.doc.nodes.set(text.id, {
+      ...text,
+      appearance: { fills: [{ type: "solid", color: "#000000" }], strokes: [] },
+      ranges: [
+        { start: 0, end: 1, fill: "#FF0000" },
+        { start: 1, end: 2, fill: "#00FF00", rotation: 10 },
+        { start: 2, end: 3, rotation: 10 },
+      ],
+    });
+    const { group } = makeMask(s.doc, { clipNodeId: s.text.id, contentIds: [s.a.id] });
+    expect(s.doc.nodes.get(s.text.id)).toMatchObject({
+      clipping: true,
+      appearance: { fills: [], strokes: [] },
+      ranges: [{ start: 1, end: 3, rotation: 10 }],
+    });
+    expect(bounds(s.doc, group)).toEqual(bounds(s.doc, s.doc.nodes.get(s.text.id) as Node));
+  });
+
+  it("drops the ranges of a text whose Ranges only filled", () => {
+    const s = scene();
+    s.doc.nodes.set(s.text.id, {
+      ...s.text,
+      ranges: [{ start: 0, end: 1, fill: "#FF0000" }],
+    } as Node);
+    makeMask(s.doc, { clipNodeId: s.text.id, contentIds: [s.a.id] });
+    expect(s.doc.nodes.get(s.text.id)).not.toHaveProperty("ranges");
+  });
+
   it("clips a Group", () => {
     const s = scene();
     const { group } = makeMask(s.doc, { clipNodeId: s.clip.id, contentIds: [s.group.id] });
@@ -92,12 +123,6 @@ describe("makeMask", () => {
       (s) => ({ clipNodeId: s.clip.id, contentIds: [s.a.id, "nope"] }),
       "NODE_NOT_FOUND",
       "contentIds[1]",
-    ],
-    [
-      "a text as the clip",
-      (s) => ({ clipNodeId: s.text.id, contentIds: [s.a.id] }),
-      "INVALID_MASK",
-      "clipNodeId",
     ],
     [
       "a Group as the clip",

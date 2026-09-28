@@ -424,7 +424,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       title: "Make Clipping Mask",
       description: [
         "Clip Nodes by a shape, as Illustrator's Object > Clipping Mask > Make: a new Group, the Clipping Mask, takes the place of the topmost of them and holds clipNodeId and contentIds in their stacking order; the content draws only inside the clip Node, which becomes the Group's Clipping Path and loses its Fills and Strokes. An appearance given to it later with zibel_node_update draws its Fills behind the content and its Strokes over it, unclipped.",
-        "The clip Node is a Live Shape or path (not a text), and every Node listed shares its parent. The Group's geometricBounds are the Clipping Path's. Move the clip or the content with zibel_node_transform; zibel_mask_release undoes the clip.",
+        "The clip Node is a Live Shape, a path or a text, which clips by its glyphs, and every Node listed shares its parent. The Group's geometricBounds are the Clipping Path's. Move the clip or the content with zibel_node_transform; zibel_mask_release undoes the clip.",
         "One Transaction. createdIds is the Group; updatedIds the Nodes moved into it.",
       ].join(" "),
       inputSchema: { docId, ...MaskInput.shape, ...txWrite },

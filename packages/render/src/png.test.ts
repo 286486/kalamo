@@ -316,9 +316,11 @@ it("draws the fixture Document with known pixels", async () => {
   // widened for a painted Group of turned, scaled Area Type; by #113, the edited Group left the
   // painted Layer and the Area Type grew to a sentence; by #107, the Artboard widened for a Group
   // whose gradient Fill runs across a rect and a turned text; by #50, a tenth Artboard holding a
-  // Clipping Mask whose turned, translucent Clipping Path has a gradient Fill and two Strokes.
+  // Clipping Mask whose turned, translucent Clipping Path has a gradient Fill and two Strokes; by
+  // #49, an eleventh holding a gradient clipped by turned, stroked, overflowing Area Type and a
+  // fill clipped by turned Point Type with a turned, shifted character.
   expect(await hash(toSvg(doc, docRect(doc), { images }))).toBe(
-    "fc51bfd9b4c61a3a43ffda2f17b6eaada7f504b33caf824ba1a8145e151c5b1d",
+    "858e56faf7cc4a63c245595dbf18863c9e13904b6eac207373172c24942fde29",
   );
   expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned, images }))).toBe(
     "24c1e7ad8db33f59933a1b355c879cb19bfdfd67d70b11427b196aa646ea4b60",

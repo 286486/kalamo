@@ -19,12 +19,12 @@ const AUTO_NAMES: Record<Exclude<Node["type"], "text">, string> = {
  * (ADR-0021, ADR-0042).
  */
 export const autoName = (doc: Document, node: Node) =>
-  node.type === "text"
-    ? node.content.replaceAll("\n", " ")
-    : clippingPath(doc, node)
-      ? "<Clip Group>"
-      : "clipping" in node && node.clipping
-        ? "<Clipping Path>"
+  clippingPath(doc, node)
+    ? "<Clip Group>"
+    : "clipping" in node && node.clipping
+      ? "<Clipping Path>"
+      : node.type === "text"
+        ? node.content.replaceAll("\n", " ")
         : node.type === "image" && node.file !== undefined
           ? "<Linked File>"
           : AUTO_NAMES[node.type];

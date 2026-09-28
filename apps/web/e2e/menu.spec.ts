@@ -151,3 +151,61 @@ test("Ctrl+7 clips the selection with its topmost Node, and Alt+Ctrl+7 releases 
   await expect(row("<Clip Group>")).toBeHidden();
   await expect(row("<Group>")).toHaveAttribute("aria-pressed", "true");
 });
+
+test("Ctrl+7 clips with a text on top: the content shows only through its glyphs (ADR-0052)", async ({
+  page,
+  request,
+}) => {
+  const { docId, defaultLayerId: parentId } = (
+    await call(request, "zibel_doc_create", {
+      name: "Type mask",
+      artboards: [{ width: 200, height: 100, background: "#FFFFFF" }],
+    })
+  ).structuredContent;
+  await call(request, "zibel_node_create", {
+    docId,
+    nodes: [
+      {
+        type: "rect",
+        parentId,
+        name: "Art",
+        x: 0,
+        y: 0,
+        width: 200,
+        height: 100,
+        appearance: { fills: [{ color: "#FF0000" }] },
+      },
+      // An I in Black at 60 pt: its stem spans about x 24 to 34, y 31 to 70.
+      { type: "text", parentId, x: 20, y: 70, content: "I", fontSize: 60, fontStyle: "Black" },
+    ],
+  });
+  await page.goto(`/docs/${docId}`);
+  await expect(page.getByTestId("status-bar")).toContainText(/\d+%/);
+  await page.keyboard.press("Control+1");
+  await expect(page.getByTestId("status-bar")).toContainText("100%");
+  const row = (name: string) => page.getByRole("button", { name, exact: true });
+
+  await page.keyboard.press("Control+A");
+  await page.keyboard.press("Control+7");
+  await expect(row("<Clip Group>")).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "Expand <Clip Group>" }).click();
+  await expect(row("<Clipping Path>")).toBeVisible();
+  await expect(row("Art")).toBeVisible();
+
+  // At 100% the Artboard's centre, (100, 50), is the canvas's.
+  const red = () =>
+    page.getByTestId("canvas").evaluate((el: HTMLCanvasElement) => {
+      const k = el.width / el.getBoundingClientRect().width;
+      const ctx = el.getContext("2d");
+      return [29, 15, 150].map((x) => {
+        const [px, py] = [(el.width / k / 2 + x - 100) * k, (el.height / k / 2 + 50 - 50) * k];
+        const [r, g] = ctx?.getImageData(px, py, 1, 1).data ?? [];
+        return r === 255 && g === 0;
+      });
+    });
+  await expect.poll(red).toEqual([true, false, false]);
+
+  await page.keyboard.press("Alt+Control+7");
+  await expect(row("<Clip Group>")).toBeHidden();
+  await expect.poll(red).toEqual([true, true, true]);
+});

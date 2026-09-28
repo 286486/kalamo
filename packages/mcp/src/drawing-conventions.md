@@ -41,7 +41,7 @@ Read this once before your first write. Tool descriptions cover each call; this 
 ## Clipping Masks
 
 - To show artwork only inside a shape, draw the shape as a sibling of the artwork, then call `zibel_mask_make` with the shape as `clipNodeId` and the artwork as `contentIds`. They move into a new Group, the Clipping Mask, whose `geometricBounds` are the shape's.
-- The shape becomes the Group's Clipping Path: it clips, loses its Fills and Strokes, and cannot be hidden. A text cannot clip yet.
+- The shape or text becomes the Group's Clipping Path: it clips, loses its Fills and Strokes (a text its Range Fills too), and cannot be hidden. A text clips by its glyphs as laid out, and stays editable: `zibel_node_update` on its `content`, `fontSize` or `ranges` changes the clip.
 - To frame the crop, give the Clipping Path an `appearance` with `zibel_node_update`: its Fills draw behind the content and its Strokes over it at full width, their outer half outside the clip, in the path's `opacity` and `blendMode`. Its Strokes grow the Group's `visibleBounds`, not its `geometricBounds`.
 - `clipping` is read-only to `zibel_node_update`: release with `zibel_mask_release`, which keeps the Group and the shape with its appearance.
 

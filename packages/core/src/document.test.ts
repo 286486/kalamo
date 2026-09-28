@@ -1390,6 +1390,24 @@ describe("container Appearance (ADR-0043)", () => {
     expect(paintedLeaves(doc, group).map((l) => l.node.id)).toEqual([a.id, p.id, t.id, clipped.id]);
   });
 
+  it("lists a text Clipping Path as its leaves' text clip, and not as a leaf (ADR-0052)", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const [group, t, clipped] = createNodes(doc, [
+      {
+        type: "group",
+        parentId: defaultLayerId,
+        children: [{ type: "text", x: 0, y: 50, content: "Hi" }, child()],
+      } as never,
+    ]).nodes;
+    if (!group || !t || !clipped) throw new Error("setup");
+    const mask = makeMask(doc, { clipNodeId: t.id, contentIds: [clipped.id] }).group;
+    const leaves = paintedLeaves(doc, group);
+    expect(leaves.map((l) => l.node.id)).toEqual([clipped.id]);
+    expect(leaves[0]?.clips).toEqual([
+      { maskId: mask.id, segments: expect.any(Array), text: doc.nodes.get(t.id) },
+    ]);
+  });
+
   it("grows visibleBounds by half the widest container Stroke, never geometricBounds", () => {
     const { doc, defaultLayerId } = newDoc();
     const [group] = createNodes(doc, [

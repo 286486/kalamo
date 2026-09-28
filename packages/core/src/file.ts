@@ -127,6 +127,7 @@ const StoredNode = z.discriminatedUnion("type", [
       ...TextShape.shape,
       ranges: z.array(CharacterRange.strict()).optional(),
       appearance,
+      clipping: z.boolean().optional(),
     })
     .superRefine(textFrame),
   ...Object.values(SHAPES).map((s) =>

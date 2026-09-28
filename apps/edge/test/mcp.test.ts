@@ -112,6 +112,70 @@ it("makes a Clipping Mask from a circle over a Group, renders it clipped and rel
   expect(nodes[1]).toMatchObject({ parentId: maskId });
 });
 
+it("clips by a text, which stays editable: node_update changes the clip, and warns as any text (ADR-0052)", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const { keyMap } = (
+    await call("zibel_node_create", {
+      docId,
+      nodes: [
+        {
+          type: "rect",
+          parentId: defaultLayerId,
+          clientKey: "art",
+          x: 0,
+          y: 0,
+          width: 200,
+          height: 100,
+        },
+        {
+          type: "text",
+          parentId: defaultLayerId,
+          clientKey: "t",
+          x: 10,
+          y: 60,
+          content: "Hi",
+          fontSize: 48,
+          ranges: [{ start: 0, end: 1, fill: "#FF0000" }],
+        },
+      ],
+    })
+  ).structuredContent;
+  const made = await call("zibel_mask_make", {
+    docId,
+    clipNodeId: keyMap.t,
+    contentIds: [keyMap.art],
+  });
+  expect(made.isError).toBeFalsy();
+  const [maskId] = made.structuredContent.createdIds;
+  const get = async (id: string) =>
+    (await call("zibel_node_get", { docId, nodeIds: [id], detail: "full" })).structuredContent
+      .nodes[0];
+  const text = await get(keyMap.t);
+  expect(text).toMatchObject({ clipping: true, appearance: { fills: [], strokes: [] } });
+  expect(text.ranges).toBeUndefined();
+  expect((await get(maskId)).geometricBounds).toEqual(text.geometricBounds);
+
+  const updated = (
+    await call("zibel_node_update", {
+      docId,
+      updates: [{ nodeId: keyMap.t, patch: { content: "Hello", fontFamily: "Futura" } }],
+    })
+  ).structuredContent;
+  expect(updated.warnings).toMatchObject([{ code: "FONT_MISSING", nodeId: keyMap.t }]);
+  const edited = await get(keyMap.t);
+  expect(edited.geometricBounds.width).toBeGreaterThan(text.geometricBounds.width);
+  expect((await get(maskId)).geometricBounds).toEqual(edited.geometricBounds);
+  const svg = (await call("zibel_export", { docId, format: "svg" })).content[0].text;
+  expect(svg).toMatch(/<clipPath[^>]*><text[^>]*fill="none"[^>]*>.*Hello.*<\/text><\/clipPath>/);
+  const rendered = await call("zibel_render", { docId, scope: { nodeIds: [maskId] }, scale: 1 });
+  expect(rendered.structuredContent.viewport.docRect.width).toBeGreaterThan(
+    text.geometricBounds.width,
+  );
+
+  await call("zibel_mask_release", { docId, nodeIds: [keyMap.t] });
+  expect((await get(keyMap.t)).clipping).toBeUndefined();
+});
+
 it("edits a path's Anchors with path_edit and converts a Live Shape first, with a warning", async () => {
   const { docId, defaultLayerId } = await newDoc();
   const { keyMap } = (

@@ -556,6 +556,26 @@ it("makes and releases a Clipping Mask as one Transaction each, undone and redon
   expect(released).toMatchObject({ parentId: groupId });
 });
 
+it("brings a text Clipping Path's Range Fills back on undo of Make (ADR-0052)", async () => {
+  const { s, defaultLayerId, rectId } = await withRect("m3");
+  const ranges = [{ start: 0, end: 1, fill: "#FF0000", rotation: 5 }];
+  const [textId = ""] = ok(
+    await s.createNodes(
+      [{ type: "text", parentId: defaultLayerId, x: 0, y: 10, content: "Hi", ranges }],
+      "agent-a",
+    ),
+  ).createdIds;
+  ok(await s.makeMask({ clipNodeId: textId, contentIds: [rectId] }, "agent-a"));
+  const get = async () => ok(await s.get([textId], "full", "agent-a")).nodes[0];
+  expect(await get()).toMatchObject({
+    clipping: true,
+    ranges: [{ start: 0, end: 1, rotation: 5 }],
+  });
+  expect(JSON.stringify(await get())).not.toContain("#FF0000");
+  ok(await s.undo("user"));
+  expect(await get()).toMatchObject({ ranges });
+});
+
 it("stages a Clipping Mask in a Transaction until commit", async () => {
   const { s, defaultLayerId, rectId } = await withRect("m2");
   const [clipId = ""] = ok(
