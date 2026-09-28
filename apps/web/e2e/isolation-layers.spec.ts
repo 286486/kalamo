@@ -93,22 +93,26 @@ test("Isolation Mode isolates a clipped sub-Layer and a single path", async ({ p
   await expect.poll(async () => (await get(circle))?.transform).toEqual([1, 0, 0, 1, 5, 0]);
   expect((await get(rectId))?.transform).toEqual([1, 0, 0, 1, 0, 0]);
 
-  // The Pen draws into S, clipped by the Circle (now 25–175).
+  // The Rectangle tool draws into S, clipped by the Circle (now 25–175), and selects it.
   const outside = await pixel(page, 185, 30);
-  const paths = async () => (await children(s)).filter((n) => n.type === "path");
-  await page.keyboard.press("p");
-  for (const [x, y] of [
-    [100, 20],
-    [195, 20],
-    [195, 40],
-    [100, 40],
-  ] as const)
-    await page.mouse.click(...at(x, y));
-  await page.keyboard.press("Escape");
-  await expect.poll(async () => (await paths()).length).toBe(1);
+  const drawnIn = async (type: string) => (await children(s)).filter((n) => n.type === type);
+  const drag = async (from: [number, number], to: [number, number]) => {
+    await page.mouse.move(...at(...from));
+    await page.mouse.down();
+    await page.mouse.move(...at(...to), { steps: 5 });
+    await page.mouse.up();
+  };
+  await page.keyboard.press("m");
+  await drag([100, 20], [195, 40]);
+  await expect.poll(async () => (await drawnIn("rect")).length).toBe(2);
+  const drawnRect = (await drawnIn("rect")).find((n) => n.id !== rectId);
+  expect(await get(drawnRect?.id ?? "")).toMatchObject({ x: 100, y: 20, width: 95, height: 20 });
   await expect.poll(() => pixel(page, 120, 30)).toEqual([255, 255, 255]);
   expect(await pixel(page, 185, 30)).toEqual(outside);
   await expect(current).toContainText("S");
+  await expect(
+    page.getByRole("button", { name: "<Rectangle>", exact: true, pressed: true }),
+  ).toHaveCount(1);
   await page.keyboard.press("v");
 
   // A Group inside S is a level below S: Esc goes to S, then leaves with nothing selected.
@@ -133,18 +137,15 @@ test("Isolation Mode isolates a clipped sub-Layer and a single path", async ({ p
   await expect(row("Group")).toBeHidden();
   await page.keyboard.press("Control+A");
   await expect(row("Rect")).toHaveAttribute("aria-pressed", "true");
-  // The Pen's path goes up one level into S, and is selected.
-  const [first] = await paths();
-  await page.keyboard.press("p");
-  await page.mouse.click(...at(35, 80));
-  await page.mouse.click(...at(55, 85));
-  await page.keyboard.press("Escape");
-  await expect.poll(async () => (await paths()).length).toBe(2);
+  // The Ellipse tool's ellipse, dragged up and left, goes up one level into S and is selected.
+  await page.keyboard.press("l");
+  await drag([55, 88], [35, 78]);
+  await expect.poll(async () => (await drawnIn("ellipse")).length).toBe(2);
   await expect(current).toContainText("S");
-  const drawn = (await paths()).find((n) => n.id !== first?.id);
-  expect(drawn).toBeDefined();
+  const drawnEllipse = (await drawnIn("ellipse")).find((n) => n.id !== circle);
+  expect(await get(drawnEllipse?.id ?? "")).toMatchObject({ x: 35, y: 78, width: 20, height: 10 });
   await expect(
-    page.getByRole("button", { name: "<Path>", exact: true, pressed: true }),
+    page.getByRole("button", { name: "<Ellipse>", exact: true, pressed: true }),
   ).toHaveCount(1);
   await expect(row("Rect")).toHaveAttribute("aria-pressed", "false");
   await page.keyboard.press("v");

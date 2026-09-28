@@ -13,7 +13,7 @@ import { addAnchorAt, deleteAnchorAt } from "./anchorTools.ts";
 import { curveThrough } from "./curvature.ts";
 import { anchorsOf, editableShapes, hasAnchors, localAnchors } from "./direct.ts";
 import { forNewArt, leaving } from "./isolation.ts";
-import type { Endpoint, PenPath } from "./receive.ts";
+import type { Endpoint, PenPath, ShapeBox } from "./receive.ts";
 import { editable, placeParent } from "./selection.ts";
 import { canEdit, DEFAULT_FILL_STROKE, type State, send, useStore, VIEWER_TOOLS } from "./store.ts";
 import type { Tool, ToolEvent } from "./toolbox.ts";
@@ -58,22 +58,27 @@ export function constrain(from: Point, p: Point): Point {
   return [at(from[0] + ux * length), at(from[1] + uy * length)];
 }
 
+/** The notice when newArtNode refuses. */
+export const NOTHING_DRAWN = "The Layer is hidden or locked; nothing was drawn.";
+
+/** What a drawing tool draws, in document coordinates: a path, or a Live Shape dragged out. */
+export type NewArt = { type: "path"; d: string } | ShapeBox;
+
 /**
- * The `create` input for a finished path: the current Fill and Stroke, in placeParent's Layer or
+ * The `create` input for drawn art: the current Fill and Stroke, in placeParent's Layer or
  * isolated Group or sub-Layer; an isolated leaf is left first (`forNewArt`).
  */
-export function penNode(
+export function newArtNode(
   s: Pick<State, "selection" | "fillStroke" | "isolated"> & { doc: Document },
-  pen: PenPath,
+  art: NewArt,
 ): NodeInput | null {
   const { fill, stroke } = s.fillStroke;
   const parentId = placeParent(s.doc, s.selection, s.isolated);
   // Illustrator refuses to draw into a hidden or locked Layer.
   if (!parentId || !editable(s.doc, s.doc.nodes.get(parentId))) return null;
   return {
-    type: "path",
+    ...art,
     parentId,
-    d: pathD(pen.anchors, pen.closed),
     appearance: {
       fills: fill ? [{ color: fill }] : [],
       strokes: stroke ? [{ color: stroke, width: 1 }] : [],
@@ -101,12 +106,14 @@ export function finishPen(closed = false) {
   }
   const at = s.doc && forNewArt(s.doc, s);
   const node =
-    s.doc && at && pen.anchors.length >= 2 ? penNode({ ...s, ...at, doc: s.doc }, done) : null;
+    s.doc && at && pen.anchors.length >= 2
+      ? newArtNode({ ...s, ...at, doc: s.doc }, { type: "path", d: pathD(anchors, closed) })
+      : null;
   if (!node || !at) {
     useStore.setState({
       pen: null,
       ...(pen.anchors.length >= 2 && {
-        notice: "The Layer is hidden or locked; nothing was drawn.",
+        notice: NOTHING_DRAWN,
       }),
     });
     return;

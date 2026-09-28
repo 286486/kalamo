@@ -5,6 +5,7 @@ import { directTool } from "./directTool.ts";
 import { pencilTool } from "./pencilTool.ts";
 import { penTool } from "./penTool.ts";
 import { selectionTool } from "./selectionTool.ts";
+import { ellipseTool, rectangleTool } from "./shapeTool.ts";
 import type { Viewport } from "./viewport.ts";
 import { zoomTool } from "./zoomTool.ts";
 
@@ -35,6 +36,9 @@ export interface ToolEvent {
   /** Redraws the canvas after the tool's overlay changed. */
   redraw(): void;
 }
+
+/** The modifiers a key can change mid-drag. */
+export type KeyMods = Pick<ToolEvent, "shift" | "alt" | "space">;
 
 /** A touch or pen press, in client px and ms, and its click count. */
 export interface Tap {
@@ -79,6 +83,8 @@ export interface CanvasTool {
   /** Drops the press; also when its release comes after the Document went. */
   cancel?(redraw: () => void): void;
   leave?(e: ToolEvent): void;
+  /** Any key pressed or released while the tool holds the pointer, with the modifiers now held. */
+  keyChange?(mods: KeyMods, redraw: () => void): void;
   /** Its options dialog, opened by double-clicking the tool. */
   options?(): void;
   /** A key that is neither a tool's nor the Fill and Stroke boxes'; true when it took the key. */
@@ -102,6 +108,8 @@ export const TOOLS = {
   deleteAnchor: deleteAnchorTool,
   anchorPoint: anchorPointTool,
   curvature: curvatureTool,
+  rectangle: rectangleTool,
+  ellipse: ellipseTool,
   pencil: pencilTool,
 } satisfies Record<string, CanvasTool>;
 

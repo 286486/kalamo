@@ -4,7 +4,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { curvatureDown, curvatureUp } from "./curvature.ts";
 import { DEFAULT_PENCIL, pencilDown, pencilMove, pencilUp, savePencilOptions } from "./pencil.ts";
 import { receive } from "./receive.ts";
+import { ellipseTool, rectangleTool } from "./shapeTool.ts";
 import { connect, DEFAULT_FILL_STROKE, send, useStore } from "./store.ts";
+import type { CanvasTool, ToolEvent } from "./toolbox.ts";
 import { finishPen, penDown, penUp } from "./tools.ts";
 
 vi.mock("./store.ts", async (original) => ({
@@ -113,10 +115,30 @@ const drawPencil = (keep = true) => {
     pencilMove([[x, 50 + ((x * 7) % 5)]], { shift: false, alt: false });
   pencilUp(1);
 };
+/** A drag with the Rectangle or Ellipse tool, at scale 1. */
+const drawShape = (tool: CanvasTool) => () => {
+  const at = (x: number, y: number) =>
+    ({
+      x,
+      y,
+      points: [[x, y]],
+      shift: false,
+      alt: false,
+      space: false,
+      viewport: { scale: 1 },
+      capture() {},
+      redraw() {},
+    }) as unknown as ToolEvent;
+  tool.down(at(50, 50));
+  tool.move?.(at(80, 60));
+  tool.up?.(at(80, 60));
+};
 const tools: [string, () => void][] = [
   ["Pen", drawPen],
   ["Curvature", drawCurve],
   ["Pencil", drawPencil],
+  ["Rectangle", drawShape(rectangleTool)],
+  ["Ellipse", drawShape(ellipseTool)],
 ];
 
 beforeEach(() => {
