@@ -9,8 +9,12 @@ import {
 } from "@zibel/core";
 import type { TxMessage } from "@zibel/sync";
 import { describe, expect, it } from "vitest";
+import { editableShapes, marqueeAnchors, pick } from "./direct.ts";
 import { exitLevel, goTo, inScope, isolate, levels, prune } from "./isolation.ts";
+import { layerMask, rows } from "./layers.ts";
 import { receive } from "./receive.ts";
+import { hitTest, inverse, marquee, objectOf, placeParent } from "./selection.ts";
+import { endpointAt } from "./tools.ts";
 
 /** Layer 1: Clip Group outer (clip, content, Group inner (rect x)), rect bg. */
 function fixture() {
@@ -163,4 +167,35 @@ describe("prune", () => {
     const everything = [id("outer"), id("clip"), id("content"), id("inner"), id("x")];
     expect(receive(state, tx({ deletedIds: everything }), "d")?.isolated).toBeNull();
   });
+});
+
+// Compile-time only, never run: no selection helper defaults its scope, so widening it (#130)
+// makes the compiler find every caller.
+declare const d: Document, n: Node, ctx: CanvasRenderingContext2D;
+const r = { x: 0, y: 0, width: 0, height: 0 };
+void (() => {
+  // @ts-expect-error scope is required
+  objectOf(d, n);
+  // @ts-expect-error scope is required
+  placeParent(d, []);
+  // @ts-expect-error scope is required
+  hitTest(ctx, d, 0, 0, 1);
+  // @ts-expect-error scope is required
+  hitTest(ctx, d, 0, 0, 1, { leaf: true });
+  // @ts-expect-error scope is required
+  marquee(d, r);
+  // @ts-expect-error scope is required
+  inverse(d, []);
+  // @ts-expect-error scope is required
+  editableShapes(d);
+  // @ts-expect-error scope is required
+  pick(d, { selection: [], anchors: [], x: 0, y: 0, tolerance: 1 });
+  // @ts-expect-error scope is required
+  marqueeAnchors(d, r);
+  // @ts-expect-error scope is required
+  endpointAt(d, [0, 0], 1, undefined);
+  // @ts-expect-error scope is required
+  rows(d, new Set());
+  // @ts-expect-error scope is required
+  layerMask(d, []);
 });

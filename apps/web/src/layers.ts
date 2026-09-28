@@ -52,7 +52,7 @@ export interface Row {
  * expanded.
  * ponytail: childrenOf scans every Node per container, O(n²); index children when Documents grow.
  */
-export function rows(doc: Document, toggled: Set<string>, scope: string | null = null): Row[] {
+export function rows(doc: Document, toggled: Set<string>, scope: string | null): Row[] {
   const row = (node: Node, depth: number, root = false): Row[] => {
     const expandable =
       !root &&
@@ -80,9 +80,10 @@ export function rows(doc: Document, toggled: Set<string>, scope: string | null =
 export function layerMask(
   doc: Document,
   selection: string[],
-  scope: string | null = null,
+  scope: string | null,
 ): { label: string; command: Command | null } {
-  const layerId = placeParent(doc, selection);
+  // Not the isolated Group: the button targets a Layer, and is disabled in a Group scope (ADR-0057).
+  const layerId = placeParent(doc, selection, null);
   const layer = doc.nodes.get(layerId ?? "");
   const clipped = !!layer && !!clippingPath(doc, layer);
   const label = `${clipped ? "Release" : "Make"} Clipping Mask`;

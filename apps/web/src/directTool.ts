@@ -64,7 +64,7 @@ export const directTool: CanvasTool = {
     const mods = { shift: e.shift, alt: e.alt };
     useStore.setState({ notice: null });
     const tolerance = DIRECT_HIT / e.viewport.scale;
-    const target = pick(doc, selection, anchors, start.x, start.y, tolerance, segments, scope);
+    const target = pick(doc, { selection, anchors, segments, ...start, tolerance, scope });
     const leaf = target
       ? null
       : hitTest(e.ctx, doc, start.x, start.y, tolerance, { leaf: true, scope });

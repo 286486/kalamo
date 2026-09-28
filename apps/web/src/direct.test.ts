@@ -49,17 +49,32 @@ it("picks a selected Anchor's Handle first, then an Anchor, then a segment withi
   const { doc, rect, curve } = fixture();
   const middle = anchorKey(curve.id, 0, 1);
   // The middle Anchor sits at (120, 0), its Handles at (120, 10) and (120, -10).
-  expect(pick(doc, [curve.id], [middle], 120, 9, 2)).toEqual({
+  expect(
+    pick(doc, {
+      selection: [curve.id],
+      anchors: [middle],
+      x: 120,
+      y: 9,
+      tolerance: 2,
+      scope: null,
+    }),
+  ).toEqual({
     kind: "handle",
     key: middle,
     which: "handleIn",
   });
-  expect(pick(doc, [], [], 120, 9, 2)).toBeNull();
-  expect(pick(doc, [], [], 10.5, 0.5, 2)).toEqual({
+  expect(
+    pick(doc, { selection: [], anchors: [], x: 120, y: 9, tolerance: 2, scope: null }),
+  ).toBeNull();
+  expect(
+    pick(doc, { selection: [], anchors: [], x: 10.5, y: 0.5, tolerance: 2, scope: null }),
+  ).toEqual({
     kind: "anchor",
     key: anchorKey(rect.id, 0, 1),
   });
-  expect(pick(doc, [], [], 5, 1, 2)).toMatchObject({
+  expect(
+    pick(doc, { selection: [], anchors: [], x: 5, y: 1, tolerance: 2, scope: null }),
+  ).toMatchObject({
     kind: "segment",
     nodeId: rect.id,
     subpath: 0,
@@ -67,12 +82,14 @@ it("picks a selected Anchor's Handle first, then an Anchor, then a segment withi
     t: expect.closeTo(0.5, 1),
   });
   // A hidden path is not hit.
-  expect(pick(doc, [], [], 0, 50, 2)).toBeNull();
+  expect(
+    pick(doc, { selection: [], anchors: [], x: 0, y: 50, tolerance: 2, scope: null }),
+  ).toBeNull();
 });
 
 it("a marquee takes the Anchors inside it across paths, skipping hidden ones", () => {
   const { doc, rect, curve } = fixture();
-  expect(marqueeAnchors(doc, { x: 5, y: -5, width: 100, height: 60 })).toEqual([
+  expect(marqueeAnchors(doc, { x: 5, y: -5, width: 100, height: 60 }, null)).toEqual([
     anchorKey(rect.id, 0, 1),
     anchorKey(rect.id, 0, 2),
     anchorKey(curve.id, 0, 0),
@@ -246,12 +263,24 @@ it("a selected segment shows the Handles at its ends, and pick grabs them", () =
     { key: anchorKey(curve.id, 0, 1), which: "handleIn" },
   ]);
   // The middle Anchor's in Handle sits at (120, 10).
-  expect(pick(doc, [curve.id], [], 120, 9, 2, [first])).toEqual({
+  expect(
+    pick(doc, {
+      selection: [curve.id],
+      anchors: [],
+      segments: [first],
+      x: 120,
+      y: 9,
+      tolerance: 2,
+      scope: null,
+    }),
+  ).toEqual({
     kind: "handle",
     key: anchorKey(curve.id, 0, 1),
     which: "handleIn",
   });
-  expect(pick(doc, [curve.id], [], 120, 9, 2)).toBeNull();
+  expect(
+    pick(doc, { selection: [curve.id], anchors: [], x: 120, y: 9, tolerance: 2, scope: null }),
+  ).toBeNull();
 });
 
 it("Clear deletes selected Anchors, and whole the selected objects without any", () => {

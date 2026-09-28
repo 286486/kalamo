@@ -36,7 +36,7 @@ function fixture() {
 
 it("lists siblings topmost first, Layers expanded and Groups collapsed", () => {
   const { doc, id, key } = fixture();
-  const out = rows(doc, new Set());
+  const out = rows(doc, new Set(), null);
   expect(out.map((r) => key(r.node.id))).toEqual(["l2", "d", "l1", "l3", "e", "lg", "h", "c", "g"]);
   expect(out.map((r) => r.depth)).toEqual([0, 1, 0, 1, 2, 1, 1, 1, 1]);
   const g = out.find((r) => r.node.id === id("g"));
@@ -47,14 +47,14 @@ it("lists siblings topmost first, Layers expanded and Groups collapsed", () => {
 it("expands a toggled Group and collapses a toggled Layer", () => {
   const { doc, id, key } = fixture();
   const keys = (toggled: string[]) =>
-    rows(doc, new Set(toggled.map(id))).map((r) => `${key(r.node.id)}:${r.depth}`);
+    rows(doc, new Set(toggled.map(id)), null).map((r) => `${key(r.node.id)}:${r.depth}`);
   expect(keys(["g"]).slice(-3)).toEqual(["g:1", "b:2", "a:2"]);
   expect(keys(["l1"])).toEqual(["l2:0", "d:1", "l1:0"]);
 });
 
 it("dims every row hidden or locked, itself or through an ancestor", () => {
   const { doc, id, key } = fixture();
-  const dimmed = rows(doc, new Set([id("lg")]))
+  const dimmed = rows(doc, new Set([id("lg")]), null)
     .filter((r) => r.dimmed)
     .map((r) => key(r.node.id));
   expect(dimmed).toEqual(["lg", "m", "h"]);
@@ -81,7 +81,7 @@ it("auto-names each type of unnamed Node", () => {
 it("offers no disclosure for an empty container", () => {
   const { doc, id } = fixture();
   doc.nodes.delete(id("e"));
-  expect(rows(doc, new Set()).find((r) => r.node.id === id("l3"))).toMatchObject({
+  expect(rows(doc, new Set(), null).find((r) => r.node.id === id("l3"))).toMatchObject({
     expandable: false,
     expanded: false,
   });
@@ -163,18 +163,18 @@ describe("a Layer Clipping Mask (ADR-0053)", () => {
     const layer = doc.nodes.get(l1) as Node;
     expect(autoName(doc, layer)).toBe("<Layer>");
     expect(autoName(doc, doc.nodes.get(clip.id) as Node)).toBe("<Clipping Path>");
-    const underlined = rows(doc, new Set())
+    const underlined = rows(doc, new Set(), null)
       .filter((r) => r.underlined)
       .map((r) => r.node.id);
     expect(underlined).toEqual([l1, clip.id]);
-    expect(rows(doc, new Set()).find((r) => r.node.id === a.id)?.underlined).toBe(false);
+    expect(rows(doc, new Set(), null).find((r) => r.node.id === a.id)?.underlined).toBe(false);
   });
 
   it("underlines a Clip Group's name", () => {
     const { doc, a, clip } = layered();
     const { group } = makeMask(doc, { clipNodeId: clip.id, contentIds: [a.id] });
     expect(
-      rows(doc, new Set([group.id]))
+      rows(doc, new Set([group.id]), null)
         .filter((r) => r.underlined)
         .map((r) => r.node.id),
     ).toEqual([group.id, clip.id]);
@@ -182,21 +182,24 @@ describe("a Layer Clipping Mask (ADR-0053)", () => {
 
   it("makes or releases the Layer of the Selection, else the top Layer", () => {
     const { doc, l1, a, l2 } = layered();
-    expect(layerMask(doc, [a.id])).toEqual({
+    expect(layerMask(doc, [a.id], null)).toEqual({
       label: "Make Clipping Mask",
       command: { type: "mask_make", input: { layerId: l1 } },
     });
     makeMask(doc, { layerId: l1 });
-    expect(layerMask(doc, [a.id])).toEqual({
+    expect(layerMask(doc, [a.id], null)).toEqual({
       label: "Release Clipping Mask",
       command: { type: "mask_release", nodeIds: [l1] },
     });
     // The top Layer is empty.
-    expect(layerMask(doc, [])).toEqual({ label: "Make Clipping Mask", command: null });
+    expect(layerMask(doc, [], null)).toEqual({ label: "Make Clipping Mask", command: null });
     createNodes(doc, [{ type: "rect", parentId: l2.id, x: 0, y: 0, width: 1, height: 1 }]);
-    expect(layerMask(doc, []).command).toEqual({ type: "mask_make", input: { layerId: l2.id } });
+    expect(layerMask(doc, [], null).command).toEqual({
+      type: "mask_make",
+      input: { layerId: l2.id },
+    });
     doc.nodes.set(l2.id, { ...l2, locked: true });
-    expect(layerMask(doc, []).command).toBeNull();
+    expect(layerMask(doc, [], null).command).toBeNull();
   });
 });
 
@@ -216,6 +219,15 @@ describe("in Isolation Mode (ADR-0057)", () => {
       label: "Make Clipping Mask",
       command: null,
     });
-    expect(layerMask(doc, [id("a")]).command).not.toBeNull();
+    expect(layerMask(doc, [id("a")], null).command).not.toBeNull();
+  });
+
+  it("labels the button by the Layer, not by an isolated Clip Group", () => {
+    const { doc, id } = fixture();
+    const { group } = makeMask(doc, { clipNodeId: id("c"), contentIds: [id("g")] });
+    expect(layerMask(doc, [id("a")], group.id)).toEqual({
+      label: "Make Clipping Mask",
+      command: null,
+    });
   });
 });
