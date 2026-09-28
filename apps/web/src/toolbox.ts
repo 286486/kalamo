@@ -5,6 +5,7 @@ import { directTool } from "./directTool.ts";
 import { pencilTool } from "./pencilTool.ts";
 import { penTool } from "./penTool.ts";
 import { selectionTool } from "./selectionTool.ts";
+import { ellipseTool, rectangleTool } from "./shapeTool.ts";
 import type { Viewport } from "./viewport.ts";
 import { zoomTool } from "./zoomTool.ts";
 
@@ -79,6 +80,8 @@ export interface CanvasTool {
   /** Drops the press; also when its release comes after the Document went. */
   cancel?(redraw: () => void): void;
   leave?(e: ToolEvent): void;
+  /** Shift, Alt or Space pressed or released while the tool holds the pointer. */
+  keyChange?(mods: Pick<ToolEvent, "shift" | "alt" | "space">, redraw: () => void): void;
   /** Its options dialog, opened by double-clicking the tool. */
   options?(): void;
   /** A key that is neither a tool's nor the Fill and Stroke boxes'; true when it took the key. */
@@ -102,6 +105,8 @@ export const TOOLS = {
   deleteAnchor: deleteAnchorTool,
   anchorPoint: anchorPointTool,
   curvature: curvatureTool,
+  rectangle: rectangleTool,
+  ellipse: ellipseTool,
   pencil: pencilTool,
 } satisfies Record<string, CanvasTool>;
 

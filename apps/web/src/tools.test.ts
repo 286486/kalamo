@@ -13,9 +13,10 @@ import { DEFAULT_FILL_STROKE, send, useStore } from "./store.ts";
 import {
   fillStrokeKey,
   finishPen,
+  newArtNode,
+  pathD,
   penDown,
   penDrag,
-  penNode,
   penUp,
   setTool,
   undoAnchor,
@@ -48,9 +49,9 @@ const anchors = () => useStore.getState().pen?.anchors;
 const typeAt = (i: number) => {
   const pen = useStore.getState().pen;
   if (!pen) throw new Error("no path");
-  const node = penNode(
+  const node = newArtNode(
     { doc, selection: [], isolated: null, fillStroke: DEFAULT_FILL_STROKE },
-    pen,
+    { type: "path", d: pathD(pen.anchors, pen.closed) },
   );
   if (node?.type !== "path") throw new Error("no path");
   return toAnchors(parsePath(node.d, "d"))[0]?.anchors[i]?.type;
@@ -102,10 +103,9 @@ it("Enter sends three Corner Anchors as one open path with the current Fill and 
 it("builds the create input from the path, the current fillStroke and placeParent's Layer", () => {
   const s = { doc, selection: [], isolated: null, fillStroke: DEFAULT_FILL_STROKE };
   expect(
-    penNode(s, {
-      anchors: [corner(0, 0), corner(10, 0), corner(5, 8)],
-      closed: true,
-      commandId: null,
+    newArtNode(s, {
+      type: "path",
+      d: pathD([corner(0, 0), corner(10, 0), corner(5, 8)], true),
     }),
   ).toEqual({
     type: "path",

@@ -28,6 +28,15 @@ export interface Endpoint {
   atStart: boolean;
 }
 
+/** A Rectangle or Ellipse dragged out, in document coordinates. */
+export interface ShapeBox {
+  type: "rect" | "ellipse";
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 /**
  * The path the Pen is drawing, in document coordinates (ADR-0032). It stays in the browser until
  * finished; `commandId` is set once its `create` has been sent, and it is drawn until the answer.
@@ -44,6 +53,8 @@ export interface PenPath {
   curve?: CurveAnchor[];
   closed: boolean;
   commandId: string | null;
+  /** A Rectangle or Ellipse tool's Live Shape, sent on release; `anchors` is empty. */
+  shape?: ShapeBox;
   /** A Pencil stroke, sent on release: the Fill it is drawn with, and whether it stays selected. */
   pencil?: { fill: string | null; keep: boolean };
   /** A `create` from an isolated leaf `from`: the level `to` go up to once its `tx` creates the path. */
