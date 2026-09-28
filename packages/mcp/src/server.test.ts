@@ -613,6 +613,34 @@ describe("arguments are parsed strictly: a bad one is INVALID_INPUT and nothing 
   });
 });
 
+describe("a tools/call without arguments is parsed as if it sent {} (#126)", () => {
+  it("runs a tool with no required argument", async () => {
+    const result = { documents: [] };
+    const { client, service, call } = await harness({ list: async () => result });
+    expect(await client.callTool({ name: "zibel_doc_list" })).toEqual(await call("zibel_doc_list"));
+    expect(service.list).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["zibel_node_query", "zibel_doc_delete", "zibel_node_create"])(
+    "%s: a missing docId is INVALID_INPUT, logged, and nothing runs",
+    async (name) => {
+      const { client, call, called, log } = await harness();
+      const omitted = await client.callTool({ name });
+      expect(errorOf(omitted)).toMatchObject({
+        code: "INVALID_INPUT",
+        path: "docId",
+        hint: "docId is required.",
+      });
+      expect(omitted).toEqual(await call(name, {}));
+      expect(called()).toEqual([]);
+      expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toMatchObject({
+        tool: name,
+        code: "INVALID_INPUT",
+      });
+    },
+  );
+});
+
 it("advertises each tool's real input schema, refusing unknown keys but in meta and a patch (ADR-0050)", async () => {
   const { client } = await harness();
   const loose: string[] = [];
