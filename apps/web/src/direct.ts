@@ -136,7 +136,8 @@ export function segmentHandles(doc: Document, key: string): { key: string; which
 
 /**
  * What a Direct Selection press at (x, y) grabs within `tolerance`: a Handle a selected Anchor or
- * segment shows, else an Anchor (a selected path's first), else the topmost segment. Null for none.
+ * segment shows, else an Anchor (a selected path's first), else the topmost segment, of the paths
+ * in the isolated Group `scope` if any. Null for none.
  */
 export function pick(
   doc: Document,
