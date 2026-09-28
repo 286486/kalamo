@@ -69,11 +69,12 @@ import {
   type RasterRequest,
   type RejectedMessage,
   type RenderRequest,
+  type Role,
   type TxMessage,
   type Viewport,
   type WriteOptions,
 } from "@zibel/sync";
-import { ACTOR_HEADER } from "./auth.ts";
+import { ACTOR_HEADER, ROLE_HEADER, USER_HEADER } from "./auth.ts";
 
 type EditCommand = Exclude<Command, { type: "undo" | "redo" }>;
 type EditEntry<C> = {
@@ -85,10 +86,22 @@ type EditEntry<C> = {
   ) => Result<WriteReceipt> | Promise<Result<WriteReceipt>>;
 };
 
-/** What a browser socket keeps across hibernation: the Actor the Worker authenticated it as. */
+/**
+ * What a browser socket keeps across hibernation: the Actor and User the Worker authenticated it
+ * as, and their Role on this Document (ADR-0047).
+ */
 interface Attachment {
   actor: string;
+  userId: string;
+  role: Role;
 }
+
+/** Closes a socket whose Role changed; the browser reconnects and is authorized again. */
+export const ACCESS_CHANGED = 4003;
+/** Closes every socket of a deleted Document; the browser stops. */
+export const DOC_DELETED = 4004;
+
+const ROLES: readonly string[] = ["owner", "editor", "viewer"] satisfies Role[];
 
 /** RPC results carry errors as data: Workers RPC keeps only the message of a thrown error. */
 export type Result<T> = T | { error: ErrorData };
@@ -170,6 +183,13 @@ export class DocumentObject extends DurableObject<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+    this.schema();
+    const legacy = this.sql.exec("SELECT 1 FROM sqlite_master WHERE name = 'image_chunks'");
+    if (legacy.toArray().length > 0) void ctx.blockConcurrencyWhile(() => this.migrate());
+  }
+
+  /** Creates the tables, in a new Document and again after destroy() deleted them. */
+  private schema() {
     this.sql.exec(`
       CREATE TABLE IF NOT EXISTS doc (id TEXT PRIMARY KEY, name TEXT NOT NULL, rev INTEGER NOT NULL, artboards TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS nodes (id TEXT PRIMARY KEY, json TEXT NOT NULL);
@@ -199,8 +219,6 @@ export class DocumentObject extends DurableObject<Env> {
         size INTEGER NOT NULL
       );
     `);
-    const legacy = this.sql.exec("SELECT 1 FROM sqlite_master WHERE name = 'image_chunks'");
-    if (legacy.toArray().length > 0) void ctx.blockConcurrencyWhile(() => this.migrate());
   }
 
   /** Moves the files a Document stored in SQLite chunks (ADR-0023) to R2, before any request. */
@@ -323,19 +341,24 @@ export class DocumentObject extends DurableObject<Env> {
       return new Response("Expected a WebSocket upgrade.", { status: 426 });
     }
     const actor = request.headers.get(ACTOR_HEADER);
-    if (!actor) return new Response(`Expected the Worker's ${ACTOR_HEADER}.`, { status: 400 });
+    const userId = request.headers.get(USER_HEADER);
+    const role = request.headers.get(ROLE_HEADER) as Role | null;
+    if (!actor || !userId || !role || !ROLES.includes(role)) {
+      return new Response("Expected the Worker's Actor, User and Role headers.", { status: 400 });
+    }
     const doc = guard(() => this.load());
     if ("error" in doc) return Response.json(doc.error, { status: 404 });
     const [client, server] = Object.values(new WebSocketPair()) as [WebSocket, WebSocket];
     this.ctx.acceptWebSocket(server);
     // Kept on the socket, so it outlives hibernation.
-    server.serializeAttachment({ actor } satisfies Attachment);
+    server.serializeAttachment({ actor, userId, role } satisfies Attachment);
     const msg: DocumentMessage = {
       type: "document",
       rev: doc.rev,
       name: doc.name,
       artboards: doc.artboards,
       nodes: [...doc.nodes.values()],
+      role,
     };
     server.send(JSON.stringify(msg));
     return new Response(null, { status: 101, webSocket: client });
@@ -360,9 +383,18 @@ export class DocumentObject extends DurableObject<Env> {
     if (!parsed.success) return ws.close(1007, "Expected a command message.");
     const { id, command } = parsed.data;
     const attachment = ws.deserializeAttachment() as Attachment | null;
-    // A socket accepted before ADR-0047 has no Actor: the browser reconnects and gets one.
-    if (!attachment) return ws.close(1012, "Reconnect.");
-    const { actor } = attachment;
+    // A socket accepted before its Actor or Role was kept: the browser reconnects and gets both.
+    if (!attachment?.role) return ws.close(1012, "Reconnect.");
+    const { actor, role } = attachment;
+    if (role === "viewer") {
+      const error: ErrorData = {
+        code: "PERMISSION_DENIED",
+        message: "You are a viewer of this Document: you can look but not change it.",
+        hint: "Ask the owner to make you an editor.",
+      };
+      ws.send(JSON.stringify({ type: "rejected", id, error } satisfies RejectedMessage));
+      return;
+    }
     const result =
       command.type === "undo" || command.type === "redo"
         ? this[command.type](actor, { commandId: id })
@@ -470,6 +502,31 @@ export class DocumentObject extends DurableObject<Env> {
       };
     }
     return entry.run(command, actor, commandId);
+  }
+
+  /** Closes the User's sockets after their Role changed, so they reconnect as the new Role. */
+  disconnect(userId: string) {
+    for (const ws of this.ctx.getWebSockets()) {
+      const attachment = ws.deserializeAttachment() as Attachment | null;
+      if (attachment?.userId === userId) ws.close(ACCESS_CHANGED, "Your access changed.");
+    }
+  }
+
+  /** Deletes the Document: its storage, its image files and every socket. */
+  async destroy() {
+    const docId = this.sql.exec<{ id: string }>("SELECT id FROM doc").toArray()[0]?.id;
+    for (const ws of this.ctx.getWebSockets()) ws.close(DOC_DELETED, "The Document was deleted.");
+    await this.ctx.storage.deleteAlarm();
+    await this.ctx.storage.deleteAll();
+    this.schema();
+    if (!docId) return;
+    const prefix = imageKey(docId, "");
+    for (let cursor: string | undefined; ; ) {
+      const page = await this.env.IMAGES.list({ prefix, cursor });
+      if (page.objects.length > 0) await this.env.IMAGES.delete(page.objects.map((o) => o.key));
+      if (!page.truncated) break;
+      cursor = page.cursor;
+    }
   }
 
   /** Sends to every browser. Called after the SQLite transaction, so a dead socket cannot undo a write. */

@@ -60,11 +60,15 @@ export interface DocInfo {
   browsers: number;
 }
 
-/** A Document as `doc_list` lists it, from the D1 index (ADR-0015). */
+/** A caller's Role on a Document (ADR-0047). */
+export type Role = "owner" | "editor" | "viewer";
+
+/** A Document as `doc_list` lists it, from the D1 index (ADR-0015), with the caller's Role. */
 export interface DocSummary {
   docId: string;
   name: string;
   createdAt: string;
+  role: Role;
 }
 
 export interface CreatedDocument {
@@ -129,8 +133,10 @@ export interface DocumentService {
       asTemplate?: boolean;
     } & Pick<WriteOptions, "txId" | "ifRev" | "intent">,
   ): Promise<WriteReceipt>;
-  /** Every Document, newest first. */
+  /** The Documents the caller owns or was shared, newest first. */
   list(): Promise<{ documents: DocSummary[] }>;
+  /** Deletes the Document for every member; owner only. */
+  delete(docId: string): Promise<{ docId: string; deleted: true }>;
   info(docId: string): Promise<DocInfo>;
   createNodes(docId: string, nodes: NodeInput[], opts?: WriteOptions): Promise<WriteReceipt>;
   updateNodes(docId: string, updates: UpdateInput[], opts?: WriteOptions): Promise<WriteReceipt>;

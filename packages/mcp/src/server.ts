@@ -26,6 +26,7 @@ import conventions from "./drawing-conventions.md";
 import {
   ChangesOutput,
   CreatedDocumentOutput,
+  DocDeleteOutput,
   DocInfoOutput,
   DocListOutput,
   ExportOutput,
@@ -653,12 +654,30 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
     {
       title: "List Documents",
       description:
-        "Every Document, newest first: docId, name and createdAt. Use zibel_doc_get_info on one for its Artboards and rev.",
+        "The Documents you own or that are shared with you, newest first: docId, name, createdAt and your role. An owner or editor can write; a viewer, or any Agent connected read-only, can only read, and its writes fail with PERMISSION_DENIED. Use zibel_doc_get_info on one for its Artboards and rev.",
       inputSchema: {},
       outputSchema: DocListOutput.shape,
       annotations: read,
     },
     () => run("zibel_doc_list", async () => json(await service.list())),
+  );
+
+  server.registerTool(
+    "zibel_doc_delete",
+    {
+      title: "Delete Document",
+      description:
+        "Delete a Document you own, for everyone it is shared with. It cannot be undone: nothing is kept, and later calls with the docId fail with DOC_NOT_FOUND. Only the owner can delete; anyone else gets PERMISSION_DENIED.",
+      inputSchema: { docId },
+      outputSchema: DocDeleteOutput.shape,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    ({ docId }) => run("zibel_doc_delete", async () => json(await service.delete(docId))),
   );
 
   server.registerTool(

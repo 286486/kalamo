@@ -104,7 +104,14 @@ it("asks to reconnect on a missed rev, and drops an unanswered drag on a new Doc
     segments: [],
   };
   expect(receive(state, tx(doc, { rev: doc.rev + 2 }), "d")).toBeNull();
-  const msg = { type: "document" as const, rev: 9, name: "N", artboards: [], nodes: [a] };
+  const msg = {
+    type: "document" as const,
+    rev: 9,
+    name: "N",
+    artboards: [],
+    nodes: [a],
+    role: "owner" as const,
+  };
   expect(receive(state, msg, "d")).toMatchObject({ drag: null, selection: [a.id] });
 });
 
@@ -205,7 +212,14 @@ it("keeps a path the Pen is still drawing across a reconnect", () => {
     anchors: [],
     segments: [],
   };
-  const msg = { type: "document" as const, rev: 9, name: "N", artboards: [], nodes: [a] };
+  const msg = {
+    type: "document" as const,
+    rev: 9,
+    name: "N",
+    artboards: [],
+    nodes: [a],
+    role: "owner" as const,
+  };
   expect(receive(state, msg, "d")).not.toHaveProperty("pen");
   expect(receive({ ...state, pen: pen("c1") }, msg, "d")).toMatchObject({ pen: null });
 });
@@ -241,7 +255,14 @@ it("keeps a Direct Selection drag's preview until every path_edit is answered", 
     edit: { inputs: [move(b.id)], commandIds: ["c2"] },
   });
   // A reconnect loses the answers, so the preview goes.
-  const msg = { type: "document" as const, rev: 9, name: "N", artboards: [], nodes: [a, b] };
+  const msg = {
+    type: "document" as const,
+    rev: 9,
+    name: "N",
+    artboards: [],
+    nodes: [a, b],
+    role: "owner" as const,
+  };
   expect(receive(state, msg, "d")).toMatchObject({ edit: null });
   // The preview converts the rect as core will, and leaves the Document alone.
   expect(previewEdit(doc, edit).nodes.get(a.id)).toMatchObject({ id: a.id, type: "path" });
@@ -305,7 +326,14 @@ it("keeps a Simplify preview until the answer to its path_op, and previews it wi
   const open = { ...base, opPreview, anchors: [], segments: [] };
   // Not yet sent: nothing answers it, a reconnect included.
   expect(receive(open, tx(doc, { commandId: "c1" }), "d")).not.toHaveProperty("simplify");
-  const msg = { type: "document" as const, rev: 9, name: "N", artboards: [], nodes: [a] };
+  const msg = {
+    type: "document" as const,
+    rev: 9,
+    name: "N",
+    artboards: [],
+    nodes: [a],
+    role: "owner" as const,
+  };
   expect(receive(open, msg, "d")).not.toHaveProperty("simplify");
   const sent = { ...open, opPreview: { ...opPreview, commandId: "c1" } };
   expect(receive(sent, tx(doc, { actor: "agent-a" }), "d")).not.toHaveProperty("simplify");

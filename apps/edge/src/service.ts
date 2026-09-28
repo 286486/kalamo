@@ -2,38 +2,60 @@ import { type ErrorData, newId, resolveImages, ZibelError } from "@zibel/core";
 import { parseFile, resolveLinks } from "@zibel/io";
 import { svgToPng } from "@zibel/render";
 import type { DocumentService, PathEditReceipt } from "@zibel/sync";
+import type { Principal } from "./auth.ts";
 import { fetchImage } from "./fetch-image.ts";
+import { assertWrites, authorize, listDocuments, type Need } from "./roles.ts";
 
 /** A file for Open or Place, its images named by their hash (ADR-0023). */
-const read = (content: string, opts: { name?: string } = {}) =>
+const parse = (content: string, opts: { name?: string } = {}) =>
   resolveImages(parseFile(content, opts));
 
-/** DocumentService over one Document Durable Object per docId, acting as `actor`. */
-export function documentService(env: Env, actor: string): DocumentService {
-  const doc = (docId: string) => env.DOCUMENT.get(env.DOCUMENT.idFromName(docId));
+/**
+ * DocumentService over one Document Durable Object per docId, acting as the Principal's Actor.
+ * Every Document method authorizes the Principal first (ADR-0047).
+ */
+export function documentService(env: Env, principal: Principal): DocumentService {
+  const { actor } = principal;
+  const stub = (docId: string) => env.DOCUMENT.get(env.DOCUMENT.idFromName(docId));
+  const doc = async (docId: string, need: Need) => {
+    await authorize(env, principal, docId, need);
+    return stub(docId);
+  };
+  type Stub = Awaited<ReturnType<typeof doc>>;
+  /** `call`'s result on the authorized Document, its error thrown. */
+  const on =
+    (need: Need) =>
+    async <R extends PromiseLike<object>>(docId: string, call: (d: Stub) => R) =>
+      unwrap<Awaited<R>>(await call(await doc(docId, need)));
+  const read = on("read");
+  const write = on("write");
   // ponytail: a failed insert leaves the Document unlisted; reconcile from the DOs if that shows up.
+  // The Principal's User owns what it creates, whether a browser or an Agent made it.
   const index = (docId: string, name: string) =>
-    env.DB.prepare("INSERT INTO documents (id, name, created_at) VALUES (?, ?, ?)")
-      .bind(docId, name, new Date().toISOString())
+    env.DB.prepare("INSERT INTO documents (id, name, created_at, owner_id) VALUES (?, ?, ?, ?)")
+      .bind(docId, name, new Date().toISOString(), principal.userId)
       .run();
   return {
     create: async (input) => {
+      assertWrites(principal);
       const docId = newId();
-      const created = unwrap(await doc(docId).create({ ...input, docId, actor }));
+      const created = unwrap(await stub(docId).create({ ...input, docId, actor }));
       await index(docId, input.name);
       return created;
     },
     open: async ({ content, name, intent }) => {
+      assertWrites(principal);
       // Parsed here, before any Durable Object or D1 row exists, so a bad file creates nothing.
       // A new Document holds only the file's own images.
-      const parsed = await read(content, { name });
+      const parsed = await parse(content, { name });
       const { warnings, ...file } = resolveLinks(parsed, (id) => parsed.images.get(id));
       const docId = newId();
-      const opened = unwrap(await doc(docId).open({ ...file, docId, actor, intent }));
+      const opened = unwrap(await stub(docId).open({ ...file, docId, actor, intent }));
       await index(docId, file.name);
       return { ...opened, warnings };
     },
     place: async (docId, { svg, name, ...opts }) => {
+      const target = await doc(docId, "write");
       // Refused here, not by parseFile, whose hint is for Open.
       if (!/^\uFEFF?\s*</.test(svg)) {
         throw new ZibelError({
@@ -45,7 +67,7 @@ export function documentService(env: Env, actor: string): DocumentService {
       }
       let file: ReturnType<typeof parseFile>;
       try {
-        file = await read(svg, { name });
+        file = await parse(svg, { name });
       } catch (e) {
         // The file is Place's `svg`, not Open's `content`.
         if (e instanceof ZibelError && e.data.path === "content") {
@@ -53,55 +75,59 @@ export function documentService(env: Env, actor: string): DocumentService {
         }
         throw e;
       }
-      return unwrap(await doc(docId).place(file, actor, opts));
+      return unwrap(await target.place(file, actor, opts));
     },
     // Fetched here, in the Worker, so a slow host never holds the Document's input gate (ADR-0027).
-    placeImage: async (docId, { src, ...opts }) =>
-      unwrap(await doc(docId).placeImage(await fetchImage(src), actor, opts)),
-    list: async () => ({ documents: await listDocuments(env) }),
-    info: async (docId) => unwrap(await doc(docId).info()),
+    placeImage: async (docId, { src, ...opts }) => {
+      const target = await doc(docId, "write");
+      return unwrap(await target.placeImage(await fetchImage(src), actor, opts));
+    },
+    list: async () => ({ documents: await listDocuments(env, principal) }),
+    delete: async (docId) => {
+      const target = await doc(docId, "own");
+      // The index first: once no row names it, nobody reaches the Document, even if destroy fails.
+      await env.DB.batch([
+        env.DB.prepare("DELETE FROM members WHERE doc_id = ?").bind(docId),
+        env.DB.prepare("DELETE FROM documents WHERE id = ?").bind(docId),
+      ]);
+      await target.destroy();
+      return { docId, deleted: true };
+    },
+    info: async (docId) => read(docId, (d) => d.info()),
     createNodes: async (docId, nodes, opts) =>
-      unwrap(await doc(docId).createNodes(nodes, actor, opts)),
+      write(docId, (d) => d.createNodes(nodes, actor, opts)),
     updateNodes: async (docId, updates, opts) =>
-      unwrap(await doc(docId).updateNodes(updates, actor, opts)),
+      write(docId, (d) => d.updateNodes(updates, actor, opts)),
     deleteNodes: async (docId, nodeIds, opts) =>
-      unwrap(await doc(docId).deleteNodes(nodeIds, actor, opts)),
+      write(docId, (d) => d.deleteNodes(nodeIds, actor, opts)),
     transformNodes: async (docId, input, opts) =>
-      unwrap(await doc(docId).transformNodes(input, actor, opts)),
-    makeMask: async (docId, input, opts) => unwrap(await doc(docId).makeMask(input, actor, opts)),
+      write(docId, (d) => d.transformNodes(input, actor, opts)),
+    makeMask: async (docId, input, opts) => write(docId, (d) => d.makeMask(input, actor, opts)),
     releaseMask: async (docId, nodeIds, opts) =>
-      unwrap(await doc(docId).releaseMask(nodeIds, actor, opts)),
+      write(docId, (d) => d.releaseMask(nodeIds, actor, opts)),
     // Workers RPC types a tuple as number[].
     pathEdit: async (docId, input, opts) =>
-      unwrap(await doc(docId).pathEdit(input, actor, opts)) as PathEditReceipt,
-    pathOp: async (docId, input, opts) => unwrap(await doc(docId).pathOp(input, actor, opts)),
+      (await write(docId, (d) => d.pathEdit(input, actor, opts))) as PathEditReceipt,
+    pathOp: async (docId, input, opts) => write(docId, (d) => d.pathOp(input, actor, opts)),
     get: async (docId, nodeIds, detail, txId) =>
-      unwrap(await doc(docId).get(nodeIds, detail, actor, txId)),
-    outline: async (docId, opts, txId) => unwrap(await doc(docId).outline(opts, actor, txId)),
-    query: async (docId, q, txId) => unwrap(await doc(docId).query(q, actor, txId)),
-    begin: async (docId, label) => unwrap(await doc(docId).begin(actor, label)),
-    commitTx: async (docId, txId, opts) => unwrap(await doc(docId).commitTx(txId, actor, opts)),
-    rollback: async (docId, txId) => unwrap(await doc(docId).rollback(txId, actor)),
-    changes: async (docId, sinceRev, limit) => unwrap(await doc(docId).changes(sinceRev, limit)),
+      read(docId, (d) => d.get(nodeIds, detail, actor, txId)),
+    outline: async (docId, opts, txId) => read(docId, (d) => d.outline(opts, actor, txId)),
+    query: async (docId, q, txId) => read(docId, (d) => d.query(q, actor, txId)),
+    begin: async (docId, label) => write(docId, (d) => d.begin(actor, label)),
+    commitTx: async (docId, txId, opts) => write(docId, (d) => d.commitTx(txId, actor, opts)),
+    rollback: async (docId, txId) => write(docId, (d) => d.rollback(txId, actor)),
+    changes: async (docId, sinceRev, limit) => read(docId, (d) => d.changes(sinceRev, limit)),
     render: async (docId, req) => {
-      const { svg, viewport } = unwrap(await doc(docId).raster(actor, req));
+      const { svg, viewport } = await read(docId, (d) => d.raster(actor, req));
       const { png } = await svgToPng(svg, viewport.scale);
       return { png, viewport };
     },
-    svg: async (docId, req) => unwrap(await doc(docId).svg(actor, req)),
-    file: async (docId, txId) => unwrap(await doc(docId).file(actor, txId)),
+    svg: async (docId, req) => read(docId, (d) => d.svg(actor, req)),
+    file: async (docId, txId) => read(docId, (d) => d.file(actor, txId)),
   };
 }
 
 export function unwrap<T extends object>(result: T): Exclude<T, { error: ErrorData }> {
   if ("error" in result) throw new ZibelError(result.error as ErrorData);
   return result as Exclude<T, { error: ErrorData }>;
-}
-
-/** Every Document, newest first, for the list page and `doc_list`. */
-export async function listDocuments(env: Env) {
-  const { results } = await env.DB.prepare(
-    "SELECT id AS docId, name, created_at AS createdAt FROM documents ORDER BY rowid DESC",
-  ).all<{ docId: string; name: string; createdAt: string }>();
-  return results;
 }

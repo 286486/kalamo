@@ -226,6 +226,10 @@ describe("attribution", () => {
     const { docId, defaultLayerId } = (
       await call("zibel_doc_create", { name: "Doc", artboards: [{ width: 100, height: 100 }] })
     ).structuredContent;
+    // Made by a dev-mode Agent; hal must own it to open it.
+    await env.DB.prepare("UPDATE documents SET owner_id = ? WHERE id = ?")
+      .bind(userId, docId)
+      .run();
     const { createdIds, rev } = (
       await call("zibel_node_create", {
         docId,

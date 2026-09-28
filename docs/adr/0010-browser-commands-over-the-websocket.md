@@ -24,6 +24,6 @@ Selection stays in the browser (CONTEXT.md). The Selection tool selects objects,
 
 ## Consequences
 
-- Every browser acts as `user`: two tabs are one Actor until OAuth (M1). ADR-0047 keeps `user` in dev mode and records a signed-in browser as its User Actor `user_<userId>` in GitHub mode.
+- Every browser acts as `user`: two tabs are one Actor until OAuth (M1). ADR-0047 keeps `user` in dev mode and records a signed-in browser as its User Actor `user_<userId>` in GitHub mode; a viewer's commands are rejected with `PERMISSION_DENIED`.
 - `doc_changes` shows browser gestures like any other Transaction, with an empty `intent`.
 - New gestures (Layers panel toggles in #10, undo and redo in #11) are new `command` types, not new message types.

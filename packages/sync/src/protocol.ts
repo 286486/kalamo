@@ -11,6 +11,7 @@ import {
   Writable,
 } from "@zibel/core";
 import { z } from "zod";
+import type { Role } from "./index.ts";
 
 /**
  * Browser wire protocol: the Document on connect, then one `tx` per commit (ADR-0009). A browser
@@ -24,6 +25,8 @@ export interface DocumentMessage {
   name: string;
   artboards: Artboard[];
   nodes: Node[];
+  /** The socket's Role: a viewer's commands are rejected (ADR-0047). */
+  role: Role;
 }
 
 /** One committed Transaction, with full copies of the Nodes it created or updated. */

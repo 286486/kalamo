@@ -17,9 +17,10 @@ import {
   releasable,
   relinkable,
 } from "./selection.ts";
+import { shareDialog } from "./share.ts";
 import { startSimplify } from "./simplify.ts";
 import { splitGridDialog } from "./splitGrid.ts";
-import { type State, send, useStore } from "./store.ts";
+import { canEdit, type State, send, useStore } from "./store.ts";
 import { OPENABLE } from "./tabs.ts";
 import { drawing, undoAnchor } from "./tools.ts";
 import { artboardsRect, fit, zoomAt, zoomStep } from "./viewport.ts";
@@ -76,6 +77,19 @@ async function save(
     useStore.setState({ notice: `Could not download: ${String(e)}` });
   }
 }
+
+/**
+ * Items that change the Document, greyed out for a viewer as well as when their own test fails
+ * (ADR-0047). The server refuses a viewer's command regardless.
+ */
+const edits = (items: Item[]): Item[] =>
+  items.map((item) =>
+    item === "-"
+      ? item
+      : "items" in item
+        ? { ...item, items: edits(item.items) }
+        : { ...item, enabled: (s) => canEdit(s) && (item.enabled?.(s) ?? true) },
+  );
 
 const hasDoc = (s: State) => s.doc !== null;
 const hasView = (s: State) => s.viewport !== null;
@@ -157,8 +171,16 @@ export const listMenus = (open: (file: File) => void): Menu[] => [
   { label: "File", items: [openItem(open)] },
 ];
 
-/** The menu bar over the Document Tabs; every item acts on the active tab's Document. */
-export function documentMenus(tabs: { open: (file: File) => void; close: () => void }): Menu[] {
+/**
+ * The menu bar over the Document Tabs; every item acts on the active tab's Document. `share` is
+ * the Document's id when File > Share… applies: GitHub mode, where there are others to share with.
+ */
+export function documentMenus(tabs: {
+  open: (file: File) => void;
+  close: () => void;
+  share?: string;
+}): Menu[] {
+  const { share } = tabs;
   return [
     {
       label: "File",
@@ -192,38 +214,57 @@ export function documentMenus(tabs: { open: (file: File) => void; close: () => v
             },
           ],
         },
+        ...(share
+          ? [
+              "-" as const,
+              {
+                label: "Share…",
+                enabled: (s: State) => s.role === "owner",
+                run: () => shareDialog(share),
+              },
+            ]
+          : []),
         "-",
-        {
-          label: "Place…",
-          keys: "Shift+Ctrl+P",
-          enabled: hasDoc,
-          run: () => pickFile(PLACEABLE, place),
-        },
+        ...edits([
+          {
+            label: "Place…",
+            keys: "Shift+Ctrl+P",
+            enabled: hasDoc,
+            run: () => pickFile(PLACEABLE, place),
+          },
+        ]),
       ],
     },
     {
       label: "Edit",
       items: [
-        // Undo and Redo stay enabled: an empty stack answers with a rejection notice (ADR-0011).
-        {
-          label: "Undo",
-          keys: "Ctrl+Z",
-          enabled: hasDoc,
-          // While the Pen draws, Undo takes back its last Anchor and sends nothing (ADR-0032).
-          run: () => {
-            if (!undoAnchor()) send({ type: "undo" });
+        ...edits([
+          // Undo and Redo stay enabled: an empty stack answers with a rejection notice (ADR-0011).
+          {
+            label: "Undo",
+            keys: "Ctrl+Z",
+            enabled: hasDoc,
+            // While the Pen draws, Undo takes back its last Anchor and sends nothing (ADR-0032).
+            run: () => {
+              if (!undoAnchor()) send({ type: "undo" });
+            },
           },
-        },
-        { label: "Redo", keys: "Shift+Ctrl+Z", enabled: hasDoc, run: () => send({ type: "redo" }) },
-        "-",
-        // A click is a user gesture, so execCommand fires the copy or cut event a key press would.
-        {
-          label: "Cut",
-          keys: "Ctrl+X",
-          native: true,
-          enabled: hasSelection,
-          run: () => document.execCommand("cut"),
-        },
+          {
+            label: "Redo",
+            keys: "Shift+Ctrl+Z",
+            enabled: hasDoc,
+            run: () => send({ type: "redo" }),
+          },
+          "-",
+          // A click is a user gesture, so execCommand fires the copy or cut event a key press would.
+          {
+            label: "Cut",
+            keys: "Ctrl+X",
+            native: true,
+            enabled: hasSelection,
+            run: () => document.execCommand("cut"),
+          },
+        ]),
         {
           label: "Copy",
           keys: "Ctrl+C",
@@ -231,54 +272,56 @@ export function documentMenus(tabs: { open: (file: File) => void; close: () => v
           enabled: hasSelection,
           run: () => document.execCommand("copy"),
         },
-        {
-          label: "Paste",
-          keys: "Ctrl+V",
-          native: true,
-          enabled: hasView,
-          run: () => pasteClipboard(false),
-        },
-        {
-          label: "Paste in Place",
-          keys: "Shift+Ctrl+V",
-          native: true,
-          enabled: hasView,
-          run: () => pasteClipboard(true),
-        },
-        {
-          label: "Clear",
-          keys: "Delete",
-          enabled: (s) => {
-            const { doc } = s;
-            if (s.tool === "curvature" && drawing(s)) return true;
-            return doc !== null && s.selection.some((id) => editable(doc, doc.nodes.get(id)));
+        ...edits([
+          {
+            label: "Paste",
+            keys: "Ctrl+V",
+            native: true,
+            enabled: hasView,
+            run: () => pasteClipboard(false),
           },
-          run: () => {
-            const { doc, selection, anchors, segments, tool } = useStore.getState();
-            // The Curvature tool removes an Anchor and keeps the curve connected (research 06 §2).
-            if (tool === "curvature" && removeCurveAnchor()) return;
-            if (!doc) return;
-            if (tool === "curvature" && anchors.length > 0) {
-              sendAnchorEdits(curvatureClearInputs(doc, selection, anchors));
-              return;
-            }
-            if (anchors.length > 0 || segments.length > 0) {
-              // Selected Anchors go with their segments and selected segments alone, opening the
-              // path (research §4), and selected objects with neither go whole: one command per
-              // path.
-              sendAnchorEdits(clearInputs(doc, selection, anchors, segments));
-              return;
-            }
-            // The answering tx prunes the Selection; a rejection keeps it for another press.
-            const nodeIds = selection.filter((id) => editable(doc, doc.nodes.get(id)));
-            if (nodeIds.length > 0) send({ type: "delete", nodeIds });
+          {
+            label: "Paste in Place",
+            keys: "Shift+Ctrl+V",
+            native: true,
+            enabled: hasView,
+            run: () => pasteClipboard(true),
           },
-        },
+          {
+            label: "Clear",
+            keys: "Delete",
+            enabled: (s) => {
+              const { doc } = s;
+              if (s.tool === "curvature" && drawing(s)) return true;
+              return doc !== null && s.selection.some((id) => editable(doc, doc.nodes.get(id)));
+            },
+            run: () => {
+              const { doc, selection, anchors, segments, tool } = useStore.getState();
+              // The Curvature tool removes an Anchor and keeps the curve connected (research 06 §2).
+              if (tool === "curvature" && removeCurveAnchor()) return;
+              if (!doc) return;
+              if (tool === "curvature" && anchors.length > 0) {
+                sendAnchorEdits(curvatureClearInputs(doc, selection, anchors));
+                return;
+              }
+              if (anchors.length > 0 || segments.length > 0) {
+                // Selected Anchors go with their segments and selected segments alone, opening the
+                // path (research §4), and selected objects with neither go whole: one command per
+                // path.
+                sendAnchorEdits(clearInputs(doc, selection, anchors, segments));
+                return;
+              }
+              // The answering tx prunes the Selection; a rejection keeps it for another press.
+              const nodeIds = selection.filter((id) => editable(doc, doc.nodes.get(id)));
+              if (nodeIds.length > 0) send({ type: "delete", nodeIds });
+            },
+          },
+        ]),
       ],
     },
     {
       label: "Object",
-      items: [
+      items: edits([
         {
           // Illustrator's order; Smooth takes its place when it arrives.
           label: "Path",
@@ -394,7 +437,7 @@ export function documentMenus(tabs: { open: (file: File) => void; close: () => v
             if (nodeIds.length > 0) send({ type: "embed", nodeIds });
           },
         },
-      ],
+      ]),
     },
     {
       label: "Select",

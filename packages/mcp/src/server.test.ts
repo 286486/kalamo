@@ -6,7 +6,9 @@ afterEach(() => vi.restoreAllMocks());
 
 it("calls list with no arguments and returns the list as structuredContent and as text", async () => {
   const result = {
-    documents: [{ docId: "d", name: "Doc", createdAt: "2026-01-01T00:00:00Z" }],
+    documents: [
+      { docId: "d", name: "Doc", createdAt: "2026-01-01T00:00:00Z", role: "owner" as const },
+    ],
   };
   const { service, call } = await harness({ list: async () => result });
   expect(await call("zibel_doc_list")).toEqual({
@@ -14,6 +16,17 @@ it("calls list with no arguments and returns the list as structuredContent and a
     content: [{ type: "text", text: JSON.stringify(result) }],
   });
   expect(service.list).toHaveBeenCalledWith();
+});
+
+it("doc_delete deletes by docId and returns the receipt", async () => {
+  const { service, call } = await harness({
+    delete: async (docId) => ({ docId, deleted: true }),
+  });
+  expect((await call("zibel_doc_delete", { docId: "d" })).structuredContent).toEqual({
+    docId: "d",
+    deleted: true,
+  });
+  expect(service.delete).toHaveBeenCalledWith("d");
 });
 
 const receipt = {
@@ -635,6 +648,7 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
   expect(tools.map((t) => t.name).sort()).toEqual([
     "zibel_doc_changes",
     "zibel_doc_create",
+    "zibel_doc_delete",
     "zibel_doc_get_info",
     "zibel_doc_list",
     "zibel_doc_open",
@@ -708,6 +722,10 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
   expect(byName.zibel_doc_get_info?.annotations).toMatchObject({ readOnlyHint: true });
   expect(byName.zibel_doc_list?.annotations).toMatchObject({ readOnlyHint: true });
   expect(byName.zibel_tx_rollback?.annotations).toMatchObject({ destructiveHint: true });
+  expect(byName.zibel_doc_delete?.annotations).toMatchObject({
+    readOnlyHint: false,
+    destructiveHint: true,
+  });
   expect(byName.zibel_tx_commit?.annotations).toMatchObject({ destructiveHint: false });
   expect(JSON.stringify(tools)).not.toContain("no effect yet");
   // Descriptions point at the Skill document instead of repeating its conventions.

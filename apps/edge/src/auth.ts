@@ -11,8 +11,13 @@ export interface Principal {
 /** Dev mode's one browser User, whose Actor keeps ADR-0010's `user`. */
 const LOCAL: Principal = { userId: "local", actor: "user", access: "write" };
 
-/** The header that carries the Worker's Actor to the Document DO; a client's copy is replaced. */
+/**
+ * The headers that carry the Worker's Actor, User and Role to the Document DO on a WebSocket
+ * upgrade; a client's copies are replaced.
+ */
 export const ACTOR_HEADER = "x-zibel-actor";
+export const USER_HEADER = "x-zibel-user";
+export const ROLE_HEADER = "x-zibel-role";
 
 const SESSION_COOKIE = "__Host-zibel_session";
 const STATE_COOKIE = "__Host-zibel_oauth";
