@@ -1101,6 +1101,36 @@ it("drops an element its Node cannot hold with one warning per kind, keeping the
   );
 });
 
+it("drops an Image, Clipping Path or container paint its Node cannot hold, keeping the rest", () => {
+  const file = parseFile(
+    svg(
+      "",
+      `<image x="1e400" width="2" height="2" href="${RED_2x2_PNG}"/>` +
+        '<image x="1e400" width="2" height="2" href="a.png"/>' +
+        '<clipPath id="c"><rect width="-5" height="5"/></clipPath>' +
+        '<rect clip-path="url(#c)" width="3" height="3"/>' +
+        '<g><g zibel:paint="true" fill="none" stroke="#000000" stroke-width="1e400"><rect width="1" height="1"/></g>' +
+        '<g zibel:paint="true" fill="#FF0000"><rect width="1" height="1"/></g>' +
+        '<rect width="2" height="2"/></g>',
+    ),
+  );
+  // The clipped rect comes in unclipped, and the Group keeps the paint it can hold.
+  expect(leaves(file)).toMatchObject([
+    { type: "rect", width: 3 },
+    { type: "rect", width: 2 },
+  ]);
+  expect(file.nodes.some((n) => n.type === "rect" && n.clipping)).toBe(false);
+  expect(file.nodes.find((n) => n.type === "group" && n.appearance)).toMatchObject({
+    appearance: { fills: [{ color: "#FF0000" }], strokes: [] },
+  });
+  expect(file.images.size).toBe(0);
+  expect(file.warnings.map((w) => w.message)).toEqual(
+    ["x", "width", "appearance.strokes[0].width"].map((key) =>
+      expect.stringContaining(`dropped: element.${key}: `),
+    ),
+  );
+});
+
 it("opens a control character in text as a space, not a failed Open", () => {
   const file = parseFile(svg("", "<text>a&#x0B;b</text><text>c&#x7F;d</text>"));
   expect(leaves(file).map((n) => n.type === "text" && n.content)).toEqual(["a b", "c d"]);

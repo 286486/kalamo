@@ -286,7 +286,7 @@ const zibelAttr = (e: Element, name: ZibelAttr) => e.getAttributeNS(NS.zibel, na
 /** One paint of a container's Appearance, as export writes it (ADR-0043). */
 const isPaint = (e: Element) => zibelAttr(e, "paint") === "true";
 
-/** The properties every Node has, as `holds` checks a leaf's own without placing it. */
+/** The properties every Node has, for `holds`, which checks a Node's own without placing it. */
 const PLACED = {
   id: "-",
   name: "",
@@ -480,10 +480,10 @@ class Reader {
       // One Node painted several times: its geometry from the first paint, its Fills, then its
       // Strokes, in order (ADR-0017).
       const paints = elements(e).flatMap((c) => {
-        const own = this.own(c);
-        if (!own) return [];
+        const paint = this.own(c);
+        if (!paint) return [];
         const s = computeStyle(c, style, this.rules);
-        const m = multiply(matrix, own);
+        const m = multiply(matrix, paint);
         return [{ shape: this.shape(c, m, s), look: this.appearance(s, c, m) }];
       });
       shape = paints.find((p) => p.shape)?.shape ?? null;
@@ -530,12 +530,13 @@ class Reader {
   }
 
   /**
-   * Whether a leaf Node can hold `shape`, checked as the file will be; one that cannot, such as a
-   * negative width or a font size of 0, drops its element with a warning per key.
+   * Whether a Node can hold `own`, its properties past those every Node has, checked as the file
+   * will be. When it cannot, such as a negative width or a font size of 0, it warns once per key
+   * and the caller drops the element or paint.
    */
-  private holds(shape: Record<string, unknown>) {
+  private holds(own: Record<string, unknown>) {
     try {
-      parseNode({ ...PLACED, ...shape }, "element");
+      parseNode({ ...PLACED, ...own }, "element");
       return true;
     } catch (error) {
       if (!(error instanceof ZibelError)) throw error;
@@ -575,6 +576,8 @@ class Reader {
       const stroke = look.strokes[0];
       const paint = fill ?? stroke;
       if (!paint) return;
+      const one = { fills: fill ? [fill] : [], strokes: fill ? [] : [paint], contents: 0 };
+      if (!this.holds({ type: "group", appearance: one })) return;
       if (fill && appearance.strokes.length) {
         this.warn(
           "UNSUPPORTED_ATTRIBUTE",
@@ -639,6 +642,8 @@ class Reader {
     if (!shape) return;
     const appearance = this.appearance(style, e, m);
     // SVG draws nothing through a hidden clip path, and a Clipping Path is never hidden.
+    // One the Node cannot hold leaves the content unclipped.
+    if (!this.holds({ ...shape, appearance, clipping: true })) return;
     const base = { ...this.base(e, parentId, undefined, style), visible: true };
     this.add({ ...base, ...shape, appearance, clipping: true } as Node);
   }
@@ -1234,9 +1239,10 @@ class Reader {
         this.warn("INVALID_IMAGE", "", UNSIZED);
         return null;
       }
+      const shape = { ...frame(w ?? 1, h ?? 1), file: href };
+      if (!this.holds(shape)) return null;
       // Missing until resolveLinks finds its pixels, so a read that skips it still warns.
       this.warn("IMAGE_LINK_MISSING", "", MISSING);
-      const shape = { ...frame(w ?? 1, h ?? 1), file: href };
       if (!offered) return { shape };
       return { shape, link: { src, ...(!sized && { size: { scale: k, width: w, height: h } }) } };
     }
@@ -1250,6 +1256,8 @@ class Reader {
     const width = w ?? file.width;
     const height = h ?? file.height;
     if (!(width > 0 && height > 0)) return null;
+    // Checked before its file is kept, which no Image would then use.
+    if (!this.holds({ ...frame(width, height), src: "-" })) return null;
     let src = this.keys.get(href);
     if (src === undefined) {
       src = `pending:${this.keys.size}`;
