@@ -32,8 +32,14 @@ export function documentService(env: Env, principal: Principal): DocumentService
   const write = on("write");
   /** The owner's storage for a write that may store files (ADR-0048). */
   const storage = (docId: string) => ownerStorage(env, docId, principal.userId);
-  /** Node inputs or patches that may carry a data URL, whose file the write stores. */
-  const carriesFiles = (items: unknown) => JSON.stringify(items).includes('"data:');
+  /**
+   * `opts` with the owner's storage when Node inputs or patches may carry a data URL, whose file
+   * the write stores. ponytail: a text `data:` also matches, costing one D1 read; walk the Images if it bites.
+   */
+  const withStorage = async <O>(docId: string, items: unknown, opts: O) => ({
+    ...opts,
+    storage: JSON.stringify(items).includes('"data:') ? await storage(docId) : undefined,
+  });
   /** `render` or `export` counted against the caller's day (ADR-0048), then drawn. */
   const raster = (kind: "render" | "export") => async (docId: string, req: RasterRequest) => {
     await countCall(env, principal, kind);
@@ -116,15 +122,12 @@ export function documentService(env: Env, principal: Principal): DocumentService
     },
     info: async (docId) => read(docId, (d) => d.info()),
     createNodes: async (docId, nodes, opts) => {
-      const storing = { ...opts, storage: carriesFiles(nodes) ? await storage(docId) : undefined };
-      return write(docId, (d) => d.createNodes(nodes, actor, storing));
+      const withFiles = await withStorage(docId, nodes, opts);
+      return write(docId, (d) => d.createNodes(nodes, actor, withFiles));
     },
     updateNodes: async (docId, updates, opts) => {
-      const storing = {
-        ...opts,
-        storage: carriesFiles(updates) ? await storage(docId) : undefined,
-      };
-      return write(docId, (d) => d.updateNodes(updates, actor, storing));
+      const withFiles = await withStorage(docId, updates, opts);
+      return write(docId, (d) => d.updateNodes(updates, actor, withFiles));
     },
     deleteNodes: async (docId, nodeIds, opts) =>
       write(docId, (d) => d.deleteNodes(nodeIds, actor, opts)),

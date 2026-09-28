@@ -28,5 +28,6 @@ The M1 hosted beta is free and has hard per-User quotas (F-MCP-06c, #117), so on
 ## Consequences
 
 - Concurrent writes to two Documents of one owner can together pass 200 MB, since each checks the other's last written total. Accepted for the beta.
+- The migration starts every existing row at 0 stored bytes, correct only while no GitHub-mode Worker has stored files; a row catches up at its Document's next change in stored bytes.
 - Fonts, exports and snapshots are not in R2 yet. They join the storage sum when they move there.
 - Per-user overrides and paid tiers (M3) change the constants into a lookup.

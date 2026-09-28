@@ -696,7 +696,7 @@ export class DocumentObject extends DurableObject<Env> {
       const before = this.storedImageBytes();
       const receipt = this.write(actor, opts, verb, edit, { files: stored });
       committed = !("error" in receipt);
-      if (this.storedImageBytes() !== before) await this.report();
+      if (this.storedImageBytes() !== before) await this.reportStoredBytes();
       return receipt;
     } finally {
       this.inFlight.delete(files);
@@ -760,7 +760,7 @@ export class DocumentObject extends DurableObject<Env> {
    * Writes the Document's stored bytes to its `documents` row, which the owner's storage Quota
    * sums (ADR-0048). A failure leaves the row stale until the next change, never fails the write.
    */
-  private async report() {
+  private async reportStoredBytes() {
     const docId = this.sql.exec<{ id: string }>("SELECT id FROM doc").toArray()[0]?.id;
     if (!docId) return;
     try {
@@ -1342,7 +1342,7 @@ export class DocumentObject extends DurableObject<Env> {
       if (!page.truncated) break;
       cursor = page.cursor;
     }
-    if (garbage.length > 0) await this.report();
+    if (garbage.length > 0) await this.reportStoredBytes();
     const all = [...keys];
     // R2 deletes at most 1000 keys per call.
     for (let i = 0; i < all.length; i += 1000) await this.env.IMAGES.delete(all.slice(i, i + 1000));
