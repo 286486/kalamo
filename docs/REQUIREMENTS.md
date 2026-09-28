@@ -247,7 +247,7 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 - **F-VIEW-02** 预览 / 轮廓（Outline）模式切换 Ctrl+Y。（P1）
 - **F-VIEW-03** 标尺（Ctrl+R）、网格、参考线（从标尺拖出、路径转参考线）、智能参考线（对齐边缘 / 中心 / 等距 / 角度提示）。（P0：标尺网格参考线；P1：智能参考线）
 - **F-VIEW-04** 吸附：吸附到点、到网格、到像素、到参考线；可开关。（P0）
-- **F-VIEW-05** 隔离模式（双击进入组 / 符号编辑，面包屑退出）。（P1）Group 的隔离模式见 ADR-0057（#53）；子 Layer 与单条路径的隔离、符号编辑另行处理。
+- **F-VIEW-05** 隔离模式（双击进入组 / 符号编辑，面包屑退出）。（P1）Group 的隔离模式见 ADR-0057（#53）；子 Layer 与单条路径的隔离见 ADR-0058（#130）；符号编辑另行处理。
 - **F-VIEW-06** 画板管理：新建（预设尺寸 A4 / Letter / 1920×1080 / 社交媒体等）、复制、重排、改名、背景色、自动排列。（P0）
 - **F-VIEW-07** 多视口 / 导航器面板。（P2）
 - **F-VIEW-08** 性能：10k 节点平移缩放 ≥ 55 fps；视口裁剪；脏矩形或瓦片渲染。（P0 目标，P1 验收）
@@ -345,7 +345,7 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 
 ### 5.10 遮罩
 
-- **F-MASK-01** 剪切蒙版（Ctrl+7 / Alt+Ctrl+7）：任意矢量对象（含文字、compound path）作为 clip path；建立时 clip path 的 fill / stroke 清空（与 Illustrator 一致），但可在 Appearance 中重新赋予；隔离模式编辑内容；Release。（P0）模型与 SVG 映射见 ADR-0021；重新赋予的外观按 Illustrator 绘制：Fill 在内容之下、Stroke 在内容之上且不被自身裁切（ADR-0051）；文字作 clip path 按字形裁切并保持可编辑（ADR-0052）；图层剪切蒙版：Layers 面板底部按钮以 Layer 最上层对象裁切整个 Layer，含子 Layer（ADR-0053）；Illustrator SVG 的 `<clipPath><use>` 按复制规则读作可编辑的剪切路径，子元素共用一个 clip 时合成一个 Clip Group，填充与描边 `<use>` 读作剪切路径的外观（ADR-0056）；隔离模式：双击 Group（含 Clip Group）进入，其中的内容与剪切路径可直接点选，是每个标签页的浏览器状态（ADR-0057、#53）。
+- **F-MASK-01** 剪切蒙版（Ctrl+7 / Alt+Ctrl+7）：任意矢量对象（含文字、compound path）作为 clip path；建立时 clip path 的 fill / stroke 清空（与 Illustrator 一致），但可在 Appearance 中重新赋予；隔离模式编辑内容；Release。（P0）模型与 SVG 映射见 ADR-0021；重新赋予的外观按 Illustrator 绘制：Fill 在内容之下、Stroke 在内容之上且不被自身裁切（ADR-0051）；文字作 clip path 按字形裁切并保持可编辑（ADR-0052）；图层剪切蒙版：Layers 面板底部按钮以 Layer 最上层对象裁切整个 Layer，含子 Layer（ADR-0053）；Illustrator SVG 的 `<clipPath><use>` 按复制规则读作可编辑的剪切路径，子元素共用一个 clip 时合成一个 Clip Group，填充与描边 `<use>` 读作剪切路径的外观（ADR-0056）；隔离模式：双击 Group（含 Clip Group）进入，其中的内容与剪切路径可直接点选，是每个标签页的浏览器状态（ADR-0057、#53）；隔离子 Layer 即可在画布上点选图层剪切蒙版的剪切路径（ADR-0058、#130）。
 - **F-MASK-02** 不透明度蒙版：蒙版对象亮度决定透明度（白显黑隐）；Clip / Invert / Link 开关；Transparency 面板缩略图切换编辑目标。（P1）
 - **F-MASK-03** Draw Inside 模式自动生成剪切组。（P1）
 
