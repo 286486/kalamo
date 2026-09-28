@@ -16,7 +16,9 @@ export const isLeaf = (n: Node) => n.type !== "layer" && n.type !== "group";
  */
 export function levels(doc: Document, id: string): string[] {
   const out: string[] = [];
-  for (let n = doc.nodes.get(id); n?.parentId; n = doc.nodes.get(n.parentId)) out.unshift(n.id);
+  for (let n = doc.nodes.get(id); n?.parentId; n = doc.nodes.get(n.parentId)) {
+    out.unshift(n.id);
+  }
   return out;
 }
 

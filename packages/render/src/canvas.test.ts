@@ -1158,4 +1158,45 @@ describe("a subtree (ADR-0057)", () => {
     expect(whole.log.filter((l) => /(fill|stroke)Style=/.test(l))).toHaveLength(5);
     expect(whole.log).not.toContain(wash);
   });
+
+  it("draws a sub-Layer or a leaf in its translucent, clipped Layer the same way (ADR-0058)", () => {
+    const { doc, defaultLayerId: l } = newDoc();
+    const rect = (color: string, extra = {}) =>
+      ({
+        type: "rect",
+        x: 0,
+        y: 0,
+        width: 10,
+        height: 10,
+        appearance: { fills: [{ color }], strokes: [] },
+        ...extra,
+      }) as const;
+    const { keyMap } = createNodes(doc, [
+      { type: "layer", clientKey: "sub", parentId: l },
+      { ...rect("#000000"), parentId: l },
+    ] as never);
+    const sub = keyMap.sub as string;
+    const [leaf] = createNodes(doc, [
+      { ...rect("#FF0000"), parentId: sub },
+      { ...rect("#00FF00"), parentId: sub },
+    ] as never).nodes as [Node];
+    makeMask(doc, { layerId: l });
+    Object.assign(doc.nodes.get(l) as Node, { opacity: 0.5 });
+    /** What the isolated Node's coverage draws, before the canvas is copied. */
+    const coverage = (id: string) => {
+      const { ctx, log, layer } = recorder();
+      drawDocument(ctx, doc, layer, undefined, id);
+      return log.slice(0, log.indexOf("> drawImage [canvas] 0 0") - 1);
+    };
+    for (const [id, fills] of [
+      [sub, ["> fillStyle=#FF0000", "> fillStyle=#00FF00"]],
+      [leaf.id, ["> fillStyle=#FF0000"]],
+    ] as const) {
+      const drawn = coverage(id);
+      // Only that Node, clipped by the Layer, without the Layer's opacity.
+      expect(drawn.filter((l) => /fillStyle=/.test(l))).toEqual(fills);
+      expect(drawn).toContain("> clip nonzero");
+      expect(drawn).not.toContain("> globalAlpha=0.5");
+    }
+  });
 });

@@ -1,4 +1,10 @@
-import { type Document, PATH_OP_TEXT, type PathOpInput, serializeDocument } from "@zibel/core";
+import {
+  type Document,
+  type Node,
+  PATH_OP_TEXT,
+  type PathOpInput,
+  serializeDocument,
+} from "@zibel/core";
 import { toSvg } from "@zibel/io/write";
 import { sendAnchorEdits } from "./anchorTools.ts";
 import { cleanUpDialog } from "./cleanUp.ts";
@@ -155,14 +161,15 @@ const select =
   };
 
 /**
- * Object > Isolate Selected Group, or with `leaf` Isolate Selected Path: the one selected Group, or
- * Live Shape or Path, that can be isolated (ADR-0057, ADR-0058).
+ * Object > Isolate Selected Group or Isolate Selected Path: the one selected Node, a Group or a
+ * Live Shape or Path as `kind` says, when it can be isolated (ADR-0057, ADR-0058).
  */
-function isolating(doc: Document, selection: string[], leaf: boolean): string | null {
+function isolating(doc: Document, selection: string[], kind: (n: Node) => boolean) {
   const [id, ...rest] = selection;
   const n = doc.nodes.get(id ?? "");
-  return n && rest.length === 0 && isLeaf(n) === leaf ? isolate(doc, n.id) : null;
+  return n && rest.length === 0 && kind(n) ? isolate(doc, n.id) : null;
 }
+const isGroup = (n: Node) => n.type === "group";
 
 /** Object > Exit Isolation Mode, and Esc when no tool takes it: up one level (ADR-0057). */
 export function exitIsolation() {
@@ -444,19 +451,20 @@ export function documentMenus(tabs: {
         {
           label: "Isolate Selected Group",
           enabled: ({ doc, selection }) =>
-            doc !== null && isolating(doc, selection, false) !== null,
+            doc !== null && isolating(doc, selection, isGroup) !== null,
           run: () => {
             const { doc, selection } = useStore.getState();
-            const isolated = doc && isolating(doc, selection, false);
+            const isolated = doc && isolating(doc, selection, isGroup);
             if (isolated) useStore.setState({ isolated, selection: [] });
           },
         },
         {
           label: "Isolate Selected Path",
-          enabled: ({ doc, selection }) => doc !== null && isolating(doc, selection, true) !== null,
+          enabled: ({ doc, selection }) =>
+            doc !== null && isolating(doc, selection, isLeaf) !== null,
           run: () => {
             const { doc, selection } = useStore.getState();
-            const isolated = doc && isolating(doc, selection, true);
+            const isolated = doc && isolating(doc, selection, isLeaf);
             // The leaf stays selected (ADR-0058).
             if (isolated) useStore.setState({ isolated });
           },

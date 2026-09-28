@@ -68,6 +68,7 @@ export function objects(doc: Document, parentId: string | null = null): Node[] {
     if (!n.visible || n.locked) return [];
     return n.type === "layer" ? childrenOf(doc, n.id).flatMap(walk) : [n];
   };
+  // A Group's objects are its children; a Layer root is walked into; a leaf root is its own.
   const root = doc.nodes.get(parentId ?? "");
   return root && root.type !== "group" ? walk(root) : childrenOf(doc, parentId).flatMap(walk);
 }
