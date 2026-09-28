@@ -32,6 +32,16 @@ export interface ErrorData {
   rev?: number;
   /** REV_CONFLICT: Nodes changed since `ifRev`. NODE_GONE: the deleted Nodes. */
   nodeIds?: string[];
+  /** LIMIT_EXCEEDED of a beta Quota (ADR-0048): which one, and its numbers. */
+  limit?: QuotaLimit;
+}
+
+/** A Quota's numbers: `used` of `limit`, in bytes for storage; `resetsAt` for a daily one. */
+export interface QuotaLimit {
+  name: "documents" | "storage" | "document_storage" | "render" | "export" | "connections";
+  limit: number;
+  used: number;
+  resetsAt?: string;
 }
 
 export class ZibelError extends Error {

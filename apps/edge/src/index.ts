@@ -5,6 +5,7 @@ import {
   ACTOR_HEADER,
   authenticate,
   authRoute,
+  CONNECTION_LIMIT_HEADER,
   crossOrigin,
   foreignOrigin,
   githubMode,
@@ -17,6 +18,7 @@ import {
 } from "./auth.ts";
 import { imageKey } from "./document-object.ts";
 import { agentPrincipal, oauthProvider, oauthRoute, revokedChallenge } from "./oauth.ts";
+import { ownerStorage, QUOTAS } from "./quotas.ts";
 import { authorize, listDocuments, membersRoute } from "./roles.ts";
 import { documentService, unwrap } from "./service.ts";
 
@@ -118,6 +120,8 @@ async function socket(request: Request, env: Env, principal: Principal, docId: s
   headers.set(ACTOR_HEADER, principal.actor);
   headers.set(USER_HEADER, principal.userId);
   headers.set(ROLE_HEADER, role);
+  if (githubMode(env)) headers.set(CONNECTION_LIMIT_HEADER, String(QUOTAS.connections));
+  else headers.delete(CONNECTION_LIMIT_HEADER);
   return env.DOCUMENT.get(env.DOCUMENT.idFromName(docId)).fetch(new Request(request, { headers }));
 }
 
@@ -198,6 +202,7 @@ async function placeBitmap(
         {
           parentId: q.get("parentId") ?? "",
           ...(frame && { frame: { x: x - file.width / 2, y: y - file.height / 2 } }),
+          storage: await ownerStorage(env, docId, principal.userId),
         },
       ),
     );
@@ -227,7 +232,10 @@ async function relinkBitmap(
       await env.DOCUMENT.get(env.DOCUMENT.idFromName(docId)).relinkImage(
         { ...file, name: q.get("name") ?? undefined },
         principal.actor,
-        { nodeId: q.get("nodeId") ?? "" },
+        {
+          nodeId: q.get("nodeId") ?? "",
+          storage: await ownerStorage(env, docId, principal.userId),
+        },
       ),
     );
   });

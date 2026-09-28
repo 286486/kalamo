@@ -46,7 +46,10 @@ export interface TxMessage {
   skippedIds?: string[];
 }
 
-/** Sent only to the browser whose command changed nothing. */
+/**
+ * Sent only to the browser whose command changed nothing, or, with `id` "", whose socket the
+ * Document refuses before it closes it.
+ */
 export interface RejectedMessage {
   type: "rejected";
   id: string;
@@ -59,6 +62,8 @@ export type ServerMessage = DocumentMessage | TxMessage | RejectedMessage;
 export const ACCESS_CHANGED = 4003;
 /** Every socket of a deleted Document closes with this; the browser stops. */
 export const DOC_DELETED = 4004;
+/** A socket past the Document's connection Quota closes with this; the browser stops (ADR-0048). */
+export const TOO_MANY_CONNECTIONS = 4029;
 
 /** One gesture, as one core edit. Parsed by the Document DO: browsers are not trusted. */
 export const ClientMessage = z.object({

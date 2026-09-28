@@ -18,6 +18,8 @@ const LOCAL: Principal = { userId: "local", actor: "user", access: "write" };
 export const ACTOR_HEADER = "x-zibel-actor";
 export const USER_HEADER = "x-zibel-user";
 export const ROLE_HEADER = "x-zibel-role";
+/** GitHub mode: the most sockets the Document DO keeps open (ADR-0048); absent means no limit. */
+export const CONNECTION_LIMIT_HEADER = "x-zibel-connection-limit";
 
 const SESSION_COOKIE = "__Host-zibel_session";
 const STATE_COOKIE = "__Host-zibel_oauth";

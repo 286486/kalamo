@@ -408,6 +408,38 @@ describe("image files in R2, swept once nothing names them (ADR-0046)", () => {
     expect(await stored("r2-orphan")).toEqual({ rows: [red], objects: [red] });
   });
 
+  it("writes its stored bytes to its documents row after a commit that stores a file and a sweep that frees one", async () => {
+    const { s, image, parentId } = await setup("r2-report");
+    await env.DB.prepare(
+      "INSERT INTO documents (id, name, created_at, owner_id) VALUES ('r2-report', 'Doc', '', 'local')",
+    ).run();
+    const row = () =>
+      env.DB.prepare("SELECT stored_bytes FROM documents WHERE id = 'r2-report'").first<number>(
+        "stored_bytes",
+      );
+    const [nodeId] = ok(await s.createNodes([image(RED_2x2_PNG)], "agent")).createdIds as [string];
+    expect(await row()).toBe(readImage(RED_2x2_PNG, "src").bytes.length);
+    ok(await s.deleteNodes([nodeId], "agent"));
+    // Undoing the create moves it to the redo stack, which the next edit clears.
+    ok(await s.undo("agent"));
+    ok(await s.undo("agent"));
+    ok(await s.createNodes([{ type: "rect", parentId, x: 0, y: 0, width: 1, height: 1 }], "agent"));
+    expect(await runDurableObjectAlarm(s)).toBe(true);
+    expect(await row()).toBe(0);
+  });
+
+  it("refuses a file past what the owner's storage leaves, even under 20 MB, naming that limit", async () => {
+    const { s, image } = await setup("r2-owner");
+    const size = readImage(BLUE_1x1_PNG, "src").bytes.length;
+    const storage = { used: 200 * 1024 * 1024 - size + 1, limit: 200 * 1024 * 1024 };
+    expect(await s.createNodes([image(BLUE_1x1_PNG)], "agent", { storage })).toMatchObject({
+      error: { code: "LIMIT_EXCEEDED", limit: { name: "storage", used: storage.used } },
+    });
+    expect(await stored("r2-owner")).toEqual({ rows: [], objects: [] });
+    const roomy = { ...storage, used: storage.used - 1 };
+    ok(await s.createNodes([image(BLUE_1x1_PNG)], "agent", { storage: roomy }));
+  });
+
   describe("the 20 MB Document quota", () => {
     /** A distinct PNG of `size` bytes: a real header, then zeros. */
     const png = (n: number, size = 5 * 1024 * 1024) => {
@@ -429,6 +461,7 @@ describe("image files in R2, swept once nothing names them (ADR-0046)", () => {
           code: "LIMIT_EXCEEDED",
           message: `The Document stores ${20 * 1024 * 1024} bytes of image files; ${readImage(BLUE_1x1_PNG, "src").bytes.length} more would pass its limit of ${20 * 1024 * 1024} (20 MB).`,
           hint: expect.stringContaining("undo history"),
+          limit: { name: "document_storage", limit: 20 * 1024 * 1024, used: 20 * 1024 * 1024 },
         },
       });
       expect(ok(await s.info()).rev).toBe(rev);

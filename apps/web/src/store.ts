@@ -6,6 +6,7 @@ import {
   DOC_DELETED,
   type Role,
   type ServerMessage,
+  TOO_MANY_CONNECTIONS,
 } from "@zibel/sync";
 import { create } from "zustand";
 import { parseKey } from "./direct.ts";
@@ -164,6 +165,9 @@ export function connect(docId: string): () => void {
     ws.onclose = (e) => {
       if (stopped) return;
       if (e.code === DOC_DELETED) return stop("This Document was deleted.");
+      if (e.code === TOO_MANY_CONNECTIONS) {
+        return stop("Too many open tabs on this Document. Close one, then reload this tab.");
+      }
       if (accessChanged) return stop("This Document is no longer shared with you.");
       accessChanged = e.code === ACCESS_CHANGED;
       useStore.setState({ live: false });
