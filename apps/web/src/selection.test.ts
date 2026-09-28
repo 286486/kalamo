@@ -10,9 +10,12 @@ import {
   type Node,
   type Rect,
   type ShapeNode,
+  type TextNode,
+  textBox,
+  worldTransform,
 } from "@zibel/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { boxContext } from "./boxContext.ts";
+import { boxContext, polygonContext } from "./boxContext.ts";
 import { marqueeAnchors, parseKey, pick } from "./direct.ts";
 import {
   combine,
@@ -178,12 +181,8 @@ describe("hitTest", () => {
     const [t] = createNodes(doc, [
       { type: "text", parentId: defaultLayerId, x: 10, y: 50, content: "Hi" },
     ]).nodes;
-    // A text needs no Path2D: bounds (10, 38)-(20.776, 53.912) decide.
-    const ctx = {
-      save() {},
-      restore() {},
-      setTransform() {},
-    } as unknown as CanvasRenderingContext2D;
+    // Its frame is (10, 38)-(20.776, 53.912).
+    const ctx = boxContext();
     expect(hitTest(ctx, doc, 15, 40, 1, { scope: null })).toBe(t?.id);
     expect(hitTest(ctx, doc, 22, 40, 1, { scope: null })).toBeNull();
   });
@@ -457,6 +456,76 @@ describe("hitTest", () => {
       expect(hit(50, 5, true)).toBeNull();
       expect(hit(0, 5, true)).toBe("content");
     });
+  });
+});
+
+describe("hitTest on a rotated text", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const c = Math.SQRT1_2;
+  // Its bounds' bottom-left corner, outside the frame rotated 45°.
+  const corner = [48.2, 92.6] as const;
+  /** "Hello world" at (50, 50) rotated 45°, and the points of its frame in document coordinates. */
+  const rotated = () => {
+    const { doc, defaultLayerId: parentId } = createDocument({
+      id: "d",
+      name: "Doc",
+      artboards: [{ width: 200, height: 200 }],
+    });
+    const [far, created] = createNodes(doc, [
+      { type: "rect", parentId, x: 150, y: 150, width: 10, height: 10 },
+      { type: "text", parentId, x: 50, y: 50, content: "Hello world" },
+    ]).nodes as [Node, TextNode];
+    const t: TextNode = { ...created, transform: [c, c, -c, c, 50, 50 - 100 * c] };
+    doc.nodes.set(t.id, t);
+    const f = textBox(t);
+    const at = (u: number, v: number) =>
+      applyTo(worldTransform(doc, t), f.x + u * f.width, f.y + v * f.height);
+    return { doc, far, t, centre: at(0.5, 0.5), topEdge: at(0.5, 0) };
+  };
+
+  it("hits inside its frame, not in its bounds' corners", () => {
+    const { doc, t, centre } = rotated();
+    const hit = (x: number, y: number) => hitTest(polygonContext(), doc, x, y, 1, { scope: null });
+    expect(hit(...corner)).toBeNull();
+    expect(hit(...centre)).toBe(t.id);
+  });
+
+  it("hits an isolated unpainted text Clipping Path on its rotated frame's edges", () => {
+    vi.stubGlobal("OffscreenCanvas", GlyphBoxes);
+    const { doc, far, t, topEdge } = rotated();
+    const { group } = makeMask(doc, { clipNodeId: t.id, contentIds: [far.id] });
+    const hit = (x: number, y: number) =>
+      hitTest(polygonContext(), doc, x, y, 1, { scope: group.id });
+    const b = bounds(doc, t) as Rect;
+    expect(hit(...topEdge)).toBe(t.id);
+    // On its bounds' edge, at their bottom-left corner.
+    expect(hit(b.x, b.y + b.height)).toBeNull();
+  });
+
+  it("hits a painted text Clipping Path only inside its rotated frame", () => {
+    vi.stubGlobal("OffscreenCanvas", GlyphBoxes);
+    const { doc, far, t, centre } = rotated();
+    const { group } = makeMask(doc, { clipNodeId: t.id, contentIds: [far.id] });
+    const fill = { type: "solid" as const, color: "#FF0000" };
+    const clip = doc.nodes.get(t.id) as TextNode;
+    doc.nodes.set(t.id, { ...clip, appearance: { fills: [fill], strokes: [] } });
+    const hit = (x: number, y: number) =>
+      hitTest(polygonContext(), doc, x, y, 1, { scope: group.id });
+    expect(hit(...centre)).toBe(t.id);
+    expect(hit(...corner)).toBeNull();
+  });
+
+  it("hits a container's paint on it only inside its rotated frame", () => {
+    const { doc, t, centre } = rotated();
+    const layer = doc.nodes.get(t.parentId ?? "") as Node;
+    Object.assign(layer, {
+      appearance: { fills: [], strokes: [{ color: "#0000FF", width: 1 }], contents: 0 },
+    });
+    const hit = (x: number, y: number) =>
+      hitTest(polygonContext(), doc, x, y, 1, { leaf: true, scope: null });
+    expect(hit(...centre)).toBe(t.id);
+    expect(hit(...corner)).toBeNull();
   });
 });
 

@@ -20,6 +20,7 @@ import {
   scaleOf,
   shapeSegments,
   type TextNode,
+  textBox,
   touches,
   transformSegments,
   worldTransform,
@@ -154,8 +155,7 @@ export function hitTest(
         if (inClip) paintsAt(paints.slice(contents));
         if (n.id === scope && clip?.visible && !clip.locked && unpainted(clip)) {
           ctx.lineWidth = tolerance;
-          const edge = clip.type === "text" ? frameOf(doc, clip) : outline(doc, clip);
-          if (edge && ctx.isPointInStroke(edge, x, y)) hit(clip);
+          if (ctx.isPointInStroke(outline(doc, clip), x, y)) hit(clip);
         }
       } else if (!("clipping" in n && n.clipping) && paintedAt(ctx, doc, n, x, y, tolerance)) {
         hit(n);
@@ -173,17 +173,9 @@ export function hitTest(
 
 const unpainted = (n: LeafNode) => n.appearance.fills.length + n.appearance.strokes.length === 0;
 
-/** A text's frame, its bounds, as a path in document coordinates. */
-function frameOf(doc: Document, t: TextNode): Path2D | null {
-  const b = bounds(doc, t);
-  if (!b) return null;
-  const [x0, y0, x1, y1] = [b.x, b.y, b.x + b.width, b.y + b.height];
-  return new Path2D(`M${x0} ${y0} L${x1} ${y0} L${x1} ${y1} L${x0} ${y1} Z`);
-}
-
 /**
  * Inside a Fill, or on the outline (painted or not, as Illustrator hits an unpainted Path); a
- * text anywhere inside its bounds; an Image anywhere inside its frame.
+ * text or an Image anywhere inside its frame.
  */
 function paintedAt(
   ctx: CanvasRenderingContext2D,
@@ -193,11 +185,7 @@ function paintedAt(
   y: number,
   tolerance: number,
 ): boolean {
-  if (n.type === "text") {
-    const b = bounds(doc, n);
-    return !!b && b.x <= x && x <= b.x + b.width && b.y <= y && y <= b.y + b.height;
-  }
-  if (n.type === "image") return ctx.isPointInPath(outline(doc, n), x, y);
+  if (n.type === "text" || n.type === "image") return ctx.isPointInPath(outline(doc, n), x, y);
   const path = outline(doc, n);
   if (n.appearance.fills.length > 0 && ctx.isPointInPath(path, x, y, ruleOf(n))) return true;
   ctx.lineWidth = Math.max(widest(doc, n), tolerance);
@@ -232,12 +220,14 @@ function glyphsAt(doc: Document, t: TextNode, x: number, y: number): boolean {
 const widest = (doc: Document, n: LeafNode) =>
   Math.max(0, ...n.appearance.strokes.map((s) => s.width)) * scaleOf(worldTransform(doc, n));
 
-/** A shape's outline, or an Image's frame, in document coordinates. */
-const outline = (doc: Document, n: ShapeNode | ImageNode) =>
+/** A shape's outline, or an Image's or a text's frame, in document coordinates. */
+const outline = (doc: Document, n: ShapeNode | ImageNode | TextNode) =>
   new Path2D(
     formatPath(
       transformSegments(
-        shapeSegments(n.type === "image" ? frameShape(n) : n),
+        shapeSegments(
+          n.type === "image" ? frameShape(n) : n.type === "text" ? frameShape(textBox(n)) : n,
+        ),
         worldTransform(doc, n),
       ),
     ),
