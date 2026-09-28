@@ -76,9 +76,10 @@ const app = {
     if (relink && request.method === "POST") return relinkBitmap(relink, request, env, principal);
     const members = membersRoute(request, env, principal);
     if (members) return answer(() => members);
-    const deleted = url.pathname.match(/^\/api\/docs\/([^/]+)$/)?.[1];
-    if (deleted && request.method === "DELETE")
-      return answer(() => documentService(env, principal).delete(deleted));
+    const doc = url.pathname.match(/^\/api\/docs\/([^/]+)$/)?.[1];
+    if (doc && request.method === "GET") return answer(() => readable(env, principal, doc));
+    if (doc && request.method === "DELETE")
+      return answer(() => documentService(env, principal).delete(doc));
     if (url.pathname === "/api/docs") {
       return Response.json({ documents: await listDocuments(env, principal) });
     }
@@ -118,6 +119,18 @@ async function socket(request: Request, env: Env, principal: Principal, docId: s
   headers.set(USER_HEADER, principal.userId);
   headers.set(ROLE_HEADER, role);
   return env.DOCUMENT.get(env.DOCUMENT.idFromName(docId)).fetch(new Request(request, { headers }));
+}
+
+/**
+ * The caller's Role on a Document, by the same check as the WebSocket upgrade, whose refusal a
+ * browser cannot read: a tab whose socket never opens asks here whether it still has access.
+ */
+async function readable(env: Env, principal: Principal, docId: string) {
+  const role = await authorize(env, principal, docId, "read");
+  const name = await env.DB.prepare("SELECT name FROM documents WHERE id = ?")
+    .bind(docId)
+    .first<string>("name");
+  return { docId, name, role };
 }
 
 /**

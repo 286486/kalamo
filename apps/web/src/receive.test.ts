@@ -2,7 +2,7 @@ import { createDocument, createNodes, type Document, type Node } from "@zibel/co
 import type { TxMessage } from "@zibel/sync";
 import { expect, it } from "vitest";
 import { anchorKey } from "./direct.ts";
-import { preview, previewEdit, previewOp, receive } from "./receive.ts";
+import { afterProbe, preview, previewEdit, previewOp, receive } from "./receive.ts";
 
 function fixture() {
   const { doc, defaultLayerId } = createDocument({
@@ -347,4 +347,15 @@ it("keeps a Simplify preview until the answer to its path_op, and previews it wi
   expect(previewOp(doc, { input }).nodes.get(a.id)).toMatchObject({ id: a.id, type: "path" });
   expect(doc.nodes.get(a.id)).toBe(a);
   expect(previewOp(doc, { input: { ...input, nodeIds: ["gone"] } })).toBe(doc);
+});
+
+it("stops a tab only when the probe after an unopened socket reads 404 DOC_NOT_FOUND or 401", () => {
+  expect(afterProbe({ status: 200 })).toBe("retry");
+  expect(afterProbe({ status: 404, code: "DOC_NOT_FOUND" })).toEqual({
+    notice: "This Document is no longer available to you.",
+  });
+  expect(afterProbe({ status: 401, code: "PERMISSION_DENIED" })).toBe("sign-in");
+  expect(afterProbe(null)).toBe("retry");
+  expect(afterProbe({ status: 503 })).toBe("retry");
+  expect(afterProbe({ status: 404 })).toBe("retry");
 });
