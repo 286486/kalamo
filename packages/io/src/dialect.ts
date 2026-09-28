@@ -25,6 +25,7 @@ export type ZibelAttr =
   | "scope"
   | "stack"
   | "paint"
+  | "clipped"
   | "artboard"
   | "background"
   | "tags"

@@ -634,14 +634,14 @@ export function bounds(doc: Document, node: Node): Rect | null {
 
 /**
  * Geometric bounds grown by half the widest Stroke, for a leaf; the union of its children's, for a
- * container; its Clipping Path's geometric bounds, for a Clipping Mask.
+ * container; its Clipping Path's, as a leaf's, for a Clipping Mask (ADR-0051).
  */
 export function visibleBounds(doc: Document, node: Node): Rect | null {
   if (node.type === "layer" || node.type === "group") {
     const children = childrenOf(doc, node.id);
-    // A Clipping Path's Strokes are not drawn, so its geometry is all that shows.
+    // Everything else is clipped, and the Clipping Path's Strokes draw unclipped.
     const clip = node.type === "group" ? clipAmong(children) : undefined;
-    if (clip) return bounds(doc, clip);
+    if (clip) return visibleBounds(doc, clip);
     const grow = Math.max(0, ...containerAppearance(node).strokes.map((s) => s.width)) / 2;
     // A leaf inside an inner Clipping Mask paints only within its Clipping Paths.
     const painted =

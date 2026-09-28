@@ -72,6 +72,11 @@
       "frame": { "height": 120, "width": 340, "x": 1240, "y": 0 },
       "id": "01M38T29SXC0NTA1NERSARTB00",
       "name": "Containers"
+    },
+    {
+      "frame": { "height": 120, "width": 120, "x": 1460, "y": 130 },
+      "id": "01M38T29SYC11PPA1NTA4TB0RD",
+      "name": "Clipping Paths"
     }
   ],
   "nodes": [
@@ -2024,6 +2029,105 @@
       "visible": true,
       "x": 0,
       "y": 0
+    },
+    {
+      "appearance": {
+        "contents": 0,
+        "fills": [],
+        "strokes": [
+          {
+            "cap": "butt",
+            "color": "#6600CC",
+            "dash": [],
+            "join": "miter",
+            "miterLimit": 10,
+            "width": 2
+          }
+        ]
+      },
+      "blendMode": "normal",
+      "id": "01M38T29SYC11PPA1NTGR0VP00",
+      "index": "ah",
+      "locked": false,
+      "meta": {},
+      "name": "Framed",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "appearance": { "fills": [{ "color": "#FFCC00", "type": "solid" }], "strokes": [] },
+      "blendMode": "normal",
+      "height": 70,
+      "id": "01M38T29SYC11PPA1NTPH0T000",
+      "index": "a0",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29SYC11PPA1NTGR0VP00",
+      "radius": 0,
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "rect",
+      "visible": true,
+      "width": 70,
+      "x": 1470,
+      "y": 140
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "gradient": {
+              "end": { "x": 1560, "y": 190 },
+              "start": { "x": 1490, "y": 190 },
+              "stops": [{ "color": "#00CC99", "offset": 0 }, { "color": "#FFFFFF80", "offset": 1 }],
+              "type": "linear"
+            },
+            "type": "gradient"
+          }
+        ],
+        "strokes": [
+          {
+            "cap": "butt",
+            "color": "#0066FF",
+            "dash": [],
+            "join": "miter",
+            "miterLimit": 10,
+            "width": 6
+          },
+          {
+            "cap": "butt",
+            "color": "#FFFFFF",
+            "dash": [3, 2],
+            "join": "miter",
+            "miterLimit": 10,
+            "width": 2
+          }
+        ]
+      },
+      "blendMode": "multiply",
+      "clipping": true,
+      "height": 60,
+      "id": "01M38T29SYC11PPA1NTC11P000",
+      "index": "a1",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 0.6,
+      "parentId": "01M38T29SYC11PPA1NTGR0VP00",
+      "radius": 0,
+      "tags": [],
+      "transform": [0.866025, 0.5, -0.5, 0.866025, 299.311875, -737.04475],
+      "type": "rect",
+      "visible": true,
+      "width": 70,
+      "x": 1490,
+      "y": 160
     }
   ],
   "images": {

@@ -203,14 +203,17 @@ it("exports the fixture Document as Inkscape SVG that matches the stored file", 
     // ADR-0029: tracking as letter-spacing, and a Character Range as a nested tspan.
     `font-size="20" letter-spacing="2" ${z("SWCHARS000000000A0")}`,
     '<tspan fill="#E9C46A" baseline-shift="2" rotate="-15">L</tspan>',
+    // ADR-0051: a stroked Clipping Path's clip wraps the content, its Strokes drawn after it.
+    `<g ${z("SYC11PPA1NTGR0VP00")} inkscape:label="Framed"><g zibel:clipped="true" clip-path="url(#clip-z-01M38T29SYC11PPA1NTGR0VP00)">`,
+    '<g zibel:paint="clip-stroke" sodipodi:insensitive="true" inkscape:label="Clipping Path Stroke" style="opacity:0.6;mix-blend-mode:multiply">',
   ]) {
     expect(svg).toContain(part);
   }
   await expect(svg).toMatchFileSnapshot("../../../fixtures/documents/inkscape.svg");
   // resvg in the Worker draws the same file, namespaces and all, over every Artboard.
   expect(await render({ docId })).toEqual({
-    docRect: { x: 0, y: 0, width: 1580, height: 200 },
-    pixelSize: { width: 1580, height: 200 },
+    docRect: { x: 0, y: 0, width: 1580, height: 250 },
+    pixelSize: { width: 1580, height: 250 },
     scale: 1,
   });
 });

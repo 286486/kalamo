@@ -100,7 +100,7 @@ export function makeMask(
 
 /**
  * Illustrator's Object > Clipping Mask > Release: each Clipping Mask, named by its Group or its
- * Clipping Path, stops clipping; the Group and the unpainted Path stay.
+ * Clipping Path, stops clipping; the Group and the Path, with whatever Appearance it has, stay.
  */
 export function releaseMask(doc: Document, nodeIds: string[], { partial = false } = {}) {
   const { ok, failed } = collect(nodeIds, partial, (id, i) => {

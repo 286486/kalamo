@@ -34,15 +34,15 @@ for (const c of COMPOSITING) {
       (await call(request, "zibel_doc_outline", { docId, rootId: parentId, depth: 9 }))
         .structuredContent.nodes,
     );
-    if (c.mask) {
+    for (const m of c.masks ?? []) {
       const { createdIds } = (
         await call(request, "zibel_mask_make", {
           docId,
-          clipNodeId: ids.get(c.mask.clip),
-          contentIds: c.mask.content.map((k) => ids.get(k)),
+          clipNodeId: ids.get(m.clip),
+          contentIds: m.content.map((k) => ids.get(k)),
         })
       ).structuredContent;
-      ids.set("mask", createdIds[0]);
+      ids.set(m.name, createdIds[0]);
     }
     for (const [k, t] of Object.entries(c.transforms ?? {})) {
       await call(request, "zibel_node_transform", { docId, nodeIds: [ids.get(k)], ...t });

@@ -345,7 +345,7 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 
 ### 5.10 遮罩
 
-- **F-MASK-01** 剪切蒙版（Ctrl+7 / Alt+Ctrl+7）：任意矢量对象（含文字、compound path）作为 clip path；建立时 clip path 的 fill / stroke 清空（与 Illustrator 一致），但可在 Appearance 中重新赋予；隔离模式编辑内容；Release。（P0）模型与 SVG 映射见 ADR-0021；文字作 clip path、重新赋予的外观被绘制、隔离模式暂缓。
+- **F-MASK-01** 剪切蒙版（Ctrl+7 / Alt+Ctrl+7）：任意矢量对象（含文字、compound path）作为 clip path；建立时 clip path 的 fill / stroke 清空（与 Illustrator 一致），但可在 Appearance 中重新赋予；隔离模式编辑内容；Release。（P0）模型与 SVG 映射见 ADR-0021；重新赋予的外观按 Illustrator 绘制：Fill 在内容之下、Stroke 在内容之上且不被自身裁切（ADR-0051）。文字作 clip path、隔离模式暂缓。
 - **F-MASK-02** 不透明度蒙版：蒙版对象亮度决定透明度（白显黑隐）；Clip / Invert / Link 开关；Transparency 面板缩略图切换编辑目标。（P1）
 - **F-MASK-03** Draw Inside 模式自动生成剪切组。（P1）
 

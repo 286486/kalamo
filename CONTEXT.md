@@ -190,7 +190,7 @@ _Avoid_: Style preset、Theme
 _Avoid_: Clip、Crop（那是位图操作）、Clip group 作为类型名
 
 **Clipping Path（剪切路径）**：
-Clipping Mask 中做裁切的那个子 Node：一个 `clipping: true` 的 Live Shape 或 Path。每个 Group 至多一个；它不被绘制，只裁切同组的其他 Node。
+Clipping Mask 中做裁切的那个子 Node：一个 `clipping: true` 的 Live Shape 或 Path。每个 Group 至多一个；它裁切同组的其他 Node。建立时其 Appearance 清空；重新赋予后，Fill 画在被裁切内容之下，Stroke 画在其上且不被自身裁切（ADR-0051）。
 _Avoid_: Mask path、Clip shape
 
 **Opacity Mask（不透明度蒙版）**：

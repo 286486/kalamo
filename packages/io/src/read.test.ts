@@ -1325,7 +1325,7 @@ describe("Clipping Masks (ADR-0021)", () => {
     const file = parseFile(
       svg(
         'width="200" height="200" viewBox="0 0 200 200"',
-        '<defs><clipPath clipPathUnits="userSpaceOnUse" id="clipPath13"><circle id="circle15" cx="80" cy="80" r="50" fill="#00ff00"/></clipPath></defs>' +
+        '<defs><clipPath clipPathUnits="userSpaceOnUse" id="clipPath13"><circle id="circle15" cx="80" cy="80" r="50" fill="#00ff00" opacity="0.5"/></clipPath></defs>' +
           `<g id="${G}" clip-path="url(#clipPath13)" transform="translate(10 0)"><rect width="100" height="100" fill="#FF0000"/></g>`,
       ),
     );
@@ -1333,14 +1333,16 @@ describe("Clipping Masks (ADR-0021)", () => {
     const group = byId(file, G);
     const [rect, clip] = children(file, group?.id);
     expect(rect).toMatchObject({ type: "rect", x: 10 });
-    // On top, in the Group's user space, its paint kept but not drawn.
+    // On top, in the Group's user space. Set Clip left the circle's old style there, which SVG
+    // never draws, so it is unpainted (ADR-0051).
     expect(clip).toMatchObject({
       type: "ellipse",
       x: 40,
       y: 30,
       width: 100,
       clipping: true,
-      appearance: { fills: [{ color: "#00FF00" }] },
+      opacity: 1,
+      appearance: { fills: [], strokes: [] },
     });
   });
 
@@ -1409,6 +1411,150 @@ describe("Clipping Masks (ADR-0021)", () => {
   it("takes clip-path none, as Inkscape's Release writes it, as no clip", () => {
     const file = parseFile(svg("", '<g clip-path="none"><rect width="5" height="5"/></g>'));
     expect(file.warnings).toEqual([]);
+  });
+});
+
+describe("a painted Clipping Path (ADR-0051)", () => {
+  /** A Group with a Fill below Contents clipping a rect by a turned ellipse, painted as `look` says. */
+  function framed(look: { strokes: boolean; above?: boolean }) {
+    const { doc, defaultLayerId } = createDocument({
+      id: "d",
+      name: "Doc",
+      artboards: [{ width: 100, height: 100 }],
+    });
+    const [content, clip] = createNodes(doc, [
+      { type: "rect", parentId: defaultLayerId, x: 0, y: 0, width: 60, height: 60 },
+      { type: "ellipse", parentId: defaultLayerId, x: 10, y: 10, width: 40, height: 20 },
+    ]).nodes as [ShapeNode, ShapeNode];
+    transformNodes(doc, {
+      nodeIds: [clip.id],
+      matrix: [0, 1, -1, 0, 0, 0],
+      pivot: { x: 30, y: 20 },
+    });
+    const { group } = makeMask(doc, { clipNodeId: clip.id, contentIds: [content.id] });
+    const stops = [
+      { offset: 0, color: "#000000" },
+      { offset: 1, color: "#FFFFFF80" },
+    ];
+    const gradient = {
+      type: "linear" as const,
+      stops,
+      start: { x: 10, y: 0 },
+      end: { x: 50, y: 0 },
+    };
+    const stroke = { cap: "butt" as const, join: "miter" as const, miterLimit: 10, dash: [] };
+    const fills: Fill[] = [
+      { type: "gradient", gradient },
+      { type: "solid", color: "#00FF00" },
+    ];
+    const strokes = look.strokes
+      ? [
+          { type: "solid" as const, color: "#FF0000", width: 4, ...stroke },
+          { type: "gradient" as const, gradient, width: 1, ...stroke, dash: [2, 1] },
+        ]
+      : [];
+    const painted = doc.nodes.get(clip.id) as ShapeNode;
+    doc.nodes.set(clip.id, {
+      ...painted,
+      appearance: { fills, strokes },
+      opacity: 0.5,
+      blendMode: "multiply",
+    });
+    const around = [{ type: "solid" as const, color: "#0000FF" }];
+    // The index an Open numbers it with.
+    doc.nodes.set(group.id, {
+      ...group,
+      index: "a0",
+      appearance: look.above
+        ? { fills: around, strokes: [{ ...strokes[0], color: "#FF00FF" } as never], contents: 1 }
+        : { fills: around, strokes: [], contents: 1 },
+    });
+    return { doc, group, clip };
+  }
+  const opened = (doc: ReturnType<typeof framed>["doc"], xml: string) => {
+    const file = parseSvg(xml);
+    return { file, doc: { ...doc, nodes: new Map(file.nodes.map((n) => [n.id, n])) } };
+  };
+  const same = (a: ReturnType<typeof framed>["doc"], b: typeof a) =>
+    expect(JSON.parse(serializeDocument(b))).toEqual(JSON.parse(serializeDocument(a)));
+
+  it.each([
+    ["Fills only, in one clipped <g>", { strokes: false }],
+    ["Strokes, in a wrapper", { strokes: true }],
+    ["Strokes and a container paint above, in two wrappers", { strokes: true, above: true }],
+  ])(
+    "reads back its Appearance, opacity and blend mode from %s: Open of an export is the Document",
+    (_, look) => {
+      const { doc } = framed(look);
+      const { file, doc: back } = opened(doc, toSvg(doc));
+      expect(file.warnings).toEqual([]);
+      same(doc, back);
+    },
+  );
+
+  it("ignores the ids Inkscape adds to the wrappers and copies when it saves", () => {
+    const { doc } = framed({ strokes: true, above: true });
+    let n = 0;
+    const saved = toSvg(doc).replace(
+      /<g zibel:clipped="true"|(zibel:paint="clip-[a-z]+"[^>]*>)(<[a-z]+)/g,
+      (_, paint?: string, tag?: string) =>
+        paint ? `${paint}${tag} id="copy${n++}"` : `<g id="g${n++}" zibel:clipped="true"`,
+    );
+    expect(n).toBe(4);
+    const { file, doc: back } = opened(doc, saved);
+    expect(file.warnings).toEqual([]);
+    same(doc, back);
+  });
+
+  it("loses the Strokes when their paint group is deleted, and the opacity with both", () => {
+    const { doc, clip } = framed({ strokes: true });
+    const xml = toSvg(doc);
+    const noStroke = xml.replace(
+      /<defs>(?:(?!<defs>).)*<\/defs><g zibel:paint="clip-stroke".*?<\/g><\/g>/,
+      "",
+    );
+    expect(noStroke).not.toContain("clip-stroke");
+    const one = opened(doc, noStroke).doc.nodes.get(clip.id) as ShapeNode;
+    expect(one).toMatchObject({ opacity: 0.5, blendMode: "multiply" });
+    expect(one.appearance.strokes).toEqual([]);
+    expect(one.appearance.fills).toHaveLength(2);
+    const bare = noStroke.replace(
+      /<defs>(?:(?!<defs>).)*<\/defs><g zibel:paint="clip-fill".*?<\/g><\/g>/,
+      "",
+    );
+    expect(opened(doc, bare).doc.nodes.get(clip.id)).toMatchObject({
+      opacity: 1,
+      blendMode: "normal",
+      appearance: { fills: [], strokes: [] },
+    });
+  });
+
+  it("keeps the first clip, with a warning, when the wrappers disagree", () => {
+    const file = parseFile(
+      svg(
+        "",
+        '<defs><clipPath id="b"><rect width="2" height="2"/></clipPath></defs>' +
+          '<g><g zibel:clipped="true" clip-path="url(#a)"><clipPath id="a"><rect width="1" height="1"/></clipPath><rect width="5" height="5"/></g>' +
+          '<g zibel:clipped="true" clip-path="url(#b)"><rect width="6" height="6"/></g></g>',
+      ),
+    );
+    expect(file.warnings).toMatchObject([{ code: "UNSUPPORTED_ATTRIBUTE" }]);
+    const clips = file.nodes.filter((n) => "clipping" in n);
+    expect(clips).toMatchObject([{ type: "rect", width: 1 }]);
+    const group = file.nodes.find((n) => n.id === clips[0]?.parentId);
+    expect(file.nodes.filter((n) => n.parentId === group?.id)).toHaveLength(3);
+  });
+
+  it("drops a clip paint group whose Group has no Clipping Path, with a warning", () => {
+    const paint =
+      '<g zibel:paint="clip-stroke"><rect width="5" height="5" fill="none" stroke="red"/></g>';
+    for (const body of [`<g><rect width="5" height="5"/>${paint}</g>`, paint]) {
+      const file = parseFile(svg("", body));
+      expect(file.warnings).toMatchObject([{ code: "UNSUPPORTED_ELEMENT" }]);
+      expect(file.nodes.filter((n) => n.type === "rect")).toHaveLength(
+        1 - (body === paint ? 1 : 0),
+      );
+    }
   });
 });
 
