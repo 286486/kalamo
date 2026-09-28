@@ -53,7 +53,7 @@ export function addAnchorAt(doc: Document, p: Point, tolerance: number, only?: s
   const scope = useStore.getState().isolated;
   const hit = only
     ? nearestOf(doc, only, p, tolerance)
-    : pick(doc, [], [], p[0], p[1], tolerance, [], scope);
+    : pick(doc, { selection: [], anchors: [], x: p[0], y: p[1], tolerance, scope });
   if (hit?.kind !== "segment") return false;
   const { nodeId, subpath, segment } = hit;
   const n = doc.nodes.get(nodeId);
@@ -82,7 +82,14 @@ export function deleteAnchorAt(
   tolerance: number,
   only?: string[],
 ): boolean {
-  const hit = pick(doc, only ?? [], [], p[0], p[1], tolerance, [], useStore.getState().isolated);
+  const hit = pick(doc, {
+    selection: only ?? [],
+    anchors: [],
+    x: p[0],
+    y: p[1],
+    tolerance,
+    scope: useStore.getState().isolated,
+  });
   if (hit?.kind !== "anchor" || (only && !only.includes(parseKey(hit.key).nodeId))) return false;
   sendAnchorEdits(removeAnchorInputs(doc, [hit.key]));
   return true;
@@ -159,7 +166,15 @@ export const anchorPointTool: CanvasTool = {
     const { selection, anchors, segments, isolated } = useStore.getState();
     useStore.setState({ notice: null });
     const tolerance = 3 / e.viewport.scale;
-    const target = pick(e.doc, selection, anchors, e.x, e.y, tolerance, segments, isolated);
+    const target = pick(e.doc, {
+      selection,
+      anchors,
+      segments,
+      x: e.x,
+      y: e.y,
+      tolerance,
+      scope: isolated,
+    });
     if (!target) return;
     e.capture();
     const g = { start: { x: e.x, y: e.y }, moved: false };

@@ -32,7 +32,7 @@ import { inScope } from "./isolation.ts";
  * the isolated Group `scope` (ADR-0057), so a click inside a Group selects the Group. Null for a
  * Layer, and for a Node outside `scope`.
  */
-export function objectOf(doc: Document, node: Node, scope: string | null = null): Node | null {
+export function objectOf(doc: Document, node: Node, scope: string | null): Node | null {
   if (node.type === "layer" || !inScope(doc, node, scope)) return null;
   let object = node;
   for (let p = doc.nodes.get(node.parentId ?? ""); p && p.type !== "layer" && p.id !== scope; ) {
@@ -49,7 +49,7 @@ export function objectOf(doc: Document, node: Node, scope: string | null = null)
 export function placeParent(
   doc: Document,
   selection: string[],
-  scope: string | null = null,
+  scope: string | null,
 ): string | undefined {
   if (scope !== null) return scope;
   for (let n = doc.nodes.get(selection[0] ?? ""); n; n = doc.nodes.get(n.parentId ?? "")) {
@@ -96,7 +96,7 @@ export function hitTest(
   x: number,
   y: number,
   tolerance: number,
-  { leaf = false, scope = null }: { leaf?: boolean; scope?: string | null } = {},
+  { leaf = false, scope }: { leaf?: boolean; scope: string | null },
 ): string | null {
   let found: Node | null = null;
   const hit = (n: Node) => {
@@ -256,7 +256,7 @@ export function combine(
 }
 
 /** The selectable objects, in the isolated Group `scope` if any, whose bounds touch `rect`. */
-export function marquee(doc: Document, rect: Rect, scope: string | null = null): string[] {
+export function marquee(doc: Document, rect: Rect, scope: string | null): string[] {
   return objects(doc, scope)
     .filter((n) => {
       const b = bounds(doc, n);
@@ -265,7 +265,7 @@ export function marquee(doc: Document, rect: Rect, scope: string | null = null):
     .map((n) => n.id);
 }
 
-export const inverse = (doc: Document, selection: string[], scope: string | null = null) =>
+export const inverse = (doc: Document, selection: string[], scope: string | null) =>
   objects(doc, scope)
     .map((n) => n.id)
     .filter((id) => !selection.includes(id));

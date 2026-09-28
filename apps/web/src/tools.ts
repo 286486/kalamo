@@ -227,8 +227,8 @@ export function endpointAt(
   doc: Document,
   p: Point,
   tolerance: number,
-  skip?: Endpoint,
-  scope: string | null = null,
+  skip: Endpoint | undefined,
+  scope: string | null,
 ): Endpoint | null {
   for (const n of editableShapes(doc, scope).reverse()) {
     for (const [subpath, s] of anchorsOf(doc, n).entries()) {

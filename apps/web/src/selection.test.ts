@@ -63,10 +63,10 @@ function fixture() {
 describe("objectOf", () => {
   it("is the outermost Group below the Layer, or the Node itself", () => {
     const { doc, id, node } = fixture();
-    expect(objectOf(doc, node("a"))?.id).toBe(id("g"));
-    expect(objectOf(doc, node("c"))?.id).toBe(id("c"));
-    expect(objectOf(doc, node("e"))?.id).toBe(id("e"));
-    expect(objectOf(doc, node("l3"))).toBeNull();
+    expect(objectOf(doc, node("a"), null)?.id).toBe(id("g"));
+    expect(objectOf(doc, node("c"), null)?.id).toBe(id("c"));
+    expect(objectOf(doc, node("e"), null)?.id).toBe(id("e"));
+    expect(objectOf(doc, node("l3"), null)).toBeNull();
   });
 });
 
@@ -117,15 +117,15 @@ describe("marquee", () => {
   it("takes every selectable object whose bounds it touches", () => {
     const { doc, id } = fixture();
     // x 5..45 touches a (in g), b (in g) and c's left edge at 40; not h, m or e.
-    const hit = marquee(doc, { x: 5, y: 5, width: 35, height: 10 });
+    const hit = marquee(doc, { x: 5, y: 5, width: 35, height: 10 }, null);
     expect(hit.sort()).toEqual([id("g"), id("c")].sort());
-    expect(marquee(doc, { x: 55, y: 0, width: 40, height: 10 })).toEqual([]);
+    expect(marquee(doc, { x: 55, y: 0, width: 40, height: 10 }, null)).toEqual([]);
   });
 });
 
 it("inverse selects the other selectable objects", () => {
   const { doc, id } = fixture();
-  expect(inverse(doc, [id("g"), id("d")]).sort()).toEqual([id("c"), id("e")].sort());
+  expect(inverse(doc, [id("g"), id("d")], null).sort()).toEqual([id("c"), id("e")].sort());
 });
 
 it("is not editable when the Node is gone", () => {
@@ -184,8 +184,8 @@ describe("hitTest", () => {
       restore() {},
       setTransform() {},
     } as unknown as CanvasRenderingContext2D;
-    expect(hitTest(ctx, doc, 15, 40, 1)).toBe(t?.id);
-    expect(hitTest(ctx, doc, 22, 40, 1)).toBeNull();
+    expect(hitTest(ctx, doc, 15, 40, 1, { scope: null })).toBe(t?.id);
+    expect(hitTest(ctx, doc, 22, 40, 1, { scope: null })).toBeNull();
   });
 
   afterEach(() => vi.unstubAllGlobals());
@@ -219,9 +219,9 @@ describe("hitTest", () => {
       },
       isPointInStroke: () => false,
     } as unknown as CanvasRenderingContext2D;
-    expect(hitTest(ctx, doc, 15, 15, 1)).toBeNull();
+    expect(hitTest(ctx, doc, 15, 15, 1, { scope: null })).toBeNull();
     if (ring) doc.nodes.set(ring.id, { ...ring, fillRule: "nonzero" } as Node);
-    expect(hitTest(ctx, doc, 15, 15, 1)).toBe(ring?.id);
+    expect(hitTest(ctx, doc, 15, 15, 1, { scope: null })).toBe(ring?.id);
     expect(rules).toEqual(["evenodd", "nonzero"]);
   });
 
@@ -242,9 +242,9 @@ describe("hitTest", () => {
       ...(doc.nodes.get(clip.id) as Node),
       transform: [1, 0, 0, 1, -55, 0],
     } as Node);
-    expect(hitTest(ctx, doc, 8, 5, 1)).toBe(group.id);
-    expect(hitTest(ctx, doc, 30, 30, 1)).toBeNull();
-    expect(hitTest(ctx, doc, 65, 5, 1)).toBeNull();
+    expect(hitTest(ctx, doc, 8, 5, 1, { scope: null })).toBe(group.id);
+    expect(hitTest(ctx, doc, 30, 30, 1, { scope: null })).toBeNull();
+    expect(hitTest(ctx, doc, 65, 5, 1, { scope: null })).toBeNull();
   });
 
   it("hits a painted Clipping Path's Fill where it clips and its Stroke's outer half too (ADR-0051)", () => {
@@ -261,8 +261,8 @@ describe("hitTest", () => {
     const { group } = makeMask(doc, { clipNodeId: clip.id, contentIds: [content.id] });
     const unpainted = doc.nodes.get(clip.id) as ShapeNode;
     // Unpainted, as Make leaves it: nothing but the content hits.
-    expect(hitTest(ctx, doc, 70, 20, 1)).toBeNull();
-    expect(hitTest(ctx, doc, 83, 20, 1)).toBeNull();
+    expect(hitTest(ctx, doc, 70, 20, 1, { scope: null })).toBeNull();
+    expect(hitTest(ctx, doc, 83, 20, 1, { scope: null })).toBeNull();
     const fill = { type: "solid" as const, color: "#FF0000" };
     const pen = { cap: "butt", join: "miter", miterLimit: 10, dash: [] } as const;
     const stroke = { ...fill, color: "#0000FF", width: 10, ...pen, dash: [] };
@@ -271,13 +271,13 @@ describe("hitTest", () => {
       [70, 20],
       [83, 20],
     ] as const) {
-      expect(hitTest(ctx, doc, x, y, 1)).toBe(group.id);
-      expect(hitTest(ctx, doc, x, y, 1, { leaf: true })).toBe(clip.id);
+      expect(hitTest(ctx, doc, x, y, 1, { scope: null })).toBe(group.id);
+      expect(hitTest(ctx, doc, x, y, 1, { leaf: true, scope: null })).toBe(clip.id);
     }
     // The content sits above the Fill, and the Stroke above the content.
-    expect(hitTest(ctx, doc, 45, 20, 1, { leaf: true })).toBe(content.id);
-    expect(hitTest(ctx, doc, 41, 20, 1, { leaf: true })).toBe(clip.id);
-    expect(hitTest(ctx, doc, 90, 20, 1)).toBeNull();
+    expect(hitTest(ctx, doc, 45, 20, 1, { leaf: true, scope: null })).toBe(content.id);
+    expect(hitTest(ctx, doc, 41, 20, 1, { leaf: true, scope: null })).toBe(clip.id);
+    expect(hitTest(ctx, doc, 90, 20, 1, { scope: null })).toBeNull();
   });
 
   it("hits a clipped Layer's content itself, only inside its Clipping Path, and a painted one's Stroke outside it (ADR-0053)", () => {
@@ -295,15 +295,15 @@ describe("hitTest", () => {
       { type: "rect", parentId: sub.id, x: 0, y: 0, width: 50, height: 50 },
     ]).nodes as [Node];
     makeMask(doc, { layerId: parentId });
-    expect(hitTest(ctx, doc, 45, 20, 1)).toBe(content.id);
-    expect(hitTest(ctx, doc, 20, 20, 1)).toBeNull();
+    expect(hitTest(ctx, doc, 45, 20, 1, { scope: null })).toBe(content.id);
+    expect(hitTest(ctx, doc, 20, 20, 1, { scope: null })).toBeNull();
     // Unpainted, the Clipping Path is never hit.
-    expect(hitTest(ctx, doc, 70, 20, 1)).toBeNull();
+    expect(hitTest(ctx, doc, 70, 20, 1, { scope: null })).toBeNull();
     const pen = { cap: "butt", join: "miter", miterLimit: 10, dash: [] } as const;
     const stroke = { type: "solid" as const, color: "#0000FF", width: 10, ...pen, dash: [] };
     const unpainted = doc.nodes.get(clip.id) as ShapeNode;
     doc.nodes.set(clip.id, { ...unpainted, appearance: { fills: [], strokes: [stroke] } });
-    expect(hitTest(ctx, doc, 83, 20, 1)).toBe(clip.id);
+    expect(hitTest(ctx, doc, 83, 20, 1, { scope: null })).toBe(clip.id);
   });
 
   it("hits a text Clipping Mask's content only on its glyphs, and a painted text anywhere in its frame (ADR-0052)", () => {
@@ -322,14 +322,14 @@ describe("hitTest", () => {
     const text = { ...(doc.nodes.get(clip.id) as Node), transform: [1, 0, 0, 1, 20, 0] } as Node;
     doc.nodes.set(clip.id, text);
     // Each H is a box from its origin 6 wide, 8 tall: 30 to 36 and 42 to 48, above y 50.
-    expect(hitTest(ctx, doc, 33, 46, 1)).toBe(group.id);
-    expect(hitTest(ctx, doc, 45, 46, 1, { leaf: true })).toBe(content.id);
-    expect(hitTest(ctx, doc, 39, 46, 1)).toBeNull();
-    expect(hitTest(ctx, doc, 13, 46, 1)).toBeNull();
+    expect(hitTest(ctx, doc, 33, 46, 1, { scope: null })).toBe(group.id);
+    expect(hitTest(ctx, doc, 45, 46, 1, { leaf: true, scope: null })).toBe(content.id);
+    expect(hitTest(ctx, doc, 39, 46, 1, { scope: null })).toBeNull();
+    expect(hitTest(ctx, doc, 13, 46, 1, { scope: null })).toBeNull();
     const fill = { type: "solid" as const, color: "#FF0000" };
     doc.nodes.set(clip.id, { ...text, appearance: { fills: [fill], strokes: [] } } as Node);
-    expect(hitTest(ctx, doc, 39, 46, 1, { leaf: true })).toBe(clip.id);
-    expect(hitTest(ctx, doc, 33, 46, 1, { leaf: true })).toBe(content.id);
+    expect(hitTest(ctx, doc, 39, 46, 1, { leaf: true, scope: null })).toBe(clip.id);
+    expect(hitTest(ctx, doc, 33, 46, 1, { leaf: true, scope: null })).toBe(content.id);
   });
 
   describe("a container's Appearance (ADR-0043)", () => {
@@ -366,7 +366,7 @@ describe("hitTest", () => {
       const node = (name: string) =>
         [...doc.nodes.values()].find((n) => n.name === name || n.id === name) as Node;
       const hit = (x: number, y: number, leaf = false) => {
-        const id = hitTest(boxContext(), doc, x, y, 1, { leaf });
+        const id = hitTest(boxContext(), doc, x, y, 1, { leaf, scope: null });
         return id && node(id).name;
       };
       return { doc, node, hit, parentId };
@@ -382,7 +382,7 @@ describe("hitTest", () => {
     it("hits a hairline Stroke within the click tolerance, over the child it covers", () => {
       const { doc } = scene({ strokes: [stroke(0.1)] }, [rect("a", 0), rect("b", 8)]);
       const leafAt = (tolerance: number) =>
-        hitTest(boxContext(), doc, 11.5, 5, tolerance, { leaf: true });
+        hitTest(boxContext(), doc, 11.5, 5, tolerance, { leaf: true, scope: null });
       expect(doc.nodes.get(leafAt(4) ?? "")?.name).toBe("a");
       expect(doc.nodes.get(leafAt(1) ?? "")?.name).toBe("b");
     });
@@ -489,9 +489,9 @@ it("releasable lists the selected Clipping Masks and Clipping Paths only", () =>
 describe("placeParent", () => {
   it("is the nearest Layer of the first selected Node, else the top Layer", () => {
     const { doc, id } = fixture();
-    expect(placeParent(doc, [id("a"), id("d")])).toBe(id("l1"));
-    expect(placeParent(doc, [id("e")])).toBe(id("l3"));
-    expect(placeParent(doc, [])).toBe(id("l2"));
+    expect(placeParent(doc, [id("a"), id("d")], null)).toBe(id("l1"));
+    expect(placeParent(doc, [id("e")], null)).toBe(id("l3"));
+    expect(placeParent(doc, [], null)).toBe(id("l2"));
   });
 });
 
@@ -563,16 +563,16 @@ describe("in Isolation Mode (ADR-0057)", () => {
       appearance: { fills: [], strokes: [stroke] },
     } as Node);
     expect(hitTest(ctx, doc, 21.5, 30, 1, { scope: g.id })).toBe(clip.id);
-    expect(hitTest(ctx, doc, 21.5, 30, 1)).toBe(g.id);
+    expect(hitTest(ctx, doc, 21.5, 30, 1, { scope: null })).toBe(g.id);
     expect(hitTest(ctx, doc, 25, 30, 1, { scope: g.id })).toBe(content.id);
   });
 
   it("leaves everything unchanged without a scope", () => {
     const ctx = boxContext();
     const { doc, bg, g } = isolated();
-    expect(hitTest(ctx, doc, 40, 30, 1)).toBe(g.id);
-    expect(hitTest(ctx, doc, 20.4, 30, 1)).toBe(g.id);
-    expect(hitTest(ctx, doc, 75, 30, 1)).toBe(bg.id);
+    expect(hitTest(ctx, doc, 40, 30, 1, { scope: null })).toBe(g.id);
+    expect(hitTest(ctx, doc, 20.4, 30, 1, { scope: null })).toBe(g.id);
+    expect(hitTest(ctx, doc, 75, 30, 1, { scope: null })).toBe(bg.id);
   });
 
   it("hits only leaves in scope for Direct Selection", () => {
@@ -580,13 +580,17 @@ describe("in Isolation Mode (ADR-0057)", () => {
     const { doc, inner, g } = isolated();
     expect(hitTest(ctx, doc, 50, 20, 1, { leaf: true, scope: g.id })).toBe(inner.id);
     expect(hitTest(ctx, doc, 5, 5, 1, { leaf: true, scope: g.id })).toBeNull();
-    expect(pick(doc, [], [], 0, 0, 1, [], g.id)).toBeNull();
-    expect(pick(doc, [], [], 0, 0, 1)).not.toBeNull();
+    expect(
+      pick(doc, { selection: [], anchors: [], x: 0, y: 0, tolerance: 1, scope: g.id }),
+    ).toBeNull();
+    expect(
+      pick(doc, { selection: [], anchors: [], x: 0, y: 0, tolerance: 1, scope: null }),
+    ).not.toBeNull();
     const all = { x: -5, y: -5, width: 200, height: 200 };
     const nodes = (keys: string[]) => new Set(keys.map((k) => parseKey(k).nodeId));
     // Every path in the Group, the Clipping Paths included, and none outside it.
     expect(nodes(marqueeAnchors(doc, all, g.id)).size).toBe(4);
-    expect(nodes(marqueeAnchors(doc, all)).size).toBe(5);
+    expect(nodes(marqueeAnchors(doc, all, null)).size).toBe(5);
   });
 
   it("keeps a marquee, Select All and Inverse in the isolated Group, its Clipping Path included", () => {
@@ -594,7 +598,7 @@ describe("in Isolation Mode (ADR-0057)", () => {
     const all = { x: -5, y: -5, width: 200, height: 200 };
     const inside = [content.id, n.id, clip.id].sort();
     expect(marquee(doc, all, g.id).sort()).toEqual(inside);
-    expect(marquee(doc, all).sort()).toEqual([bg.id, g.id].sort());
+    expect(marquee(doc, all, null).sort()).toEqual([bg.id, g.id].sort());
     expect(
       objects(doc, g.id)
         .map((o) => o.id)
@@ -606,7 +610,7 @@ describe("in Isolation Mode (ADR-0057)", () => {
   it("puts Place and new art in the isolated Group", () => {
     const { doc, bg, g, parentId } = isolated();
     expect(placeParent(doc, [bg.id], g.id)).toBe(g.id);
-    expect(placeParent(doc, [bg.id])).toBe(parentId);
+    expect(placeParent(doc, [bg.id], null)).toBe(parentId);
   });
 
   it("keeps the clip of a Layer Clipping Mask above the isolated Group", () => {
@@ -640,6 +644,6 @@ describe("in Isolation Mode (ADR-0057)", () => {
     expect(hitTest(ctx, doc, 33, 46, 1, { scope })).toBe(content.id);
     expect(hitTest(ctx, doc, 39, 46, 1, { scope })).toBeNull();
     // Outside Isolation Mode the unpainted text still hits nothing.
-    expect(hitTest(ctx, doc, 39, b.y, 1)).toBeNull();
+    expect(hitTest(ctx, doc, 39, b.y, 1, { scope: null })).toBeNull();
   });
 });

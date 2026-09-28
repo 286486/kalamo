@@ -69,7 +69,7 @@ export const allKeys = (n: ShapeNode) =>
   localAnchors(n).flatMap((s, k) => s.anchors.map((_, i) => anchorKey(n.id, k, i)));
 
 /** Every visible, unlocked path and Live Shape, in the isolated Group `scope` if any, in order. */
-export function editableShapes(doc: Document, scope: string | null = null): ShapeNode[] {
+export function editableShapes(doc: Document, scope: string | null): ShapeNode[] {
   const walk = (parentId: string | null): ShapeNode[] =>
     childrenOf(doc, parentId).flatMap((n) => {
       if (!n.visible || n.locked) return [];
@@ -140,13 +140,23 @@ export function segmentHandles(doc: Document, key: string): { key: string; which
  */
 export function pick(
   doc: Document,
-  selection: string[],
-  anchors: string[],
-  x: number,
-  y: number,
-  tolerance: number,
-  segments: string[] = [],
-  scope: string | null = null,
+  {
+    selection,
+    anchors,
+    segments = [],
+    x,
+    y,
+    tolerance,
+    scope,
+  }: {
+    selection: string[];
+    anchors: string[];
+    segments?: string[];
+    x: number;
+    y: number;
+    tolerance: number;
+    scope: string | null;
+  },
 ): Target | null {
   const near = (p: Point | null) => !!p && Math.hypot(p[0] - x, p[1] - y) <= tolerance;
   const handles = [
@@ -181,7 +191,7 @@ export function pick(
 }
 
 /** The Anchors of visible, unlocked paths and Live Shapes, in `scope` if any, inside `rect`. */
-export function marqueeAnchors(doc: Document, rect: Rect, scope: string | null = null): string[] {
+export function marqueeAnchors(doc: Document, rect: Rect, scope: string | null): string[] {
   const inside = ([x, y]: Point) =>
     rect.x <= x && x <= rect.x + rect.width && rect.y <= y && y <= rect.y + rect.height;
   return editableShapes(doc, scope).flatMap((n) =>
