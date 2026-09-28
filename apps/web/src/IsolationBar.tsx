@@ -12,7 +12,7 @@ const button: React.CSSProperties = {
 };
 
 /**
- * Illustrator's isolation bar (ADR-0057), over the top of the canvas while a Group is isolated: a
+ * Illustrator's isolation bar (ADR-0057), over the top of the canvas while a Node is isolated: a
  * back arrow up one level, the Layer and each level above the innermost as breadcrumbs, and the
  * innermost level.
  */

@@ -12,6 +12,7 @@ import {
   worldTransform,
 } from "@zibel/core";
 import { anchorsOf, hasAnchors, localAnchors, nearestSegment } from "./direct.ts";
+import { forNewArt } from "./isolation.ts";
 import { editable } from "./selection.ts";
 import { send, useStore } from "./store.ts";
 import { constrain, near, penNode } from "./tools.ts";
@@ -348,13 +349,15 @@ export function pencilUp(scale: number) {
     return;
   }
   const fillStroke = { ...s.fillStroke, fill: pencilFill(s.fillStroke.fill) };
-  const node = penNode({ ...s, doc: s.doc, fillStroke }, { ...r.path, commandId: null });
+  const at = forNewArt(s.doc, s);
+  const node = penNode({ ...s, ...at, doc: s.doc, fillStroke }, { ...r.path, commandId: null });
   if (!node) {
     useStore.setState({ notice: "The Layer is hidden or locked; nothing was drawn." });
     return;
   }
   const commandId = send({ type: "create", nodes: [node] });
   useStore.setState({
+    ...at,
     pen: { ...r.path, commandId, pencil: { fill: fillStroke.fill, keep: o.keepSelected } },
   });
 }

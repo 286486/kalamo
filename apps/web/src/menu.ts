@@ -4,7 +4,7 @@ import { sendAnchorEdits } from "./anchorTools.ts";
 import { cleanUpDialog } from "./cleanUp.ts";
 import { curvatureClearInputs, removeCurveAnchor } from "./curvature.ts";
 import { anchorOpTargets, clearInputs, inRange, removeAnchorInputs } from "./direct.ts";
-import { exitLevel, isolate } from "./isolation.ts";
+import { exitLevel, isLeaf, isolate } from "./isolation.ts";
 import { offsetDialog } from "./offset.ts";
 import { PLACEABLE, pasteClipboard, place, relink } from "./place.ts";
 import {
@@ -153,6 +153,16 @@ const select =
     const { doc, selection, isolated } = useStore.getState();
     if (doc) useStore.setState({ selection: pick(doc, selection, isolated) });
   };
+
+/**
+ * Object > Isolate Selected Group, or with `leaf` Isolate Selected Path: the one selected Group, or
+ * Live Shape or Path, that can be isolated (ADR-0057, ADR-0058).
+ */
+function isolating(doc: Document, selection: string[], leaf: boolean): string | null {
+  const [id, ...rest] = selection;
+  const n = doc.nodes.get(id ?? "");
+  return n && rest.length === 0 && isLeaf(n) === leaf ? isolate(doc, n.id) : null;
+}
 
 /** Object > Exit Isolation Mode, and Esc when no tool takes it: up one level (ADR-0057). */
 export function exitIsolation() {
@@ -433,13 +443,22 @@ export function documentMenus(tabs: {
         // A viewer isolates as it selects (ADR-0057).
         {
           label: "Isolate Selected Group",
-          enabled: ({ doc, selection: [id, ...rest] }) =>
-            doc !== null && id !== undefined && rest.length === 0 && isolate(doc, id) !== null,
+          enabled: ({ doc, selection }) =>
+            doc !== null && isolating(doc, selection, false) !== null,
           run: () => {
             const { doc, selection } = useStore.getState();
-            const isolated =
-              doc && selection.length === 1 ? isolate(doc, selection[0] ?? "") : null;
+            const isolated = doc && isolating(doc, selection, false);
             if (isolated) useStore.setState({ isolated, selection: [] });
+          },
+        },
+        {
+          label: "Isolate Selected Path",
+          enabled: ({ doc, selection }) => doc !== null && isolating(doc, selection, true) !== null,
+          run: () => {
+            const { doc, selection } = useStore.getState();
+            const isolated = doc && isolating(doc, selection, true);
+            // The leaf stays selected (ADR-0058).
+            if (isolated) useStore.setState({ isolated });
           },
         },
         {

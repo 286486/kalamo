@@ -59,11 +59,43 @@ it("isolates a double-clicked Group and selects what is under the pointer inside
   expect(useStore.getState()).toMatchObject({ isolated: group.id, selection: [content.id] });
 });
 
-it("only selects a double-clicked leaf", () => {
+it("isolates and selects a double-clicked Live Shape or Path, and goes no deeper (ADR-0058)", () => {
   const { doc, bg } = fixture();
   useStore.setState({ doc });
   doubleClick(doc, [80, 80]);
-  expect(useStore.getState()).toMatchObject({ isolated: null, selection: [bg.id] });
+  expect(useStore.getState()).toMatchObject({ isolated: bg.id, selection: [bg.id] });
+  doubleClick(doc, [80, 80]);
+  expect(useStore.getState()).toMatchObject({ isolated: bg.id, selection: [bg.id] });
+});
+
+it("isolates a path double-clicked inside an isolated Group", () => {
+  const { doc, content, group } = fixture();
+  useStore.setState({ doc, isolated: group.id });
+  doubleClick(doc, [25, 25]);
+  expect(useStore.getState()).toMatchObject({ isolated: content.id, selection: [content.id] });
+});
+
+it("only selects a double-clicked text, Image or Clipping Path", () => {
+  const { doc, defaultLayerId: parentId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 200, height: 100 }],
+  });
+  const [text, image, content, clip] = createNodes(doc, [
+    { type: "text", parentId, x: 10, y: 20, content: "Hi" },
+    { type: "image", parentId, x: 100, y: 0, width: 20, height: 20, file: "a.png" },
+    { type: "rect", parentId, x: 150, y: 10, width: 10, height: 10 },
+    { type: "rect", parentId, x: 140, y: 0, width: 40, height: 40 },
+  ]).nodes as [Node, Node, Node, Node];
+  const { group } = makeMask(doc, { clipNodeId: clip.id, contentIds: [content.id] });
+  useStore.setState({ doc });
+  doubleClick(doc, [12, 15]);
+  expect(useStore.getState()).toMatchObject({ isolated: null, selection: [text.id] });
+  doubleClick(doc, [110, 10]);
+  expect(useStore.getState()).toMatchObject({ isolated: null, selection: [image.id] });
+  useStore.setState({ isolated: group.id });
+  doubleClick(doc, [140, 30]);
+  expect(useStore.getState()).toMatchObject({ isolated: group.id, selection: [clip.id] });
 });
 
 it("goes up a level on a double-click where nothing in scope is hit, selecting the Group left", () => {

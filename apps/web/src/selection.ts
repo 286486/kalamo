@@ -29,11 +29,12 @@ import { inScope } from "./isolation.ts";
 
 /**
  * What Illustrator's Selection tool picks for `node`: its outermost ancestor below a Layer, or below
- * the isolated Group `scope` (ADR-0057), so a click inside a Group selects the Group. Null for a
- * Layer, and for a Node outside `scope`.
+ * the isolated Node `scope` (ADR-0057, ADR-0058), so a click inside a Group selects the Group; an
+ * isolated leaf itself. Null for a Layer, and for a Node outside `scope`.
  */
 export function objectOf(doc: Document, node: Node, scope: string | null): Node | null {
   if (node.type === "layer" || !inScope(doc, node, scope)) return null;
+  if (node.id === scope) return node;
   let object = node;
   for (let p = doc.nodes.get(node.parentId ?? ""); p && p.type !== "layer" && p.id !== scope; ) {
     object = p;
@@ -43,32 +44,32 @@ export function objectOf(doc: Document, node: Node, scope: string | null): Node 
 }
 
 /**
- * Where Place and new art go (ADR-0017): the isolated Group `scope` (ADR-0057), else the nearest
- * Layer holding the first selected Node, else the top Layer.
+ * Where Place and new art go (ADR-0017): the nearest Layer in the isolated Group or sub-Layer
+ * `scope` (ADR-0057, ADR-0058) holding the first selected Node, else `scope` itself, else the top
+ * Layer. An isolated leaf holds none: new art first leaves it (`forNewArt`).
  */
 export function placeParent(
   doc: Document,
   selection: string[],
   scope: string | null,
 ): string | undefined {
-  if (scope !== null) return scope;
   for (let n = doc.nodes.get(selection[0] ?? ""); n; n = doc.nodes.get(n.parentId ?? "")) {
-    if (n.type === "layer") return n.id;
+    if (n.id === scope || (n.type === "layer" && inScope(doc, n, scope))) return n.id;
   }
-  return childrenOf(doc, null).at(-1)?.id;
+  return scope ?? childrenOf(doc, null).at(-1)?.id;
 }
 
 /**
  * Every selectable object (visible and unlocked, as is everything above it) in the Document, or in
- * the Layer or isolated Group `parentId`, in draw order.
+ * the Layer or isolated Node `parentId`, in draw order: an isolated leaf is its own only object.
  */
 export function objects(doc: Document, parentId: string | null = null): Node[] {
-  const walk = (parentId: string | null): Node[] =>
-    childrenOf(doc, parentId).flatMap((n) => {
-      if (!n.visible || n.locked) return [];
-      return n.type === "layer" ? walk(n.id) : [n];
-    });
-  return walk(parentId);
+  const walk = (n: Node): Node[] => {
+    if (!n.visible || n.locked) return [];
+    return n.type === "layer" ? childrenOf(doc, n.id).flatMap(walk) : [n];
+  };
+  const root = doc.nodes.get(parentId ?? "");
+  return root && root.type !== "group" ? walk(root) : childrenOf(doc, parentId).flatMap(walk);
 }
 
 /**
@@ -86,8 +87,8 @@ export function editable(doc: Document, node: Node | undefined): boolean {
 /**
  * The object whose topmost selectable leaf is painted at (x, y) in document coordinates, within
  * `tolerance` pt of its outline, or null; with `leaf`, that leaf itself, as Direct Selection
- * picks. Hidden and locked Nodes let the click through. With the isolated Group `scope`
- * (ADR-0057), only what is below it hits, inside its ancestors' clips, and its own unpainted
+ * picks. Hidden and locked Nodes let the click through. With the isolated Node `scope`
+ * (ADR-0057, ADR-0058), only what is in it hits, inside its ancestors' clips, and its own unpainted
  * Clipping Path hits on its outline, or a text one on its frame's edges.
  */
 export function hitTest(
@@ -255,7 +256,7 @@ export function combine(
   return alt ? out : [...out, ...ids.filter((id) => !selection.includes(id))];
 }
 
-/** The selectable objects, in the isolated Group `scope` if any, whose bounds touch `rect`. */
+/** The selectable objects, in the isolated Node `scope` if any, whose bounds touch `rect`. */
 export function marquee(doc: Document, rect: Rect, scope: string | null): string[] {
   return objects(doc, scope)
     .filter((n) => {

@@ -195,7 +195,7 @@ export function Viewer({ docId }: { docId: string }) {
       [el.width, el.height] = [ctx.canvas.width, ctx.canvas.height];
       return { ctx: el.getContext("2d") as CanvasRenderingContext2D, image: el };
     };
-    // Isolation Mode (ADR-0057): the isolated Group draws over the rest, faded halfway to white.
+    // Isolation Mode (ADR-0057): the isolated Node draws over the rest, faded halfway to white.
     drawDocument(ctx, shown, layer, images.get, isolated);
   }, [doc, shown, isolated, docId, viewport, size, fontReady, images, imagesLoaded]);
 

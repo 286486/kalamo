@@ -68,14 +68,17 @@ export function anchorsOf(doc: Document, n: ShapeNode): Subpath[] {
 export const allKeys = (n: ShapeNode) =>
   localAnchors(n).flatMap((s, k) => s.anchors.map((_, i) => anchorKey(n.id, k, i)));
 
-/** Every visible, unlocked path and Live Shape, in the isolated Group `scope` if any, in order. */
+/**
+ * Every visible, unlocked path and Live Shape, in the isolated Node `scope` if any, in order: an
+ * isolated leaf is the only one (ADR-0058).
+ */
 export function editableShapes(doc: Document, scope: string | null): ShapeNode[] {
-  const walk = (parentId: string | null): ShapeNode[] =>
-    childrenOf(doc, parentId).flatMap((n) => {
-      if (!n.visible || n.locked) return [];
-      return hasAnchors(n) ? [n] : walk(n.id);
-    });
-  return walk(scope);
+  const walk = (n: Node): ShapeNode[] => {
+    if (!n.visible || n.locked) return [];
+    return hasAnchors(n) ? [n] : childrenOf(doc, n.id).flatMap(walk);
+  };
+  const root = doc.nodes.get(scope ?? "");
+  return root ? walk(root) : childrenOf(doc, null).flatMap(walk);
 }
 
 /** Segment k runs from Anchor k to the next; a closed subpath's last is the closing segment. */
@@ -137,7 +140,7 @@ export function segmentHandles(doc: Document, key: string): { key: string; which
 /**
  * What a Direct Selection press at (x, y) grabs within `tolerance`: a Handle a selected Anchor or
  * segment shows, else an Anchor (a selected path's first), else the topmost segment, of the paths
- * in the isolated Group `scope` if any. Null for none.
+ * in the isolated Node `scope` if any. Null for none.
  */
 export function pick(
   doc: Document,

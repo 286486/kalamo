@@ -1,4 +1,4 @@
-import { createDocument, createNodes, type Node } from "@zibel/core";
+import { createDocument, createNodes, makeMask, type Node } from "@zibel/core";
 import { expect, it } from "vitest";
 import { documentMenus, findByKeys, type Item, keysOf, type Menu, shortcut } from "./menu.ts";
 import { useStore } from "./store.ts";
@@ -133,6 +133,7 @@ it("disables every entry that changes the Document for a viewer, and Share… fo
     "Fit Artboard in Window",
     "Actual Size",
     "Layers",
+    "Isolate Selected Path",
   ];
   expect(enabled("viewer").sort()).toEqual(reading.sort());
   // The same state enables edits for an editor, so the viewer's greying is the Role's.
@@ -175,4 +176,46 @@ it("isolates one editable Group, and exits it from the menu or with Esc (ADR-005
   // The tools take Esc before the canvas runs the item; the menu bar never binds it.
   expect(findByKeys(menus, "Escape")?.canvas).toBe(true);
   expect(exit({ tool: "pen", pen: { anchors: [], closed: false, commandId: null } })).toBe(true);
+});
+
+it("isolates one selected Live Shape or Path and keeps it selected (ADR-0058)", () => {
+  const { doc, defaultLayerId: parentId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 200, height: 100 }],
+  });
+  const rect = { type: "rect", parentId, x: 0, y: 0, width: 10, height: 10 } as const;
+  const { keyMap } = createNodes(doc, [
+    { ...rect, clientKey: "r" },
+    { ...rect, clientKey: "s" },
+    { type: "path", clientKey: "p", parentId, d: "M0 0 L10 10" },
+    { type: "text", clientKey: "t", parentId, x: 0, y: 5, content: "Hi" },
+    { type: "image", clientKey: "i", parentId, x: 0, y: 0, width: 2, height: 2, file: "a.png" },
+    {
+      type: "group",
+      clientKey: "g",
+      parentId,
+      children: [{ type: "rect", x: 0, y: 0, width: 1, height: 1 }],
+    },
+    { ...rect, clientKey: "content" },
+    { ...rect, clientKey: "clip" },
+  ]);
+  const id = (k: string) => keyMap[k] as string;
+  makeMask(doc, { clipNodeId: id("clip"), contentIds: [id("content")] });
+  const labels = leaves(menus).map((i) => i.label);
+  expect(labels.indexOf("Isolate Selected Path")).toBe(
+    labels.indexOf("Isolate Selected Group") + 1,
+  );
+  expect(labels.indexOf("Exit Isolation Mode")).toBe(labels.indexOf("Isolate Selected Path") + 1);
+  const item = leaves(menus).find((i) => i.label === "Isolate Selected Path");
+  const enabled = (keys: string[]) =>
+    item?.enabled?.({ ...useStore.getState(), doc, selection: keys.map(id) });
+  expect(enabled(["r"])).toBe(true);
+  expect(enabled(["p"])).toBe(true);
+  for (const keys of [["t"], ["i"], ["clip"], ["g"], ["r", "s"], []]) {
+    expect(enabled(keys)).toBe(false);
+  }
+  useStore.setState({ doc, selection: [id("r")], isolated: null });
+  item?.run?.();
+  expect(useStore.getState()).toMatchObject({ isolated: id("r"), selection: [id("r")] });
 });
