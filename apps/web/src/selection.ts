@@ -95,11 +95,6 @@ export function hitTest(
         const inClip = !clip || ctx.isPointInPath(outline(doc, clip), x, y, ruleOf(clip));
         // A painted Clipping Path hits as a leaf does, its Fill anywhere it clips.
         const painted = clip && !clip.locked ? clip.appearance : { fills: [], strokes: [] };
-        const stroked = () => {
-          if (!clip || painted.strokes.length === 0) return false;
-          ctx.lineWidth = Math.max(widest(doc, clip), tolerance);
-          return ctx.isPointInStroke(outline(doc, clip), x, y);
-        };
         // Its Appearance hits as the leaf it paints, in draw order around the children
         // (ADR-0043); a leaf locked below it, or a point outside the leaf's inner Clipping Masks,
         // lets the click through.
@@ -131,10 +126,13 @@ export function hitTest(
         };
         if (inClip) {
           paintsAt(paints.slice(0, contents));
-          if (painted.fills.length > 0) hit = clip ?? hit;
+          if (clip && painted.fills.length > 0) hit = clip;
           walk(n.id);
         }
-        if (stroked()) hit = clip ?? hit;
+        if (clip && painted.strokes.length > 0) {
+          ctx.lineWidth = Math.max(widest(doc, clip), tolerance);
+          if (ctx.isPointInStroke(outline(doc, clip), x, y)) hit = clip;
+        }
         if (inClip) paintsAt(paints.slice(contents));
       } else if (!("clipping" in n && n.clipping) && paintedAt(ctx, doc, n, x, y, tolerance)) {
         hit = n;
