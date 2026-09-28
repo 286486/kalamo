@@ -98,7 +98,7 @@ async function mcp(request: Request, env: Env, principal: Principal | null): Pro
   }
   let body: Uint8Array<ArrayBuffer>;
   try {
-    body = await readCapped(request, MAX_REQUEST_BYTES, (declared) => requestTooLarge(declared));
+    body = await readCapped(request, MAX_REQUEST_BYTES, requestTooLarge);
   } catch (e) {
     if (!(e instanceof ZibelError)) throw e;
     const { code, message, hint } = e.data;

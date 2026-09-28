@@ -1,9 +1,10 @@
 import { evictAllDurableObjects } from "cloudflare:test";
-import { env, exports } from "cloudflare:workers";
-import { type ErrorCode, formatPath, readImage, type ShapeNode, shapeSegments } from "@zibel/core";
+import { exports } from "cloudflare:workers";
+import { type ErrorCode, formatPath, type ShapeNode, shapeSegments } from "@zibel/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import exported from "../../../fixtures/documents/inkscape.svg?raw";
 import { BLUE_1x1_PNG, RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
+import { counted, fullZibelFile, MiB } from "./bodies.ts";
 import { call, errorOf, rpc } from "./rpc.ts";
 
 const newDoc = async () =>
@@ -1382,22 +1383,6 @@ it("places an SVG as one Group under the parent, and refuses a .zibel.json", asy
 });
 
 describe("request body capped before the SDK reads it (ADR-0049)", () => {
-  const MiB = 1024 * 1024;
-  /** `count` chunks of 1 MiB, pulled one at a time; `pulls` says how many were. */
-  function counted(count: number) {
-    let pulls = 0;
-    const stream = new ReadableStream<Uint8Array>(
-      {
-        pull(c) {
-          if (pulls === count) return c.close();
-          pulls++;
-          c.enqueue(new Uint8Array(MiB));
-        },
-      },
-      { highWaterMark: 0 },
-    );
-    return { stream, pulls: () => pulls };
-  }
   const post = (body: ReadableStream, length?: number, token: string | null = "dev-token-a") =>
     exports.default.fetch("http://zibel/mcp", {
       method: "POST",
@@ -1443,23 +1428,8 @@ describe("request body capped before the SDK reads it (ADR-0049)", () => {
 
   it("opens a .zibel.json whose images fill the 20 MB Document cap", async () => {
     const { docId, defaultLayerId } = await newDoc();
-    const s = env.DOCUMENT.get(env.DOCUMENT.idFromName(docId));
-    const red = readImage(RED_2x2_PNG, "src").bytes;
-    for (let n = 0; n < 4; n++) {
-      const bytes = new Uint8Array(5 * MiB);
-      bytes.set(red);
-      bytes[bytes.length - 1] = n;
-      const src = `data:image/png;base64,${bytes.toBase64()}`;
-      const created = await s.createNodes(
-        [{ type: "image", parentId: defaultLayerId, src, x: n, y: 0 }],
-        "agent",
-      );
-      expect(created).not.toHaveProperty("error");
-    }
-    const file = await s.file("agent");
-    if ("error" in file) throw new Error(file.error.message);
-    expect(file.text.length).toBeGreaterThan(26 * MiB);
-    const opened = await call("zibel_doc_open", { content: file.text });
+    const content = await fullZibelFile(docId, defaultLayerId);
+    const opened = await call("zibel_doc_open", { content });
     expect(opened.isError).toBeFalsy();
     expect(opened.structuredContent).toMatchObject({ docId: expect.any(String) });
   }, 60_000);
