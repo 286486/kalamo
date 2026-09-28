@@ -81,6 +81,13 @@ export function forNewArt(
 }
 
 /**
+ * What new art from the Isolation `from` leaves once the Worker creates it (#137): the isolated leaf
+ * that `at`, forNewArt's result, went up from, and the level it went to.
+ */
+export const leaving = (from: string | null, at: { isolated: string | null }) =>
+  from !== null && from !== at.isolated ? { leaf: from, to: at.isolated } : undefined;
+
+/**
  * The Isolation after `prev` became `doc`, from any Actor, undo or redo: the innermost level that
  * can still be isolated, or null. A deleted isolated Node's levels are read from `prev`.
  */

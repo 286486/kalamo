@@ -12,7 +12,7 @@ import {
 import { addAnchorAt, deleteAnchorAt } from "./anchorTools.ts";
 import { curveThrough } from "./curvature.ts";
 import { anchorsOf, editableShapes, hasAnchors, localAnchors } from "./direct.ts";
-import { forNewArt } from "./isolation.ts";
+import { forNewArt, leaving } from "./isolation.ts";
 import type { Endpoint, PenPath } from "./receive.ts";
 import { editable, placeParent } from "./selection.ts";
 import { canEdit, DEFAULT_FILL_STROKE, type State, send, useStore, VIEWER_TOOLS } from "./store.ts";
@@ -102,7 +102,7 @@ export function finishPen(closed = false) {
   const at = s.doc && forNewArt(s.doc, s);
   const node =
     s.doc && at && pen.anchors.length >= 2 ? penNode({ ...s, ...at, doc: s.doc }, done) : null;
-  if (!node) {
+  if (!node || !at) {
     useStore.setState({
       pen: null,
       ...(pen.anchors.length >= 2 && {
@@ -112,7 +112,7 @@ export function finishPen(closed = false) {
     return;
   }
   const commandId = send({ type: "create", nodes: [node] });
-  useStore.setState({ ...at, pen: { ...done, commandId } });
+  useStore.setState({ pen: { ...done, commandId, leave: leaving(s.isolated, at) } });
 }
 
 /** The subpath reversed: its Anchors in the other order, each Handle swapped for the other. */

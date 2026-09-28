@@ -12,7 +12,7 @@ import {
   worldTransform,
 } from "@zibel/core";
 import { anchorsOf, hasAnchors, localAnchors, nearestSegment } from "./direct.ts";
-import { forNewArt } from "./isolation.ts";
+import { forNewArt, leaving } from "./isolation.ts";
 import { editable } from "./selection.ts";
 import { send, useStore } from "./store.ts";
 import { constrain, near, penNode } from "./tools.ts";
@@ -357,7 +357,11 @@ export function pencilUp(scale: number) {
   }
   const commandId = send({ type: "create", nodes: [node] });
   useStore.setState({
-    ...at,
-    pen: { ...r.path, commandId, pencil: { fill: fillStroke.fill, keep: o.keepSelected } },
+    pen: {
+      ...r.path,
+      commandId,
+      pencil: { fill: fillStroke.fill, keep: o.keepSelected },
+      leave: leaving(s.isolated, at),
+    },
   });
 }
