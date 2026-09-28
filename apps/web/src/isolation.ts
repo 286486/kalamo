@@ -81,6 +81,14 @@ export function forNewArt(
 }
 
 /**
+ * The Isolation move a drawn `create` makes once the Worker's `tx` creates it (#137): from the
+ * isolated leaf `from` up to the level forNewArt's result `at` went to. Place checks the same in
+ * postFile.
+ */
+export const leaving = (from: string | null, at: { isolated: string | null }) =>
+  from !== null && from !== at.isolated ? { from, to: at.isolated } : undefined;
+
+/**
  * The Isolation after `prev` became `doc`, from any Actor, undo or redo: the innermost level that
  * can still be isolated, or null. A deleted isolated Node's levels are read from `prev`.
  */
