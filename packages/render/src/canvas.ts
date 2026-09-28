@@ -67,6 +67,7 @@ export interface Canvas2D {
   rect(x: number, y: number, w: number, h: number): void;
   drawImage(image: unknown, x: number, y: number): void;
   drawImage(image: unknown, x: number, y: number, w: number, h: number): void;
+  readonly canvas: { width: number; height: number };
   getTransform(): { a: number; b: number; c: number; d: number; e: number; f: number };
   createLinearGradient(x0: number, y0: number, x1: number, y1: number): CanvasGradient2D;
   createRadialGradient(
@@ -123,11 +124,12 @@ interface Scene {
   layer: NewLayer;
   images: ((id: string) => DecodedImage | undefined) | undefined;
   /**
-   * drawDocument's `part` inside: the subtree and the containers above it, each of which draws only
-   * its child on the way down, in its transform, clip, opacity and mode, without its own paint.
+   * Isolation Mode's coverage: the isolated Node and the containers above it, each of which draws
+   * only its child on the way down, in its transform and clip, without its own paint, opacity or
+   * mode.
    */
   subtree?: { id: string; above: Set<string> };
-  /** drawDocument's `part` outside: the subtree it leaves out. */
+  /** Isolation Mode's rest: the isolated Node it leaves out. */
   without?: string;
 }
 
@@ -135,43 +137,70 @@ interface Scene {
 const onPath = (scene: Scene, n: Node) =>
   !scene.subtree || n.id === scene.subtree.id || scene.subtree.above.has(n.id);
 
-/** One part of the Document: the Node `subtree` and what is in it, or everything else. */
-export interface Part {
-  subtree: string;
-  drawn: "inside" | "outside";
-}
-
 /**
  * Draws the Document in document coordinates: the same scene, in the same order, as `toSvg`. A
  * translucent or blended Node that paints more than once composes in a `layer` first, as SVG does
- * (ADR-0044). An Image draws once `images` has its file decoded (ADR-0023). With `part`, the
- * browser's Isolation Mode (ADR-0057): everything but the subtree, or only the subtree as it draws
- * in the whole Document, without the Artboards' backgrounds.
+ * (ADR-0044). An Image draws once `images` has its file decoded (ADR-0023). With `isolated`, the
+ * browser's Isolation Mode (ADR-0057): wherever that Node paints, the pixels of the whole Document;
+ * elsewhere, everything but it, washed halfway to white (#131).
  */
 export function drawDocument(
   ctx: Canvas2D,
   doc: Document,
   layer: NewLayer,
   images?: (id: string) => DecodedImage | undefined,
-  part?: Part,
+  isolated?: string,
 ): void {
   const scene: Scene = { doc, layer, images };
-  if (part?.drawn === "inside") {
-    if (!doc.nodes.has(part.subtree)) return;
-    const above = new Set<string>();
-    for (let n = doc.nodes.get(part.subtree); n?.parentId; n = doc.nodes.get(n.parentId)) {
-      above.add(n.parentId);
-    }
-    scene.subtree = { id: part.subtree, above };
-  } else {
-    scene.without = part?.subtree;
+  const whole = (ctx: Canvas2D, scene: Scene) => {
     for (const { frame, background } of doc.artboards) {
       if (!background) continue;
       ctx.fillStyle = background;
       ctx.fillRect(frame.x, frame.y, frame.width, frame.height);
     }
+    for (const n of childrenOf(doc, null)) draw(ctx, n, scene);
+  };
+  if (isolated === undefined || !doc.nodes.has(isolated)) {
+    whole(ctx, scene);
+    return;
   }
-  for (const n of childrenOf(doc, null)) if (onPath(scene, n)) draw(ctx, n, scene);
+  const above = new Set<string>();
+  for (let n = doc.nodes.get(isolated); n?.parentId; n = doc.nodes.get(n.parentId)) {
+    above.add(n.parentId);
+  }
+  const { a, b, c, d, e, f } = ctx.getTransform();
+  /** A layer over what `ctx` holds or empty, drawn in by `draws` in document coordinates. */
+  const over = (copy: boolean, draws: (into: Canvas2D) => void) => {
+    const { ctx: into, image } = layer();
+    if (copy) into.drawImage(ctx.canvas, 0, 0);
+    into.setTransform(a, b, c, d, e, f);
+    draws(into);
+    into.setTransform(1, 0, 0, 1, 0, 0);
+    return { into, image };
+  };
+  // How much the isolated Node covers each pixel: its own opacity and mode count, its ancestors'
+  // transforms and clips too, but not their opacity or mode.
+  const coverage = over(false, (into) => {
+    const inside = { ...scene, subtree: { id: isolated, above } };
+    for (const n of childrenOf(doc, null)) if (onPath(inside, n)) draw(into, n, inside);
+  });
+  // The whole Document over the canvas, as it draws outside Isolation Mode, kept where it covers.
+  const kept = over(true, (into) => whole(into, scene));
+  kept.into.globalCompositeOperation = "destination-in";
+  kept.into.drawImage(coverage.image, 0, 0);
+  // The rest, washed, cut out where it covers, then the two added: exact where it covers fully.
+  whole(ctx, { ...scene, without: isolated });
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = "source-atop";
+  ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
+  ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+  ctx.globalCompositeOperation = "destination-out";
+  ctx.drawImage(coverage.image, 0, 0);
+  ctx.globalCompositeOperation = "lighter";
+  ctx.drawImage(kept.image, 0, 0);
+  ctx.restore();
 }
 
 const ALIGN = { Min: 0, Mid: 0.5, Max: 1 } as Record<string, number>;
@@ -207,8 +236,11 @@ const paintsMoreThanOnce = (n: Node) =>
 
 function draw(ctx: Canvas2D, n: Node, scene: Scene) {
   if (!n.visible || n.id === scene.without) return;
-  const mode = n.blendMode === "normal" ? "source-over" : n.blendMode;
-  if ((n.opacity < 1 || mode !== "source-over") && paintsMoreThanOnce(n)) {
+  // Above the isolated Node, coverage takes no opacity or mode.
+  const passing = scene.subtree?.above.has(n.id) ?? false;
+  const opacity = passing ? 1 : n.opacity;
+  const mode = passing || n.blendMode === "normal" ? "source-over" : n.blendMode;
+  if ((opacity < 1 || mode !== "source-over") && paintsMoreThanOnce(n)) {
     // An isolated group: its contents compose on their own, then composite once in its opacity and
     // mode, in device pixels, inside every ancestor's clip.
     // ponytail: a layer covers the whole canvas; crop it to the Node's visible bounds in device space
@@ -219,7 +251,7 @@ function draw(ctx: Canvas2D, n: Node, scene: Scene) {
     paint(into, n, scene);
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.globalAlpha = n.opacity;
+    ctx.globalAlpha = opacity;
     ctx.globalCompositeOperation = mode;
     ctx.drawImage(image, 0, 0);
     ctx.restore();
@@ -229,7 +261,7 @@ function draw(ctx: Canvas2D, n: Node, scene: Scene) {
   // `toSvg` writes as mix-blend-mode. Every Node is entered in 1 and source-over, so a plain
   // container's children blend with what is below it.
   ctx.save();
-  ctx.globalAlpha = n.opacity;
+  ctx.globalAlpha = opacity;
   if (mode !== "source-over") ctx.globalCompositeOperation = mode;
   paint(ctx, n, scene);
   ctx.restore();

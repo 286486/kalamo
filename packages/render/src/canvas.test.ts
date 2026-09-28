@@ -18,7 +18,11 @@ import { type Canvas2D, drawDocument, imagePlacement } from "./canvas.ts";
  */
 function recorder(log: string[] = [], prefix = "", layers = { count: 0 }) {
   const stack: Record<string, unknown>[] = [];
-  let state: Record<string, unknown> = { globalAlpha: 1, globalCompositeOperation: "source-over" };
+  let state: Record<string, unknown> = {
+    globalAlpha: 1,
+    globalCompositeOperation: "source-over",
+    canvas: { width: 100, height: 100, toString: () => "[canvas]" },
+  };
   const ctx = new Proxy(
     {},
     {
@@ -1070,7 +1074,7 @@ describe("gradients (ADR-0026)", () => {
 });
 
 describe("a subtree (ADR-0057)", () => {
-  it("draws only that Group, in its translucent, clipped parent's clip and opacity", () => {
+  it("keeps the whole Document where that Group paints, in its translucent, clipped parent", () => {
     const { doc, defaultLayerId: parentId } = newDoc();
     const fill = (color: string) => ({ fills: [{ color }], strokes: [] });
     const rect = (color: string) =>
@@ -1108,22 +1112,50 @@ describe("a subtree (ADR-0057)", () => {
     });
     Object.assign(parent, { opacity: 0.5 });
     const { ctx, log, layer } = recorder();
-    drawDocument(ctx, doc, layer, undefined, { subtree: group, drawn: "inside" });
-    const colors = log.filter((l) => /(fill|stroke)Style=/.test(l)).map((l) => l.split("=")[1]);
-    expect(colors).toEqual(["#FF0000"]);
-    // Drawn in a layer for the parent's opacity, inside its Clipping Path.
-    expect(log).toContain("layer");
-    expect(log).toContain("> clip nonzero");
-    expect(log).toContain("globalAlpha=0.5");
-    // Without the option the whole scene draws, the Artboard's background first.
+    drawDocument(ctx, doc, layer, undefined, group);
+    const wash = "fillStyle=rgba(255, 255, 255, 0.5)";
+    expect(log.filter((l) => /(fill|stroke)Style=/.test(l))).toEqual([
+      // The Group's coverage,
+      "> fillStyle=#FF0000",
+      // the whole Document over a copy of the canvas,
+      "> fillStyle=#FFFFFF",
+      "> fillStyle=#00FF00",
+      "> fillStyle=#FFFF00",
+      "> fillStyle=#FF0000",
+      "> strokeStyle=#0000FF",
+      // and the rest, washed.
+      "fillStyle=#FFFFFF",
+      "fillStyle=#00FF00",
+      "> fillStyle=#FFFF00",
+      "> strokeStyle=#0000FF",
+      wash,
+    ]);
+    // The coverage is clipped by the parent, but takes neither its opacity nor a layer for it.
+    const copy = log.indexOf("> drawImage [canvas] 0 0");
+    const coverage = log.slice(0, copy - 1);
+    expect(log[copy - 1]).toBe("layer");
+    expect(coverage.filter((l) => l === "layer")).toHaveLength(1);
+    expect(coverage).toContain("> clip nonzero");
+    expect(coverage).not.toContain("> globalAlpha=0.5");
+    // The whole Document keeps only what the Group covers; the washed rest loses it; they add up.
+    expect(log).toContain("> globalCompositeOperation=destination-in");
+    expect(log.indexOf("> drawImage L1 0 0")).toBeGreaterThan(
+      log.indexOf("> globalCompositeOperation=destination-in"),
+    );
+    expect(log.slice(log.indexOf(wash))).toEqual([
+      wash,
+      "fillRect 0 0 100 100",
+      "globalCompositeOperation=destination-out",
+      "drawImage L1 0 0",
+      "globalCompositeOperation=lighter",
+      "drawImage L2 0 0",
+      "restore",
+    ]);
+    // Without it the whole scene draws once, the Artboard's background first.
     const whole = recorder();
     drawDocument(whole.ctx, doc, whole.layer);
     expect(whole.log[0]).toBe("fillStyle=#FFFFFF");
     expect(whole.log.filter((l) => /(fill|stroke)Style=/.test(l))).toHaveLength(5);
-    // Outside it, everything else, so a translucent pixel inside is not drawn twice.
-    const rest = recorder();
-    drawDocument(rest.ctx, doc, rest.layer, undefined, { subtree: group, drawn: "outside" });
-    const drawn = rest.log.filter((l) => /(fill|stroke)Style=/.test(l)).map((l) => l.split("=")[1]);
-    expect(drawn).toEqual(["#FFFFFF", "#00FF00", "#FFFF00", "#0000FF"]);
+    expect(whole.log).not.toContain(wash);
   });
 });
