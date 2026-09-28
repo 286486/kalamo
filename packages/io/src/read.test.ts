@@ -2022,6 +2022,22 @@ describe("Illustrator's <use> clips (ADR-0056)", () => {
     });
   });
 
+  it("keeps an inline <use> clip at its place in a layer (ADR-0053)", () => {
+    const file = parseFile(
+      ai(
+        '<defs><rect id="s" x="1" y="1" width="9" height="9"/></defs>' +
+          '<g id="z-01J00000000000000000000G01" inkscape:groupmode="layer" clip-path="url(#c)"><rect width="5" height="5"/>' +
+          '<clipPath id="c"><use id="z-01J00000000000000000000C01" href="#s"/></clipPath><rect width="6" height="6"/></g>',
+      ),
+    );
+    expect(file.warnings).toEqual([]);
+    expect(kids(file, "01J00000000000000000000G01")).toMatchObject([
+      { width: 5 },
+      { id: "01J00000000000000000000C01", x: 1, clipping: true },
+      { width: 6 },
+    ]);
+  });
+
   it("exports the inline form, which reads back as the same Nodes", () => {
     const file = painted("fill:url(#grad);", "fill:none;stroke:#000;stroke-width:4;");
     const { doc } = createDocument({

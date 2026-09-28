@@ -41,8 +41,10 @@ Merging on a Layer, across non-siblings, or across different `<clipPath>`s with 
 
 In a `<g>` merged through a `<use>` clip, a sibling `<use>` is the Clipping Path's paint when it names the same target, has no `clip-path`, and its `transform`, `x` and `y` give the same matrix as the clip `<use>` with its `<clipPath>`'s `transform`. That is ADR-0051's order:
 
-- one before the first clipped child gives its Fills to the Clipping Path's Fills, in order;
-- one after the last clipped child gives its Strokes to its Strokes, in order.
+- each one before the first clipped child gives its Fills to the Clipping Path's Fills, in order;
+- each one after the last clipped child gives its Strokes to its Strokes, in order.
+
+Illustrator writes at most one on each side. The matrix includes the `<clipPath>`'s `transform`, so a paint lands where the clip does; Illustrator writes none there, so for its files this is the clip `<use>`'s own matrix.
 
 Each is read as ADR-0051 reads a clip paint group's copy: the target copied in the `<use>`'s place, its gradients in the copy's space, and the Clipping Path's `opacity` and blend mode from the first one read. A Stroke on a `<use>` before the content, a Fill on one after it, and a paint `<use>` between clipped children are dropped with one `UNSUPPORTED_ATTRIBUTE` `clip-path paint` warning. Paint `<use>`s make no Node. Any other drawn `<use>` keeps `UNSUPPORTED_ELEMENT` `use`: general `<use>` import (F-IO-01's `use`, F-LIVE-01 Symbols) is out of scope.
 

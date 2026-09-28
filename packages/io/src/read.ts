@@ -300,7 +300,7 @@ export const MAX_DEPTH = 256;
  * A held clip-path: its `<clipPath>`, the one shape or text drawn as its Clipping Path, and the
  * `<use>` that names that shape, which the Clipping Path stands for (ADR-0056).
  */
-interface Clip {
+interface HeldClip {
   el: Element;
   shape: Element;
   use?: Element;
@@ -318,12 +318,16 @@ interface ClipPaint {
   style: Style;
   matrix: Matrix;
   /** An Illustrator `<use>`, which gives only its Fills before the content, its Strokes after. */
-  ordered?: boolean;
+  fromUse?: boolean;
 }
 
-/** The element a `<use>` names in this file, SVG 2's `href` before `xlink:href`. */
-const hrefOf = (use: Element) =>
-  (use.getAttribute("href") || use.getAttributeNS(NS.xlink, "href") || "").trim();
+/** What a `<use>`, `<image>` or gradient links to: SVG 2's `href` before `xlink:href`. */
+const hrefOf = (e: Element) =>
+  (e.getAttribute("href") || e.getAttributeNS(NS.xlink, "href") || "").trim();
+
+/** An element in the SVG namespace, or in none, that walk draws. */
+const drawnSvg = (c: Element) =>
+  (c.namespaceURI === NS.svg || c.namespaceURI === null) && DRAWN.has(c.localName ?? "");
 
 /** A `<use>`'s `transform`, then `translate(x, y)`: where its copy's user space sits (SVG 1.1 §5.6). */
 const placed = (use: Element): Matrix =>
@@ -343,7 +347,7 @@ const nearIdentity = ([a, b, c, d, e, f]: Matrix) =>
   Math.abs(f) <= 1e-3;
 
 const CLIP_USE_PAINT =
-  "A <use> painting a Clipping Path out of Illustrator's order was dropped: its Fills come before the clipped content, its Strokes after it (ADR-0051).";
+  "A <use> painting a Clipping Path out of Illustrator's order was dropped: its Fills come before the clipped content, its Strokes after it (ADR-0056).";
 
 const CLIP_PAINT_ORPHAN =
   "A Clipping Path's <g zibel:paint> outside a Clipping Mask was dropped: it paints the Clipping Path of the Group it sits in.";
@@ -569,8 +573,8 @@ class Reader {
       const paints = clip
         ? [
             ...clipPaints.flatMap((p) => this.clipPaint(p, style, matrix)),
-            ...(merged?.paints ?? []).flatMap(([u, fill]) =>
-              this.usePaint(u, fill, clip, style, matrix),
+            ...(merged?.paints ?? []).flatMap(({ use, fill }) =>
+              this.usePaint(use, fill, clip, style, matrix),
             ),
           ]
         : [];
@@ -683,12 +687,7 @@ class Reader {
   private containerAppearance(kids: Element[], matrix: Matrix, style: Style) {
     // What walk reads: an element it drops without a Node does not end the paints below Contents.
     // A Clipping Path's paint is not one of the container's, and is not counted in Contents.
-    const drawn = kids.filter(
-      (c) =>
-        (c.namespaceURI === NS.svg || c.namespaceURI === null) &&
-        DRAWN.has(c.localName ?? "") &&
-        !isClipPaint(c),
-    );
+    const drawn = kids.filter((c) => drawnSvg(c) && !isClipPaint(c));
     const below = drawn.findIndex((c) => !isPaint(c));
     const appearance: ContainerAppearance = { fills: [], strokes: [], contents: 0 };
     drawn.forEach((c, i) => {
@@ -734,7 +733,7 @@ class Reader {
    * one Live Shape, Path or text in the referencing element's user space, inline or through one
    * `<use>` of it (ADR-0056). Otherwise the content imports unclipped, with a warning.
    */
-  private clipOf(value: string | undefined): Clip | undefined {
+  private clipOf(value: string | undefined): HeldClip | undefined {
     if (!value || value === "none") return undefined;
     const id = urlId(value);
     const el = id === undefined ? undefined : this.byId.get(id);
@@ -743,7 +742,6 @@ class Reader {
     const use = only?.localName === "use" ? only : undefined;
     // One step: a target that is itself a <use>, or the <clipPath>, is no shape.
     const shape = use ? this.target(use) : only;
-    const clipped = (c: Element) => urlId(computeStyle(c, {}, this.rules)["clip-path"] ?? "");
     const plain = (v: string | null) => v === null || length(v) !== undefined;
     const holds =
       el?.localName === "clipPath" &&
@@ -755,8 +753,8 @@ class Reader {
       // Type on a Path is not a Node yet.
       shape.getElementsByTagName("textPath").length === 0 &&
       (!use ||
-        (!clipped(use) &&
-          !clipped(shape) &&
+        (!this.clipName(use) &&
+          !this.clipName(shape) &&
           plain(use.getAttribute("x")) &&
           plain(use.getAttribute("y"))));
     if (holds) return { el, shape, ...(use && { use }) };
@@ -768,9 +766,14 @@ class Reader {
     return undefined;
   }
 
-  /** The element a `<use>` names by a same-file `#id`, if any. */
-  private target(use: Element) {
-    const href = hrefOf(use);
+  /** The `<clipPath>` id `c`'s own clip-path names, if any. */
+  private clipName(c: Element, parent: Style = {}) {
+    return urlId(computeStyle(c, parent, this.rules)["clip-path"] ?? "");
+  }
+
+  /** The element `e`'s href names by a same-file `#id`, if any. */
+  private target(e: Element) {
+    const href = hrefOf(e);
     return href.startsWith("#") ? this.byId.get(href.slice(1)) : undefined;
   }
 
@@ -782,13 +785,7 @@ class Reader {
    * is dropped with a warning. Undefined when the children do not merge.
    */
   private merged(kids: Element[], style: Style) {
-    const drawn = kids.filter(
-      (c) =>
-        (c.namespaceURI === NS.svg || c.namespaceURI === null) &&
-        DRAWN.has(c.localName ?? "") &&
-        !isPaint(c) &&
-        !isClipPaint(c),
-    );
+    const drawn = kids.filter((c) => drawnSvg(c) && !isPaint(c) && !isClipPaint(c));
     const names = drawn.map((c) => computeStyle(c, style, this.rules)["clip-path"] ?? "");
     const [name = ""] = names;
     const one = urlId(name);
@@ -812,13 +809,13 @@ class Reader {
         c.localName === "use" &&
         (c.namespaceURI === NS.svg || c.namespaceURI === null) &&
         this.target(c) === clip.shape &&
-        !urlId(computeStyle(c, style, this.rules)["clip-path"] ?? "") &&
+        !this.clipName(c, style) &&
         placed(c).every((v, i) => Math.abs(v - (at[i] ?? 0)) <= ROUNDING),
     );
-    const paints: [Element, boolean][] = [];
-    for (const u of uses) {
-      const i = kids.indexOf(u);
-      if (i < first || i > last) paints.push([u, i < first]);
+    const paints: { use: Element; fill: boolean }[] = [];
+    for (const use of uses) {
+      const i = kids.indexOf(use);
+      if (i < first || i > last) paints.push({ use, fill: i < first });
       else this.warn("UNSUPPORTED_ATTRIBUTE", "clip-path paint", CLIP_USE_PAINT);
     }
     return { clip, paints, skipped: new Set(uses) };
@@ -831,7 +828,7 @@ class Reader {
    * Inkscape's Set Clip leaves the clipped object's old style on it. So a text's Range Fills come
    * from its Fill copy, by character index (ADR-0052).
    */
-  private clipping(clip: Clip, parentId: string, matrix: Matrix, paints: ClipPaint[] = []) {
+  private clipping(clip: HeldClip, parentId: string, matrix: Matrix, paints: ClipPaint[] = []) {
     const { el, shape: e, use } = clip;
     // A <use>'s shape is read as if copied in its place: it inherits from the <use> (ADR-0056).
     const outer = computeStyle(el, {}, this.rules);
@@ -861,12 +858,12 @@ class Reader {
     const appearance: Appearance = { fills: [], strokes: [] };
     let looks: Style | undefined;
     let rangeFills: CharacterRange[] | undefined;
-    for (const { fill, looks: s, copy, style: cs, matrix: cm, ordered } of paints) {
+    for (const { fill, looks: s, copy, style: cs, matrix: cm, fromUse } of paints) {
       const look =
         zibelAttr(copy, "stack") === "true"
           ? stacked(this.stack(copy, cs, cm))
           : this.appearance(cs, copy, cm);
-      if (ordered && (fill ? look.strokes : look.fills).length) {
+      if (fromUse && (fill ? look.strokes : look.fills).length) {
         this.warn("UNSUPPORTED_ATTRIBUTE", "clip-path paint", CLIP_USE_PAINT);
       }
       if (fill) appearance.fills.push(...look.fills);
@@ -924,7 +921,7 @@ class Reader {
   private usePaint(
     u: Element,
     fill: boolean,
-    clip: Clip,
+    clip: HeldClip,
     style: Style,
     matrix: Matrix,
   ): ClipPaint[] {
@@ -938,7 +935,7 @@ class Reader {
         copy: clip.shape,
         style: computeStyle(clip.shape, s, this.rules),
         matrix: multiply(multiply(matrix, placed(u)), at),
-        ordered: true,
+        fromUse: true,
       },
     ];
   }
@@ -1285,8 +1282,7 @@ class Reader {
     let g = this.byId.get(id);
     while (g && /^(linear|radial)Gradient$/.test(g.localName ?? "") && !out.includes(g)) {
       out.push(g);
-      const href = g.getAttribute("href") || g.getAttributeNS(NS.xlink, "href");
-      g = href?.startsWith("#") ? this.byId.get(href.slice(1)) : undefined;
+      g = this.target(g);
     }
     return out;
   }
@@ -1502,7 +1498,7 @@ class Reader {
    * is dropped with a warning.
    */
   private image(e: Element, m: Matrix): { shape: Record<string, unknown>; link?: Link } | null {
-    const href = (e.getAttribute("href") || e.getAttributeNS(NS.xlink, "href") || "").trim();
+    const href = hrefOf(e);
     const w = length(e.getAttribute("width"));
     const h = length(e.getAttribute("height"));
     const bake = this.bake(e, m);
