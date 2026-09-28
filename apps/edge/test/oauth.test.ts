@@ -11,6 +11,7 @@ import {
   submitConsent,
   token,
 } from "./authorize.ts";
+import { counted } from "./bodies.ts";
 import { APP_ORIGIN, githubEnv, hosted, signIn } from "./signin.ts";
 
 afterEach(() => {
@@ -45,6 +46,15 @@ describe("discovery", () => {
         `resource_metadata="${APP_ORIGIN}/.well-known/oauth-protected-resource/mcp"`,
       );
     }
+  });
+
+  it("answers unauthenticated /mcp 401 before reading its body (ADR-0049)", async () => {
+    const { stream, pulls } = counted(36);
+    const res = await hosted("/mcp", { method: "POST", body: stream });
+    expect(res.status).toBe(401);
+    await res.body?.cancel();
+    // The runtime pulls one chunk as it hands the request over, whether the Worker reads it or not.
+    expect(pulls()).toBeLessThanOrEqual(1);
   });
 
   it("serves the protected resource and authorization server metadata", async () => {

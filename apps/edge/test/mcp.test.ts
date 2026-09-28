@@ -4,6 +4,7 @@ import { type ErrorCode, formatPath, type ShapeNode, shapeSegments } from "@zibe
 import { afterEach, describe, expect, it, vi } from "vitest";
 import exported from "../../../fixtures/documents/inkscape.svg?raw";
 import { BLUE_1x1_PNG, RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
+import { counted, fullZibelFile, MiB } from "./bodies.ts";
 import { call, errorOf, rpc } from "./rpc.ts";
 
 const newDoc = async () =>
@@ -1379,4 +1380,57 @@ it("places an SVG as one Group under the parent, and refuses a .zibel.json", asy
   const after = (await call("zibel_doc_outline", { docId, rootId: defaultLayerId, depth: 1 }))
     .structuredContent.nodes;
   expect(after.at(-1)?.id).toBe(staged.structuredContent.createdIds[0]);
+});
+
+describe("request body capped before the SDK reads it (ADR-0049)", () => {
+  const post = (body: ReadableStream, length?: number, token: string | null = "dev-token-a") =>
+    exports.default.fetch("http://zibel/mcp", {
+      method: "POST",
+      body,
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        ...(token && { authorization: `Bearer ${token}` }),
+        ...(length !== undefined && { "content-length": String(length) }),
+      },
+    });
+  const expectRefusal = async (res: Response) => {
+    expect(res.status).toBe(413);
+    expect(await res.json()).toMatchObject({
+      jsonrpc: "2.0",
+      id: null,
+      error: { code: -32600, data: { code: "LIMIT_EXCEEDED" } },
+    });
+  };
+
+  it("refuses a declared length over 32 MiB without pulling the body", async () => {
+    const { stream, pulls } = counted(33);
+    await expectRefusal(await post(stream, 32 * MiB + 1));
+    // The runtime pulls one chunk as it hands the request over, whether the Worker reads it or not.
+    expect(pulls()).toBeLessThanOrEqual(1);
+  });
+
+  it("refuses a body that streams past 32 MiB, with no or an understated length, before its end", async () => {
+    for (const length of [undefined, 10]) {
+      const { stream, pulls } = counted(36);
+      await expectRefusal(await post(stream, length));
+      expect(pulls()).toBeLessThan(36);
+    }
+  }, 30_000);
+
+  it("refuses a request without a token before reading its body", async () => {
+    const { stream, pulls } = counted(36);
+    const res = await post(stream, undefined, null);
+    expect(res.status).toBe(401);
+    await res.body?.cancel();
+    expect(pulls()).toBeLessThanOrEqual(1);
+  });
+
+  it("opens a .zibel.json whose images fill the 20 MB Document cap", async () => {
+    const { docId, defaultLayerId } = await newDoc();
+    const content = await fullZibelFile(docId, defaultLayerId);
+    const opened = await call("zibel_doc_open", { content });
+    expect(opened.isError).toBeFalsy();
+    expect(opened.structuredContent).toMatchObject({ docId: expect.any(String) });
+  }, 60_000);
 });

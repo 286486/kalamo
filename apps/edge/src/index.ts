@@ -96,6 +96,18 @@ async function mcp(request: Request, env: Env, principal: Principal | null): Pro
   if (request.method !== "POST") {
     return new Response(null, { status: 405, headers: { allow: "POST" } });
   }
+  let body: Uint8Array<ArrayBuffer>;
+  try {
+    body = await readCapped(request, MAX_REQUEST_BYTES, requestTooLarge);
+  } catch (e) {
+    if (!(e instanceof ZibelError)) throw e;
+    const { code, message, hint } = e.data;
+    // No request id is known without the body (ADR-0049).
+    return Response.json(
+      { jsonrpc: "2.0", id: null, error: { code: -32600, message, data: { code, message, hint } } },
+      { status: 413 },
+    );
+  }
   // Stateless (ADR-0006): no session id, a new server and transport per request.
   const server = createMcpServer(documentService(env, principal), principal.actor);
   const transport = new WebStandardStreamableHTTPServerTransport({
@@ -103,7 +115,7 @@ async function mcp(request: Request, env: Env, principal: Principal | null): Pro
     enableJsonResponse: true,
   });
   await server.connect(transport);
-  return transport.handleRequest(request);
+  return transport.handleRequest(new Request(request, { body }));
 }
 
 /**
@@ -214,20 +226,19 @@ async function placeBitmap(
 const sizeOf = (cap: number, declared?: number) =>
   declared !== undefined && declared > cap ? `${declared} bytes` : `over ${cap} bytes`;
 
+/** The refusal of a body over 32 MiB, from Open, Place and `/mcp` alike (ADR-0049). */
+const requestTooLarge = (declared?: number, path?: string) =>
+  new ZibelError({
+    code: "LIMIT_EXCEEDED",
+    message: `The file is ${sizeOf(MAX_REQUEST_BYTES, declared)}; the server reads at most ${MAX_REQUEST_BYTES} (32 MiB).`,
+    hint: "Split the drawing into several files, or remove embedded images.",
+    ...(path && { path }),
+  });
+
 /** Open's or Place's file as text, read no further than 32 MiB (ADR-0049). */
 const fileText = async (request: Request, path: string) =>
   new TextDecoder().decode(
-    await readCapped(
-      request,
-      MAX_REQUEST_BYTES,
-      (declared) =>
-        new ZibelError({
-          code: "LIMIT_EXCEEDED",
-          message: `The file is ${sizeOf(MAX_REQUEST_BYTES, declared)}; the server reads at most ${MAX_REQUEST_BYTES} (32 MiB).`,
-          hint: "Split the drawing into several files, or remove embedded images.",
-          path,
-        }),
-    ),
+    await readCapped(request, MAX_REQUEST_BYTES, (declared) => requestTooLarge(declared, path)),
   );
 
 /** The body as a PNG, JPEG or GIF of at most 5 MB (ADR-0023), read no further (ADR-0049). */
