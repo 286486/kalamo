@@ -32,10 +32,10 @@ A copy that a container's Stroke paints for a leaf that was left out could reach
 - **Leave out only Clipping Masks.** This was the first guess in #128. Translucent and blended Nodes panic the same way.
 - **Cull at the exact rect.** This gives the underestimates of `visibleBounds` no margin, and loses edge pixels.
 - **Catch the panic and return a Zibel error.** The image still fails. A wasm panic can also leave the module instance unusable for later renders in the isolate.
-- **Pad each isolated group with an invisible element that stretches its box onto the canvas.** It is pixel-neutral in theory. But it changes the SVG of every isolated Node, not only the far ones, and it depends on resvg internals.
+- **Pad each isolated group with an invisible element that stretches its box onto the canvas.** It is pixel-neutral in theory. But it changes the SVG of every isolated Node, not only the far ones, and it depends on resvg internals. A pad stretches a layer's box but cannot shrink it, so it cannot keep a far-reaching parent layer's nested layers in its band either. ADR-0055 bounds the far-reaching ones with a filter region instead.
 
 ## Consequences
 
 - ADR-0019's "`render` and `export` share one serializer" becomes "one serializer, with render's far-Node cull".
 - The rule stays after an upstream fix. It keeps the rasterised SVG small, and it costs one bounds check per Node.
-- resvg applies the same fixed box to a nested layer in its parent layer's pixel coordinates. So a nested isolated Node can still panic when its isolated parent reaches more than about one side past the left or top of the image, even when both meet the cull rect. That is #129.
+- resvg applies the same fixed box to a nested layer in its parent layer's pixel coordinates. So a nested isolated Node can still panic when its isolated parent reaches more than about one side past the left or top of the image, even when both meet the cull rect (#129). ADR-0055 bounds such parents and culls harder inside isolated containers. `toSvg`'s `cull` option became `resvg`, which derives this cull rect with ADR-0055's.
