@@ -183,27 +183,27 @@ describe("a notice that ends in another tab (#138)", () => {
     expect(useStore.getState().notice).toBe("Other's notice");
   });
 
-  it.each<[string, () => void, () => void]>([
+  it.each<[string, () => void, () => void, string]>([
     [
       "a refused Place",
       () => place(new File(["<svg/>"], "mark.svg", { type: "image/svg+xml" })),
       () => resolve(answer(400, { message: "bad svg", hint: "fix it" })),
+      "Doc: Could not place mark.svg: bad svg fix it",
     ],
     [
       "a refused Relink",
       () => relink("image", png()),
       () => resolve(answer(400, { message: "not an image" })),
+      "Doc: Could not relink a.png: not an image ",
     ],
-  ])("names the placing Document on %s", async (_, start, end) => {
+  ])("names the placing Document on %s", async (_, start, end, notice) => {
     isolateLeaf();
     start();
     await flush();
     switchTab();
     end();
     await flush();
-    expect(useStore.getState().notice).toMatch(
-      /^Doc: Could not (place mark\.svg: bad svg fix it|relink a\.png: not an image)/,
-    );
+    expect(useStore.getState().notice).toBe(notice);
   });
 
   it("names the placing Document on a network error", async () => {
