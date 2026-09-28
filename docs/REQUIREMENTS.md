@@ -513,7 +513,7 @@ flowchart LR
 | 登录 | **GitHub OAuth 经 Worker 实现**（Google 放 M3）；企业版可接 Cloudflare Access | MCP 客户端走同一 OAuth 授权服务器 |
 | 观测 | Workers Analytics Engine / Logpush | 工具调用日志（F-NFR 可观测性） |
 
-- **F-MCP-06b 数据驻留与限制**（已按 `docs/research/04-cloudflare-limits.md` 核实）：单 DO SQLite 上限 10 GB（Paid）远超需求，但**单键值上限 2 MB**，因此文档不能整块存一个键：事务日志按行写 SQLite，节点表按节点或分片存储，完整快照写 R2；单文档 JSON 建议 < 50 MB，位图一律外置 R2（每个 Document 的图像文件按 SHA-256 存为 R2 对象，DO SQLite 只存元数据行，Node 只存 id；无人引用的文件由清扫删除，ADR-0046）；同一文档 ≤ 50 个活跃连接为设计目标。（P0 设计约束）
+- **F-MCP-06b 数据驻留与限制**（已按 `docs/research/04-cloudflare-limits.md` 核实）：单 DO SQLite 上限 10 GB（Paid）远超需求，但**单键值上限 2 MB**，因此文档不能整块存一个键：事务日志按行写 SQLite，节点表按节点或分片存储，完整快照写 R2；单文档 JSON 受 32 MiB 请求体上限约束（ADR-0049），位图一律外置 R2（每个 Document 的图像文件按 SHA-256 存为 R2 对象，DO SQLite 只存元数据行，Node 只存 id；无人引用的文件由清扫删除，ADR-0046）；同一文档 ≤ 50 个活跃连接为设计目标。（P0 设计约束）
 
 - **F-MCP-06c 托管首发形态**：M1 托管版为**免费 beta + 硬配额**，不做计费；计费与付费档推到 M3。超限返回 `LIMIT_EXCEEDED` 并提示。（P0）现状：单文档 20 MB 按其存储的图像文件字节计（含撤销历史仍持有的文件），ADR-0046；GitHub 模式下 50 个自有文档、每 owner 200 MB 存储、每调用者每 UTC 日 500 次 render 与 200 次 export、每文档 20 个浏览器连接已实施，谁承担各配额、D1 计数与可接受的并发超出见 ADR-0048。
 
@@ -523,7 +523,7 @@ flowchart LR
 | R2 存储（位图、字体、导出物、快照） | 200 MB |
 | 每日 `render` | 500 次 |
 | 每日 `export` | 200 次 |
-| 单文档 JSON | 20 MB |
+| 单文档存储的图像文件（ADR-0046） | 20 MB |
 | 单次上传位图 | 5 MB |
 | 同一文档并发浏览器连接 | 20 |
 
@@ -698,6 +698,7 @@ flowchart LR
 **分页与大小限制**
 - 列表类工具默认 `limit` 100，最大 1000，`cursor` 续页。
 - 单次 `node_create` 上限 2000 节点；`svg_import` 上限 5 MB；`render` 单边 ≤ 4096 px。
+- 请求体：打开文件与置入 SVG 至多 32 MiB，粘贴 / 拖入 / 重新链接位图至多 5 MiB，Worker 读取前检查、读到上限即停；`.zibel.json` 没有自己的格式上限，由此上限约束（ADR-0049）。
 - 超限返回 `LIMIT_EXCEEDED` 与建议拆分方式。
 
 ### 6.6 反馈回路
@@ -768,6 +769,7 @@ flowchart LR
 - 脚本沙箱：无网络、无文件系统、CPU / 内存 / 时间配额；宿主 API 白名单。
 - `image_place` 拉取 URL：Worker 拉取，读取上限 20 MB、10 秒；SSRF 防护：只允许 http / https，拒绝 localhost 与回环、私网、链路本地等 IP 字面量，重定向手动跟随至多 5 次且逐跳检查；解析到私网的域名由平台网络拦截（Cloudflare 边缘、workerd 缺省 `allow = ["public"]`）。用户确认需要 elicitation（ADR-0006 禁止），改由 `openWorldHint` 交给客户端；白名单待 M1 用户设置（ADR-0027）。
 - SVG 导入：剥离 `<script>`、事件属性、`foreignObject`；DTD 实体只展开纯文本的内部一般实体（值不含 `&`、`%`、`<`），展开增量上限 5 MB，外部实体和参数实体从不展开、从不拉取；位图 data URL 每个 ≤ 5 MB（解码后字节），SVG 的 5 MB 上限只计 data URL 之外的文本；链接的外部图像不拉取，读成缺失链接并警告 `IMAGE_LINK_MISSING`（ADR-0042）。
+- 请求体上限：Worker 在读取请求体之前就加上限，先看 `Content-Length`，再边读边计数、越过上限即取消流；打开与置入 32 MiB，位图 5 MiB，dev 与 GitHub 模式同样生效；`/mcp` 的同一上限见 #125（ADR-0049）。
 - 文件存储：本地优先；托管模式数据加密静置；审计日志记录 Agent 的每个事务（who / what / when）。
 
 ### 7.6 可靠性与数据安全
@@ -959,7 +961,7 @@ zibel/
 | 21 | Artboard | 不是节点、不能作父级；`parentId` 必填 | `CONTEXT.md`、`node_create` |
 | 22 | Live Object | 正式上位术语，凡 Live Object 必支持 `expand`，Chart 包含在内 | `CONTEXT.md`、F-DOC-03a |
 | 23 | Cloudflare 付费档 | 开发用 Free，M1 上线第一周切 Workers Paid | F-MCP-06 |
-| 24 | 免费 beta 配额 | 50 文档 / 200 MB / 每日 500 render、200 export / 20 MB 文档 / 5 MB 位图 / 20 并发 | F-MCP-06c |
+| 24 | 免费 beta 配额 | 50 文档 / 200 MB / 每日 500 render、200 export / 20 MB 文档 / 5 MB 位图 / 20 并发；请求体上限不是配额，见决策 49 | F-MCP-06c |
 | 25 | 域名与账号 | Cloudflare Registrar，首选 `zibel.dev`；M1 前出配置向导 | F-MCP-06d |
 | 26 | 仓库语言 | 代码、标识符、注释、提交信息、ADR、`CLAUDE.md` 用英文；需求文档与术语表现阶段中文，M1 对外宣布前译为英文 | `CLAUDE.md` |
 | 27 | ADR | 补记 0002–0006 | `docs/adr/` |
@@ -984,6 +986,7 @@ zibel/
 | 46 | 菜单栏（2026-09-27） | 顶部 Illustrator 式菜单栏，在文档标签页之上；菜单项是一张数据表，菜单与快捷键都从中读取；只列已实现的项；浏览器保留快捷键不标；原生 `popover` 实现，不引入菜单库 | ADR-0031、F-VIEW-10 |
 | 47 | 链接图像（2026-09-27） | Image 可链接：可选 `file` 是 SVG 所写的路径或 URL（非 data URL，至多 2048 字符），`embedded` 由 `file` 缺省派生；`src` 变为可选，链接 Image 无 `src` 即缺失链接；`export` SVG 写 `xlink:href="<file>"`，有像素时加 `zibel:src`，从不写像素；`render` 与 PNG 画存下的像素，缺失链接画成灰色细线框加两条对角线；`.zibel.json` 的 `version` 仍为 1；导入链接的 `<image>` 得链接 Image，同一 Document 内粘贴经 `zibel:src` 保留像素，别的 Document 中为缺失链接，警告 `IMAGE_LINK_MISSING` 取代 `LINKED_IMAGE_DROPPED` | ADR-0042、#97、#98、#99 |
 | 48 | 容器外观（2026-09-27） | Layer 与 Group 的 `appearance {fills, strokes, contents}` 按 Illustrator 语义描画后代的轮廓，`contents` 定 Contents 在栈中的位置；缺省为空，`version` 仍为 1；`visibleBounds` 随容器描边增长，`geometricBounds` 不变；`node_transform` 按 √\|det\| 缩放容器描边宽度；SVG 中每层描画是锁定的 `<g zibel:paint>`，内含每个后代轮廓的副本；新错误码 `INVALID_INPUT` | ADR-0043、#17、#103、#106 |
+| 49 | 请求体上限（2026-09-29） | Worker 读取前加上限：打开与置入 32 MiB（即 DO RPC 上限，20 MB 图像的文档仍能从自己的导出重新打开），位图 5 MiB；`Content-Length` 先查，缺失或少报时边读边计数；`/api` 回 400 `LIMIT_EXCEEDED`，`/mcp` 回 413 与 JSON-RPC 错误（#125）；`.zibel.json` 不另设格式上限 | ADR-0049、§6.5、§7.5 |
 
 **剩余开放问题**
 

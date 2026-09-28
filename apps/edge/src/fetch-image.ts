@@ -1,4 +1,5 @@
 import { checkImage, type ImageFile, readImage, ZibelError } from "@zibel/core";
+import { readCapped } from "./body.ts";
 
 /** §7.5's cap on what is read; the stored file stays capped at 5 MB (ADR-0027). */
 const MAX_FETCH_BYTES = 20 * 1024 * 1024;
@@ -50,7 +51,23 @@ export async function fetchImage(src: string): Promise<ImageFile & { name: strin
         throw failed(`${url.href} answered ${res.status} ${res.statusText}`.trim());
       }
       if (!res.body) throw failed(`${url.href} answered ${res.status} with no body.`);
-      return { ...checkImage(await readCapped(res), "src"), name: fileName(url) };
+      return {
+        ...checkImage(
+          await readCapped(
+            res,
+            MAX_FETCH_BYTES,
+            () =>
+              new ZibelError({
+                code: "LIMIT_EXCEEDED",
+                message: "The file is over 20 MB, the most the server reads.",
+                hint: "Place an image of at most 5 MB: scale it down or compress it first.",
+                path: "src",
+              }),
+          ),
+          "src",
+        ),
+        name: fileName(url),
+      };
     }
   } catch (e) {
     if (e instanceof ZibelError) throw e;
@@ -68,34 +85,6 @@ function httpUrl(text: string, base?: URL): URL | undefined {
 
 function failedRedirect(location: string): never {
   throw failed(`A redirect led to ${location}, which is not an http or https URL.`);
-}
-
-async function readCapped(res: Response): Promise<Uint8Array<ArrayBuffer>> {
-  const reader = (res.body as ReadableStream<Uint8Array>).getReader();
-  const chunks: Uint8Array[] = [];
-  let length = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    length += value.length;
-    if (length > MAX_FETCH_BYTES) {
-      await reader.cancel();
-      throw new ZibelError({
-        code: "LIMIT_EXCEEDED",
-        message: "The file is over 20 MB, the most the server reads.",
-        hint: "Place an image of at most 5 MB: scale it down or compress it first.",
-        path: "src",
-      });
-    }
-    chunks.push(value);
-  }
-  const bytes = new Uint8Array(length);
-  let at = 0;
-  for (const c of chunks) {
-    bytes.set(c, at);
-    at += c.length;
-  }
-  return bytes;
 }
 
 /** The URL's last path segment, decoded, else its host. */

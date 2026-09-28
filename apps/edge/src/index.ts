@@ -1,5 +1,5 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { checkImage, type ErrorData, IMAGE_ID, ZibelError } from "@zibel/core";
+import { checkImage, type ErrorData, IMAGE_ID, MAX_IMAGE_BYTES, ZibelError } from "@zibel/core";
 import { createMcpServer } from "@zibel/mcp";
 import {
   ACTOR_HEADER,
@@ -16,6 +16,7 @@ import {
   signInRequired,
   USER_HEADER,
 } from "./auth.ts";
+import { MAX_REQUEST_BYTES, readCapped } from "./body.ts";
 import { imageKey } from "./document-object.ts";
 import { agentPrincipal, oauthProvider, oauthRoute, revokedChallenge } from "./oauth.ts";
 import { ownerStorage, QUOTAS } from "./quotas.ts";
@@ -145,7 +146,7 @@ async function openFile(request: Request, env: Env, principal: Principal): Promi
   const name = new URL(request.url).searchParams.get("name") ?? undefined;
   return answer(async () => {
     const { docId, warnings } = await documentService(env, principal).open({
-      content: await request.text(),
+      content: await fileText(request, "content"),
       name,
     });
     return { docId, warnings };
@@ -168,7 +169,7 @@ async function placeFile(
   const y = Number(q.get("y") ?? Number.NaN);
   return answer(async () =>
     documentService(env, principal).place(docId, {
-      svg: await request.text(),
+      svg: await fileText(request, "svg"),
       parentId: q.get("parentId") ?? "",
       ...(Number.isFinite(x) && Number.isFinite(y) && { position: { x, y } }),
       inPlace: q.has("inPlace"),
@@ -209,10 +210,42 @@ async function placeBitmap(
   });
 }
 
-/** The body as a PNG, JPEG or GIF of at most 5 MB (ADR-0023). */
+/** "N bytes" when the body declared more than `cap`, else "over `cap` bytes". */
+const sizeOf = (cap: number, declared?: number) =>
+  declared !== undefined && declared > cap ? `${declared} bytes` : `over ${cap} bytes`;
+
+/** Open's or Place's file as text, read no further than 32 MiB (ADR-0049). */
+const fileText = async (request: Request, path: string) =>
+  new TextDecoder().decode(
+    await readCapped(
+      request,
+      MAX_REQUEST_BYTES,
+      (declared) =>
+        new ZibelError({
+          code: "LIMIT_EXCEEDED",
+          message: `The file is ${sizeOf(MAX_REQUEST_BYTES, declared)}; the server reads at most ${MAX_REQUEST_BYTES} (32 MiB).`,
+          hint: "Split the drawing into several files, or remove embedded images.",
+          path,
+        }),
+    ),
+  );
+
+/** The body as a PNG, JPEG or GIF of at most 5 MB (ADR-0023), read no further (ADR-0049). */
 const bitmap = async (request: Request) =>
-  // ponytail: read whole, under the platform's request cap (100 MB); stream with a cap if that bites.
-  checkImage(new Uint8Array(await request.arrayBuffer()), "file");
+  checkImage(
+    await readCapped(
+      request,
+      MAX_IMAGE_BYTES,
+      (declared) =>
+        new ZibelError({
+          code: "LIMIT_EXCEEDED",
+          message: `The image is ${sizeOf(MAX_IMAGE_BYTES, declared)}; the limit is ${MAX_IMAGE_BYTES} (5 MB).`,
+          hint: "Scale the image down or compress it before placing it.",
+          path: "file",
+        }),
+    ),
+    "file",
+  );
 
 /**
  * Object > Relink… (ADR-0042): the file's bytes as the body; the Image's `nodeId` and the file's
