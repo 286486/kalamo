@@ -66,4 +66,4 @@ Adobe's help pages refuse automated fetches. This record rests on Illustrator's 
 - A `.zibel.json` or SVG file written before this change opens as before. A stored Document never held a Layer Clipping Path, so nothing needs migrating. An SVG file with a clipped layer that opened unclipped before now opens clipped, as Inkscape shows it.
 - The render fixture's hash changes once, when the fixture gains a clipped Layer.
 - `node_reparent` (#54) follows the paste rule: a Clipping Path moved out of its Clipping Mask loses `clipping`, and moving Nodes into a clipped Layer clips them.
-- Illustrator's own SVG, which writes a clip as `<clipPath><use xlink:href>`, still imports unclipped for Layers and Groups alike, since a `<use>` inside a `<clipPath>` is not held (ADR-0021).
+- Illustrator's own SVG, which writes a clip as `<clipPath><use xlink:href>`, imported unclipped for Layers and Groups alike when this was written. ADR-0056 reads it as a Clipping Path.

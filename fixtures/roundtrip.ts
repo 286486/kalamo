@@ -4,8 +4,9 @@
 import { spawnSync } from "node:child_process";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { crc32, deflateSync, inflateSync } from "node:zlib";
+import { crc32, deflateSync } from "node:zlib";
 import { httpCall } from "./agent-benchmarks/mcp.ts";
+import { decodePng, type Image } from "./png.ts";
 import { startServer } from "./wrangler.ts";
 
 const PORT = 8791;
@@ -121,54 +122,6 @@ function matrixOn(svg: string, id: string): number[] {
   return m;
 }
 
-interface Image {
-  width: number;
-  height: number;
-  data: Uint8Array;
-}
-
-/** Decodes an RGBA8 non-interlaced PNG, what resvg writes and Inkscape does with RGBA_8. */
-function decodePng(png: Buffer): Image {
-  let width = 0;
-  let height = 0;
-  const idat: Buffer[] = [];
-  for (let pos = 8; pos < png.length; pos += 12 + png.readUInt32BE(pos)) {
-    const type = png.toString("latin1", pos + 4, pos + 8);
-    const data = png.subarray(pos + 8, pos + 8 + png.readUInt32BE(pos));
-    if (type === "IHDR") {
-      width = data.readUInt32BE(0);
-      height = data.readUInt32BE(4);
-      if (data[8] !== 8 || data[9] !== 6 || data[12] !== 0)
-        throw new Error(
-          `PNG is not RGBA8: depth ${data[8]}, colour ${data[9]}, interlace ${data[12]}`,
-        );
-    } else if (type === "IDAT") idat.push(data);
-  }
-  const raw = inflateSync(Buffer.concat(idat));
-  const stride = width * 4;
-  const out = new Uint8Array(height * stride);
-  for (let y = 0; y < height; y++) {
-    const filter = raw[y * (stride + 1)];
-    const src = raw.subarray(y * (stride + 1) + 1);
-    const row = y * stride;
-    for (let i = 0; i < stride; i++) {
-      const a = i >= 4 ? (out[row + i - 4] ?? 0) : 0;
-      const b = y ? (out[row - stride + i] ?? 0) : 0;
-      const c = i >= 4 && y ? (out[row - stride + i - 4] ?? 0) : 0;
-      const p = a + b - c;
-      const paeth =
-        Math.abs(p - a) <= Math.abs(p - b) && Math.abs(p - a) <= Math.abs(p - c)
-          ? a
-          : Math.abs(p - b) <= Math.abs(p - c)
-            ? b
-            : c;
-      const predictor = [0, a, b, (a + b) >> 1, paeth][filter ?? 0] ?? 0;
-      out[row + i] = ((src[i] ?? 0) + predictor) & 255;
-    }
-  }
-  return { width, height, data: out };
-}
-
 /** An RGBA8 PNG of `image`, unfiltered. */
 function encodePng({ width, height, data }: Image): Buffer {
   const chunk = (type: string, body: Buffer) => {
@@ -227,8 +180,15 @@ const describe = (r: Region) => `${label(r)} ${r.differ} px of ${r.area} (${agai
 
 /** Counts the pixels where any channel differs by more than TOLERANCE into each region of `map`,
  * and draws them in magenta over a faded copy of resvg's PNG, as `diff`. */
-function compare(map: RegionMap, resvgPng: string, inkscapePng: string, diff: string): Region[] {
-  const [a, b] = [resvgPng, inkscapePng].map((f) => decodePng(readFileSync(f))) as [Image, Image];
+async function compare(
+  map: RegionMap,
+  resvgPng: string,
+  inkscapePng: string,
+  diff: string,
+): Promise<Region[]> {
+  const [a, b] = (await Promise.all(
+    [resvgPng, inkscapePng].map((f) => decodePng(readFileSync(f))),
+  )) as [Image, Image];
   if (a.width !== b.width || a.height !== b.height)
     throw new Error(`resvg ${a.width}x${a.height} px, Inkscape ${b.width}x${b.height} px`);
   if (a.width !== map.docRect.width || a.height !== map.docRect.height)
@@ -436,7 +396,7 @@ async function main() {
         const pixelsSvg = join(dir, "pixels.svg");
         writeFileSync(pixelsSvg, await text({ docId, format: "svg", scope: { rect: docRect } }));
         const map = await regionMap(docId, docRect);
-        line = report(structure, inkscapeDiff(dir, pixelsSvg, map));
+        line = report(structure, await inkscapeDiff(dir, pixelsSvg, map));
 
         // Each probe hidden from resvg must fail on its own Artboard and region kind. The probes
         // are the edit target's fixture's: there a missing one fails, as a buried one does.
@@ -459,7 +419,7 @@ async function main() {
             const probeDir = join(dir, "probes", probe);
             mkdirSync(probeDir, { recursive: true });
             await resvg(probeDir, copy.docId, docRect);
-            const regions = compare(
+            const regions = await compare(
               map,
               join(probeDir, "resvg.png"),
               join(dir, "inkscape.png"),
@@ -528,7 +488,7 @@ async function main() {
             : firstDifference(want, got);
           await resvg(editDir, reopened.docId, docRect);
           const map = await regionMap(reopened.docId, docRect);
-          line = report(structure, inkscapeDiff(editDir, framed, map));
+          line = report(structure, await inkscapeDiff(editDir, framed, map));
         } catch (e) {
           failed++;
           line = `FAIL  ${(e as Error).message}`;

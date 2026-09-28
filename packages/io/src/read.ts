@@ -296,6 +296,55 @@ interface Context {
  */
 export const MAX_DEPTH = 256;
 
+/**
+ * A held clip-path: its `<clipPath>`, the one shape or text drawn as its Clipping Path, and the
+ * `<use>` that names that shape, which the Clipping Path stands for (ADR-0056).
+ */
+interface Clip {
+  el: Element;
+  shape: Element;
+  use?: Element;
+}
+
+/**
+ * One paint of a Clipping Path, from a `<g zibel:paint>` copy (ADR-0051) or an Illustrator paint
+ * `<use>` (ADR-0056): the copy read as a leaf, in `style` and `matrix`, and the style its opacity
+ * and blend mode come from.
+ */
+interface ClipPaint {
+  fill: boolean;
+  looks: Style;
+  copy: Element;
+  style: Style;
+  matrix: Matrix;
+  /** An Illustrator `<use>`, which gives only its Fills before the content, its Strokes after. */
+  ordered?: boolean;
+}
+
+/** The element a `<use>` names in this file, SVG 2's `href` before `xlink:href`. */
+const hrefOf = (use: Element) =>
+  (use.getAttribute("href") || use.getAttributeNS(NS.xlink, "href") || "").trim();
+
+/** A `<use>`'s `transform`, then `translate(x, y)`: where its copy's user space sits (SVG 1.1 §5.6). */
+const placed = (use: Element): Matrix =>
+  multiply(parseTransform(use.getAttribute("transform")), [
+    1,
+    0,
+    0,
+    1,
+    length(use.getAttribute("x")) ?? 0,
+    length(use.getAttribute("y")) ?? 0,
+  ]);
+
+/** Identity up to Illustrator's rounding: linear terms within 1e-6, translation within 1e-3 (ADR-0056). */
+const nearIdentity = ([a, b, c, d, e, f]: Matrix) =>
+  [a - 1, b, c, d - 1].every((v) => Math.abs(v) <= 1e-6) &&
+  Math.abs(e) <= 1e-3 &&
+  Math.abs(f) <= 1e-3;
+
+const CLIP_USE_PAINT =
+  "A <use> painting a Clipping Path out of Illustrator's order was dropped: its Fills come before the clipped content, its Strokes after it (ADR-0051).";
+
 const CLIP_PAINT_ORPHAN =
   "A Clipping Path's <g zibel:paint> outside a Clipping Mask was dropped: it paints the Clipping Path of the Group it sits in.";
 
@@ -352,6 +401,8 @@ class Reader {
 
   /** The Layer loose root content goes into, made at the first such element. */
   private loose: string | undefined;
+  /** Children whose clip-path their Group took as its own Clipping Mask (ADR-0056). */
+  private readonly unclipped = new WeakSet<Element>();
 
   constructor(
     private readonly rules: Rule[],
@@ -461,7 +512,8 @@ class Reader {
     const own = this.own(e);
     if (!own) return;
     const matrix = multiply(ctx.matrix, own);
-    const style = computeStyle(e, ctx.style, this.rules);
+    const computed = computeStyle(e, ctx.style, this.rules);
+    const style = this.unclipped.has(e) ? { ...computed, "clip-path": "none" } : computed;
     const tag = e.localName;
     const stack = zibelAttr(e, "stack") === "true";
     if (e.getAttributeNS(NS.sodipodi, "type") === "inkscape:box3d") {
@@ -496,13 +548,14 @@ class Reader {
           "A Layer or Group clipped by more than one clip-path keeps only the first.",
         );
       }
-      const clip = this.clipOf(clips[0]);
       const parentId = layer ? ctx.parentId : this.parent(ctx);
       // Zibel supports no SVG extension, so a <switch> never renders a child that requires one, such
       // as Illustrator's private-data <foreignObject>.
       const kids = elements(e)
         .flatMap((c) => (wrapped(c) ? elements(c) : [c]))
         .filter((c) => tag !== "switch" || !c.hasAttribute("requiredExtensions"));
+      const merged = tag === "g" && !layer && !clips.length ? this.merged(kids, style) : undefined;
+      const clip = merged?.clip ?? this.clipOf(clips[0]);
       const clipPaints = kids.filter(isClipPaint);
       if (clipPaints.length > 0 && !clip) {
         this.warn("UNSUPPORTED_ELEMENT", "zibel:paint", CLIP_PAINT_ORPHAN);
@@ -513,14 +566,23 @@ class Reader {
         type: layer ? "layer" : "group",
         ...(appearance && { appearance }),
       });
-      const painted = { paints: clipPaints, style };
+      const paints = clip
+        ? [
+            ...clipPaints.flatMap((p) => this.clipPaint(p, style, matrix)),
+            ...(merged?.paints ?? []).flatMap(([u, fill]) =>
+              this.usePaint(u, fill, clip, style, matrix),
+            ),
+          ]
+        : [];
       for (const c of kids) {
-        if (isPaint(c) || isClipPaint(c)) continue;
-        if (c === clip) this.clipping(clip, node.id, matrix, painted);
+        if (isPaint(c) || isClipPaint(c) || merged?.skipped.has(c)) continue;
+        if (!merged && c === clip?.el) this.clipping(clip, node.id, matrix, paints);
         this.walk(c, { parentId: node.id, layerLevel: layer, matrix, style, depth: ctx.depth + 1 });
       }
       // Inkscape's Set Clip puts the clip in <defs>; Illustrator's Clipping Path is on top.
-      if (clip && !kids.includes(clip)) this.clipping(clip, node.id, matrix, painted);
+      if (clip && (merged || !kids.includes(clip.el))) {
+        this.clipping(clip, node.id, matrix, paints);
+      }
       return;
     }
     // An Artboard's background, or the export's background option: not artwork.
@@ -668,32 +730,98 @@ class Reader {
   }
 
   /**
-   * The <clipPath> a `clip-path` names when Zibel can hold it as a Clipping Path (ADR-0021,
-   * ADR-0053): one Live Shape, Path or text in the referencing element's user space. Otherwise the
-   * content imports unclipped, with a warning.
+   * The clip a `clip-path` names when Zibel can hold it as a Clipping Path (ADR-0021, ADR-0053):
+   * one Live Shape, Path or text in the referencing element's user space, inline or through one
+   * `<use>` of it (ADR-0056). Otherwise the content imports unclipped, with a warning.
    */
-  private clipOf(value: string | undefined): Element | undefined {
+  private clipOf(value: string | undefined): Clip | undefined {
     if (!value || value === "none") return undefined;
     const id = urlId(value);
     const el = id === undefined ? undefined : this.byId.get(id);
     const inner = el ? elements(el).filter((c) => !SILENT.has(c.localName ?? "")) : [];
     const [only] = inner;
+    const use = only?.localName === "use" ? only : undefined;
+    // One step: a target that is itself a <use>, or the <clipPath>, is no shape.
+    const shape = use ? this.target(use) : only;
+    const clipped = (c: Element) => urlId(computeStyle(c, {}, this.rules)["clip-path"] ?? "");
+    const plain = (v: string | null) => v === null || length(v) !== undefined;
     const holds =
       el?.localName === "clipPath" &&
       el.getAttribute("clipPathUnits") !== "objectBoundingBox" &&
       !el.getAttribute("clip-path") &&
       inner.length === 1 &&
-      !!only &&
-      CLIP_SHAPES.has(only.localName ?? "") &&
+      !!shape &&
+      CLIP_SHAPES.has(shape.localName ?? "") &&
       // Type on a Path is not a Node yet.
-      only.getElementsByTagName("textPath").length === 0;
-    if (holds) return el;
+      shape.getElementsByTagName("textPath").length === 0 &&
+      (!use ||
+        (!clipped(use) &&
+          !clipped(shape) &&
+          plain(use.getAttribute("x")) &&
+          plain(use.getAttribute("y"))));
+    if (holds) return { el, shape, ...(use && { use }) };
     this.warn(
       "UNSUPPORTED_ATTRIBUTE",
       "clip-path",
-      "A clip-path Zibel cannot hold (a missing reference, objectBoundingBox units, or anything but one shape, path or text inside) was dropped; the artwork imports unclipped.",
+      "A clip-path Zibel cannot hold (a missing reference, objectBoundingBox units, anything but one shape, path or text inside, or a <use> that does not point to one shape, path or text in this file) was dropped; the artwork imports unclipped.",
     );
     return undefined;
+  }
+
+  /** The element a `<use>` names by a same-file `#id`, if any. */
+  private target(use: Element) {
+    const href = hrefOf(use);
+    return href.startsWith("#") ? this.byId.get(href.slice(1)) : undefined;
+  }
+
+  /**
+   * Illustrator's Clip Group (ADR-0056): a `<g>` whose drawn children all name one holdable
+   * `<clipPath>`, each at identity up to rounding, is clipped by it itself, and its children are
+   * not. Through a `<use>` clip, a sibling `<use>` of the same shape at the same place paints the
+   * Clipping Path: its Fills before the first child, its Strokes after the last. One between them
+   * is dropped with a warning. Undefined when the children do not merge.
+   */
+  private merged(kids: Element[], style: Style) {
+    const drawn = kids.filter(
+      (c) =>
+        (c.namespaceURI === NS.svg || c.namespaceURI === null) &&
+        DRAWN.has(c.localName ?? "") &&
+        !isPaint(c) &&
+        !isClipPaint(c),
+    );
+    const names = drawn.map((c) => computeStyle(c, style, this.rules)["clip-path"] ?? "");
+    const [name = ""] = names;
+    const one = urlId(name);
+    if (
+      one === undefined ||
+      names.some((n) => urlId(n) !== one) ||
+      !drawn.every((c) => nearIdentity(parseTransform(c.getAttribute("transform"))))
+    ) {
+      return undefined;
+    }
+    const clip = this.clipOf(name);
+    if (!clip) return undefined;
+    for (const c of drawn) this.unclipped.add(c);
+    const first = kids.indexOf(drawn[0] as Element);
+    const last = kids.indexOf(drawn.at(-1) as Element);
+    const at =
+      clip.use && multiply(parseTransform(clip.el.getAttribute("transform")), placed(clip.use));
+    const uses = kids.filter(
+      (c) =>
+        at &&
+        c.localName === "use" &&
+        (c.namespaceURI === NS.svg || c.namespaceURI === null) &&
+        this.target(c) === clip.shape &&
+        !urlId(computeStyle(c, style, this.rules)["clip-path"] ?? "") &&
+        placed(c).every((v, i) => Math.abs(v - (at[i] ?? 0)) <= ROUNDING),
+    );
+    const paints: [Element, boolean][] = [];
+    for (const u of uses) {
+      const i = kids.indexOf(u);
+      if (i < first || i > last) paints.push([u, i < first]);
+      else this.warn("UNSUPPORTED_ATTRIBUTE", "clip-path paint", CLIP_USE_PAINT);
+    }
+    return { clip, paints, skipped: new Set(uses) };
   }
 
   /**
@@ -703,19 +831,16 @@ class Reader {
    * Inkscape's Set Clip leaves the clipped object's old style on it. So a text's Range Fills come
    * from its Fill copy, by character index (ADR-0052).
    */
-  private clipping(
-    clip: Element,
-    parentId: string,
-    matrix: Matrix,
-    painted: { paints: Element[]; style: Style } = { paints: [], style: {} },
-  ) {
-    const [e] = elements(clip).filter((c) => !SILENT.has(c.localName ?? "")) as [Element];
-    const outer = computeStyle(clip, {}, this.rules);
-    const style = computeStyle(e, outer, this.rules);
-    const m = multiply(
-      multiply(matrix, parseTransform(clip.getAttribute("transform"))),
+  private clipping(clip: Clip, parentId: string, matrix: Matrix, paints: ClipPaint[] = []) {
+    const { el, shape: e, use } = clip;
+    // A <use>'s shape is read as if copied in its place: it inherits from the <use> (ADR-0056).
+    const outer = computeStyle(el, {}, this.rules);
+    const style = computeStyle(e, use ? computeStyle(use, outer, this.rules) : outer, this.rules);
+    const m = [
+      parseTransform(el.getAttribute("transform")),
+      ...(use ? [placed(use)] : []),
       parseTransform(e.getAttribute("transform")),
-    );
+    ].reduce(multiply, matrix);
     // Inside a <clipPath> SVG reads clip-rule, never fill-rule.
     const shape =
       e.localName === "text"
@@ -736,20 +861,14 @@ class Reader {
     const appearance: Appearance = { fills: [], strokes: [] };
     let looks: Style | undefined;
     let rangeFills: CharacterRange[] | undefined;
-    for (const p of painted.paints) {
-      const s = computeStyle(p, painted.style, this.rules);
-      const own = this.own(p);
-      const [copy] = elements(p).filter((c) => DRAWN.has(c.localName ?? ""));
-      if (s.display === "none" || !own || !copy) continue;
-      const at = this.own(copy);
-      if (!at) continue;
-      const cs = computeStyle(copy, s, this.rules);
-      const cm = multiply(multiply(matrix, own), at);
+    for (const { fill, looks: s, copy, style: cs, matrix: cm, ordered } of paints) {
       const look =
         zibelAttr(copy, "stack") === "true"
           ? stacked(this.stack(copy, cs, cm))
           : this.appearance(cs, copy, cm);
-      const fill = zibelAttr(p, "paint") === "clip-fill";
+      if (ordered && (fill ? look.strokes : look.fills).length) {
+        this.warn("UNSUPPORTED_ATTRIBUTE", "clip-path paint", CLIP_USE_PAINT);
+      }
       if (fill) appearance.fills.push(...look.fills);
       else appearance.strokes.push(...look.strokes);
       const t =
@@ -775,11 +894,53 @@ class Reader {
     // One the Node cannot hold leaves the content unclipped.
     if (!this.holds({ ...shape, appearance, clipping: true })) return;
     const base = {
-      ...this.base(e, parentId, undefined, style),
+      ...this.base(use ?? e, parentId, undefined, style),
       visible: true,
       ...looksOf(looks ?? {}),
     };
     this.add({ ...base, ...shape, appearance, clipping: true } as Node);
+  }
+
+  /** A `<g zibel:paint="clip-fill">` or `"clip-stroke"` as the paint its copy gives (ADR-0051). */
+  private clipPaint(p: Element, style: Style, matrix: Matrix): ClipPaint[] {
+    const s = computeStyle(p, style, this.rules);
+    const own = this.own(p);
+    const [copy] = elements(p).filter((c) => DRAWN.has(c.localName ?? ""));
+    if (s.display === "none" || !own || !copy) return [];
+    const at = this.own(copy);
+    if (!at) return [];
+    return [
+      {
+        fill: zibelAttr(p, "paint") === "clip-fill",
+        looks: s,
+        copy,
+        style: computeStyle(copy, s, this.rules),
+        matrix: multiply(multiply(matrix, own), at),
+      },
+    ];
+  }
+
+  /** An Illustrator paint `<use>` as the paint of its shape copied in its place (ADR-0056). */
+  private usePaint(
+    u: Element,
+    fill: boolean,
+    clip: Clip,
+    style: Style,
+    matrix: Matrix,
+  ): ClipPaint[] {
+    const s = computeStyle(u, style, this.rules);
+    const at = this.own(clip.shape);
+    if (s.display === "none" || !at) return [];
+    return [
+      {
+        fill,
+        looks: s,
+        copy: clip.shape,
+        style: computeStyle(clip.shape, s, this.rules),
+        matrix: multiply(multiply(matrix, placed(u)), at),
+        ordered: true,
+      },
+    ];
   }
 
   /** What a leaf's style asks for that Zibel draws without: warned, then left out. */

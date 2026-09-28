@@ -1721,6 +1721,325 @@ describe("a painted Clipping Path (ADR-0051)", () => {
   });
 });
 
+describe("Illustrator's <use> clips (ADR-0056)", () => {
+  const ai = (body: string) => svg('xmlns:xlink="http://www.w3.org/1999/xlink"', body);
+  const clips = (file: ReturnType<typeof parseFile>) => file.nodes.filter((n) => "clipping" in n);
+  const kids = (file: ReturnType<typeof parseFile>, id: string | undefined) =>
+    file.nodes.filter((n) => n.parentId === id).sort((a, b) => (a.index < b.index ? -1 : 1));
+  /** A `<g>` clipped through `use`, whose target `target` is in `<defs>`. */
+  const clipped = (target: string, use = 'xlink:href="#s" style="overflow:visible;"') =>
+    parseFile(
+      ai(
+        `<defs>${target}</defs><clipPath id="c"><use ${use}/></clipPath>` +
+          '<g id="z-01J00000000000000000000G01" clip-path="url(#c)"><rect width="100" height="100" fill="red"/></g>',
+      ),
+    );
+
+  it.each([
+    ['<rect id="s" x="10" y="10" width="50" height="40"/>', { type: "rect", x: 10, width: 50 }],
+    [
+      '<path id="s" d="M10 10 H60 V50 H10 Z"/>',
+      { type: "path", d: "M 10 10 L 60 10 L 60 50 L 10 50 Z" },
+    ],
+    [
+      '<polygon id="s" points="10,10 60,10 60,50"/>',
+      { type: "path", d: "M 10 10 L 60 10 L 60 50 Z" },
+    ],
+    ['<ellipse id="s" cx="35" cy="30" rx="25" ry="20"/>', { type: "ellipse", x: 10, width: 50 }],
+  ])("reads a <use> of %s as an unpainted Clipping Path on top", (target, shape) => {
+    const file = clipped(target);
+    expect(file.warnings).toEqual([]);
+    const group = file.nodes.find((n) => n.id === "01J00000000000000000000G01");
+    expect(kids(file, group?.id)).toMatchObject([
+      { type: "rect", width: 100 },
+      { ...shape, clipping: true, appearance: { fills: [], strokes: [] } },
+    ]);
+  });
+
+  it.each([
+    ["presentation attributes", 'xlink:href="#s" overflow="visible"'],
+    ["SVG 2's href", 'href="#s"'],
+    ["Inkscape's re-save", 'id="use7" xlink:href="#s" x="0" y="0" width="100%" height="100%"'],
+  ])("holds the <use> form with %s", (_, use) => {
+    const file = clipped('<rect id="s" x="10" y="10" width="50" height="40"/>', use);
+    expect(file.warnings).toEqual([]);
+    expect(clips(file)).toMatchObject([{ type: "rect", x: 10, y: 10, width: 50, height: 40 }]);
+  });
+
+  it("draws the copy in the element's space, then the <clipPath>'s, the <use>'s, x and y and the target's own transform", () => {
+    const file = parseFile(
+      ai(
+        '<defs><g transform="translate(999 999)"><rect id="s" width="10" height="10" transform="rotate(90)"/></g></defs>' +
+          '<clipPath id="c" transform="translate(100 0)"><use xlink:href="#s" transform="scale(2)" x="5" y="0"/></clipPath>' +
+          '<g transform="translate(0 50)" clip-path="url(#c)"><rect width="5" height="5"/></g>',
+      ),
+    );
+    expect(file.warnings).toEqual([]);
+    expect(clips(file)).toMatchObject([
+      { type: "rect", x: 0, y: 0, width: 10, height: 10, transform: [0, 2, -2, 0, 110, 50] },
+    ]);
+  });
+
+  it("takes clip-rule from the <use>, the target's own first, and ignores the target's paint", () => {
+    const path = (attrs: string) => `<path id="s" d="M0 0 H9 V9 Z" ${attrs}/>`;
+    const evenodd = clipped(path('fill="red" stroke="blue"'), 'href="#s" clip-rule="evenodd"');
+    expect(clips(evenodd)).toMatchObject([
+      { fillRule: "evenodd", appearance: { fills: [], strokes: [] } },
+    ]);
+    const own = clipped(path('clip-rule="nonzero"'), 'href="#s" clip-rule="evenodd"');
+    expect(clips(own)).toMatchObject([{ fillRule: "nonzero" }]);
+  });
+
+  it("names the Clipping Path after the <use>: its z-<ULID> id and label, any other id new", () => {
+    const rect = '<rect id="s" width="9" height="9"/>';
+    const kept = clipped(
+      rect,
+      'id="z-01J00000000000000000000C01" inkscape:label="Frame" href="#s"',
+    );
+    expect(clips(kept)).toMatchObject([{ id: "01J00000000000000000000C01", name: "Frame" }]);
+    const fresh = clipped(
+      '<rect id="z-01J00000000000000000000S01" width="9" height="9"/>',
+      'id="SVGID_1_" href="#z-01J00000000000000000000S01"',
+    );
+    const [clip] = clips(fresh);
+    expect(clip?.id).toMatch(/^[0-9A-Z]{26}$/);
+    expect(clip?.id).not.toBe("01J00000000000000000000S01");
+  });
+
+  it("still draws a target in the content, and gives each clip of one target its own Clipping Path", () => {
+    const file = parseFile(
+      ai(
+        '<rect id="s" x="1" y="1" width="9" height="9" fill="blue"/>' +
+          '<clipPath id="a"><use href="#s"/></clipPath><clipPath id="b"><use href="#s"/></clipPath>' +
+          '<g clip-path="url(#a)"><rect width="5" height="5"/></g><g clip-path="url(#b)"><rect width="6" height="6"/></g>',
+      ),
+    );
+    expect(file.warnings).toEqual([]);
+    expect(file.nodes.filter((n) => n.type === "rect" && n.x === 1)).toMatchObject([
+      { appearance: { fills: [{ color: "#0000FF" }] } },
+      { clipping: true },
+      { clipping: true },
+    ]);
+    const [a, b] = clips(file);
+    expect(a?.parentId).not.toBe(b?.parentId);
+  });
+
+  it("clips by a target text's glyphs, without its Range Fills (ADR-0052)", () => {
+    const file = clipped(
+      '<text id="s" x="0" y="20" style="font-size:20px">H<tspan fill="red" rotate="5">i</tspan></text>',
+      'href="#s"',
+    );
+    expect(file.warnings).toEqual([]);
+    expect(clips(file)).toMatchObject([
+      {
+        type: "text",
+        content: "Hi",
+        fontSize: 20,
+        ranges: [{ start: 1, end: 2, rotation: 5 }],
+        appearance: { fills: [], strokes: [] },
+      },
+    ]);
+  });
+
+  it.each([
+    ["a missing target", '<rect id="s" width="9" height="9"/>', 'href="#nope"'],
+    ["a <g>", '<g id="s"><rect width="9" height="9"/></g>', 'href="#s"'],
+    ["a <symbol>", '<symbol id="s"><rect width="9" height="9"/></symbol>', 'href="#s"'],
+    ["a <use>", '<rect id="r" width="9" height="9"/><use id="s" href="#r"/>', 'href="#s"'],
+    ["itself", "", 'id="u" href="#u"'],
+    ["its own <clipPath>", "", 'href="#c"'],
+    ["another file", '<rect id="s" width="9" height="9"/>', 'href="other.svg#s"'],
+    ["a clipped target", '<rect id="s" width="9" height="9" clip-path="url(#c)"/>', 'href="#s"'],
+    ["a clipped <use>", '<rect id="s" width="9" height="9"/>', 'href="#s" clip-path="url(#c)"'],
+    ["a percentage x", '<rect id="s" width="9" height="9"/>', 'href="#s" x="10%"'],
+    ["a text on a path", '<text id="s"><textPath href="#p">Hi</textPath></text>', 'href="#s"'],
+  ])(
+    "imports unclipped, with one clip-path warning naming <use>, a <use> of %s",
+    (_, target, use) => {
+      const file = clipped(target, use);
+      expect(file.warnings).toMatchObject([
+        { code: "UNSUPPORTED_ATTRIBUTE", message: expect.stringContaining("<use>") },
+      ]);
+      expect(clips(file)).toEqual([]);
+    },
+  );
+
+  it.each([
+    ["objectBoundingBox units", 'clipPathUnits="objectBoundingBox"', '<use href="#s"/>'],
+    ["a second shape", "", '<use href="#s"/><rect width="1" height="1"/>'],
+  ])("imports unclipped a <use> clip with %s", (_, attrs, inner) => {
+    const file = parseFile(
+      ai(
+        `<defs><rect id="s" width="9" height="9"/></defs><clipPath id="c" ${attrs}>${inner}</clipPath>` +
+          '<g clip-path="url(#c)"><rect width="100" height="100"/></g>',
+      ),
+    );
+    expect(file.warnings).toMatchObject([{ code: "UNSUPPORTED_ATTRIBUTE" }]);
+    expect(clips(file)).toEqual([]);
+  });
+
+  /** Illustrator's Save As SVG Clip Group: a clipPath in the <g>, named by each of its children. */
+  const illustrator = (children: string, attrs = "") =>
+    parseFile(
+      ai(
+        `<g id="z-01J00000000000000000000G01" ${attrs}><defs><rect id="SVGID_1_" x="10" y="10" width="50" height="40"/></defs>` +
+          '<clipPath id="SVGID_2_"><use xlink:href="#SVGID_1_" style="overflow:visible;"/></clipPath>' +
+          '<clipPath id="other"><rect width="1" height="1"/></clipPath>' +
+          `${children}</g>`,
+      ),
+    );
+  const by = (clip: string, extra = "") => `style="clip-path:url(#${clip});" ${extra}`;
+  const three = (last = by("SVGID_2_")) =>
+    `<g ${by("SVGID_2_")}><rect width="30" height="30" fill="#f00"/></g>` +
+    `<polygon ${by("SVGID_2_")} points="0,0 100,0 100,100"/>` +
+    `<rect ${last} x="50" width="50" height="50"/>`;
+
+  it("merges Illustrator's per-child clips into one Clip Group, its Clipping Path on top, rounding matrices included", () => {
+    const rounding = 'transform="matrix(1 0 2.980232e-08 1 -3.051758e-05 -3.051758e-05)"';
+    const file = illustrator(three(by("SVGID_2_", rounding)));
+    expect(file.warnings).toEqual([]);
+    const group = file.nodes.find((n) => n.id === "01J00000000000000000000G01");
+    expect(kids(file, group?.id)).toMatchObject([
+      { type: "group" },
+      { type: "path" },
+      { type: "rect", x: 50 },
+      { type: "rect", x: 10, y: 10, width: 50, height: 40, clipping: true },
+    ]);
+    expect(clips(file)).toHaveLength(1);
+    expect(file.nodes.filter((n) => n.type === "group")).toHaveLength(2);
+  });
+
+  it.each([
+    ["one child names another clip", three(by("other")), "", 3],
+    ["one child is unclipped", three(""), "", 2],
+    ["one child has a real transform", three(by("SVGID_2_", 'transform="translate(1 0)"')), "", 3],
+    ["it is an Inkscape layer", three(), 'inkscape:groupmode="layer"', 3],
+    [
+      "it has a <g zibel:clipped> wrapper",
+      `<g zibel:clipped="true" clip-path="url(#other)">${three()}</g>`,
+      "",
+      4,
+    ],
+  ])("keeps a Clip Group per clipped child when %s", (_, children, attrs, count) => {
+    const file = illustrator(children, attrs);
+    expect(file.warnings).toEqual([]);
+    expect(clips(file)).toHaveLength(count);
+    const shared = clips(file).filter((c) => c.type === "rect" && c.width === 50);
+    expect(shared.every((c) => c.parentId !== "01J00000000000000000000G01")).toBe(true);
+  });
+
+  /** Illustrator's painted Clip Group: a Fill <use> before the clipped content, a Stroke <use> after. */
+  const painted = (before: string, after: string, between = "") =>
+    parseFile(
+      ai(
+        '<linearGradient id="grad" gradientUnits="userSpaceOnUse" x1="10" y1="0" x2="60" y2="0"><stop offset="0" stop-color="#000"/><stop offset="1" stop-color="#fff"/></linearGradient>' +
+          '<g><defs><rect id="S" x="10" y="10" width="50" height="40"/></defs>' +
+          `<use xlink:href="#S" style="overflow:visible;${before}"/>` +
+          '<clipPath id="C"><use xlink:href="#S" style="overflow:visible;"/></clipPath>' +
+          '<rect style="clip-path:url(#C);fill:#f00" width="30" height="100"/>' +
+          between +
+          '<rect style="clip-path:url(#C);fill:#f00" x="40" width="30" height="100"/>' +
+          `<use xlink:href="#S" style="overflow:visible;${after}"/></g>`,
+      ),
+    );
+  const gradient = {
+    type: "gradient",
+    gradient: { type: "linear", start: { x: 10 }, end: { x: 60 } },
+  };
+
+  it("paints the Clipping Path with the Fill <use> before and the Stroke <use> after, gradients included", () => {
+    const file = painted(
+      "fill:url(#grad);opacity:0.5;",
+      "fill:none;stroke:url(#grad);stroke-width:4;stroke-miterlimit:10;",
+    );
+    expect(file.warnings).toEqual([]);
+    expect(file.nodes.filter((n) => n.type !== "layer")).toMatchObject([
+      { type: "group" },
+      { type: "rect", x: 0 },
+      { type: "rect", x: 40 },
+      {
+        type: "rect",
+        x: 10,
+        clipping: true,
+        opacity: 0.5,
+        appearance: { fills: [gradient], strokes: [{ ...gradient, width: 4, miterLimit: 10 }] },
+      },
+    ]);
+  });
+
+  it("drops a paint <use> out of ADR-0051's order with a clip-path paint warning", () => {
+    const file = painted(
+      "fill:#0f0;stroke:#00f;",
+      "fill:#f0f;stroke:#000;",
+      '<use xlink:href="#S" style="fill:#ff0"/>',
+    );
+    expect(file.warnings).toMatchObject([
+      { code: "UNSUPPORTED_ATTRIBUTE", message: expect.stringContaining("paint") },
+    ]);
+    expect(clips(file)).toMatchObject([
+      { appearance: { fills: [{ color: "#00FF00" }], strokes: [{ color: "#000000" }] } },
+    ]);
+    expect(file.nodes.filter((n) => n.type === "rect")).toHaveLength(3);
+  });
+
+  it("drops any other drawn <use> as UNSUPPORTED_ELEMENT", () => {
+    for (const body of [
+      '<rect id="s" width="9" height="9"/><use href="#s" x="20"/>',
+      '<g><defs><rect id="s" width="9" height="9"/></defs><clipPath id="c"><use href="#s"/></clipPath><use href="#s" x="1"/><rect clip-path="url(#c)" width="5" height="5"/></g>',
+    ]) {
+      expect(parseFile(ai(body)).warnings).toMatchObject([
+        { code: "UNSUPPORTED_ELEMENT", message: expect.stringContaining("<use>") },
+      ]);
+    }
+  });
+
+  it("holds Illustrator's Export As form: a class-set clip-path and the shape in the <clipPath>", () => {
+    const file = parseFile(
+      ai(
+        "<defs><style>.cls-1{fill:none;}.cls-2{clip-path:url(#clip-path);}</style>" +
+          '<clipPath id="clip-path"><polygon class="cls-1" points="10,10 60,10 60,50"/></clipPath></defs>' +
+          '<g class="cls-2"><rect width="100" height="100"/></g>',
+      ),
+    );
+    expect(file.warnings).toEqual([]);
+    expect(clips(file)).toMatchObject([{ type: "path", appearance: { fills: [] } }]);
+  });
+
+  it("reads an Inkscape layer clipped through a <use> as a Layer Clipping Mask, its Clipping Path on top (ADR-0053)", () => {
+    const file = parseFile(
+      ai(
+        '<defs><rect id="s" x="1" y="1" width="9" height="9"/><clipPath id="c"><use href="#s"/></clipPath></defs>' +
+          '<g id="z-01J00000000000000000000G01" inkscape:groupmode="layer" clip-path="url(#c)"><rect width="5" height="5"/></g>',
+      ),
+    );
+    expect(file.warnings).toEqual([]);
+    expect(kids(file, "01J00000000000000000000G01")).toMatchObject([
+      { type: "rect", width: 5 },
+      { type: "rect", x: 1, clipping: true },
+    ]);
+    expect(file.nodes.find((n) => n.id === "01J00000000000000000000G01")).toMatchObject({
+      type: "layer",
+    });
+  });
+
+  it("exports the inline form, which reads back as the same Nodes", () => {
+    const file = painted("fill:url(#grad);", "fill:none;stroke:#000;stroke-width:4;");
+    const { doc } = createDocument({
+      id: "d",
+      name: "Doc",
+      artboards: [{ width: 100, height: 100 }],
+    });
+    const opened = { ...doc, nodes: new Map(file.nodes.map((n) => [n.id, n])) };
+    const xml = toSvg(opened);
+    expect(xml).not.toContain("<use");
+    const back = parseSvg(xml);
+    expect(back.warnings).toEqual([]);
+    expect(
+      JSON.parse(serializeDocument({ ...doc, nodes: new Map(back.nodes.map((n) => [n.id, n])) })),
+    ).toEqual(JSON.parse(serializeDocument(opened)));
+  });
+});
+
 describe("<image>", () => {
   const XLINK = 'xmlns:xlink="http://www.w3.org/1999/xlink"';
   const open = (body: string) => parseSvg(svg(`width="100" height="100" ${XLINK}`, body));
