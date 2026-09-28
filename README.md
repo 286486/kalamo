@@ -48,6 +48,8 @@ The Worker runs in one of two auth modes, set by `AUTH_MODE` (ADR-0047):
 - `github`, the default in `apps/edge/wrangler.jsonc`: people sign in to the browser app with GitHub. Any value other than `dev` means `github`.
 - `dev`: MCP takes the `DEV_TOKENS` Bearer tokens and browsers are not signed in. GitHub mode ignores `DEV_TOKENS`. It is safe only on a private network, and only with long random tokens.
 
+GitHub mode enforces the free beta's quotas, each failing `LIMIT_EXCEEDED` (ADR-0048): 50 owned Documents, 200 MB of image files per owner, 500 `render` and 200 `export` calls per User per UTC day, and 20 browser connections per Document. Dev mode enforces none of them.
+
 Until Document ownership lands, every signed-in person and every connected Agent reaches every Document. Do not put sensitive documents on a hosted Worker yet.
 
 GitHub mode needs a GitHub OAuth App (GitHub > Settings > Developer settings > OAuth Apps) whose authorization callback URL is `<APP_ORIGIN>/auth/github/callback`, for example `https://zibel.example.workers.dev/auth/github/callback`. Zibel asks it for no scopes. The Worker then needs these secrets, and answers every request 500 `server misconfigured` while one is missing:

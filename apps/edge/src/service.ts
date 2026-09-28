@@ -1,9 +1,10 @@
 import { type ErrorData, newId, resolveImages, ZibelError } from "@zibel/core";
 import { parseFile, resolveLinks } from "@zibel/io";
 import { svgToPng } from "@zibel/render";
-import type { DocumentService, PathEditReceipt } from "@zibel/sync";
+import type { DocumentService, PathEditReceipt, RasterRequest } from "@zibel/sync";
 import type { Principal } from "./auth.ts";
 import { fetchImage } from "./fetch-image.ts";
+import { checkDocuments, countCall, ownerStorage } from "./quotas.ts";
 import { assertWrites, authorize, listDocuments, type Need } from "./roles.ts";
 
 /** A file for Open or Place, its images named by their hash (ADR-0023). */
@@ -29,15 +30,29 @@ export function documentService(env: Env, principal: Principal): DocumentService
       unwrap<Awaited<R>>(await call(await doc(docId, need)));
   const read = on("read");
   const write = on("write");
+  /** The owner's storage for a write that may store files (ADR-0048). */
+  const storage = (docId: string) => ownerStorage(env, docId, principal.userId);
+  /** Node inputs or patches that may carry a data URL, whose file the write stores. */
+  const carriesFiles = (items: unknown) => JSON.stringify(items).includes('"data:');
+  /** `render` or `export` counted against the caller's day (ADR-0048), then drawn. */
+  const raster = (kind: "render" | "export") => async (docId: string, req: RasterRequest) => {
+    await countCall(env, principal, kind);
+    const { svg, viewport } = await read(docId, (d) => d.raster(actor, req));
+    const { png } = await svgToPng(svg, viewport.scale);
+    return { png, viewport };
+  };
   // ponytail: a failed insert leaves the Document unlisted; reconcile from the DOs if that shows up.
   // The Principal's User owns what it creates, whether a browser or an Agent made it.
-  const index = (docId: string, name: string) =>
-    env.DB.prepare("INSERT INTO documents (id, name, created_at, owner_id) VALUES (?, ?, ?, ?)")
-      .bind(docId, name, new Date().toISOString(), principal.userId)
+  const index = (docId: string, name: string, storedBytes = 0) =>
+    env.DB.prepare(
+      "INSERT INTO documents (id, name, created_at, owner_id, stored_bytes) VALUES (?, ?, ?, ?, ?)",
+    )
+      .bind(docId, name, new Date().toISOString(), principal.userId, storedBytes)
       .run();
   return {
     create: async (input) => {
       assertWrites(principal);
+      await checkDocuments(env, principal);
       const docId = newId();
       const created = unwrap(await stub(docId).create({ ...input, docId, actor }));
       await index(docId, input.name);
@@ -45,13 +60,17 @@ export function documentService(env: Env, principal: Principal): DocumentService
     },
     open: async ({ content, name, intent }) => {
       assertWrites(principal);
+      await checkDocuments(env, principal);
       // Parsed here, before any Durable Object or D1 row exists, so a bad file creates nothing.
       // A new Document holds only the file's own images.
       const parsed = await parse(content, { name });
       const { warnings, ...file } = resolveLinks(parsed, (id) => parsed.images.get(id));
       const docId = newId();
-      const opened = unwrap(await stub(docId).open({ ...file, docId, actor, intent }));
-      await index(docId, file.name);
+      const input = { ...file, docId, actor, intent, storage: await storage(docId) };
+      const opened = unwrap(await stub(docId).open(input));
+      // It stores exactly the file's images, so its row starts with their bytes.
+      const bytes = [...file.images.values()].reduce((n, f) => n + f.bytes.length, 0);
+      await index(docId, file.name, bytes);
       return { ...opened, warnings };
     },
     place: async (docId, { svg, name, ...opts }) => {
@@ -75,12 +94,14 @@ export function documentService(env: Env, principal: Principal): DocumentService
         }
         throw e;
       }
-      return unwrap(await target.place(file, actor, opts));
+      return unwrap(await target.place(file, actor, { ...opts, storage: await storage(docId) }));
     },
     // Fetched here, in the Worker, so a slow host never holds the Document's input gate (ADR-0027).
     placeImage: async (docId, { src, ...opts }) => {
       const target = await doc(docId, "write");
-      return unwrap(await target.placeImage(await fetchImage(src), actor, opts));
+      const file = await fetchImage(src);
+      const storing = { ...opts, storage: await storage(docId) };
+      return unwrap(await target.placeImage(file, actor, storing));
     },
     list: async () => ({ documents: await listDocuments(env, principal) }),
     delete: async (docId) => {
@@ -94,10 +115,17 @@ export function documentService(env: Env, principal: Principal): DocumentService
       return { docId, deleted: true };
     },
     info: async (docId) => read(docId, (d) => d.info()),
-    createNodes: async (docId, nodes, opts) =>
-      write(docId, (d) => d.createNodes(nodes, actor, opts)),
-    updateNodes: async (docId, updates, opts) =>
-      write(docId, (d) => d.updateNodes(updates, actor, opts)),
+    createNodes: async (docId, nodes, opts) => {
+      const storing = { ...opts, storage: carriesFiles(nodes) ? await storage(docId) : undefined };
+      return write(docId, (d) => d.createNodes(nodes, actor, storing));
+    },
+    updateNodes: async (docId, updates, opts) => {
+      const storing = {
+        ...opts,
+        storage: carriesFiles(updates) ? await storage(docId) : undefined,
+      };
+      return write(docId, (d) => d.updateNodes(updates, actor, storing));
+    },
     deleteNodes: async (docId, nodeIds, opts) =>
       write(docId, (d) => d.deleteNodes(nodeIds, actor, opts)),
     transformNodes: async (docId, input, opts) =>
@@ -117,13 +145,16 @@ export function documentService(env: Env, principal: Principal): DocumentService
     commitTx: async (docId, txId, opts) => write(docId, (d) => d.commitTx(txId, actor, opts)),
     rollback: async (docId, txId) => write(docId, (d) => d.rollback(txId, actor)),
     changes: async (docId, sinceRev, limit) => read(docId, (d) => d.changes(sinceRev, limit)),
-    render: async (docId, req) => {
-      const { svg, viewport } = await read(docId, (d) => d.raster(actor, req));
-      const { png } = await svgToPng(svg, viewport.scale);
-      return { png, viewport };
+    render: raster("render"),
+    png: raster("export"),
+    svg: async (docId, req) => {
+      await countCall(env, principal, "export");
+      return read(docId, (d) => d.svg(actor, req));
     },
-    svg: async (docId, req) => read(docId, (d) => d.svg(actor, req)),
-    file: async (docId, txId) => read(docId, (d) => d.file(actor, txId)),
+    file: async (docId, txId) => {
+      await countCall(env, principal, "export");
+      return read(docId, (d) => d.file(actor, txId));
+    },
   };
 }
 

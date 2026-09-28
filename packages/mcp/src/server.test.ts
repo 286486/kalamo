@@ -532,6 +532,7 @@ describe("a ZibelError becomes the error result (F-MCP-15)", () => {
       hint: expect.stringContaining("#FF0000"),
     });
     expect(service.render).not.toHaveBeenCalled();
+    expect(service.png).not.toHaveBeenCalled();
   });
 });
 
@@ -593,7 +594,7 @@ describe("render and export return an image, SVG text or file text", () => {
   });
 
   it("export png: the same image, without maxSize or overlays", async () => {
-    const { service, call } = await harness({ render: async () => ({ png, viewport }) });
+    const { service, call } = await harness({ png: async () => ({ png, viewport }) });
     const result = await call("zibel_export", {
       docId: "d",
       format: "png",
@@ -603,7 +604,7 @@ describe("render and export return an image, SVG text or file text", () => {
       background: "#112233",
     });
     expect(result).toEqual(image);
-    expect(service.render).toHaveBeenCalledWith("d", {
+    expect(service.png).toHaveBeenCalledWith("d", {
       scope,
       txId: "t",
       background: "#112233",

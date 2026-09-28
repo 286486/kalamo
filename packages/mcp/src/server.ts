@@ -641,7 +641,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         }
         const opts = { ...req, background: color(background) };
         if (format === "png") {
-          const { png, viewport } = await service.render(docId, { ...opts, scale });
+          const { png, viewport } = await service.png(docId, { ...opts, scale });
           return image(png, viewport);
         }
         const { svg, docRect } = await service.svg(docId, opts);

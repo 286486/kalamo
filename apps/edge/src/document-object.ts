@@ -73,11 +73,13 @@ import {
   type RenderRequest,
   ROLES,
   type Role,
+  TOO_MANY_CONNECTIONS,
   type TxMessage,
   type Viewport,
   type WriteOptions,
 } from "@zibel/sync";
-import { ACTOR_HEADER, ROLE_HEADER, USER_HEADER } from "./auth.ts";
+import { ACTOR_HEADER, CONNECTION_LIMIT_HEADER, ROLE_HEADER, USER_HEADER } from "./auth.ts";
+import type { OwnerStorage } from "./quotas.ts";
 
 type EditCommand = Exclude<Command, { type: "undo" | "redo" }>;
 type EditEntry<C> = {
@@ -138,8 +140,11 @@ const REHEARSED = Symbol("rehearsed");
  */
 type Step = { label: string; stack: "undo" | "redo"; popped?: number };
 
-/** A browser command's write also names the command its broadcast answers. */
-type Options = WriteOptions & { commandId?: string };
+/**
+ * A browser command's write also names the command its broadcast answers. A write that may store
+ * files carries its owner's storage in GitHub mode (ADR-0048).
+ */
+type Options = WriteOptions & { commandId?: string; storage?: OwnerStorage };
 
 const ENDED = {
   committed: "committed",
@@ -274,6 +279,7 @@ export class DocumentObject extends DurableObject<Env> {
     images: Map<string, ImageFile>;
     actor: string;
     intent?: string;
+    storage?: OwnerStorage;
   }): Promise<Result<Omit<OpenedDocument, "warnings">>> {
     const run = (rehearse: boolean) =>
       guard(() => {
@@ -288,7 +294,12 @@ export class DocumentObject extends DurableObject<Env> {
         };
         const summary = `Open Document "${doc.name}"`;
         const files = sizes(input.images);
-        const rev = this.init(doc, input.actor, summary, input.intent, { files, rehearse });
+        const { storage } = input;
+        const rev = this.init(doc, input.actor, summary, input.intent, {
+          files,
+          storage,
+          rehearse,
+        });
         const nodes = outline(doc, { depth: 1 });
         return { docId: doc.id, name: doc.name, artboards: doc.artboards, rev, nodes };
       });
@@ -304,10 +315,14 @@ export class DocumentObject extends DurableObject<Env> {
     actor: string,
     summary: string,
     intent: string | undefined,
-    { files, rehearse }: { files?: Map<string, StoredImage>; rehearse?: boolean } = {},
+    {
+      files,
+      storage,
+      rehearse,
+    }: { files?: Map<string, StoredImage>; storage?: OwnerStorage; rehearse?: boolean } = {},
   ) {
     return this.ctx.storage.transactionSync(() => {
-      if (files) this.addFiles(files);
+      if (files) this.addFiles(files, storage);
       this.sql.exec(
         "INSERT INTO doc (id, name, rev, artboards) VALUES (?, ?, 0, ?)",
         doc.id,
@@ -345,6 +360,20 @@ export class DocumentObject extends DurableObject<Env> {
     const doc = guard(() => this.load());
     if ("error" in doc) return Response.json(doc.error, { status: 404 });
     const [client, server] = Object.values(new WebSocketPair()) as [WebSocket, WebSocket];
+    const limit = Number(request.headers.get(CONNECTION_LIMIT_HEADER) ?? Infinity);
+    if (this.ctx.getWebSockets().length >= limit) {
+      // Accepted to say why, which a refused upgrade cannot; not hibernatable, so it never counts.
+      server.accept();
+      const error: ErrorData = {
+        code: "LIMIT_EXCEEDED",
+        message: `Too many open tabs on this Document: ${limit} of ${limit} connections are open.`,
+        hint: "Close a tab or window showing this Document, then reload this one.",
+        limit: { name: "connections", limit, used: limit },
+      };
+      server.send(JSON.stringify({ type: "rejected", id: "", error } satisfies RejectedMessage));
+      server.close(TOO_MANY_CONNECTIONS, "Too many connections.");
+      return new Response(null, { status: 101, webSocket: client });
+    }
     this.ctx.acceptWebSocket(server);
     // Kept on the socket, so it outlives hibernation.
     server.serializeAttachment({ actor, userId, role } satisfies Attachment);
@@ -558,7 +587,7 @@ export class DocumentObject extends DurableObject<Env> {
   async createNodes(
     inputs: NodeInput[],
     actor: string,
-    opts: WriteOptions = {},
+    opts: Options = {},
   ): Promise<Result<WriteReceipt>> {
     const files: Files = new Map();
     const ingested = await this.ingestAll(
@@ -664,8 +693,10 @@ export class DocumentObject extends DurableObject<Env> {
     try {
       await this.sweeping;
       await this.upload(this.load().id, files);
+      const before = this.storedImageBytes();
       const receipt = this.write(actor, opts, verb, edit, { files: stored });
       committed = !("error" in receipt);
+      if (this.storedImageBytes() !== before) await this.report();
       return receipt;
     } finally {
       this.inFlight.delete(files);
@@ -688,9 +719,10 @@ export class DocumentObject extends DurableObject<Env> {
 
   /**
    * Rows for the files the Document does not hold yet, within F-MCP-06c's 20 MB, which counts
-   * every stored file, live or held by undo history. Call inside transactionSync.
+   * every stored file, live or held by undo history, and within what `storage` leaves of the
+   * owner's 200 MB (ADR-0048). Call inside transactionSync.
    */
-  private addFiles(files: Map<string, StoredImage>) {
+  private addFiles(files: Map<string, StoredImage>, storage?: OwnerStorage) {
     let adding = 0;
     for (const [id, { mime, width, height, size }] of files) {
       const inserted = this.sql.exec(
@@ -704,12 +736,40 @@ export class DocumentObject extends DurableObject<Env> {
       if (inserted) adding += size;
     }
     const total = this.storedImageBytes();
-    if (adding === 0 || total <= MAX_DOCUMENT_IMAGE_BYTES) return;
+    if (adding === 0) return;
+    const undo = `A deleted Image's file keeps counting while undo history holds it: until ${UNDO_DEPTH} more Transactions push it out, or an edit after an undo clears the redo stack.`;
+    if (storage && storage.used + total > storage.limit) {
+      const used = storage.used + total - adding;
+      throw new ZibelError({
+        code: "LIMIT_EXCEEDED",
+        message: `Your Documents store ${used} bytes of image files; ${adding} more would pass your storage limit of ${storage.limit} (${mb(storage.limit)} MB) across the Documents you own.`,
+        hint: `Delete Images, or Documents, you no longer need. ${undo}`,
+        limit: { name: "storage", limit: storage.limit, used },
+      });
+    }
+    if (total <= MAX_DOCUMENT_IMAGE_BYTES) return;
     throw new ZibelError({
       code: "LIMIT_EXCEEDED",
-      message: `The Document stores ${total - adding} bytes of image files; ${adding} more would pass its limit of ${MAX_DOCUMENT_IMAGE_BYTES} (${MAX_DOCUMENT_IMAGE_BYTES / 1024 / 1024} MB).`,
-      hint: `Delete Images the Document no longer needs. A deleted Image's file keeps counting while undo history holds it: until ${UNDO_DEPTH} more Transactions push it out, or an edit after an undo clears the redo stack.`,
+      message: `The Document stores ${total - adding} bytes of image files; ${adding} more would pass its limit of ${MAX_DOCUMENT_IMAGE_BYTES} (${mb(MAX_DOCUMENT_IMAGE_BYTES)} MB).`,
+      hint: `Delete Images the Document no longer needs. ${undo}`,
+      limit: { name: "document_storage", limit: MAX_DOCUMENT_IMAGE_BYTES, used: total - adding },
     });
+  }
+
+  /**
+   * Writes the Document's stored bytes to its `documents` row, which the owner's storage Quota
+   * sums (ADR-0048). A failure leaves the row stale until the next change, never fails the write.
+   */
+  private async report() {
+    const docId = this.sql.exec<{ id: string }>("SELECT id FROM doc").toArray()[0]?.id;
+    if (!docId) return;
+    try {
+      await this.env.DB.prepare("UPDATE documents SET stored_bytes = ? WHERE id = ?")
+        .bind(this.storedImageBytes(), docId)
+        .run();
+    } catch (e) {
+      console.error("Stored bytes not reported", e);
+    }
   }
 
   /** The bytes of the image files the Document stores, live or held by undo history (ADR-0046). */
@@ -863,7 +923,7 @@ export class DocumentObject extends DurableObject<Env> {
       if (named.size < files.size && !rehearse) this.markSweep(Date.now() + ORPHAN_GRACE_MS);
       const label = rest.summary ?? summary(verb, change);
       const { txId, rev, pruned } = this.ctx.storage.transactionSync(() => {
-        this.addFiles(named);
+        this.addFiles(named, opts.storage);
         const written = opts.txId
           ? { ...this.stage(opts.txId, committed.rev, change), pruned: false }
           : this.commit(actor, label, opts.intent, change, step);
@@ -1282,6 +1342,7 @@ export class DocumentObject extends DurableObject<Env> {
       if (!page.truncated) break;
       cursor = page.cursor;
     }
+    if (garbage.length > 0) await this.report();
     const all = [...keys];
     // R2 deletes at most 1000 keys per call.
     for (let i = 0; i < all.length; i += 1000) await this.env.IMAGES.delete(all.slice(i, i + 1000));
@@ -1544,6 +1605,8 @@ function summary(verb: string, { created = [], updated = [], deletedIds = [] }: 
   const count = created.length + updated.length + deletedIds.length;
   return `${verb} ${count} ${count === 1 ? "Node" : "Nodes"}`;
 }
+
+const mb = (bytes: number) => bytes / 1024 / 1024;
 
 /** `files` with each file's size in place of its bytes, as its row holds it. */
 const sizes = (files: Files) =>

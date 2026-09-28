@@ -259,6 +259,10 @@ _Avoid_: Permission、ACL、Access（那是 token 的读写范围）
 owner 分享给的 User，在该 Document 上是 editor 或 viewer。owner 本身从不是 Member（ADR-0047）。
 _Avoid_: Collaborator、Participant、Guest
 
+**Quota（配额）**：
+托管免费 beta 对一个 User 或一个 Document 的硬上限，超过即 `LIMIT_EXCEEDED`，其 `limit` 字段给出名称、上限与用量：owner 拥有的 50 个 Document、owner 的 200 MB 存储、调用者每个 UTC 日 500 次 `render` 与 200 次 `export`、每个 Document 20 个浏览器连接。只在 GitHub 模式生效（ADR-0048）。
+_Avoid_: Limit（那是请求本身的上限，如 5 MB 位图、4096 px 渲染）、Rate limit、Plan
+
 **Agent**：
 通过 MCP 调用 Zibel 的 AI 客户端，以自己的凭证作为一个 Actor。与人类用户拥有同等的编辑能力，只是入口不同。
 _Avoid_: Bot、AI、Model、Assistant

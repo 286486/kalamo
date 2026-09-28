@@ -169,6 +169,8 @@ export interface DocumentService {
   ): Promise<{ rev: number; nodes: ConciseView[]; nextCursor: string | null }>;
   /** A PNG of the scope, and the Viewport mapping its pixels back (ADR-0014). */
   render(docId: string, req: RasterRequest): Promise<{ png: Uint8Array; viewport: Viewport }>;
+  /** `render` as `export` makes it, which counts as an export, not a render (ADR-0048). */
+  png(docId: string, req: RasterRequest): Promise<{ png: Uint8Array; viewport: Viewport }>;
   /** The SVG of the scope, the artwork only. */
   svg(docId: string, req: RenderRequest): Promise<{ svg: string; docRect: Rect }>;
   /** The whole Document as `.zibel.json` text (ADR-0016). */
