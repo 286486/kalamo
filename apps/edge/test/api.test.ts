@@ -808,3 +808,98 @@ describe("images through the Worker", () => {
     await served.body?.cancel();
   });
 });
+
+describe("request bodies capped before they are read (ADR-0049)", () => {
+  const MiB = 1024 * 1024;
+  /** `count` chunks of `size` bytes, pulled one at a time; `pulls` says how many were. */
+  function counted(count: number, size = MiB) {
+    let pulls = 0;
+    const stream = new ReadableStream<Uint8Array>(
+      {
+        pull(c) {
+          if (pulls === count) return c.close();
+          pulls++;
+          c.enqueue(new Uint8Array(size));
+        },
+      },
+      { highWaterMark: 0 },
+    );
+    return { stream, pulls: () => pulls };
+  }
+  const post = (path: string, body: ReadableStream, length?: number) =>
+    exports.default.fetch(`http://zibel${path}`, {
+      method: "POST",
+      body,
+      ...(length !== undefined && { headers: { "content-length": String(length) } }),
+    });
+
+  async function routes() {
+    const { docId, defaultLayerId } = await newDoc();
+    const [imageNode = ""] = (
+      await call("zibel_node_create", {
+        docId,
+        nodes: [{ type: "image", parentId: defaultLayerId, src: RED_2x2_PNG, x: 0, y: 0 }],
+      })
+    ).structuredContent.createdIds as string[];
+    return [
+      ["/api/docs", "content", 32 * MiB],
+      [`/api/docs/${docId}/place?parentId=${defaultLayerId}`, "svg", 32 * MiB],
+      [`/api/docs/${docId}/place-image?parentId=${defaultLayerId}`, "file", 5 * MiB],
+      [`/api/docs/${docId}/relink-image?nodeId=${imageNode}`, "file", 5 * MiB],
+    ] as const;
+  }
+
+  it("refuses a declared length over the cap without pulling the body", async () => {
+    for (const [path, at, cap] of await routes()) {
+      const { stream, pulls } = counted(cap / MiB + 1);
+      const res = await post(path, stream, cap + 1);
+      expect(res.status).toBe(400);
+      const error = (await res.json()) as { message: string };
+      expect(error).toMatchObject({ code: "LIMIT_EXCEEDED", path: at });
+      expect(error.message).toContain(String(cap));
+      expect(error.message).toContain(String(cap + 1));
+      // The runtime pulls one chunk as it hands the request over, whether the Worker reads it or not.
+      expect(pulls()).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("refuses a body that streams past the cap, with no or an understated length, before its end", async () => {
+    for (const [path, at, cap] of await routes()) {
+      for (const length of [undefined, 10]) {
+        const { stream, pulls } = counted(cap / MiB + 4);
+        const res = await post(path, stream, length);
+        expect(res.status).toBe(400);
+        const error = (await res.json()) as { message: string };
+        expect(error).toMatchObject({ code: "LIMIT_EXCEEDED", path: at });
+        expect(error.message).toContain(String(cap));
+        expect(pulls()).toBeLessThan(cap / MiB + 4);
+      }
+    }
+  }, 30_000);
+
+  it("reopens a .zibel.json whose images fill the 20 MB Document cap", async () => {
+    const { docId, defaultLayerId } = await newDoc();
+    const s = env.DOCUMENT.get(env.DOCUMENT.idFromName(docId));
+    const red = readImage(RED_2x2_PNG, "src").bytes;
+    for (let n = 0; n < 4; n++) {
+      const bytes = new Uint8Array(5 * MiB);
+      bytes.set(red);
+      bytes[bytes.length - 1] = n;
+      const src = `data:image/png;base64,${bytes.toBase64()}`;
+      const created = await s.createNodes(
+        [{ type: "image", parentId: defaultLayerId, src, x: n, y: 0 }],
+        "agent",
+      );
+      expect(created).not.toHaveProperty("error");
+    }
+    const file = await s.file("agent");
+    if ("error" in file) throw new Error(file.error.message);
+    expect(file.text.length).toBeGreaterThan(26 * MiB);
+    const res = await exports.default.fetch("http://zibel/api/docs", {
+      method: "POST",
+      body: file.text,
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ docId: expect.any(String) });
+  }, 60_000);
+});

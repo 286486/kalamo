@@ -28,5 +28,5 @@ A Document leaves Zibel with `zibel_export` `format: "zibel_json"` and comes bac
 - `INVALID_DOCUMENT` joins the error codes (F-MCP-15).
 - The current version is one past the last migration in core's list, so adding a migration is the only way to bump it.
 - `assertParent` stops at a cycle above the parent. `node_create` could never meet one, since its parents already sit in a valid tree, but a file can carry `A.parentId = B, B.parentId = A`.
-- A file can only be as large as one MCP request body and one Durable Object RPC (32 MiB) allow. There is no Node count cap yet.
+- A file has no format cap of its own: it is bounded by ADR-0049's 32 MiB request cap, and its images by ADR-0046. There is no Node count cap yet.
 - Dragging a file into the browser (the rest of F-IO-05) and opening by `docId` or `url` are left for later issues.

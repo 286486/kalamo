@@ -10,7 +10,6 @@ export type { OpenedFile, Warning };
  * The largest SVG Zibel reads, in UTF-16 code units outside embedded images' data URLs, which
  * `readImage` caps one by one (REQUIREMENTS §6.7, ADR-0023).
  */
-// ponytail: many embedded images are bounded only by the request and RPC limits (32 MiB).
 export const SVG_LIMIT = 5 * 1024 * 1024;
 
 /** The length of `text` without the values of `href="data:…"` and `xlink:href="data:…"`. */
