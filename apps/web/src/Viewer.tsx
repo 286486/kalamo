@@ -193,20 +193,8 @@ export function Viewer({ docId }: { docId: string }) {
       [el.width, el.height] = [ctx.canvas.width, ctx.canvas.height];
       return { ctx: el.getContext("2d") as CanvasRenderingContext2D, image: el };
     };
-    // Isolation Mode (ADR-0057): the rest fades halfway to white, then the isolated Group draws
-    // over it as it draws in the whole Document.
-    const subtree = isolated && shown.nodes.has(isolated) ? isolated : null;
-    if (!subtree) drawDocument(ctx, shown, layer, images.get);
-    else {
-      drawDocument(ctx, shown, layer, images.get, { subtree, drawn: "outside" });
-      ctx.save();
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.globalCompositeOperation = "source-atop";
-      ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
-      ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-      ctx.restore();
-      drawDocument(ctx, shown, layer, images.get, { subtree, drawn: "inside" });
-    }
+    // Isolation Mode (ADR-0057): the isolated Group draws over the rest, faded halfway to white.
+    drawDocument(ctx, shown, layer, images.get, isolated);
   }, [doc, shown, isolated, docId, viewport, size, fontReady, images, imagesLoaded]);
 
   // The overlay redraws on its own canvas, without repainting the Document's Nodes.
