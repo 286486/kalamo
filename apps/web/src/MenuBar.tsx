@@ -94,7 +94,7 @@ export function MenuBar({ menus }: { menus: Menu[] }) {
         return;
       }
       const item = findByKeys(latest.current, keys);
-      if (!item || item.native) return;
+      if (!item || item.native || item.canvas) return;
       e.preventDefault();
       if (item.enabled?.(useStore.getState()) ?? true) item.run();
     };

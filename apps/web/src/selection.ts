@@ -25,15 +25,17 @@ import {
   worldTransform,
 } from "@zibel/core";
 import { drawClipGlyphs } from "@zibel/render/canvas";
+import { inScope } from "./isolation.ts";
 
 /**
- * What Illustrator's Selection tool picks for `node`: its outermost ancestor below a Layer, so a
- * click inside a Group selects the Group. Null for a Layer.
+ * What Illustrator's Selection tool picks for `node`: its outermost ancestor below a Layer, or below
+ * the isolated Group `scope` (ADR-0057), so a click inside a Group selects the Group. Null for a
+ * Layer, and for a Node outside `scope`.
  */
-export function objectOf(doc: Document, node: Node): Node | null {
-  if (node.type === "layer") return null;
+export function objectOf(doc: Document, node: Node, scope: string | null = null): Node | null {
+  if (node.type === "layer" || !inScope(doc, node, scope)) return null;
   let object = node;
-  for (let p = doc.nodes.get(node.parentId ?? ""); p && p.type !== "layer"; ) {
+  for (let p = doc.nodes.get(node.parentId ?? ""); p && p.type !== "layer" && p.id !== scope; ) {
     object = p;
     p = doc.nodes.get(p.parentId ?? "");
   }
@@ -41,10 +43,15 @@ export function objectOf(doc: Document, node: Node): Node | null {
 }
 
 /**
- * Where Place puts pasted or dropped art (ADR-0017): the nearest Layer holding the first selected
- * Node, else the top Layer.
+ * Where Place and new art go (ADR-0017): the isolated Group `scope` (ADR-0057), else the nearest
+ * Layer holding the first selected Node, else the top Layer.
  */
-export function placeParent(doc: Document, selection: string[]): string | undefined {
+export function placeParent(
+  doc: Document,
+  selection: string[],
+  scope: string | null = null,
+): string | undefined {
+  if (scope !== null) return scope;
   for (let n = doc.nodes.get(selection[0] ?? ""); n; n = doc.nodes.get(n.parentId ?? "")) {
     if (n.type === "layer") return n.id;
   }
@@ -53,15 +60,15 @@ export function placeParent(doc: Document, selection: string[]): string | undefi
 
 /**
  * Every selectable object (visible and unlocked, as is everything above it) in the Document, or in
- * the Layer `layerId`, in draw order.
+ * the Layer or isolated Group `parentId`, in draw order.
  */
-export function objects(doc: Document, layerId: string | null = null): Node[] {
+export function objects(doc: Document, parentId: string | null = null): Node[] {
   const walk = (parentId: string | null): Node[] =>
     childrenOf(doc, parentId).flatMap((n) => {
       if (!n.visible || n.locked) return [];
       return n.type === "layer" ? walk(n.id) : [n];
     });
-  return walk(layerId);
+  return walk(parentId);
 }
 
 /**
@@ -79,7 +86,9 @@ export function editable(doc: Document, node: Node | undefined): boolean {
 /**
  * The object whose topmost selectable leaf is painted at (x, y) in document coordinates, within
  * `tolerance` pt of its outline, or null; with `leaf`, that leaf itself, as Direct Selection
- * picks. Hidden and locked Nodes let the click through.
+ * picks. Hidden and locked Nodes let the click through. With the isolated Group `scope`
+ * (ADR-0057), only what is below it hits, inside its ancestors' clips, and its own unpainted
+ * Clipping Path hits on its outline, or a text one on its frame's edges.
  */
 export function hitTest(
   ctx: CanvasRenderingContext2D,
@@ -87,9 +96,12 @@ export function hitTest(
   x: number,
   y: number,
   tolerance: number,
-  leaf = false,
+  { leaf = false, scope = null }: { leaf?: boolean; scope?: string | null } = {},
 ): string | null {
-  let hit: Node | null = null;
+  let found: Node | null = null;
+  const hit = (n: Node) => {
+    if (inScope(doc, n, scope)) found = n;
+  };
   const walk = (parentId: string | null) => {
     for (const n of childrenOf(doc, parentId)) {
       if (!n.visible || n.locked) continue;
@@ -124,22 +136,27 @@ export function hitTest(
           }),
         ];
         const paintsAt = (some: typeof paints) => {
-          for (const p of some) for (const l of leaves) if (p(l)) hit = l.node;
+          for (const p of some) for (const l of leaves) if (p(l)) hit(l.node);
         };
         if (inClip) paintsAt(paints.slice(0, contents));
         if (clip && painted.fills.length > 0 && (clip.type === "text" ? inFrame : inClip)) {
-          hit = clip;
+          hit(clip);
         }
         if (inClip) walk(n.id);
         if (clip?.type === "text") {
-          if (inFrame && painted.strokes.length > 0) hit = clip;
+          if (inFrame && painted.strokes.length > 0) hit(clip);
         } else if (clip && painted.strokes.length > 0) {
           ctx.lineWidth = Math.max(widest(doc, clip), tolerance);
-          if (ctx.isPointInStroke(outline(doc, clip), x, y)) hit = clip;
+          if (ctx.isPointInStroke(outline(doc, clip), x, y)) hit(clip);
         }
         if (inClip) paintsAt(paints.slice(contents));
+        if (n.id === scope && clip?.visible && !clip.locked && unpainted(clip)) {
+          ctx.lineWidth = tolerance;
+          const edge = clip.type === "text" ? frameOf(doc, clip) : outline(doc, clip);
+          if (edge && ctx.isPointInStroke(edge, x, y)) hit(clip);
+        }
       } else if (!("clipping" in n && n.clipping) && paintedAt(ctx, doc, n, x, y, tolerance)) {
-        hit = n;
+        hit(n);
       }
     }
   };
@@ -148,7 +165,18 @@ export function hitTest(
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   walk(null);
   ctx.restore();
-  return hit && (leaf ? (hit as Node).id : (objectOf(doc, hit)?.id ?? null));
+  const top = found as Node | null;
+  return top && (leaf ? top.id : (objectOf(doc, top, scope)?.id ?? null));
+}
+
+const unpainted = (n: LeafNode) => n.appearance.fills.length + n.appearance.strokes.length === 0;
+
+/** A text's frame, its bounds, as a path in document coordinates. */
+function frameOf(doc: Document, t: TextNode): Path2D | null {
+  const b = bounds(doc, t);
+  if (!b) return null;
+  const [x0, y0, x1, y1] = [b.x, b.y, b.x + b.width, b.y + b.height];
+  return new Path2D(`M${x0} ${y0} L${x1} ${y0} L${x1} ${y1} L${x0} ${y1} Z`);
 }
 
 /**
@@ -227,9 +255,9 @@ export function combine(
   return alt ? out : [...out, ...ids.filter((id) => !selection.includes(id))];
 }
 
-/** The selectable objects whose bounds touch `rect`. */
-export function marquee(doc: Document, rect: Rect): string[] {
-  return objects(doc)
+/** The selectable objects, in the isolated Group `scope` if any, whose bounds touch `rect`. */
+export function marquee(doc: Document, rect: Rect, scope: string | null = null): string[] {
+  return objects(doc, scope)
     .filter((n) => {
       const b = bounds(doc, n);
       return !!b && touches(b, rect);
@@ -237,8 +265,8 @@ export function marquee(doc: Document, rect: Rect): string[] {
     .map((n) => n.id);
 }
 
-export const inverse = (doc: Document, selection: string[]) =>
-  objects(doc)
+export const inverse = (doc: Document, selection: string[], scope: string | null = null) =>
+  objects(doc, scope)
     .map((n) => n.id)
     .filter((id) => !selection.includes(id));
 

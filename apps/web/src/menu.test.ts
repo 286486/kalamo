@@ -143,3 +143,36 @@ it("disables every entry that changes the Document for a viewer, and Share… fo
   expect(enabled("owner")).toContain("Share…");
   expect(leaves(menus).map((i) => i.label)).not.toContain("Share…");
 });
+
+it("isolates one editable Group, and exits it from the menu or with Esc (ADR-0057)", () => {
+  const { doc, defaultLayerId: parentId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 200, height: 100 }],
+  });
+  const rect = { type: "rect", x: 0, y: 0, width: 1, height: 1 } as const;
+  const { keyMap } = createNodes(doc, [
+    { type: "group", clientKey: "g", parentId, children: [rect] },
+    { type: "group", clientKey: "h", parentId, children: [rect] },
+    { ...rect, clientKey: "r", parentId },
+  ]);
+  const id = (k: string) => keyMap[k] as string;
+  const item = (label: string) => leaves(menus).find((i) => i.label === label);
+  const base = { ...useStore.getState(), doc, role: "viewer" as const };
+  const isolate = (keys: string[]) =>
+    item("Isolate Selected Group")?.enabled?.({ ...base, selection: keys.map(id) });
+  // A viewer isolates as it selects.
+  expect(isolate(["g"])).toBe(true);
+  expect(isolate(["g", "h"])).toBe(false);
+  expect(isolate(["r"])).toBe(false);
+
+  expect(findByKeys(menus, "Escape")?.label).toBe("Exit Isolation Mode");
+  expect(shortcut("Escape", false)).toBe("Esc");
+  const exit = (s: Partial<typeof base>) =>
+    item("Exit Isolation Mode")?.enabled?.({ ...base, isolated: id("g"), ...s });
+  expect(exit({})).toBe(true);
+  expect(exit({ isolated: null })).toBe(false);
+  // The tools take Esc before the canvas runs the item; the menu bar never binds it.
+  expect(findByKeys(menus, "Escape")?.canvas).toBe(true);
+  expect(exit({ tool: "pen", pen: { anchors: [], closed: false, commandId: null } })).toBe(true);
+});

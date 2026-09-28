@@ -11,10 +11,11 @@ import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { AnchorsBar } from "./AnchorsBar.tsx";
 import { SELECTION } from "./canvas.ts";
 import { anchorsOf, hasAnchors } from "./direct.ts";
+import { IsolationBar } from "./IsolationBar.tsx";
 import { imageCache } from "./images.ts";
 import { Layers } from "./Layers.tsx";
 import { keysTaken } from "./MenuBar.tsx";
-import { keysOf } from "./menu.ts";
+import { exitIsolation, keysOf } from "./menu.ts";
 import { pastedArt, place, placeable } from "./place.ts";
 import { preview, previewEdit, previewOp } from "./receive.ts";
 import { editable } from "./selection.ts";
@@ -81,6 +82,7 @@ export function Viewer({ docId }: { docId: string }) {
     opPreview,
     pen,
     notice,
+    isolated,
     size,
     layersShown,
     tool,
@@ -93,6 +95,8 @@ export function Viewer({ docId }: { docId: string }) {
   const last = useRef({ x: 0, y: 0 });
   /** Space was held at the press: the drag pans. */
   const panning = useRef(false);
+  /** The last mousedown's click count; pointerdown has none (ToolEvent.clicks). */
+  const clicks = useRef(0);
   /** The tool that captured the pointer, which gets its moves and release even if the tool changes. */
   const pressed = useRef<CanvasTool | null>(null);
   /** Counts changes to a tool's overlay, so the canvas redraws. */
@@ -189,8 +193,21 @@ export function Viewer({ docId }: { docId: string }) {
       [el.width, el.height] = [ctx.canvas.width, ctx.canvas.height];
       return { ctx: el.getContext("2d") as CanvasRenderingContext2D, image: el };
     };
-    drawDocument(ctx, shown, layer, images.get);
-  }, [doc, shown, docId, viewport, size, fontReady, images, imagesLoaded]);
+    // Isolation Mode (ADR-0057): the rest fades halfway to white, then the isolated Group draws
+    // over it as it draws in the whole Document.
+    const subtree = isolated && shown.nodes.has(isolated) ? isolated : null;
+    if (!subtree) drawDocument(ctx, shown, layer, images.get);
+    else {
+      drawDocument(ctx, shown, layer, images.get, { subtree, drawn: "outside" });
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalCompositeOperation = "source-atop";
+      ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
+      ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+      ctx.restore();
+      drawDocument(ctx, shown, layer, images.get, { subtree, drawn: "inside" });
+    }
+  }, [doc, shown, isolated, docId, viewport, size, fontReady, images, imagesLoaded]);
 
   // The overlay redraws on its own canvas, without repainting the Document's Nodes.
   // biome-ignore lint/correctness/useExhaustiveDependencies: anchors, segments, pen, fillStroke and overlay redraw the tools' overlays
@@ -278,7 +295,7 @@ export function Viewer({ docId }: { docId: string }) {
       const fillStroke = fillStrokeKey(useStore.getState().fillStroke, keys);
       if (tool) setTool(tool);
       else if (fillStroke) useStore.setState({ fillStroke });
-      else TOOLS[useStore.getState().tool].onKey?.(keys);
+      else if (!TOOLS[useStore.getState().tool].onKey?.(keys) && keys === "Escape") exitIsolation();
     };
     addEventListener("keydown", onKey);
     addEventListener("keyup", onKey);
@@ -362,6 +379,7 @@ export function Viewer({ docId }: { docId: string }) {
       alt: e.altKey,
       ctrl: e.ctrlKey || e.metaKey,
       space: hand,
+      clicks: clicks.current,
       doc,
       viewport,
       ctx,
@@ -421,6 +439,9 @@ export function Viewer({ docId }: { docId: string }) {
         data-testid="overlay"
         style={{ position: "absolute", inset: 0, width: "100%", height: "100%", cursor }}
         onPointerDown={onPointerDown}
+        onMouseDown={(e) => {
+          clicks.current = e.detail;
+        }}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerEnd}
         onPointerCancel={onPointerEnd}
@@ -453,6 +474,7 @@ export function Viewer({ docId }: { docId: string }) {
           </span>
         )}
       </div>
+      <IsolationBar />
       <AnchorsBar />
       <Tools />
       {layersShown && <Layers />}

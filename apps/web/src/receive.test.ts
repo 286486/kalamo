@@ -46,6 +46,7 @@ it("keeps the drag preview until the tx answering its command arrives", () => {
     edit: null,
     anchors: [],
     segments: [],
+    isolated: null,
   };
   const other = { ...state, ...receive(state, tx(doc, { actor: "agent-a" }), "d") };
   expect(other.drag).toBe(state.drag);
@@ -66,6 +67,7 @@ it("snaps back and shows a notice when its command is rejected", () => {
     edit: null,
     anchors: [],
     segments: [],
+    isolated: null,
   };
   const error = { code: "NODE_GONE" as const, message: "gone", hint: "", nodeIds: [a.id] };
   const next = receive(state, { type: "rejected", id: "c1", error }, "d");
@@ -84,6 +86,7 @@ it("drops deleted Nodes from the Selection", () => {
     edit: null,
     anchors: [],
     segments: [],
+    isolated: null,
   };
   expect(receive(state, tx(doc, { deletedIds: [a.id] }), "d")).toMatchObject({
     selection: [b.id],
@@ -102,6 +105,7 @@ it("asks to reconnect on a missed rev, and drops an unanswered drag on a new Doc
     edit: null,
     anchors: [],
     segments: [],
+    isolated: null,
   };
   expect(receive(state, tx(doc, { rev: doc.rev + 2 }), "d")).toBeNull();
   const msg = {
@@ -135,6 +139,7 @@ it("tells the person when an undo skipped Nodes deleted meanwhile", () => {
     edit: null,
     anchors: [],
     segments: [],
+    isolated: null,
   };
   expect(receive(state, tx(doc, { skippedIds: [a.id] }), "d")).toMatchObject({
     notice: expect.stringContaining("Skipped 1"),
@@ -154,6 +159,7 @@ it("selects the Group a selected Node was just moved into, as Make Clipping Mask
     edit: null,
     anchors: [],
     segments: [],
+    isolated: null,
   };
   const group = { ...a, id: "g", type: "group" } as unknown as Node;
   const moved = [a, b].map((n) => ({ ...n, parentId: "g" }));
@@ -185,6 +191,7 @@ it("keeps the Pen's path until its create is answered, then selects what it made
     edit: null,
     anchors: [],
     segments: [],
+    isolated: null,
   };
   const other = receive(state, tx(doc, { actor: "agent-a" }), "d");
   expect(other).not.toHaveProperty("pen");
@@ -211,6 +218,7 @@ it("keeps a path the Pen is still drawing across a reconnect", () => {
     edit: null,
     anchors: [],
     segments: [],
+    isolated: null,
   };
   const msg = {
     type: "document" as const,
@@ -242,6 +250,7 @@ it("keeps a Direct Selection drag's preview until every path_edit is answered", 
     edit,
     anchors: [],
     segments: [],
+    isolated: null,
   };
   expect(receive(state, tx(doc, { actor: "agent-a" }), "d")).not.toHaveProperty("edit");
   const first = { ...state, ...receive(state, tx(doc, { commandId: "c1" }), "d") };
@@ -282,6 +291,7 @@ it("drops selected Anchors of a Node someone else changed, and keeps ours still 
     edit: null,
     anchors,
     segments: [],
+    isolated: null,
   };
   const other = receive(state, tx(doc, { updated: [a] }), "d");
   expect(other?.anchors).toEqual([anchorKey(b.id, 0, 1)]);
@@ -323,7 +333,7 @@ it("keeps a Simplify preview until the answer to its path_op, and previews it wi
     notice: null,
     edit: null,
   };
-  const open = { ...base, opPreview, anchors: [], segments: [] };
+  const open = { ...base, opPreview, anchors: [], segments: [], isolated: null };
   // Not yet sent: nothing answers it, a reconnect included.
   expect(receive(open, tx(doc, { commandId: "c1" }), "d")).not.toHaveProperty("simplify");
   const msg = {

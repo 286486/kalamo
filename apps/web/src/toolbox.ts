@@ -20,6 +20,13 @@ export interface ToolEvent {
   ctrl: boolean;
   /** Space held since after the press; Space held at the press pans instead. */
   space: boolean;
+  /**
+   * The press's click count in the platform's double-click time and distance, from its mousedown,
+   * which comes after pointerdown: 2 for a double-click's second press. Read it on release.
+   * ponytail: a touch's compatibility mousedown comes after its release, so a tap reads the last
+   * press's count; count taps by pointerdown time and distance if touch double-taps misfire.
+   */
+  clicks: number;
   doc: Document;
   viewport: Viewport;
   /** For hit tests. */
@@ -52,8 +59,8 @@ export interface CanvasTool {
   leave?(e: ToolEvent): void;
   /** Its options dialog, opened by double-clicking the tool. */
   options?(): void;
-  /** A key that is neither a tool's nor the Fill and Stroke boxes'. */
-  onKey?(keys: string): void;
+  /** A key that is neither a tool's nor the Fill and Stroke boxes'; true when it took the key. */
+  onKey?(keys: string): boolean;
   /**
    * Its overlay, over the Document and the Selection. Every tool draws, not just the active one:
    * a path the Pen sent shows until its Transaction arrives, after the tool switch that sent it.

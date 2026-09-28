@@ -48,7 +48,10 @@ const anchors = () => useStore.getState().pen?.anchors;
 const typeAt = (i: number) => {
   const pen = useStore.getState().pen;
   if (!pen) throw new Error("no path");
-  const node = penNode({ doc, selection: [], fillStroke: DEFAULT_FILL_STROKE }, pen);
+  const node = penNode(
+    { doc, selection: [], isolated: null, fillStroke: DEFAULT_FILL_STROKE },
+    pen,
+  );
   if (node?.type !== "path") throw new Error("no path");
   return toAnchors(parsePath(node.d, "d"))[0]?.anchors[i]?.type;
 };
@@ -97,7 +100,7 @@ it("Enter sends three Corner Anchors as one open path with the current Fill and 
 });
 
 it("builds the create input from the path, the current fillStroke and placeParent's Layer", () => {
-  const s = { doc, selection: [], fillStroke: DEFAULT_FILL_STROKE };
+  const s = { doc, selection: [], isolated: null, fillStroke: DEFAULT_FILL_STROKE };
   expect(
     penNode(s, {
       anchors: [corner(0, 0), corner(10, 0), corner(5, 8)],

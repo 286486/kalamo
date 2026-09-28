@@ -59,13 +59,15 @@ export const directTool: CanvasTool = {
    */
   down(e) {
     const { doc } = e;
-    const { selection, anchors, segments } = useStore.getState();
+    const { selection, anchors, segments, isolated: scope } = useStore.getState();
     const start = { x: e.x, y: e.y };
     const mods = { shift: e.shift, alt: e.alt };
     useStore.setState({ notice: null });
     const tolerance = DIRECT_HIT / e.viewport.scale;
-    const target = pick(doc, selection, anchors, start.x, start.y, tolerance, segments);
-    const leaf = target ? null : hitTest(e.ctx, doc, start.x, start.y, tolerance, true);
+    const target = pick(doc, selection, anchors, start.x, start.y, tolerance, segments, scope);
+    const leaf = target
+      ? null
+      : hitTest(e.ctx, doc, start.x, start.y, tolerance, { leaf: true, scope });
     const nodeId =
       target?.kind === "segment" ? target.nodeId : target ? parseKey(target.key).nodeId : leaf;
     const node = doc.nodes.get(nodeId ?? "");
@@ -138,8 +140,8 @@ export const directTool: CanvasTool = {
     gesture = null;
     if (g?.kind === "marquee") {
       // A marquee selects Anchors; the Selection is the paths they are on.
-      const { selection, anchors, segments } = useStore.getState();
-      const keys = g.moved && marqueeRect ? marqueeAnchors(e.doc, marqueeRect) : [];
+      const { selection, anchors, segments, isolated } = useStore.getState();
+      const keys = g.moved && marqueeRect ? marqueeAnchors(e.doc, marqueeRect, isolated) : [];
       const next = combine(anchors, keys, g.mods);
       const paths = next.map((k) => parseKey(k).nodeId);
       const kept = g.mods.shift ? selection : [];

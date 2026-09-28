@@ -16,6 +16,8 @@ export const zoomTool: CanvasTool = {
   },
   onKey(keys) {
     // Esc leaves the Zoom tool.
-    if (keys === "Escape") setTool("selection");
+    if (keys !== "Escape") return false;
+    setTool("selection");
+    return true;
   },
 };

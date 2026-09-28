@@ -68,14 +68,14 @@ export function anchorsOf(doc: Document, n: ShapeNode): Subpath[] {
 export const allKeys = (n: ShapeNode) =>
   localAnchors(n).flatMap((s, k) => s.anchors.map((_, i) => anchorKey(n.id, k, i)));
 
-/** Every visible, unlocked path and Live Shape, in draw order. */
-export function editableShapes(doc: Document): ShapeNode[] {
+/** Every visible, unlocked path and Live Shape, in the isolated Group `scope` if any, in order. */
+export function editableShapes(doc: Document, scope: string | null = null): ShapeNode[] {
   const walk = (parentId: string | null): ShapeNode[] =>
     childrenOf(doc, parentId).flatMap((n) => {
       if (!n.visible || n.locked) return [];
       return hasAnchors(n) ? [n] : walk(n.id);
     });
-  return walk(null);
+  return walk(scope);
 }
 
 /** Segment k runs from Anchor k to the next; a closed subpath's last is the closing segment. */
@@ -146,6 +146,7 @@ export function pick(
   y: number,
   tolerance: number,
   segments: string[] = [],
+  scope: string | null = null,
 ): Target | null {
   const near = (p: Point | null) => !!p && Math.hypot(p[0] - x, p[1] - y) <= tolerance;
   const handles = [
@@ -161,7 +162,7 @@ export function pick(
     const a = anchorsOf(doc, n)[subpath]?.anchors[index];
     if (a && near(a[which])) return { kind: "handle", key, which };
   }
-  const shapes = editableShapes(doc).reverse();
+  const shapes = editableShapes(doc, scope).reverse();
   const selected = (n: ShapeNode) => selection.includes(n.id);
   for (const n of [...shapes.filter(selected), ...shapes.filter((n) => !selected(n))]) {
     for (const [s, sub] of anchorsOf(doc, n).entries()) {
@@ -179,11 +180,11 @@ export function pick(
   return null;
 }
 
-/** The Anchors of visible, unlocked paths and Live Shapes inside `rect`. */
-export function marqueeAnchors(doc: Document, rect: Rect): string[] {
+/** The Anchors of visible, unlocked paths and Live Shapes, in `scope` if any, inside `rect`. */
+export function marqueeAnchors(doc: Document, rect: Rect, scope: string | null = null): string[] {
   const inside = ([x, y]: Point) =>
     rect.x <= x && x <= rect.x + rect.width && rect.y <= y && y <= rect.y + rect.height;
-  return editableShapes(doc).flatMap((n) =>
+  return editableShapes(doc, scope).flatMap((n) =>
     anchorsOf(doc, n).flatMap((s, k) =>
       s.anchors.flatMap((a, i) => (inside(a.anchor) ? [anchorKey(n.id, k, i)] : [])),
     ),

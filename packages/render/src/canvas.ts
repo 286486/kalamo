@@ -122,25 +122,56 @@ interface Scene {
   doc: Document;
   layer: NewLayer;
   images: ((id: string) => DecodedImage | undefined) | undefined;
+  /**
+   * drawDocument's `part` inside: the subtree and the containers above it, each of which draws only
+   * its child on the way down, in its transform, clip, opacity and mode, without its own paint.
+   */
+  subtree?: { id: string; above: Set<string> };
+  /** drawDocument's `part` outside: the subtree it leaves out. */
+  without?: string;
+}
+
+/** Whether a child of the Document or of a container above the subtree draws: the way down to it. */
+const onPath = (scene: Scene, n: Node) =>
+  !scene.subtree || n.id === scene.subtree.id || scene.subtree.above.has(n.id);
+
+/** One part of the Document: the Node `subtree` and what is in it, or everything else. */
+export interface Part {
+  subtree: string;
+  drawn: "inside" | "outside";
 }
 
 /**
  * Draws the Document in document coordinates: the same scene, in the same order, as `toSvg`. A
  * translucent or blended Node that paints more than once composes in a `layer` first, as SVG does
- * (ADR-0044). An Image draws once `images` has its file decoded (ADR-0023).
+ * (ADR-0044). An Image draws once `images` has its file decoded (ADR-0023). With `part`, the
+ * browser's Isolation Mode (ADR-0057): everything but the subtree, or only the subtree as it draws
+ * in the whole Document, without the Artboards' backgrounds.
  */
 export function drawDocument(
   ctx: Canvas2D,
   doc: Document,
   layer: NewLayer,
   images?: (id: string) => DecodedImage | undefined,
+  part?: Part,
 ): void {
-  for (const { frame, background } of doc.artboards) {
-    if (!background) continue;
-    ctx.fillStyle = background;
-    ctx.fillRect(frame.x, frame.y, frame.width, frame.height);
+  const scene: Scene = { doc, layer, images };
+  if (part?.drawn === "inside") {
+    if (!doc.nodes.has(part.subtree)) return;
+    const above = new Set<string>();
+    for (let n = doc.nodes.get(part.subtree); n?.parentId; n = doc.nodes.get(n.parentId)) {
+      above.add(n.parentId);
+    }
+    scene.subtree = { id: part.subtree, above };
+  } else {
+    scene.without = part?.subtree;
+    for (const { frame, background } of doc.artboards) {
+      if (!background) continue;
+      ctx.fillStyle = background;
+      ctx.fillRect(frame.x, frame.y, frame.width, frame.height);
+    }
   }
-  for (const n of childrenOf(doc, null)) draw(ctx, n, { doc, layer, images });
+  for (const n of childrenOf(doc, null)) if (onPath(scene, n)) draw(ctx, n, scene);
 }
 
 const ALIGN = { Min: 0, Mid: 0.5, Max: 1 } as Record<string, number>;
@@ -175,7 +206,7 @@ const paintsMoreThanOnce = (n: Node) =>
   (n.type !== "image" && n.appearance.fills.length + n.appearance.strokes.length > 1);
 
 function draw(ctx: Canvas2D, n: Node, scene: Scene) {
-  if (!n.visible) return;
+  if (!n.visible || n.id === scene.without) return;
   const mode = n.blendMode === "normal" ? "source-over" : n.blendMode;
   if ((n.opacity < 1 || mode !== "source-over") && paintsMoreThanOnce(n)) {
     // An isolated group: its contents compose on their own, then composite once in its opacity and
@@ -225,7 +256,11 @@ function paint(ctx: Canvas2D, n: Node, scene: Scene) {
     // Its Appearance paints every leaf's outline, in document coordinates since a container
     // carries identity (ADR-0007), one paint over all of them before the next, the first
     // `contents` below the children (ADR-0043).
-    const { fills, strokes, contents } = containerAppearance(n);
+    // Above a subtree, a container draws only its child on the way down.
+    const passing = scene.subtree?.above.has(n.id) ?? false;
+    const { fills, strokes, contents } = passing
+      ? { fills: [], strokes: [], contents: 0 }
+      : containerAppearance(n);
     const leaves = fills.length + strokes.length > 0 ? paintedLeaves(doc, n) : [];
     /**
      * Paints every leaf in the paint `style` sets, each inside its inner Clipping Masks; a text in
@@ -306,12 +341,15 @@ function paint(ctx: Canvas2D, n: Node, scene: Scene) {
       const appearance = { fills: [], strokes: [], [list]: c.appearance[list] };
       if (c.appearance[list].length > 0) draw(ctx, { ...c, appearance }, scene);
     };
+    const children = childrenOf(doc, n.id).filter(
+      (c) => c !== clip && (!passing || onPath(scene, c)),
+    );
     clipped((ctx) => {
       for (const p of paints.slice(0, contents)) p(ctx);
-      if (clip) part(ctx, clip, "fills");
-      for (const c of childrenOf(doc, n.id)) if (c !== clip) draw(ctx, c, scene);
+      if (clip && !passing) part(ctx, clip, "fills");
+      for (const c of children) draw(ctx, c, scene);
     });
-    if (clip) part(ctx, clip, "strokes");
+    if (clip && !passing) part(ctx, clip, "strokes");
     if (contents < paints.length) {
       clipped((ctx) => {
         for (const p of paints.slice(contents)) p(ctx);

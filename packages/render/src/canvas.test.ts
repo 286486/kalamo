@@ -1068,3 +1068,62 @@ describe("gradients (ADR-0026)", () => {
     );
   });
 });
+
+describe("a subtree (ADR-0057)", () => {
+  it("draws only that Group, in its translucent, clipped parent's clip and opacity", () => {
+    const { doc, defaultLayerId: parentId } = newDoc();
+    const fill = (color: string) => ({ fills: [{ color }], strokes: [] });
+    const rect = (color: string) =>
+      ({
+        type: "rect",
+        parentId,
+        x: 0,
+        y: 0,
+        width: 10,
+        height: 10,
+        appearance: fill(color),
+      }) as const;
+    const { keyMap } = createNodes(doc, [
+      rect("#00FF00"),
+      { ...rect("#FFFF00"), clientKey: "content" },
+      {
+        type: "group",
+        clientKey: "group",
+        parentId,
+        children: [
+          { type: "rect", x: 0, y: 0, width: 10, height: 10, appearance: fill("#FF0000") },
+        ],
+      },
+      { ...rect("#000000"), clientKey: "clip" },
+    ] as never);
+    const [content, group, clip] = [keyMap.content, keyMap.group, keyMap.clip] as [
+      string,
+      string,
+      string,
+    ];
+    const { group: parent } = makeMask(doc, { clipNodeId: clip, contentIds: [content, group] });
+    const stroke = { type: "solid", color: "#0000FF", width: 1, cap: "butt", join: "miter" };
+    Object.assign(doc.nodes.get(clip) as Node, {
+      appearance: { fills: [], strokes: [{ ...stroke, miterLimit: 10, dash: [] }] },
+    });
+    Object.assign(parent, { opacity: 0.5 });
+    const { ctx, log, layer } = recorder();
+    drawDocument(ctx, doc, layer, undefined, { subtree: group, drawn: "inside" });
+    const colors = log.filter((l) => /(fill|stroke)Style=/.test(l)).map((l) => l.split("=")[1]);
+    expect(colors).toEqual(["#FF0000"]);
+    // Drawn in a layer for the parent's opacity, inside its Clipping Path.
+    expect(log).toContain("layer");
+    expect(log).toContain("> clip nonzero");
+    expect(log).toContain("globalAlpha=0.5");
+    // Without the option the whole scene draws, the Artboard's background first.
+    const whole = recorder();
+    drawDocument(whole.ctx, doc, whole.layer);
+    expect(whole.log[0]).toBe("fillStyle=#FFFFFF");
+    expect(whole.log.filter((l) => /(fill|stroke)Style=/.test(l))).toHaveLength(5);
+    // Outside it, everything else, so a translucent pixel inside is not drawn twice.
+    const rest = recorder();
+    drawDocument(rest.ctx, doc, rest.layer, undefined, { subtree: group, drawn: "outside" });
+    const drawn = rest.log.filter((l) => /(fill|stroke)Style=/.test(l)).map((l) => l.split("=")[1]);
+    expect(drawn).toEqual(["#FFFFFF", "#00FF00", "#FFFF00", "#0000FF"]);
+  });
+});

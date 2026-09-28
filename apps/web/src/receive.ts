@@ -11,6 +11,7 @@ import {
 import { applyBroadcast, type ServerMessage } from "@zibel/sync";
 import type { CurveAnchor } from "./curvature.ts";
 import { inRange, parseKey, segmentInRange } from "./direct.ts";
+import { prune } from "./isolation.ts";
 
 /** The Selection being dragged by (dx, dy) pt. `commandId` is set once its move has been sent. */
 export interface Drag {
@@ -74,6 +75,8 @@ export interface ViewState {
   doc: Document | null;
   /** UI state only, never sent as a Document property (CONTEXT.md). */
   selection: string[];
+  /** The isolated Group (ADR-0057): UI state, like the Selection. */
+  isolated: string | null;
   /** Drawn until the answer to its command arrives, so a committed move does not flicker. */
   drag: Drag | null;
   pen: PenPath | null;
@@ -153,6 +156,7 @@ export function receive(
   });
   return {
     doc,
+    isolated: prune(s.doc, doc, s.isolated),
     // The path the Pen drew becomes the Selection, as in Illustrator.
     selection: drawn ? (s.pen?.pencil?.keep === false ? [] : [...made]) : [...new Set(selection)],
     ...(answered && { drag: null }),
