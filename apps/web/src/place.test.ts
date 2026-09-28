@@ -141,3 +141,82 @@ describe("relink", () => {
     expect(view()).toEqual({ isolated: null, selection: [leaf] });
   });
 });
+
+describe("a notice that ends in another tab (#138)", () => {
+  /** Shows another Document, with its own notice, while the request is in flight. */
+  const switchTab = () => {
+    const { doc } = createDocument({
+      id: "e",
+      name: "Other",
+      artboards: [{ width: 1, height: 1 }],
+    });
+    useStore.setState({ doc, notice: "Other's notice" });
+  };
+  const png = () => new File([new Uint8Array([1])], "a.png", { type: "image/png" });
+
+  it("shows the warnings unchanged while the placing tab is shown", async () => {
+    isolateLeaf();
+    place("<svg/>");
+    await flush();
+    resolve(answer(200, { nodes: [], warnings: [{ message: "Foo is not bundled." }] }));
+    await flush();
+    expect(useStore.getState().notice).toBe("Foo is not bundled.");
+  });
+
+  it("names the placing Document on a Place's warnings", async () => {
+    isolateLeaf();
+    place("<svg/>");
+    await flush();
+    switchTab();
+    resolve(answer(200, { nodes: [], warnings: [{ message: "Foo is not bundled." }] }));
+    await flush();
+    expect(useStore.getState().notice).toBe("Doc: Foo is not bundled.");
+  });
+
+  it("keeps the other tab's notice after a Place with no warnings", async () => {
+    isolateLeaf();
+    place("<svg/>");
+    await flush();
+    switchTab();
+    resolve(answer(200, { nodes: [{ id: "placed" }] }));
+    await flush();
+    expect(useStore.getState().notice).toBe("Other's notice");
+  });
+
+  it.each<[string, () => void, () => void]>([
+    [
+      "a refused Place",
+      () => place(new File(["<svg/>"], "mark.svg", { type: "image/svg+xml" })),
+      () => resolve(answer(400, { message: "bad svg", hint: "fix it" })),
+    ],
+    [
+      "a refused Relink",
+      () => relink("image", png()),
+      () => resolve(answer(400, { message: "not an image" })),
+    ],
+  ])("names the placing Document on %s", async (_, start, end) => {
+    isolateLeaf();
+    start();
+    await flush();
+    switchTab();
+    end();
+    await flush();
+    expect(useStore.getState().notice).toMatch(
+      /^Doc: Could not (place mark\.svg: bad svg fix it|relink a\.png: not an image)/,
+    );
+  });
+
+  it("names the placing Document on a network error", async () => {
+    isolateLeaf();
+    let fail: (e: Error) => void = () => {};
+    vi.stubGlobal("fetch", () => new Promise((_, f) => (fail = f)));
+    place("<svg/>");
+    await flush();
+    switchTab();
+    fail(new TypeError("Failed to fetch"));
+    await flush();
+    expect(useStore.getState().notice).toBe(
+      "Doc: Could not place the pasted SVG: TypeError: Failed to fetch",
+    );
+  });
+});

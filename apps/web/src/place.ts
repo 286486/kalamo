@@ -7,17 +7,20 @@ import { toDoc } from "./viewport.ts";
  * Place (ADR-0017) and Relink POST the file to the Worker, which writes it as the user; the canvas
  * follows the `tx` broadcast like any other write. Failures and warnings show as the notice. On
  * success, what it placed or relinked becomes the Selection and the Isolation goes `from` → `to`,
- * unless the tab or its Isolation changed while the request was in flight.
+ * unless the tab or its Isolation changed while the request was in flight. A notice that ends in
+ * another tab still shows, so a failure is never silent, but it starts with `doc`'s name.
  */
 async function postFile(
-  docId: string,
+  doc: { id: string; name: string },
   url: string,
   body: BodyInit,
   what: string,
   from: string | null,
   to = from,
 ) {
-  const notice = (text: string) => useStore.setState({ notice: text });
+  const shown = () => useStore.getState().doc?.id === doc.id;
+  const notice = (text: string) =>
+    useStore.setState({ notice: shown() ? text : `${doc.name}: ${text}` });
   try {
     const res = await fetch(url, { method: "POST", body });
     const json = (await res.json()) as {
@@ -31,17 +34,20 @@ async function postFile(
     };
     if (!res.ok) notice(`Could not ${what}: ${json.message} ${json.hint ?? ""}`);
     else {
-      const s = useStore.getState();
+      const warnings = json.warnings?.map((w) => w.message).join(" ");
+      if (!shown()) {
+        if (warnings) notice(warnings);
+        return;
+      }
       useStore.setState({
-        notice: json.warnings?.map((w) => w.message).join(" ") || null,
-        ...(s.doc?.id === docId &&
-          s.isolated === from && {
-            isolated: to,
-            selection: json.nodes?.map((n) => n.id) ?? [
-              ...(json.createdIds ?? []),
-              ...(json.updatedIds ?? []),
-            ],
-          }),
+        notice: warnings || null,
+        ...(useStore.getState().isolated === from && {
+          isolated: to,
+          selection: json.nodes?.map((n) => n.id) ?? [
+            ...(json.createdIds ?? []),
+            ...(json.updatedIds ?? []),
+          ],
+        }),
       });
     }
   } catch (e) {
@@ -67,11 +73,10 @@ export function place(file: File | string, inPlace = false) {
   const at = doc && forNewArt(doc, s);
   const parentId = doc && at && placeParent(doc, at.selection, at.isolated);
   if (!doc || !v || !at || !parentId) return;
-  const docId = doc.id;
   const { x, y } = toDoc(v, size.width / 2, size.height / 2);
   const query = new URLSearchParams({ parentId, x: String(x), y: String(y) });
   const post = (path: string, body: BodyInit, what: string) =>
-    postFile(docId, `/api/docs/${docId}/${path}?${query}`, body, what, s.isolated, at.isolated);
+    postFile(doc, `/api/docs/${doc.id}/${path}?${query}`, body, what, s.isolated, at.isolated);
   if (typeof file === "string") {
     if (inPlace) query.set("inPlace", "");
     post("place", file, "place the pasted SVG");
@@ -91,13 +96,7 @@ export function relink(nodeId: string, file: File) {
   const { doc, isolated } = useStore.getState();
   if (!doc) return;
   const query = new URLSearchParams({ nodeId, name: file.name });
-  postFile(
-    doc.id,
-    `/api/docs/${doc.id}/relink-image?${query}`,
-    file,
-    `relink ${file.name}`,
-    isolated,
-  );
+  postFile(doc, `/api/docs/${doc.id}/relink-image?${query}`, file, `relink ${file.name}`, isolated);
 }
 
 /** What a paste places: SVG text, else the first image file. */
