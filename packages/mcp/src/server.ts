@@ -423,7 +423,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
     {
       title: "Make Clipping Mask",
       description: [
-        "Clip Nodes by a shape, as Illustrator's Object > Clipping Mask > Make: a new Group, the Clipping Mask, takes the place of the topmost of them and holds clipNodeId and contentIds in their stacking order; the content draws only inside the clip Node, which becomes the Group's Clipping Path and loses its Fills and Strokes.",
+        "Clip Nodes by a shape, as Illustrator's Object > Clipping Mask > Make: a new Group, the Clipping Mask, takes the place of the topmost of them and holds clipNodeId and contentIds in their stacking order; the content draws only inside the clip Node, which becomes the Group's Clipping Path and loses its Fills and Strokes. An appearance given to it later with zibel_node_update draws its Fills behind the content and its Strokes over it, unclipped.",
         "The clip Node is a Live Shape or path (not a text), and every Node listed shares its parent. The Group's geometricBounds are the Clipping Path's. Move the clip or the content with zibel_node_transform; zibel_mask_release undoes the clip.",
         "One Transaction. createdIds is the Group; updatedIds the Nodes moved into it.",
       ].join(" "),
@@ -444,7 +444,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
     {
       title: "Release Clipping Mask",
       description:
-        "Stop Clipping Masks clipping, as Illustrator's Object > Clipping Mask > Release. List each by its Group id or its Clipping Path's id. The Group and its Nodes stay; the former Clipping Path keeps no Fill or Stroke until you give it an appearance with zibel_node_update.",
+        "Stop Clipping Masks clipping, as Illustrator's Object > Clipping Mask > Release. List each by its Group id or its Clipping Path's id. The Group and its Nodes stay; the former Clipping Path keeps its appearance, which is empty unless one was given to it with zibel_node_update.",
       inputSchema: { docId, nodeIds: z.array(z.string()).min(1).max(1000), ...txWrite },
       outputSchema: WriteReceipt.shape,
       annotations: {

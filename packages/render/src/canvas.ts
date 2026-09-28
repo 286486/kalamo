@@ -22,6 +22,7 @@ import {
   paintedLeaves,
   type Rect,
   type Segment,
+  type ShapeNode,
   scaleOf,
   shapeSegments,
   type TextNode,
@@ -209,12 +210,17 @@ function paint(ctx: Canvas2D, n: Node, scene: Scene) {
   const { doc, images } = scene;
   ctx.transform(...n.transform);
   if (n.type === "layer" || n.type === "group") {
-    // A Clipping Mask's children draw only inside its Clipping Path, which never paints (ADR-0021).
+    // A Clipping Mask draws everything inside its Clipping Path but that path's own Strokes
+    // (ADR-0021, ADR-0051).
     const clip = clippingPath(doc, n);
-    if (clip) {
+    const clipped = (draws: () => void) => {
+      if (!clip) return draws();
+      ctx.save();
       trace(ctx, transformSegments(shapeSegments(clip), clip.transform));
       ctx.clip(clip.type === "path" && clip.fillRule === "evenodd" ? "evenodd" : "nonzero");
-    }
+      draws();
+      ctx.restore();
+    };
     // Its Appearance paints every leaf's outline, in document coordinates since a container
     // carries identity (ADR-0007), one paint over all of them before the next, the first
     // `contents` below the children (ADR-0043).
@@ -279,9 +285,23 @@ function paint(ctx: Canvas2D, n: Node, scene: Scene) {
         );
       }),
     ];
-    for (const p of paints.slice(0, contents)) p();
-    for (const c of childrenOf(doc, n.id)) if (c !== clip) draw(ctx, c, scene);
-    for (const p of paints.slice(contents)) p();
+    // The Clipping Path's Fills and its Strokes are two parts, each in its opacity and mode, with
+    // the content between them.
+    const part = (c: ShapeNode, list: "fills" | "strokes") => {
+      const appearance = { fills: [], strokes: [], [list]: c.appearance[list] };
+      if (c.appearance[list].length > 0) draw(ctx, { ...c, appearance }, scene);
+    };
+    clipped(() => {
+      for (const p of paints.slice(0, contents)) p();
+      if (clip) part(clip, "fills");
+      for (const c of childrenOf(doc, n.id)) if (c !== clip) draw(ctx, c, scene);
+    });
+    if (clip) part(clip, "strokes");
+    if (contents < paints.length) {
+      clipped(() => {
+        for (const p of paints.slice(contents)) p();
+      });
+    }
   } else if (n.type === "image") {
     const file = n.src === undefined ? undefined : images?.(n.src);
     if (n.src === undefined) {

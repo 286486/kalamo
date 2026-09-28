@@ -315,9 +315,10 @@ it("draws the fixture Document with known pixels", async () => {
   // by #106, that Group gained a text and a Clipping Mask its paints reach; by #112, the Artboard
   // widened for a painted Group of turned, scaled Area Type; by #113, the edited Group left the
   // painted Layer and the Area Type grew to a sentence; by #107, the Artboard widened for a Group
-  // whose gradient Fill runs across a rect and a turned text.
+  // whose gradient Fill runs across a rect and a turned text; by #50, a tenth Artboard holding a
+  // Clipping Mask whose turned, translucent Clipping Path has a gradient Fill and two Strokes.
   expect(await hash(toSvg(doc, docRect(doc), { images }))).toBe(
-    "6b74d86d3943bcb574af34abadd208314b5eb0d02ae838d2721acf5e78ff099b",
+    "fc51bfd9b4c61a3a43ffda2f17b6eaada7f504b33caf824ba1a8145e151c5b1d",
   );
   expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned, images }))).toBe(
     "24c1e7ad8db33f59933a1b355c879cb19bfdfd67d70b11427b196aa646ea4b60",
@@ -552,17 +553,18 @@ it.each(COMPOSITING)("composes as one image: $name (ADR-0044)", async (c) => {
   });
   createNodes(doc, c.nodes.map((n) => ({ ...n, parentId: defaultLayerId })) as never);
   const named = (name: string) => [...doc.nodes.values()].find((n) => n.name === name) as Node;
-  const mask =
-    c.mask &&
-    makeMask(doc, {
-      clipNodeId: named(c.mask.clip).id,
-      contentIds: c.mask.content.map((k) => named(k).id),
-    }).group;
+  for (const m of c.masks ?? []) {
+    const { group } = makeMask(doc, {
+      clipNodeId: named(m.clip).id,
+      contentIds: m.content.map((k) => named(k).id),
+    });
+    doc.nodes.set(group.id, { ...group, name: m.name });
+  }
   for (const [k, t] of Object.entries(c.transforms ?? {})) {
     transformNodes(doc, { nodeIds: [named(k).id], ...t } as never);
   }
   for (const [k, patch] of Object.entries(c.patches)) {
-    const node = k === "Layer" ? doc.nodes.get(defaultLayerId) : k === "mask" ? mask : named(k);
+    const node = k === "Layer" ? doc.nodes.get(defaultLayerId) : named(k);
     Object.assign(node as Node, patch);
   }
   const { pixels, width } = await svgToPixels(toSvg(doc, docRect(doc)), 1);

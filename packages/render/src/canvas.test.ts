@@ -654,7 +654,7 @@ it("fills a Path with its fill rule", () => {
   ]);
 });
 
-it("clips a Clipping Mask's children by its Clipping Path, in document coordinates, and never paints it", () => {
+it("clips a Clipping Mask's children by its Clipping Path, in document coordinates, and paints nothing of it unpainted", () => {
   const { doc, defaultLayerId: parentId } = newDoc();
   const [content, clip] = createNodes(doc, [
     {

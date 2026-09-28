@@ -1,4 +1,4 @@
-import { createDocument, createNodes, makeMask, type Node } from "@zibel/core";
+import { createDocument, createNodes, makeMask, type Node, type ShapeNode } from "@zibel/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   combine,
@@ -230,6 +230,39 @@ describe("hitTest", () => {
     expect(hitTest(ctx, doc, 8, 5, 1)).toBe(group.id);
     expect(hitTest(ctx, doc, 30, 30, 1)).toBeNull();
     expect(hitTest(ctx, doc, 65, 5, 1)).toBeNull();
+  });
+
+  it("hits a painted Clipping Path's Fill where it clips and its Stroke's outer half too (ADR-0051)", () => {
+    const ctx = boxContext();
+    const { doc, defaultLayerId: parentId } = createDocument({
+      id: "d",
+      name: "Doc",
+      artboards: [{ width: 200, height: 100 }],
+    });
+    const [content, clip] = createNodes(doc, [
+      { type: "rect", parentId, x: 0, y: 0, width: 50, height: 50 },
+      { type: "rect", parentId, x: 40, y: 0, width: 40, height: 40 },
+    ]).nodes as [Node, Node];
+    const { group } = makeMask(doc, { clipNodeId: clip.id, contentIds: [content.id] });
+    const unpainted = doc.nodes.get(clip.id) as ShapeNode;
+    // Unpainted, as Make leaves it: nothing but the content hits.
+    expect(hitTest(ctx, doc, 70, 20, 1)).toBeNull();
+    expect(hitTest(ctx, doc, 83, 20, 1)).toBeNull();
+    const fill = { type: "solid" as const, color: "#FF0000" };
+    const pen = { cap: "butt", join: "miter", miterLimit: 10, dash: [] } as const;
+    const stroke = { ...fill, color: "#0000FF", width: 10, ...pen, dash: [] };
+    doc.nodes.set(clip.id, { ...unpainted, appearance: { fills: [fill], strokes: [stroke] } });
+    for (const [x, y] of [
+      [70, 20],
+      [83, 20],
+    ] as const) {
+      expect(hitTest(ctx, doc, x, y, 1)).toBe(group.id);
+      expect(hitTest(ctx, doc, x, y, 1, true)).toBe(clip.id);
+    }
+    // The content sits above the Fill, and the Stroke above the content.
+    expect(hitTest(ctx, doc, 45, 20, 1, true)).toBe(content.id);
+    expect(hitTest(ctx, doc, 41, 20, 1, true)).toBe(clip.id);
+    expect(hitTest(ctx, doc, 90, 20, 1)).toBeNull();
   });
 
   describe("a container's Appearance (ADR-0043)", () => {

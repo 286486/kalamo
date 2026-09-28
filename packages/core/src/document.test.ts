@@ -1183,16 +1183,27 @@ describe("a Clipping Mask (ADR-0021)", () => {
       },
     ]).nodes;
     if (!group || !clip) throw new Error("setup");
-    doc.nodes.set(clip.id, { ...clip, clipping: true } as typeof clip);
+    // Unpainted, as mask_make leaves it.
+    const appearance = { fills: [], strokes: [] };
+    doc.nodes.set(clip.id, { ...clip, clipping: true, appearance } as typeof clip);
     return { doc, group, clip };
   };
 
-  it("is bounded by its Clipping Path's geometry, visible bounds too", () => {
+  it("is bounded by its unpainted Clipping Path's geometry, visible bounds too", () => {
     const { doc, group } = masked();
     const clipBox = { x: 40, y: 40, width: 20, height: 20 };
     expect(bounds(doc, group)).toEqual(clipBox);
     expect(visibleBounds(doc, group)).toEqual(clipBox);
     expect(nodeView(doc, group, "concise").geometricBounds).toEqual(clipBox);
+  });
+
+  it("grows its visible bounds by its Clipping Path's Stroke, not its bounds (ADR-0051)", () => {
+    const { doc, group, clip } = masked();
+    const stroke = { type: "solid", color: "#000000", width: 6 };
+    const appearance = AppearanceInput.parse({ strokes: [stroke, { ...stroke, width: 2 }] });
+    doc.nodes.set(clip.id, { ...clip, clipping: true, appearance } as typeof clip);
+    expect(bounds(doc, group)).toEqual({ x: 40, y: 40, width: 20, height: 20 });
+    expect(visibleBounds(doc, group)).toEqual({ x: 37, y: 37, width: 26, height: 26 });
   });
 
   it("becomes an ordinary Group when its Clipping Path is deleted", () => {

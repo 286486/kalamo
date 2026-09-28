@@ -179,6 +179,28 @@ describe("releaseMask", () => {
     },
   );
 
+  it("keeps the Appearance the Clipping Path was given (ADR-0051)", () => {
+    const s = masked();
+    const appearance = {
+      fills: [{ type: "solid" as const, color: "#ff0000" }],
+      strokes: [
+        {
+          type: "solid" as const,
+          color: "#0000ff",
+          width: 4,
+          cap: "butt" as const,
+          join: "miter" as const,
+          miterLimit: 4,
+          dash: [],
+        },
+      ],
+    };
+    const clip = s.doc.nodes.get(s.clip.id) as Node;
+    s.doc.nodes.set(clip.id, { ...clip, appearance } as Node);
+    releaseMask(s.doc, [s.mask.id]);
+    expect(s.doc.nodes.get(s.clip.id)).toMatchObject({ appearance });
+  });
+
   it("releases once when both ids are listed", () => {
     const s = masked();
     expect(releaseMask(s.doc, [s.mask.id, s.clip.id]).nodes).toHaveLength(1);

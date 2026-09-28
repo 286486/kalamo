@@ -1,4 +1,5 @@
 import {
+  type Appearance,
   type Artboard,
   applyTo,
   childrenOf,
@@ -19,6 +20,7 @@ import {
   type LayerNode,
   layoutText,
   lookup,
+  type Matrix,
   MISSING_LINK_STROKE,
   mapGradient,
   type Node,
@@ -314,6 +316,10 @@ function shape(n: ShapeNode): string {
   }
 }
 
+/** A Node's transform, at the precision it is stored in so the file opens with the same matrix. */
+const transformAttr = (m: Matrix) =>
+  m.every((v, i) => v === IDENTITY[i]) ? undefined : `matrix(${round(m).join(" ")})`;
+
 const style = (...parts: (string | false)[]) => parts.filter(Boolean).join(";") || undefined;
 
 function node(doc: Document, n: Node, walk: Walk): string {
@@ -327,10 +333,7 @@ function node(doc: Document, n: Node, walk: Walk): string {
     "sodipodi:insensitive": n.locked ? "true" : undefined,
     [zibel("tags")]: n.tags.length > 0 ? JSON.stringify(n.tags) : undefined,
     [zibel("meta")]: Object.keys(n.meta).length > 0 ? JSON.stringify(n.meta) : undefined,
-    transform: n.transform.every((v, i) => v === IDENTITY[i])
-      ? undefined
-      : // At the precision it is stored in, so the file opens with the same matrix.
-        `matrix(${round(n.transform).join(" ")})`,
+    transform: transformAttr(n.transform),
   };
   const looks = [
     !n.visible && "display:none",
@@ -354,8 +357,16 @@ function node(doc: Document, n: Node, walk: Walk): string {
     const clipPath = clip ? `url(#${clipId(n.id)})` : undefined;
     const paints = inside ? containerPaints(doc, n) : [];
     const { contents } = containerAppearance(n);
-    const body = [...paints.slice(0, contents), ...kids, ...paints.slice(contents)].join("");
-    return `<g${attrs({ ...own, ...layer, "clip-path": clipPath, style: style(...looks) })}>${body}</g>`;
+    const [fills, strokes] =
+      clip && inside ? (["fills", "strokes"] as const).map((l) => clipPaint(clip, l)) : ["", ""];
+    const below = [...paints.slice(0, contents), fills, ...kids].join("");
+    const above = paints.slice(contents).join("");
+    const looked = { ...own, ...layer, style: style(...looks) };
+    if (!strokes) return `<g${attrs({ ...looked, "clip-path": clipPath })}>${below}${above}</g>`;
+    // A Clipping Path's Strokes draw unclipped, so what it clips is wrapped instead (ADR-0051).
+    const wrap = (inner: string) =>
+      `<g${attrs({ [zibel("clipped")]: "true", "clip-path": clipPath })}>${inner}</g>`;
+    return `<g${attrs(looked)}>${wrap(below)}${strokes}${above && wrap(above)}</g>`;
   }
   if (!inside) return "";
   if (n.type === "image") {
@@ -394,40 +405,46 @@ function node(doc: Document, n: Node, walk: Walk): string {
       style: style(...looks),
     })}/>`;
   }
+  // Inside a <clipPath> SVG reads only the geometry and clip-rule (ADR-0051).
+  if (n.type !== "text" && n.clipping) {
+    const rule = n.type === "path" && n.fillRule === "evenodd" ? "evenodd" : undefined;
+    return `<${shape(n)}${attrs({ ...own, fill: "none", "clip-rule": rule })}/>`;
+  }
+  const { defs, body } = leaf(n, n.appearance, own, looks);
+  return `${defs}${body}`;
+}
+
+/**
+ * A leaf painted with `appearance`, and the `<defs>` of its gradients and Area Type frame, which go
+ * before it (ADR-0026). One Fill and one Stroke are one element, so Inkscape selects one object; a
+ * longer Appearance is a <g zibel:stack> painting each Fill, then each Stroke: Illustrator's default
+ * stacking.
+ */
+function leaf(
+  n: ShapeNode | TextNode,
+  { fills, strokes }: Appearance,
+  own: Attrs,
+  looks: readonly (string | false)[],
+): { defs: string; body: string } {
   const element = (a: Attrs, extra: (string | false)[] = []) =>
     n.type === "text"
       ? text(n, a, extra)
       : `<${shape(n)}${attrs({ ...a, style: style(...extra) })}/>`;
-  const { fills, strokes } = n.appearance;
-  // One Fill and one Stroke are one element, so Inkscape selects one object; a longer Appearance
-  // is a <g zibel:stack> painting each Fill, then each Stroke: Illustrator's default stacking.
-  // ponytail: a <clipPath> holds shapes, not a <g>, so a painted Clipping Path's stack keeps its
-  // first Fill and Stroke; the rest waits for Clipping Paths that paint (ADR-0021).
-  const clipping = n.type !== "text" && n.clipping === true;
   // Each gradient in the <defs> before the element, in list order (ADR-0026).
   const gradients: string[] = [];
   const paint = (list: "fill" | "stroke", p: Fill, i: number): Attrs => {
     if (p.type === "solid") return paintAttrs(list, p.color);
-    // A <clipPath> cannot hold <defs>, and a Clipping Path's paint is never drawn.
-    if (clipping) return { [list]: "none" };
     const id = gradientId(list, i, n.id);
     gradients.push(gradient(id, p.gradient));
     return { [list]: `url(#${id})` };
   };
   const stroke = (s: Stroke, i: number) => ({ ...paint("stroke", s, i), ...strokeStyle(s) });
   let body: string;
-  if ((fills.length <= 1 && strokes.length <= 1) || clipping) {
+  if (fills.length <= 1 && strokes.length <= 1) {
     const [f] = fills;
     const [s] = strokes;
     body = element(
-      {
-        ...own,
-        ...(f ? paint("fill", f, 0) : { fill: "none" }),
-        ...(s && stroke(s, 0)),
-        // Inside a <clipPath> SVG reads clip-rule, not fill-rule.
-        "clip-rule":
-          clipping && n.type === "path" && n.fillRule === "evenodd" ? "evenodd" : undefined,
-      },
+      { ...own, ...(f ? paint("fill", f, 0) : { fill: "none" }), ...(s && stroke(s, 0)) },
       [...looks],
     );
   } else {
@@ -443,7 +460,28 @@ function node(doc: Document, n: Node, walk: Walk): string {
       ? `<rect${attrs({ id: areaId(n.id), ...num(textBox(n)) })}/>`
       : "";
   const defs = frame || gradients.length > 0 ? `<defs>${frame}${gradients.join("")}</defs>` : "";
-  return `${defs}${body}`;
+  return { defs, body };
+}
+
+/**
+ * A Clipping Path's Fills or its Strokes as a locked `<g zibel:paint>` in its opacity and mode,
+ * holding one copy of it without an id painted as a leaf is, in its own transform, with the copy's
+ * gradients in a `<defs>` just before the group (ADR-0051). Empty when it has none.
+ */
+function clipPaint(clip: ShapeNode, list: "fills" | "strokes"): string {
+  if (clip.appearance[list].length === 0) return "";
+  const appearance = { fills: [], strokes: [], [list]: clip.appearance[list] };
+  const { defs, body } = leaf(clip, appearance, { transform: transformAttr(clip.transform) }, []);
+  const fill = list === "fills";
+  return `${defs}<g${attrs({
+    [zibel("paint")]: fill ? "clip-fill" : "clip-stroke",
+    "sodipodi:insensitive": "true",
+    "inkscape:label": fill ? "Clipping Path Fill" : "Clipping Path Stroke",
+    style: style(
+      clip.opacity !== 1 && `opacity:${clip.opacity}`,
+      clip.blendMode !== "normal" && `mix-blend-mode:${clip.blendMode}`,
+    ),
+  })}>${body}</g>`;
 }
 
 /**

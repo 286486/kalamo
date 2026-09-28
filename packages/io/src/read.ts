@@ -277,6 +277,15 @@ interface Context {
  */
 export const MAX_DEPTH = 256;
 
+const CLIP_PAINT_ORPHAN =
+  "A Clipping Path's <g zibel:paint> outside a Clipping Mask was dropped: it paints the Clipping Path of the Group it sits in.";
+
+/** A `<g zibel:stack>`'s Appearance: every paint's Fills, then every paint's Strokes. */
+const stacked = (paints: { look: Appearance }[]): Appearance => ({
+  fills: paints.flatMap((p) => p.look.fills),
+  strokes: paints.flatMap((p) => p.look.strokes),
+});
+
 const MISSING =
   "Some linked images came in as missing links, drawn as crossed frames: Zibel fetches nothing, so it has no pixels for them. Place or embed the image files to see them.";
 const UNSIZED =
@@ -285,6 +294,13 @@ const UNSIZED =
 const zibelAttr = (e: Element, name: ZibelAttr) => e.getAttributeNS(NS.zibel, name);
 /** One paint of a container's Appearance, as export writes it (ADR-0043). */
 const isPaint = (e: Element) => zibelAttr(e, "paint") === "true";
+/** A Clipping Path's Fills or Strokes, as export writes them (ADR-0051). */
+const isClipPaint = (e: Element) => /^clip-(fill|stroke)$/.test(zibelAttr(e, "paint") ?? "");
+/** Opacity and blend mode from resolved style. */
+const looksOf = (style: Style) => {
+  const blend = BlendMode.safeParse(style["mix-blend-mode"]);
+  return { opacity: alpha(style.opacity), blendMode: blend.success ? blend.data : "normal" };
+};
 
 /** The properties every Node has, for `holds`, which checks a Node's own without placing it. */
 const PLACED = {
@@ -375,7 +391,6 @@ class Reader {
 
   /** The properties every Node has, placed under `parentId`. */
   base(e: Element | null, parentId: string | null, name?: string, style: Style = {}) {
-    const blend = BlendMode.safeParse(style["mix-blend-mode"]);
     return {
       id: this.id(e),
       name: name ?? e?.getAttributeNS(NS.inkscape, "label") ?? "",
@@ -384,8 +399,7 @@ class Reader {
       visible: style.display !== "none",
       // Inkscape writes "true", older files "1": any value locks.
       locked: e?.hasAttributeNS(NS.sodipodi, "insensitive") ?? false,
-      opacity: alpha(style.opacity),
-      blendMode: blend.success ? blend.data : ("normal" as const),
+      ...looksOf(style),
       transform: [...IDENTITY] as Matrix,
       ...this.tagsAndMeta(e),
     };
@@ -415,11 +429,13 @@ class Reader {
       return;
     }
     // Its container reads it (containerAppearance); anywhere else it paints nothing Zibel can hold.
-    if (isPaint(e)) {
+    if (isPaint(e) || isClipPaint(e)) {
       this.warn(
         "UNSUPPORTED_ELEMENT",
         "zibel:paint",
-        "A <g zibel:paint> outside a Layer or Group was dropped: it is the paint of the container it sits in.",
+        isPaint(e)
+          ? "A <g zibel:paint> outside a Layer or Group was dropped: it is the paint of the container it sits in."
+          : CLIP_PAINT_ORPHAN,
       );
       return;
     }
@@ -444,26 +460,47 @@ class Reader {
       // A container's mask or filter is lost like a leaf's.
       this.unsupported(e, style);
       const layer = ctx.layerLevel && e.getAttributeNS(NS.inkscape, "groupmode") === "layer";
-      const clip = this.clipOf(style, layer);
+      // A Group's <g zibel:clipped> is not a Node: its children are the Group's, and its clip-path
+      // the Group's Clipping Mask, written so its Clipping Path's Strokes draw unclipped (ADR-0051).
+      const wrapped = (c: Element) => tag === "g" && !layer && zibelAttr(c, "clipped") === "true";
+      const named = (s: Style) =>
+        s["clip-path"] && s["clip-path"] !== "none" ? [s["clip-path"]] : [];
+      const inner = elements(e)
+        .filter(wrapped)
+        .flatMap((c) => named(computeStyle(c, style, this.rules)));
+      const clips = [...named(style), ...inner];
+      if ((clips.length > inner.length && inner.length > 0) || new Set(inner.map(urlId)).size > 1) {
+        this.warn(
+          "UNSUPPORTED_ATTRIBUTE",
+          "clip-path",
+          "A Group clipped by more than one clip-path keeps only the first.",
+        );
+      }
+      const clip = this.clipOf(clips[0], layer);
       const parentId = layer ? ctx.parentId : this.parent(ctx);
       // Zibel supports no SVG extension, so a <switch> never renders a child that requires one, such
       // as Illustrator's private-data <foreignObject>.
-      const kids = elements(e).filter(
-        (c) => tag !== "switch" || !c.hasAttribute("requiredExtensions"),
-      );
+      const kids = elements(e)
+        .flatMap((c) => (wrapped(c) ? elements(c) : [c]))
+        .filter((c) => tag !== "switch" || !c.hasAttribute("requiredExtensions"));
+      const clipPaints = kids.filter(isClipPaint);
+      if (clipPaints.length > 0 && !clip) {
+        this.warn("UNSUPPORTED_ELEMENT", "zibel:paint", CLIP_PAINT_ORPHAN);
+      }
       const appearance = this.containerAppearance(kids, matrix, style);
       const node = this.add({
         ...this.base(e, parentId, undefined, style),
         type: layer ? "layer" : "group",
         ...(appearance && { appearance }),
       });
+      const painted = { paints: clipPaints, style };
       for (const c of kids) {
-        if (isPaint(c)) continue;
-        if (c === clip) this.clipping(clip, node.id, matrix);
+        if (isPaint(c) || isClipPaint(c)) continue;
+        if (c === clip) this.clipping(clip, node.id, matrix, painted);
         this.walk(c, { parentId: node.id, layerLevel: layer, matrix, style, depth: ctx.depth + 1 });
       }
       // Inkscape's Set Clip puts the clip in <defs>; Illustrator's Clipping Path is on top.
-      if (clip && clip.parentNode !== e) this.clipping(clip, node.id, matrix);
+      if (clip && !kids.includes(clip)) this.clipping(clip, node.id, matrix, painted);
       return;
     }
     // An Artboard's background, or the export's background option: not artwork.
@@ -481,20 +518,9 @@ class Reader {
     if (tag === "image") {
       ({ shape, link } = this.image(e, matrix) ?? { shape: null });
     } else if (stack) {
-      // One Node painted several times: its geometry from the first paint, its Fills, then its
-      // Strokes, in order (ADR-0017).
-      const paints = elements(e).flatMap((c) => {
-        const paint = this.own(c);
-        if (!paint) return [];
-        const s = computeStyle(c, style, this.rules);
-        const m = multiply(matrix, paint);
-        return [{ shape: this.shape(c, m, s), look: this.appearance(s, c, m) }];
-      });
+      const paints = this.stack(e, style, matrix);
       shape = paints.find((p) => p.shape)?.shape ?? null;
-      appearance = {
-        fills: paints.flatMap((p) => p.look.fills),
-        strokes: paints.flatMap((p) => p.look.strokes),
-      };
+      appearance = stacked(paints);
     } else if (tag === "text") {
       const text = this.text(e, style, matrix);
       shape = text?.shape ?? null;
@@ -506,7 +532,7 @@ class Reader {
     if (!shape || !this.holds({ ...shape, ...(appearance && { appearance }) })) return;
     this.unsupported(e, style);
     // A clipped leaf, as Inkscape's Set Clip writes one, becomes a Clipping Mask of its own.
-    const clip = this.clipOf(style, false);
+    const clip = this.clipOf(style["clip-path"], false);
     const parentId = clip
       ? this.add({ ...this.base(null, this.parent(ctx)), type: "group" }).id
       : this.parent(ctx);
@@ -516,6 +542,20 @@ class Reader {
     this.add({ ...base, ...shape, ...(appearance && { appearance }) } as Node);
     if (link) this.links.set(base.id, link);
     if (clip) this.clipping(clip, parentId, matrix);
+  }
+
+  /**
+   * The paints of a `<g zibel:stack>`, one Node painted several times: its geometry from the first
+   * paint, its Fills, then its Strokes, in order (ADR-0017).
+   */
+  private stack(e: Element, style: Style, matrix: Matrix) {
+    return elements(e).flatMap((c) => {
+      const paint = this.own(c);
+      if (!paint) return [];
+      const s = computeStyle(c, style, this.rules);
+      const m = multiply(matrix, paint);
+      return [{ shape: this.shape(c, m, s), look: this.appearance(s, c, m) }];
+    });
   }
 
   /**
@@ -560,8 +600,12 @@ class Reader {
    */
   private containerAppearance(kids: Element[], matrix: Matrix, style: Style) {
     // What walk reads: an element it drops without a Node does not end the paints below Contents.
+    // A Clipping Path's paint is not one of the container's, and is not counted in Contents.
     const drawn = kids.filter(
-      (c) => (c.namespaceURI === NS.svg || c.namespaceURI === null) && DRAWN.has(c.localName ?? ""),
+      (c) =>
+        (c.namespaceURI === NS.svg || c.namespaceURI === null) &&
+        DRAWN.has(c.localName ?? "") &&
+        !isClipPaint(c),
     );
     const below = drawn.findIndex((c) => !isPaint(c));
     const appearance: ContainerAppearance = { fills: [], strokes: [], contents: 0 };
@@ -608,8 +652,7 @@ class Reader {
    * Live Shape or Path in the referencing element's user space. Otherwise the content imports
    * unclipped, with a warning.
    */
-  private clipOf(style: Style, layer: boolean): Element | undefined {
-    const value = style["clip-path"];
+  private clipOf(value: string | undefined, layer: boolean): Element | undefined {
     if (!value || value === "none") return undefined;
     const id = urlId(value);
     const el = id === undefined ? undefined : this.byId.get(id);
@@ -632,8 +675,18 @@ class Reader {
     return undefined;
   }
 
-  /** The Clipping Path of `parentId` from the one shape in `clip`, drawn in `matrix`'s space. */
-  private clipping(clip: Element, parentId: string, matrix: Matrix) {
+  /**
+   * The Clipping Path of `parentId` from the one shape in `clip`, drawn in `matrix`'s space. Its
+   * Appearance, opacity and blend mode come only from its Group's clip paint groups, each read from
+   * its copy as a leaf's (ADR-0051): the element inside a <clipPath> is never drawn, and Inkscape's
+   * Set Clip leaves the clipped object's old style on it.
+   */
+  private clipping(
+    clip: Element,
+    parentId: string,
+    matrix: Matrix,
+    painted: { paints: Element[]; style: Style } = { paints: [], style: {} },
+  ) {
     const [e] = elements(clip).filter((c) => !SILENT.has(c.localName ?? "")) as [Element];
     const outer = computeStyle(clip, {}, this.rules);
     const style = computeStyle(e, outer, this.rules);
@@ -644,11 +697,33 @@ class Reader {
     // Inside a <clipPath> SVG reads clip-rule, never fill-rule.
     const shape = this.shape(e, m, { ...style, "fill-rule": style["clip-rule"] ?? "nonzero" });
     if (!shape) return;
-    const appearance = this.appearance(style, e, m);
+    const appearance: Appearance = { fills: [], strokes: [] };
+    let looks: Style | undefined;
+    for (const p of painted.paints) {
+      const s = computeStyle(p, painted.style, this.rules);
+      const own = this.own(p);
+      const [copy] = elements(p).filter((c) => DRAWN.has(c.localName ?? ""));
+      if (s.display === "none" || !own || !copy) continue;
+      const at = this.own(copy);
+      if (!at) continue;
+      const cs = computeStyle(copy, s, this.rules);
+      const cm = multiply(multiply(matrix, own), at);
+      const look =
+        zibelAttr(copy, "stack") === "true"
+          ? stacked(this.stack(copy, cs, cm))
+          : this.appearance(cs, copy, cm);
+      if (zibelAttr(p, "paint") === "clip-fill") appearance.fills.push(...look.fills);
+      else appearance.strokes.push(...look.strokes);
+      looks ??= s;
+    }
     // SVG draws nothing through a hidden clip path, and a Clipping Path is never hidden.
     // One the Node cannot hold leaves the content unclipped.
     if (!this.holds({ ...shape, appearance, clipping: true })) return;
-    const base = { ...this.base(e, parentId, undefined, style), visible: true };
+    const base = {
+      ...this.base(e, parentId, undefined, style),
+      visible: true,
+      ...looksOf(looks ?? {}),
+    };
     this.add({ ...base, ...shape, appearance, clipping: true } as Node);
   }
 

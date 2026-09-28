@@ -87,12 +87,43 @@ const areaType = {
   appearance: { fills: [{ color: `${hex(RED)}80` }], strokes: [] },
 };
 
+/** A leaf Appearance, as `node_update` takes it and a Document stores it. */
+const look = (fills: RGB[], strokes: [RGB, number][]) => {
+  const { contents: _, ...rest } = appearance(fills, strokes, 0);
+  return rest;
+};
+/** A red photo over x 20..80, y 20..80, clipped by a rect over x 40..140, y 30..70. */
+const cropped = {
+  nodes: [rect("photo", 20, 20, 60, 60, RED), rect("clip", 40, 30, 100, 40, WHITE)],
+  masks: [{ name: "mask", clip: "clip", content: ["photo"] }],
+};
+/**
+ * The crop's Clipping Path stroked blue, 10 wide, under or over a Group Stroke 4 wide, which
+ * outlines the photo only. The two cross at (80, 30), where only the Group Stroke is clipped.
+ */
+const crossed = (contents: number): CompositingCase => ({
+  name: `a Group Stroke at contents ${contents} draws ${contents ? "below" : "above"} its Clipping Path's Stroke, clipped`,
+  ...cropped,
+  patches: {
+    clip: { appearance: look([], [[BLUE, 10]]) },
+    mask: { appearance: appearance([], [[YELLOW, 4]], contents) },
+  },
+  probes: [
+    { x: 80, y: 32, rgb: contents ? BLUE : YELLOW },
+    { x: 80, y: 27, rgb: BLUE },
+    { x: 81, y: 50, rgb: YELLOW },
+  ],
+});
+
 export interface CompositingCase {
   name: string;
   /** Created in the default Layer, bottom to top, by `node_create`. */
   nodes: object[];
-  /** Made into a Clipping Mask, by the names of its Clipping Path and content; it is then "mask". */
-  mask?: { clip: string; content: string[] };
+  /**
+   * Made into Clipping Masks in order, each by the names of its Clipping Path and content, and then
+   * named `name`, which a later one's content can list.
+   */
+  masks?: { name: string; clip: string; content: string[] }[];
   /** `node_transform` inputs by Node name, applied before the patches. */
   transforms?: Record<string, { matrix: number[]; pivot: { x: number; y: number } }>;
   /** `node_update` patches by Node name, applied last; "Layer" is the default Layer. */
@@ -168,7 +199,7 @@ export const COMPOSITING: CompositingCase[] = [
   {
     name: "a 50% Clipping Mask is faded once and draws nothing outside its Clipping Path",
     nodes: [...pair(RED, RED), rect("clip", 30, 30, 60, 40, BLUE)],
-    mask: { clip: "clip", content: ["lower", "upper"] },
+    masks: [{ name: "mask", clip: "clip", content: ["lower", "upper"] }],
     patches: { mask: { opacity: 0.5 } },
     probes: [
       { x: 40, y: 50, rgb: half },
@@ -305,6 +336,121 @@ export const COMPOSITING: CompositingCase[] = [
     ],
   },
 ];
+
+// A painted Clipping Path (ADR-0051): its Fills behind the content, its Strokes in front, unclipped.
+COMPOSITING.push(
+  {
+    name: "a Clipping Path's Fill shows behind the content and its Stroke over it at full width",
+    ...cropped,
+    patches: { clip: { appearance: look([CYAN], [[BLUE, 10]]) } },
+    probes: [
+      { x: 60, y: 50, rgb: RED },
+      { x: 110, y: 50, rgb: CYAN },
+      { x: 43, y: 50, rgb: BLUE },
+      { x: 36, y: 50, rgb: BLUE },
+      { x: 110, y: 26, rgb: BLUE },
+      { x: 30, y: 50, rgb: WHITE },
+    ],
+  },
+  {
+    name: "a Clipping Path's two Fills and two Strokes draw in order",
+    ...cropped,
+    patches: {
+      clip: {
+        appearance: look(
+          [CYAN, YELLOW],
+          [
+            [BLUE, 10],
+            [MAGENTA, 4],
+          ],
+        ),
+      },
+    },
+    probes: [
+      { x: 110, y: 50, rgb: YELLOW },
+      { x: 60, y: 50, rgb: RED },
+      { x: 41, y: 50, rgb: MAGENTA },
+      { x: 36, y: 50, rgb: BLUE },
+    ],
+  },
+  {
+    name: "a Clipping Path's gradient Fill draws",
+    ...cropped,
+    patches: {
+      clip: {
+        appearance: {
+          fills: [
+            {
+              type: "gradient",
+              gradient: {
+                type: "linear",
+                stops: [
+                  { offset: 0, color: `${hex(RED)}FF` },
+                  { offset: 1, color: `${hex(BLUE)}FF` },
+                ],
+                start: { x: 0, y: 0 },
+                end: { x: 200, y: 0 },
+              },
+            },
+          ],
+          strokes: [],
+        },
+      },
+    },
+    probes: [
+      { x: 60, y: 50, rgb: RED },
+      { x: 100, y: 50, rgb: across(100) },
+      { x: 130, y: 50, rgb: across(130) },
+    ],
+  },
+  {
+    name: "an evenodd Clipping Path's Fill leaves its hole empty",
+    nodes: [
+      rect("photo", 20, 20, 80, 60, RED),
+      {
+        type: "path",
+        name: "ring",
+        d: "M 90 20 L 170 20 L 170 80 L 90 80 Z M 110 40 L 150 40 L 150 60 L 110 60 Z",
+        fillRule: "evenodd",
+      },
+    ],
+    masks: [{ name: "mask", clip: "ring", content: ["photo"] }],
+    patches: { ring: { appearance: look([CYAN], []) } },
+    probes: [
+      { x: 95, y: 50, rgb: RED },
+      { x: 160, y: 50, rgb: CYAN },
+      { x: 130, y: 50, rgb: WHITE },
+      { x: 50, y: 50, rgb: WHITE },
+    ],
+  },
+  {
+    // As one image, the Fills would be yellow at 50% over white and the Stroke's inner half blue
+    // at 50% over white; as one image with the photo, the photo would fade.
+    name: "a 50% Clipping Path fades its Fills and its Stroke each as one image, and not the content",
+    ...cropped,
+    patches: { clip: { opacity: 0.5, appearance: look([CYAN, YELLOW], [[BLUE, 10]]) } },
+    probes: [
+      { x: 60, y: 50, rgb: RED },
+      { x: 110, y: 50, rgb: over(YELLOW, 0.5, WHITE) },
+      { x: 110, y: 32, rgb: over(BLUE, 0.5, over(YELLOW, 0.5, WHITE)) },
+      { x: 110, y: 27, rgb: over(BLUE, 0.5, WHITE) },
+    ],
+  },
+  crossed(0),
+  crossed(1),
+  {
+    name: "an outer Clipping Mask clips an inner Clipping Path's Stroke",
+    nodes: [...cropped.nodes, rect("frame", 0, 0, 200, 50, WHITE)],
+    masks: [...cropped.masks, { name: "outer", clip: "frame", content: ["mask"] }],
+    patches: { clip: { appearance: look([], [[BLUE, 10]]) } },
+    probes: [
+      { x: 36, y: 45, rgb: BLUE },
+      { x: 110, y: 32, rgb: BLUE },
+      { x: 36, y: 55, rgb: WHITE },
+      { x: 110, y: 68, rgb: WHITE },
+    ],
+  },
+);
 
 /** Whether `rgb` is within `tolerance` of `expected` on every channel. */
 export const near = (rgb: ArrayLike<number>, expected: RGB, tolerance = 3) =>

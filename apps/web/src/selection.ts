@@ -90,9 +90,11 @@ export function hitTest(
     for (const n of childrenOf(doc, parentId)) {
       if (!n.visible || n.locked) continue;
       if (n.type === "layer" || n.type === "group") {
-        // Outside its Clipping Path, a Clipping Mask draws nothing to hit (ADR-0021).
+        // Outside its Clipping Path, a Clipping Mask draws only that path's Strokes (ADR-0051).
         const clip = clippingPath(doc, n);
-        if (clip && !ctx.isPointInPath(outline(doc, clip), x, y, ruleOf(clip))) continue;
+        const inClip = !clip || ctx.isPointInPath(outline(doc, clip), x, y, ruleOf(clip));
+        // A painted Clipping Path hits as a leaf does, its Fill anywhere it clips.
+        const painted = clip && !clip.locked ? clip.appearance : { fills: [], strokes: [] };
         // Its Appearance hits as the leaf it paints, in draw order around the children
         // (ADR-0043); a leaf locked below it, or a point outside the leaf's inner Clipping Masks,
         // lets the click through.
@@ -122,9 +124,16 @@ export function hitTest(
         const paintsAt = (some: typeof paints) => {
           for (const p of some) for (const l of leaves) if (p(l)) hit = l.node;
         };
-        paintsAt(paints.slice(0, contents));
-        walk(n.id);
-        paintsAt(paints.slice(contents));
+        if (inClip) {
+          paintsAt(paints.slice(0, contents));
+          if (clip && painted.fills.length > 0) hit = clip;
+          walk(n.id);
+        }
+        if (clip && painted.strokes.length > 0) {
+          ctx.lineWidth = Math.max(widest(doc, clip), tolerance);
+          if (ctx.isPointInStroke(outline(doc, clip), x, y)) hit = clip;
+        }
+        if (inClip) paintsAt(paints.slice(contents));
       } else if (!("clipping" in n && n.clipping) && paintedAt(ctx, doc, n, x, y, tolerance)) {
         hit = n;
       }
@@ -157,11 +166,13 @@ function paintedAt(
   if (n.type === "image") return ctx.isPointInPath(outline(doc, n), x, y);
   const path = outline(doc, n);
   if (n.appearance.fills.length > 0 && ctx.isPointInPath(path, x, y, ruleOf(n))) return true;
-  const widest =
-    Math.max(0, ...n.appearance.strokes.map((s) => s.width)) * scaleOf(worldTransform(doc, n));
-  ctx.lineWidth = Math.max(widest, tolerance);
+  ctx.lineWidth = Math.max(widest(doc, n), tolerance);
   return ctx.isPointInStroke(path, x, y);
 }
+
+/** A shape's widest Stroke, in document coordinates. */
+const widest = (doc: Document, n: LeafNode) =>
+  Math.max(0, ...n.appearance.strokes.map((s) => s.width)) * scaleOf(worldTransform(doc, n));
 
 /** A shape's outline, or an Image's frame, in document coordinates. */
 const outline = (doc: Document, n: ShapeNode | ImageNode) =>

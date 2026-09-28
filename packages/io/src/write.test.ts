@@ -652,38 +652,65 @@ it("writes a Clipping Mask as <g clip-path> with its Clipping Path in an inline 
   );
 });
 
-it("writes an evenodd Clipping Path's clip-rule, and one element for a painted one", () => {
+it("writes an evenodd Clipping Path's clip-rule, and its Fills as a clip-fill group after the paints below Contents (ADR-0051)", () => {
   const { doc, defaultLayerId } = newDoc();
   const [content, clip] = createNodes(doc, [
     { type: "rect", parentId: defaultLayerId, x: 0, y: 0, width: 10, height: 10 },
     { type: "path", parentId: defaultLayerId, d: "M 0 0 L 9 0 L 9 9 Z", fillRule: "evenodd" },
   ]).nodes as [ShapeNode, ShapeNode];
-  makeMask(doc, { clipNodeId: clip.id, contentIds: [content.id] });
-  const painted = {
-    fills: [
-      { type: "solid" as const, color: "#FF0000" },
-      { type: "solid" as const, color: "#00FF00" },
-    ],
-    strokes: [],
-  };
-  doc.nodes.set(clip.id, { ...(doc.nodes.get(clip.id) as ShapeNode), appearance: painted });
-  const svg = toSvg(doc);
-  expect(svg).toContain(
-    `fill-rule="evenodd" id="z-${clip.id}" fill="#FF0000" clip-rule="evenodd"/></clipPath>`,
-  );
-  expect(svg).not.toContain("zibel:stack");
-  // A <clipPath> cannot hold <defs>, and its paint is never drawn: a gradient on it is none.
+  const { group } = makeMask(doc, { clipNodeId: clip.id, contentIds: [content.id] });
   const stops = [
     { offset: 0, color: "#000000" },
     { offset: 1, color: "#FFFFFF" },
   ];
-  const start = { x: 0, y: 0 };
-  const gradient = { type: "linear" as const, stops, start, end: { x: 9, y: 0 } };
-  const shaded = { fills: [{ type: "gradient" as const, gradient }], strokes: [] };
-  doc.nodes.set(clip.id, { ...(doc.nodes.get(clip.id) as ShapeNode), appearance: shaded });
-  const clipped = toSvg(doc);
-  expect(clipped).toContain(`id="z-${clip.id}" fill="none" clip-rule="evenodd"/></clipPath>`);
-  expect(clipped).not.toContain("Gradient");
+  const gradient = { type: "linear" as const, stops, start: { x: 0, y: 0 }, end: { x: 9, y: 0 } };
+  const painted = {
+    fills: [
+      { type: "solid" as const, color: "#FF0000" },
+      { type: "gradient" as const, gradient },
+    ],
+    strokes: [],
+  };
+  const path = doc.nodes.get(clip.id) as ShapeNode;
+  doc.nodes.set(clip.id, { ...path, appearance: painted, opacity: 0.5 });
+  const below = { fills: [{ color: "#0000FF" }], contents: 1 };
+  updateNodes(doc, [{ nodeId: group.id, patch: { appearance: below } }]);
+  const svg = toSvg(doc);
+  expect(svg).toContain(
+    `<path d="M 0 0 L 9 0 L 9 9 Z" fill-rule="evenodd" id="z-${clip.id}" fill="none" clip-rule="evenodd"/></clipPath>`,
+  );
+  expect(svg).toContain(`<g id="z-${group.id}" clip-path="url(#clip-z-${group.id})">`);
+  expect(svg).not.toContain("zibel:clipped");
+  expect(svg).toContain(
+    `</g><defs><linearGradient id="fill-1-z-${clip.id}" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="9" y2="0">`,
+  );
+  expect(svg).toContain(
+    `</linearGradient></defs><g zibel:paint="clip-fill" sodipodi:insensitive="true" inkscape:label="Clipping Path Fill" style="opacity:0.5"><g zibel:stack="true"><path d="M 0 0 L 9 0 L 9 9 Z" fill-rule="evenodd" fill="#FF0000"/><path d="M 0 0 L 9 0 L 9 9 Z" fill-rule="evenodd" fill="url(#fill-1-z-${clip.id})"/></g></g><rect x="0" y="0" width="10" height="10" id="z-${content.id}"`,
+  );
+  // The container's Fill below Contents comes first.
+  expect(svg.indexOf('zibel:paint="true"')).toBeLessThan(svg.indexOf("clip-fill"));
+});
+
+it("wraps what a stroked Clipping Path clips, and writes its Strokes after, unclipped (ADR-0051)", () => {
+  const { doc, group, below, clip, above } = clipped();
+  const stroke = { color: "#00FF00", width: 2 };
+  updateNodes(doc, [
+    { nodeId: clip.id, patch: { appearance: { strokes: [stroke] }, blendMode: "multiply" } },
+  ]);
+  const wrapper = `<g zibel:clipped="true" clip-path="url(#clip-z-${group.id})">`;
+  const svg = toSvg(doc);
+  expect(svg).toContain(
+    `<g id="z-${group.id}">${wrapper}<rect x="0" y="0" width="10" height="10" id="z-${below.id}"`,
+  );
+  expect(svg).toContain(
+    `<rect x="5" y="5" width="10" height="10" id="z-${above.id}" fill="#FFFFFF" stroke="#000000" stroke-width="1" stroke-miterlimit="10"/></g><g zibel:paint="clip-stroke" sodipodi:insensitive="true" inkscape:label="Clipping Path Stroke" style="mix-blend-mode:multiply"><circle cx="4" cy="4" r="2" fill="none" stroke="#00FF00" stroke-width="2" stroke-miterlimit="10"/></g></g>`,
+  );
+  // A container paint above Contents goes in a second wrapper naming the same <clipPath>.
+  const frame = { strokes: [{ color: "#FF00FF", width: 1 }] };
+  updateNodes(doc, [{ nodeId: group.id, patch: { appearance: frame } }]);
+  const framed = toSvg(doc);
+  expect(framed).toContain(`stroke-miterlimit="10"/></g>${wrapper}<g zibel:paint="true"`);
+  expect(framed.split(`clip-path="url(#clip-z-${group.id})"`)).toHaveLength(3);
 });
 
 it("keeps the clip around a listed Node inside a Clipping Mask, and draws only that Node", () => {
