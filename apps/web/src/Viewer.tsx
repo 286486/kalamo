@@ -194,7 +194,7 @@ export function Viewer({ docId }: { docId: string }) {
       return { ctx: el.getContext("2d") as CanvasRenderingContext2D, image: el };
     };
     // Isolation Mode (ADR-0057): the isolated Group draws over the rest, faded halfway to white.
-    drawDocument(ctx, shown, layer, images.get, isolated ?? undefined);
+    drawDocument(ctx, shown, layer, images.get, isolated);
   }, [doc, shown, isolated, docId, viewport, size, fontReady, images, imagesLoaded]);
 
   // The overlay redraws on its own canvas, without repainting the Document's Nodes.

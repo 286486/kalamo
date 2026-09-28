@@ -131,6 +131,8 @@ interface Scene {
   subtree?: { id: string; above: Set<string> };
   /** Isolation Mode's rest: the isolated Node it leaves out. */
   without?: string;
+  /** Isolation Mode's whole Document: it draws up to and including this Node, then nothing. */
+  until?: { id: string; done: boolean };
 }
 
 /** Whether a child of the Document or of a container above the subtree draws: the way down to it. */
@@ -141,55 +143,52 @@ const onPath = (scene: Scene, n: Node) =>
  * Draws the Document in document coordinates: the same scene, in the same order, as `toSvg`. A
  * translucent or blended Node that paints more than once composes in a `layer` first, as SVG does
  * (ADR-0044). An Image draws once `images` has its file decoded (ADR-0023). With `isolated`, the
- * browser's Isolation Mode (ADR-0057): wherever that Node paints, the pixels of the whole Document;
- * elsewhere, everything but it, washed halfway to white (#131).
+ * browser's Isolation Mode (ADR-0057): wherever that Node's shape is, the Document's pixels up to
+ * and including it; elsewhere, everything but it, washed halfway to white (#131).
  */
 export function drawDocument(
   ctx: Canvas2D,
   doc: Document,
   layer: NewLayer,
   images?: (id: string) => DecodedImage | undefined,
-  isolated?: string,
+  isolated?: string | null,
 ): void {
   const scene: Scene = { doc, layer, images };
-  const whole = (ctx: Canvas2D, scene: Scene) => {
+  const drawAll = (target: Canvas2D, without?: string, until?: Scene["until"]) => {
     for (const { frame, background } of doc.artboards) {
       if (!background) continue;
-      ctx.fillStyle = background;
-      ctx.fillRect(frame.x, frame.y, frame.width, frame.height);
+      target.fillStyle = background;
+      target.fillRect(frame.x, frame.y, frame.width, frame.height);
     }
-    for (const n of childrenOf(doc, null)) draw(ctx, n, scene);
+    for (const n of childrenOf(doc, null)) draw(target, n, { ...scene, without, until });
   };
-  if (isolated === undefined || !doc.nodes.has(isolated)) {
-    whole(ctx, scene);
+  if (isolated == null || !doc.nodes.has(isolated)) {
+    drawAll(ctx);
     return;
   }
   const above = new Set<string>();
   for (let n = doc.nodes.get(isolated); n?.parentId; n = doc.nodes.get(n.parentId)) {
     above.add(n.parentId);
   }
+  // ponytail: Isolation Mode draws the Document three times through two full-canvas layers per
+  // frame; crop them to the isolated Node's device bounds if it shows up in a profile.
   const { a, b, c, d, e, f } = ctx.getTransform();
-  /** A layer over what `ctx` holds or empty, drawn in by `draws` in document coordinates. */
-  const over = (copy: boolean, draws: (into: Canvas2D) => void) => {
-    const { ctx: into, image } = layer();
-    if (copy) into.drawImage(ctx.canvas, 0, 0);
-    into.setTransform(a, b, c, d, e, f);
-    draws(into);
-    into.setTransform(1, 0, 0, 1, 0, 0);
-    return { into, image };
-  };
-  // How much the isolated Node covers each pixel: its own opacity and mode count, its ancestors'
-  // transforms and clips too, but not their opacity or mode.
-  const coverage = over(false, (into) => {
-    const inside = { ...scene, subtree: { id: isolated, above } };
-    for (const n of childrenOf(doc, null)) if (onPath(inside, n)) draw(into, n, inside);
-  });
-  // The whole Document over the canvas, as it draws outside Isolation Mode, kept where it covers.
-  const kept = over(true, (into) => whole(into, scene));
-  kept.into.globalCompositeOperation = "destination-in";
-  kept.into.drawImage(coverage.image, 0, 0);
+  // How much the isolated Node's shape covers each pixel, in its ancestors' transforms and clips.
+  const coverage = layer();
+  coverage.ctx.setTransform(a, b, c, d, e, f);
+  const inside = { ...scene, subtree: { id: isolated, above } };
+  for (const n of childrenOf(doc, null)) if (onPath(inside, n)) draw(coverage.ctx, n, inside);
+  // The Document over a copy of the canvas, as it draws outside Isolation Mode up to and including
+  // the isolated Node, kept where the Node covers: artwork above it is in the washed rest.
+  const kept = layer();
+  kept.ctx.drawImage(ctx.canvas, 0, 0);
+  kept.ctx.setTransform(a, b, c, d, e, f);
+  drawAll(kept.ctx, undefined, { id: isolated, done: false });
+  kept.ctx.setTransform(1, 0, 0, 1, 0, 0);
+  kept.ctx.globalCompositeOperation = "destination-in";
+  kept.ctx.drawImage(coverage.image, 0, 0);
   // The rest, washed, cut out where it covers, then the two added: exact where it covers fully.
-  whole(ctx, { ...scene, without: isolated });
+  drawAll(ctx, isolated);
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha = 1;
@@ -235,11 +234,15 @@ const paintsMoreThanOnce = (n: Node) =>
   (n.type !== "image" && n.appearance.fills.length + n.appearance.strokes.length > 1);
 
 function draw(ctx: Canvas2D, n: Node, scene: Scene) {
-  if (!n.visible || n.id === scene.without) return;
-  // Above the isolated Node, coverage takes no opacity or mode.
-  const passing = scene.subtree?.above.has(n.id) ?? false;
-  const opacity = passing ? 1 : n.opacity;
-  const mode = passing || n.blendMode === "normal" ? "source-over" : n.blendMode;
+  if (!n.visible || n.id === scene.without || scene.until?.done) return;
+  drawNode(ctx, n, scene);
+  if (scene.until && n.id === scene.until.id) scene.until.done = true;
+}
+
+function drawNode(ctx: Canvas2D, n: Node, scene: Scene) {
+  // Coverage is the isolated Node's shape: nothing in it takes an opacity or mode.
+  const opacity = scene.subtree ? 1 : n.opacity;
+  const mode = scene.subtree || n.blendMode === "normal" ? "source-over" : n.blendMode;
   if ((opacity < 1 || mode !== "source-over") && paintsMoreThanOnce(n)) {
     // An isolated group: its contents compose on their own, then composite once in its opacity and
     // mode, in device pixels, inside every ancestor's clip.
@@ -382,7 +385,7 @@ function paint(ctx: Canvas2D, n: Node, scene: Scene) {
       for (const c of children) draw(ctx, c, scene);
     });
     if (clip && !passing) part(ctx, clip, "strokes");
-    if (contents < paints.length) {
+    if (contents < paints.length && !scene.until?.done) {
       clipped((ctx) => {
         for (const p of paints.slice(contents)) p(ctx);
       });

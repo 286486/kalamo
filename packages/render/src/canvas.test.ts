@@ -1074,7 +1074,7 @@ describe("gradients (ADR-0026)", () => {
 });
 
 describe("a subtree (ADR-0057)", () => {
-  it("keeps the whole Document where that Group paints, in its translucent, clipped parent", () => {
+  it("keeps the Document up to that Group where it paints, in its translucent, clipped parent", () => {
     const { doc, defaultLayerId: parentId } = newDoc();
     const fill = (color: string) => ({ fills: [{ color }], strokes: [] });
     const rect = (color: string) =>
@@ -1117,12 +1117,12 @@ describe("a subtree (ADR-0057)", () => {
     expect(log.filter((l) => /(fill|stroke)Style=/.test(l))).toEqual([
       // The Group's coverage,
       "> fillStyle=#FF0000",
-      // the whole Document over a copy of the canvas,
+      // the Document over a copy of the canvas up to the Group, without the Clipping Path's
+      // Stroke above it,
       "> fillStyle=#FFFFFF",
       "> fillStyle=#00FF00",
       "> fillStyle=#FFFF00",
       "> fillStyle=#FF0000",
-      "> strokeStyle=#0000FF",
       // and the rest, washed.
       "fillStyle=#FFFFFF",
       "fillStyle=#00FF00",
