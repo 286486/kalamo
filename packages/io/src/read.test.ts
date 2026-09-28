@@ -70,6 +70,7 @@ it.each([
   ["<svg><g></svg>", "mismatch"],
   ["<html/>", "<svg>"],
   [`<!DOCTYPE svg [<!ENTITY a "x"><!ENTITY b "&a;&a;">]>${svg("", "<text>&a;&b;</text>")}`, "&b;"],
+  [`<!DOCTYPE svg [<!ENTITY n "&a;"><!ENTITY n "plain">]>${svg("", "<text>&n;</text>")}`, "&n;"],
   [`<!DOCTYPE svg [<!ENTITY x SYSTEM "file:///etc/passwd">]>${svg("", "<text>&x;</text>")}`, "&x;"],
   [
     `<!DOCTYPE svg [<!ENTITY % p "<!ENTITY q 'Q'>"> %p; <!ENTITY y "Y">]>${svg("", "<text>&y;</text>")}`,
@@ -158,7 +159,7 @@ it.each([`"`, `'`])("expands an entity with quotes inside a %s-quoted attribute"
 it("keeps the predefined entities, the first declaration, and CDATA and comments as written", () => {
   const file = parseFile(
     `<!DOCTYPE svg [<!ENTITY amp "X"><!ENTITY lt "Y"><!ENTITY e "one"><!ENTITY e "two">]>` +
-      svg("", "<text>&amp;&lt;&e;<!-- &e; --><![CDATA[&e;]]></text>"),
+      svg("", "<text>&amp;&lt;&e;<!-- &e; --><?p &e;?><![CDATA[&e;]]></text>"),
   );
   expect(leaves(file)[0]).toMatchObject({ content: "&<one&e;" });
   const boom = parseFile(`<!DOCTYPE svg [<!ENTITY xxe "BOOM">]>${svg("", "<text>&xxe;</text>")}`);
@@ -186,6 +187,7 @@ it("refuses entities that expand past 5 MB before building the text", () => {
     code: "LIMIT_EXCEEDED",
     path: "content",
     message: expect.stringContaining("&big;"),
+    hint: expect.stringContaining("Entity References"),
   });
   expect(leaves(parseFile(content.replace("&big;".repeat(6), "&big;".repeat(4))))).toEqual([]);
 });

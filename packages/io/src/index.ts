@@ -30,7 +30,8 @@ const PROLOG =
 /** One token of an internal subset: a declaration, comment, PI, PE reference or whitespace. */
 const SUBSET =
   /\s+|<!--[\s\S]*?-->|<\?[\s\S]*?\?>|<!(?:[^"'>]|"[^"]*"|'[^']*')*>|(%)[^;\s]*;|(\])\s*>/y;
-const ENTITY = new RegExp(`^<!ENTITY\\s+(${NAME})\\s+(?:"([^"&%<]*)"|'([^'&%<]*)')\\s*>$`, "u");
+const ENTITY = new RegExp(`^<!ENTITY\\s+(${NAME})\\s([\\s\\S]*)>$`, "u");
+const PLAIN = /^\s*(?:"([^"&%<]*)"|'([^'&%<]*)')\s*$/;
 const PREDEFINED = new Set(["lt", "gt", "amp", "quot", "apos"]);
 /** What the parser leaves as written, and the references it expands. */
 const REFERENCE = new RegExp(
@@ -48,6 +49,7 @@ function expandEntities(text: string): string {
   PROLOG.lastIndex = 0;
   if (!PROLOG.test(text)) return text;
   const values = new Map<string, string>();
+  const seen = new Set<string>();
   SUBSET.lastIndex = PROLOG.lastIndex;
   let end: number | undefined;
   for (let m = SUBSET.exec(text); m; m = SUBSET.exec(text)) {
@@ -57,9 +59,13 @@ function expandEntities(text: string): string {
       end = SUBSET.lastIndex;
       break;
     }
-    const e = ENTITY.exec(m[0]);
-    const [name, value] = [e?.[1], e?.[2] ?? e?.[3]];
-    if (name && value !== undefined && !PREDEFINED.has(name) && !values.has(name)) {
+    const [, name, rest = ""] = ENTITY.exec(m[0]) ?? [];
+    if (!name || seen.has(name)) continue;
+    // The first declaration binds the name, even one that is not expanded.
+    seen.add(name);
+    const plain = PLAIN.exec(rest);
+    const value = plain?.[1] ?? plain?.[2];
+    if (value !== undefined && !PREDEFINED.has(name)) {
       values.set(name, value.replace(/"/g, "&quot;").replace(/'/g, "&apos;"));
     }
   }
