@@ -183,7 +183,7 @@ const FAMILIES: Record<
   "Document read": async (who, { docId }) => {
     const res = await browser(who, `/api/docs/${docId}`);
     if (res.ok) {
-      const role = ROLES[Object.values(await cast()).indexOf(who)];
+      const role = { vic: "viewer", eddie: "editor", olive: "owner" }[who.login];
       expect(await res.json()).toEqual({ docId, name: "Shared", role });
       return "ok";
     }

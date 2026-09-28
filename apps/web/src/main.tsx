@@ -4,6 +4,7 @@ import { Account, SignIn, useMe } from "./Account.tsx";
 import { List } from "./List.tsx";
 import { MenuBar } from "./MenuBar.tsx";
 import { documentMenus } from "./menu.ts";
+import { goSignIn } from "./store.ts";
 import { Tabs, useTabs } from "./Tabs.tsx";
 import { Viewer } from "./Viewer.tsx";
 
@@ -43,8 +44,7 @@ function App() {
   }, []);
   const away = me === "signed-out" && path !== "/";
   useEffect(() => {
-    if (away)
-      location.replace(`/?return=${encodeURIComponent(location.pathname + location.search)}`);
+    if (away) goSignIn();
   }, [away]);
   if (me === null || away) return null;
   if (me === "signed-out") return <SignIn />;

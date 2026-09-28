@@ -93,6 +93,10 @@ export function send(command: Command): string {
   return id;
 }
 
+/** Sends a signed-out person to sign in, coming back to this page. */
+export const goSignIn = () =>
+  location.replace(`/?return=${encodeURIComponent(location.pathname + location.search)}`);
+
 /** `GET /api/docs/:docId`'s status and error code; null if the request itself failed. */
 async function probe(docId: string): Promise<Probe> {
   try {
@@ -171,7 +175,7 @@ export function connect(docId: string): () => void {
         if (next === "retry") later();
         else if (next === "sign-in") {
           stopped = true;
-          location.replace(`/?return=${encodeURIComponent(location.pathname + location.search)}`);
+          goSignIn();
         } else stop(next.notice);
       });
     };
