@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { useStore } from "./store.ts";
+import { canEdit, useStore, VIEWER_TOOLS } from "./store.ts";
 import { TOOLS, type Tool } from "./toolbox.ts";
 import { type FillStroke, fillStrokeKey, setTool } from "./tools.ts";
 
@@ -80,10 +80,13 @@ function Box({ fillStroke, box }: { fillStroke: FillStroke; box: "fill" | "strok
   );
 }
 
+const ALL_TOOLS = Object.keys(TOOLS) as Tool[];
+
 /** Illustrator's Tools panel on the canvas's left: the tools, then the Fill and Stroke boxes. */
 export const Tools = memo(function Tools() {
   const tool = useStore((s) => s.tool);
   const fillStroke = useStore((s) => s.fillStroke);
+  const tools = useStore((s) => (canEdit(s) ? ALL_TOOLS : VIEWER_TOOLS));
   const key = (keys: string) => () => {
     const next = fillStrokeKey(useStore.getState().fillStroke, keys);
     if (next) useStore.setState({ fillStroke: next });
@@ -110,7 +113,7 @@ export const Tools = memo(function Tools() {
         borderRadius: 4,
       }}
     >
-      {(Object.keys(TOOLS) as Tool[]).map((t) => {
+      {tools.map((t) => {
         const { title, shortcut, icon, iconFill } = TOOLS[t];
         const label = `${title} (${shortcut})`;
         return (

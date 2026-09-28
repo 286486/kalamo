@@ -1,5 +1,12 @@
 import { newId } from "@zibel/core";
-import type { ClientMessage, Command, ServerMessage } from "@zibel/sync";
+import {
+  ACCESS_CHANGED,
+  type ClientMessage,
+  type Command,
+  DOC_DELETED,
+  type Role,
+  type ServerMessage,
+} from "@zibel/sync";
 import { create } from "zustand";
 import { parseKey } from "./direct.ts";
 import type { ImageCache } from "./images.ts";
@@ -11,6 +18,8 @@ import type { Viewport } from "./viewport.ts";
 export interface State extends ViewState {
   /** False while the socket is down; the last Document stays on screen. */
   live: boolean;
+  /** The shown Document's Role, from the socket (ADR-0047); null until it connects. */
+  role: Role | null;
   /** Null until the first Document arrives and is fitted to the screen. */
   viewport: Viewport | null;
   /** The canvas in CSS px. */
@@ -34,6 +43,7 @@ export const DEFAULT_FILL_STROKE: FillStroke = {
 export const useStore = create<State>(() => ({
   doc: null,
   live: false,
+  role: null,
   viewport: null,
   selection: [],
   drag: null,
@@ -61,6 +71,12 @@ useStore.subscribe((s, prev) => {
   }
 });
 
+/** A viewer's tab edits nothing: the menus grey out and the tools shrink (ADR-0047). */
+export const canEdit = (s: Pick<State, "role">) => s.role !== "viewer";
+
+/** The tools a viewer keeps, which change nothing; Space pans as the Hand for everyone. */
+export const VIEWER_TOOLS: readonly Tool[] = ["selection", "zoom"];
+
 let socket: WebSocket | null = null;
 
 /** Each Document Tab's viewport and Selection while another tab is shown, for the page's lifetime. */
@@ -85,6 +101,7 @@ export function connect(docId: string): () => void {
   useStore.setState({
     doc: null,
     live: false,
+    role: null,
     drag: null,
     pen: null,
     edit: null,
@@ -99,6 +116,12 @@ export function connect(docId: string): () => void {
   let ws: WebSocket;
   let retry: ReturnType<typeof setTimeout>;
   let stopped = false;
+  /** Set by a 4003 close until a Document arrives: failing then means access was removed. */
+  let accessChanged = false;
+  const stop = (notice: string) => {
+    stopped = true;
+    useStore.setState({ live: false, notice });
+  };
   const open = () => {
     const scheme = location.protocol === "https:" ? "wss" : "ws";
     ws = new WebSocket(`${scheme}://${location.host}/api/docs/${docId}/ws`);
@@ -106,11 +129,20 @@ export function connect(docId: string): () => void {
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data) as ServerMessage;
       const next = receive(useStore.getState(), msg, docId);
-      if (next) useStore.setState({ ...next, ...(msg.type === "document" && { live: true }) });
+      if (msg.type === "document") {
+        accessChanged = false;
+        const { tool } = useStore.getState();
+        const viewer = msg.role === "viewer" && !VIEWER_TOOLS.includes(tool);
+        useStore.setState({ live: true, role: msg.role, ...(viewer && { tool: "selection" }) });
+      }
+      if (next) useStore.setState(next);
       else ws.close(); // A missed rev: reconnect for the whole Document.
     };
-    ws.onclose = () => {
+    ws.onclose = (e) => {
       if (stopped) return;
+      if (e.code === DOC_DELETED) return stop("This Document was deleted.");
+      if (accessChanged) return stop("This Document is no longer shared with you.");
+      accessChanged = e.code === ACCESS_CHANGED;
       useStore.setState({ live: false });
       // ponytail: fixed 1 s retry, forever; back off if many tabs hammer a dead server.
       retry = setTimeout(open, 1000);

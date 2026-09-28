@@ -14,7 +14,7 @@ import { curveThrough } from "./curvature.ts";
 import { anchorsOf, editableShapes, hasAnchors, localAnchors } from "./direct.ts";
 import type { Endpoint, PenPath } from "./receive.ts";
 import { editable, placeParent } from "./selection.ts";
-import { DEFAULT_FILL_STROKE, type State, send, useStore } from "./store.ts";
+import { canEdit, DEFAULT_FILL_STROKE, type State, send, useStore, VIEWER_TOOLS } from "./store.ts";
 import type { Tool, ToolEvent } from "./toolbox.ts";
 
 /** The Fill and Stroke boxes (F-DRAW-12): what new art is painted with; null is None. */
@@ -376,6 +376,7 @@ export function undoAnchor(): boolean {
 
 /** Switching tools finishes the path the Pen is drawing, as in Illustrator, and drops selected Anchors and segments. */
 export function setTool(tool: Tool) {
+  if (!canEdit(useStore.getState()) && !VIEWER_TOOLS.includes(tool)) return;
   finishPen();
   useStore.setState({ tool, anchors: [], segments: [] });
 }

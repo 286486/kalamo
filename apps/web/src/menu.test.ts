@@ -97,3 +97,49 @@ it("enables Relink… on exactly one Image, and Embed on linked Images with pixe
   lock(parentId);
   expect(enabled("Embed", ["linked"])).toBe(false);
 });
+
+it("disables every entry that changes the Document for a viewer, and Share… for all but the owner", () => {
+  const { doc, defaultLayerId: parentId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 200, height: 100 }],
+  });
+  const { keyMap } = createNodes(doc, [
+    { type: "rect", clientKey: "r", parentId, x: 0, y: 0, width: 10, height: 10 },
+  ]);
+  const shared = documentMenus({ ...tabs, share: "d" });
+  const state = {
+    ...useStore.getState(),
+    doc,
+    selection: [keyMap.r as string],
+    viewport: { scale: 1, x: 0, y: 0 },
+  };
+  const enabled = (role: "owner" | "editor" | "viewer") =>
+    leaves(shared)
+      .filter((i) => i.enabled?.({ ...state, role }) ?? true)
+      .map((i) => i.label);
+  // What looks at, copies or leaves the Document without changing it.
+  const reading = [
+    "Open…",
+    "Close",
+    "Save a Copy…",
+    "Export As SVG",
+    "Copy",
+    "All",
+    "Deselect",
+    "Inverse",
+    "Zoom In",
+    "Zoom Out",
+    "Fit Artboard in Window",
+    "Actual Size",
+    "Layers",
+  ];
+  expect(enabled("viewer").sort()).toEqual(reading.sort());
+  // The same state enables edits for an editor, so the viewer's greying is the Role's.
+  expect(enabled("editor")).toEqual(
+    expect.arrayContaining(["Undo", "Redo", "Cut", "Paste", "Clear", "Place…"]),
+  );
+  expect(enabled("editor")).not.toContain("Share…");
+  expect(enabled("owner")).toContain("Share…");
+  expect(leaves(menus).map((i) => i.label)).not.toContain("Share…");
+});

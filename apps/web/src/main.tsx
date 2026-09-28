@@ -7,12 +7,20 @@ import { documentMenus } from "./menu.ts";
 import { Tabs, useTabs } from "./Tabs.tsx";
 import { Viewer } from "./Viewer.tsx";
 
-/** The menu bar, the Document Tabs, then the active tab's canvas (ADR-0031). */
-function DocumentPage({ docId }: { docId: string }) {
+/**
+ * The menu bar, the Document Tabs, then the active tab's canvas (ADR-0031). `hosted` offers
+ * File > Share…: dev mode has no one to share with.
+ */
+function DocumentPage({ docId, hosted }: { docId: string; hosted: boolean }) {
   const tabs = useTabs(docId);
+  const menus = documentMenus({
+    open: tabs.open,
+    close: () => tabs.close(docId),
+    ...(hosted && { share: docId }),
+  });
   return (
     <div style={{ position: "fixed", inset: 0, display: "flex", flexDirection: "column" }}>
-      <MenuBar menus={documentMenus({ open: tabs.open, close: () => tabs.close(docId) })} />
+      <MenuBar menus={menus} />
       <Tabs state={tabs} />
       <div style={{ flex: 1, position: "relative" }}>
         <Viewer key={docId} docId={docId} />
@@ -43,7 +51,11 @@ function App() {
   const docId = path.match(/^\/docs\/([^/]+)$/)?.[1];
   return (
     <>
-      {docId ? <DocumentPage docId={docId} /> : <List />}
+      {docId ? (
+        <DocumentPage docId={docId} hosted={me !== "unknown" && me.mode === "github"} />
+      ) : (
+        <List />
+      )}
       {me !== "unknown" && <Account me={me} />}
     </>
   );

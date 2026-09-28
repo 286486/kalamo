@@ -26,6 +26,7 @@ it("lists the tools over HTTP (their schemas and annotations: packages/mcp serve
   expect(tools.map((t) => t.name).sort()).toEqual([
     "zibel_doc_changes",
     "zibel_doc_create",
+    "zibel_doc_delete",
     "zibel_doc_get_info",
     "zibel_doc_list",
     "zibel_doc_open",
@@ -829,8 +830,8 @@ it("lists Documents created in earlier requests, newest first, with doc_list", a
   const second = await create("Second");
   const { documents } = (await call("zibel_doc_list", {})).structuredContent;
   expect(documents.slice(0, 2)).toEqual([
-    { docId: second, name: "Second", createdAt: expect.any(String) },
-    { docId: first, name: "First", createdAt: expect.any(String) },
+    { docId: second, name: "Second", createdAt: expect.any(String), role: "owner" },
+    { docId: first, name: "First", createdAt: expect.any(String), role: "owner" },
   ]);
 });
 
@@ -1284,7 +1285,12 @@ describe("zibel_json", () => {
       }),
     ]);
     const { documents } = (await call("zibel_doc_list", {})).structuredContent;
-    expect(documents[0]).toEqual({ docId: newId, name: "Doc", createdAt: expect.any(String) });
+    expect(documents[0]).toEqual({
+      docId: newId,
+      name: "Doc",
+      createdAt: expect.any(String),
+      role: "owner",
+    });
   });
 
   it("returns a validation error with a path and creates nothing for a malformed file", async () => {

@@ -1,17 +1,15 @@
-import { useEffect, useState } from "react";
+import type { DocSummary } from "@zibel/sync";
+import { useCallback, useEffect, useState } from "react";
 import { MenuBar } from "./MenuBar.tsx";
 import { listMenus } from "./menu.ts";
 import { OPENABLE, type Opened, openFile } from "./tabs.ts";
 
-interface Listed {
-  docId: string;
-  name: string;
-  createdAt: string;
-}
-
-/** Every Document, newest first, and Open file for an .svg or .zibel.json. */
+/**
+ * The Documents the User owns or was shared, newest first, with Delete on owned ones, and Open file
+ * for an .svg or .zibel.json.
+ */
 export function List() {
-  const [docs, setDocs] = useState<Listed[] | null>(null);
+  const [docs, setDocs] = useState<DocSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [opened, setOpened] = useState<Opened | null>(null);
   const [openError, setOpenError] = useState<string | null>(null);
@@ -24,12 +22,20 @@ export function List() {
       (err: Error) => setOpenError(err.message),
     );
   };
-  useEffect(() => {
+  const load = useCallback(() => {
     fetch("/api/docs")
-      .then((r) => r.json() as Promise<{ documents: Listed[] }>)
+      .then((r) => r.json() as Promise<{ documents: DocSummary[] }>)
       .then((r) => setDocs(r.documents))
       .catch((e: unknown) => setError(String(e)));
   }, []);
+  useEffect(load, [load]);
+  const remove = async (d: DocSummary) => {
+    if (!confirm(`Delete "${d.name}" for everyone it is shared with? This cannot be undone.`))
+      return;
+    const res = await fetch(`/api/docs/${encodeURIComponent(d.docId)}`, { method: "DELETE" });
+    if (!res.ok) setError(`Could not delete ${d.name}: ${res.status}`);
+    load();
+  };
   return (
     <>
       <MenuBar menus={listMenus(open)} />
@@ -69,7 +75,15 @@ export function List() {
             {docs.map((d) => (
               <li key={d.docId}>
                 <a href={`/docs/${d.docId}`}>{d.name}</a>{" "}
-                <small>{new Date(d.createdAt).toLocaleString()}</small>
+                <small>
+                  {new Date(d.createdAt).toLocaleString()}
+                  {d.role !== "owner" && ` · shared with you as ${d.role}`}
+                </small>{" "}
+                {d.role === "owner" && (
+                  <button type="button" onClick={() => remove(d)}>
+                    Delete
+                  </button>
+                )}
               </li>
             ))}
           </ul>

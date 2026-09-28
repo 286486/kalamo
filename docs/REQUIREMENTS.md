@@ -436,7 +436,7 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 - **F-COLLAB-03** 节点软锁：UI 用户正在拖拽的对象对 Agent 返回 `LOCKED_BY_USER`；Agent 事务中的节点在 UI 显示"Agent 正在编辑"并禁止拖拽（可强制解锁）。（P1）
 - **F-COLLAB-04** Agent 光标 / 意图展示：UI 显示 Agent 当前正在操作的区域与一行说明（来自工具调用的 `intent` 字段）。（P1）
 - **F-COLLAB-05** 多人协作（多浏览器用户）：光标、选区、评论。（P2）
-- **F-COLLAB-06** 权限：文档级 owner / editor / viewer；每个 Agent Actor 凭自己的 token 获得 editor 或 viewer；`run_script` 需要额外授权标志。（P1）
+- **F-COLLAB-06** 权限：文档级 owner / editor / viewer；每个 Agent Actor 凭自己的 token 获得 editor 或 viewer；`run_script` 需要额外授权标志。（P1）现状（ADR-0047）：每个 Document 一个 owner（`documents.owner_id`）加任意 editor / viewer 成员（`members`）；Agent 取其 User 的 Role，只读 token 至多 viewer；无 Role 为 `DOC_NOT_FOUND`，Role 不足为 `PERMISSION_DENIED`；浏览器 File > Share… 分享，文档列表可删除；`run_script` 尚不存在。
 - **F-COLLAB-07** Actor：每次修改都记录其 Actor（人类 User，或一个 Agent 凭证）。每个 MCP 客户端授权时获得独立 token，一个 token 即一个 Agent Actor，历史中显示为"Claude Code（woody）"；人类可按 Actor 撤销或回看修改。（P0）
 
 ---
@@ -491,7 +491,7 @@ flowchart LR
   RW --> R2
 ```
 
-- **F-MCP-01 传输**：仅无状态 Streamable HTTP。托管地址 `https://mcp.<domain>/mcp`，OAuth 2.1 授权（MCP authorization 规范），**首发仅 GitHub 作为身份提供方**，每个 MCP 客户端一个 token（即一个 Agent Actor）。本地 `wrangler dev` 默认关闭鉴权或使用固定开发 token。M0 即走 HTTP（localhost），M1 上线托管与 OAuth。（P0）
+- **F-MCP-01 传输**：仅无状态 Streamable HTTP。托管地址 `https://mcp.<domain>/mcp`，OAuth 2.1 授权（MCP authorization 规范），**首发仅 GitHub 作为身份提供方**，每个 MCP 客户端一个 token（即一个 Agent Actor）。本地 `wrangler dev` 默认关闭鉴权或使用固定开发 token。M0 即走 HTTP（localhost），M1 上线托管与 OAuth。（P0）现状：两种鉴权模式、GitHub 登录、MCP OAuth 2.1 与文档 Role 见 ADR-0047。
 - **F-MCP-02 Headless 渲染**：`render` / `export` 在 Node 端或 Worker 端用 resvg-wasm（SVG → PNG，小体积，P0）完成；需要与浏览器像素一致的效果（混合模式、效果栈）时用 CanvasKit WASM（P1）。渲染输入统一是 io 的 SVG 序列化结果（ADR-0019），保证三端一致。（P0）
 - **F-MCP-03 UI 附着**：浏览器经 WebSocket 连接 Document DO 实时看到变更；Agent 的每次工具调用由无状态 Worker 转发到同一个 DO；`render` 可选 `source: "ui" | "headless"`。（P0）
 - **F-MCP-04 多文档**：每个文档一个 Durable Object，天然隔离与水平扩展；本地 `wrangler dev` 同样如此。（P0）
@@ -555,7 +555,8 @@ flowchart LR
 
 | 工具 | 输入要点 | 输出 | 注 |
 |---|---|---|---|
-| `doc_list` | — | 文档摘要列表 | R |
+| `doc_list` | — | 调用者拥有或被分享的文档摘要列表，各带 `role` | R；ADR-0047 |
+| `doc_delete` | `docId` | `{ docId, deleted: true }` | D；仅 owner；ADR-0047 |
 | `doc_create` | `name`, `artboards[]`（预设名或 w/h）, `template?` | `docId`, 大纲 | |
 | `doc_open` | `content`（`.zibel.json` 或 SVG 文本，按内容识别；SVG 至多 5 MB） | 新 `docId`、大纲、`warnings`（每类一条） | ADR-0016、ADR-0017 |
 | `doc_save` | `docId`, `path?` | 保存位置 | I |
@@ -762,7 +763,7 @@ flowchart LR
 
 ### 7.5 安全
 
-- MCP 远程模式：OAuth 2.1（MCP authorization 规范）签发的 Bearer token；每文档权限（owner / editor / viewer）；`run_script` 单独授权。
+- MCP 远程模式：OAuth 2.1（MCP authorization 规范）签发的 Bearer token；每文档权限（owner / editor / viewer）；`run_script` 单独授权。现状（ADR-0047）：Worker 在转发到 Document DO 之前以同一个 `authorize` 检查 Role；DO 信任 Worker 在 WebSocket 升级时设置的 Actor、User 与 Role 头，客户端送来的同名头被替换。
 - Cloudflare 托管：WAF 与速率限制（按用户与按文档）；R2 对象仅经预签名 URL 访问；D1 中密钥字段加密；DO 只接受来自 Worker 的内部调用与已鉴权的 WebSocket 升级。
 - 脚本沙箱：无网络、无文件系统、CPU / 内存 / 时间配额；宿主 API 白名单。
 - `image_place` 拉取 URL：Worker 拉取，读取上限 20 MB、10 秒；SSRF 防护：只允许 http / https，拒绝 localhost 与回环、私网、链路本地等 IP 字面量，重定向手动跟随至多 5 次且逐跳检查；解析到私网的域名由平台网络拦截（Cloudflare 边缘、workerd 缺省 `allow = ["public"]`）。用户确认需要 elicitation（ADR-0006 禁止），改由 `openWorldHint` 交给客户端；白名单待 M1 用户设置（ADR-0027）。

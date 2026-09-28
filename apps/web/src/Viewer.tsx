@@ -18,7 +18,7 @@ import { keysOf } from "./menu.ts";
 import { pastedArt, place, placeable } from "./place.ts";
 import { preview, previewEdit, previewOp } from "./receive.ts";
 import { editable } from "./selection.ts";
-import { connect, send, useStore } from "./store.ts";
+import { canEdit, connect, send, useStore } from "./store.ts";
 import { Tools } from "./Tools.tsx";
 import { type CanvasTool, TOOL_KEYS, TOOLS, type ToolEvent } from "./toolbox.ts";
 import { fillStrokeKey, finishPen, setTool } from "./tools.ts";
@@ -296,7 +296,8 @@ export function Viewer({ docId }: { docId: string }) {
       const data = e.clipboardData;
       const text = data?.getData("image/svg+xml") || data?.getData("text/plain") || "";
       const pasted = pastedArt(text, [...(data?.files ?? [])]);
-      if (!pasted) return;
+      // A viewer's native Paste shortcut greys out nowhere, so it stops here (ADR-0047).
+      if (!pasted || !canEdit(useStore.getState())) return;
       e.preventDefault();
       place(pasted, inPlace.current);
     };
@@ -320,7 +321,10 @@ export function Viewer({ docId }: { docId: string }) {
       e.clipboardData.setData("text/plain", svg);
       e.clipboardData.setData("image/svg+xml", svg);
       const nodeIds = selection.filter((id) => editable(doc, doc.nodes.get(id)));
-      if (e.type === "cut" && nodeIds.length > 0) send({ type: "delete", nodeIds });
+      // A viewer's Cut copies and deletes nothing.
+      if (e.type === "cut" && nodeIds.length > 0 && canEdit(useStore.getState())) {
+        send({ type: "delete", nodeIds });
+      }
     };
     addEventListener("paste", onPaste);
     addEventListener("copy", onCopyOrCut);
@@ -335,7 +339,7 @@ export function Viewer({ docId }: { docId: string }) {
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
     const file = [...e.dataTransfer.files].find(placeable);
-    if (file) place(file);
+    if (file && canEdit(useStore.getState())) place(file);
   };
 
   /** A pointer event for a tool, or null before the Document and viewport are in. */

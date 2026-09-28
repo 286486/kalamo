@@ -251,6 +251,14 @@ _Avoid_: Session、Client、Connection、User（Actor 可能是 Agent）
 一个用 GitHub 登录 Zibel 的人，按 GitHub 数字 id 识别，login 每次登录时刷新。每个 User 有一个自己的 User Actor（`user_<userId>`），他在浏览器里的所有标签页都以它编辑。dev 模式只有一个本地 User `local`，其 Actor 是 `user`（ADR-0047）。
 _Avoid_: Account、Member（保留给文档成员）、Session（那是一次登录）
 
+**Role（角色）**：
+一个 User 在一个 Document 上能做什么：owner（所有者，唯一，可分享与删除）、editor（可编辑）或 viewer（只能查看、选择、缩放和下载）。创建、打开或导入 Document 的 User 是其 owner；owner 把 Document 分享给另一个 User，他就成为 editor 或 viewer 成员。Agent 取其 User 的 Role，只读 token 至多是 viewer。没有 Role 的 Document 对他如同不存在（`DOC_NOT_FOUND`）。dev 模式的本地 User 是每个 Document 的 owner（ADR-0047）。
+_Avoid_: Permission、ACL、Access（那是 token 的读写范围）
+
+**Member（成员）**：
+owner 分享给的 User，在该 Document 上是 editor 或 viewer。owner 本身从不是 Member（ADR-0047）。
+_Avoid_: Collaborator、Participant、Guest
+
 **Agent**：
 通过 MCP 调用 Zibel 的 AI 客户端，以自己的凭证作为一个 Actor。与人类用户拥有同等的编辑能力，只是入口不同。
 _Avoid_: Bot、AI、Model、Assistant

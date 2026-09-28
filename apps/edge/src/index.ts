@@ -1,5 +1,5 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { checkImage, IMAGE_ID, ZibelError } from "@zibel/core";
+import { checkImage, type ErrorData, IMAGE_ID, ZibelError } from "@zibel/core";
 import { createMcpServer } from "@zibel/mcp";
 import {
   ACTOR_HEADER,
@@ -11,11 +11,14 @@ import {
   misconfigured,
   type Principal,
   permissionDenied,
+  ROLE_HEADER,
   signInRequired,
+  USER_HEADER,
 } from "./auth.ts";
 import { imageKey } from "./document-object.ts";
 import { agentPrincipal, oauthProvider, oauthRoute, revokedChallenge } from "./oauth.ts";
-import { documentService, listDocuments, unwrap } from "./service.ts";
+import { authorize, listDocuments, membersRoute } from "./roles.ts";
+import { documentService, unwrap } from "./service.ts";
 
 export { DocumentObject } from "./document-object.ts";
 
@@ -56,27 +59,29 @@ const app = {
     const principal = await authenticate(request, env);
     if (url.pathname === "/mcp") return mcp(request, env, principal);
     if (!principal) return signInRequired();
-    const { actor } = principal;
     const ws = url.pathname.match(/^\/api\/docs\/([^/]+)\/ws$/)?.[1];
-    if (ws) {
-      // The Document DO records the Worker's Actor, never one a client sends (ADR-0047).
-      const headers = new Headers(request.headers);
-      headers.set(ACTOR_HEADER, actor);
-      return env.DOCUMENT.get(env.DOCUMENT.idFromName(ws)).fetch(new Request(request, { headers }));
-    }
+    if (ws) return socket(request, env, principal, ws);
     if (url.pathname === "/api/docs" && request.method === "POST")
-      return openFile(request, env, actor);
+      return openFile(request, env, principal);
     const [, imageDoc, imageSrc] =
       url.pathname.match(/^\/api\/docs\/([^/]+)\/images\/([^/]+)$/) ?? [];
-    if (imageDoc && imageSrc && request.method === "GET") return image(env, imageDoc, imageSrc);
+    if (imageDoc && imageSrc && request.method === "GET")
+      return image(env, principal, imageDoc, imageSrc);
     const place = url.pathname.match(/^\/api\/docs\/([^/]+)\/place$/)?.[1];
-    if (place && request.method === "POST") return placeFile(place, request, env, actor);
+    if (place && request.method === "POST") return placeFile(place, request, env, principal);
     const placeImage = url.pathname.match(/^\/api\/docs\/([^/]+)\/place-image$/)?.[1];
     if (placeImage && request.method === "POST")
-      return placeBitmap(placeImage, request, env, actor);
+      return placeBitmap(placeImage, request, env, principal);
     const relink = url.pathname.match(/^\/api\/docs\/([^/]+)\/relink-image$/)?.[1];
-    if (relink && request.method === "POST") return relinkBitmap(relink, request, env, actor);
-    if (url.pathname === "/api/docs") return Response.json({ documents: await listDocuments(env) });
+    if (relink && request.method === "POST") return relinkBitmap(relink, request, env, principal);
+    const members = membersRoute(request, env, principal);
+    if (members) return answer(() => members);
+    const deleted = url.pathname.match(/^\/api\/docs\/([^/]+)$/)?.[1];
+    if (deleted && request.method === "DELETE")
+      return answer(() => documentService(env, principal).delete(deleted));
+    if (url.pathname === "/api/docs") {
+      return Response.json({ documents: await listDocuments(env, principal) });
+    }
     return new Response("not found", { status: 404 });
   },
 };
@@ -88,7 +93,7 @@ async function mcp(request: Request, env: Env, principal: Principal | null): Pro
     return new Response(null, { status: 405, headers: { allow: "POST" } });
   }
   // Stateless (ADR-0006): no session id, a new server and transport per request.
-  const server = createMcpServer(documentService(env, principal.actor), principal.actor);
+  const server = createMcpServer(documentService(env, principal), principal.actor);
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     enableJsonResponse: true,
@@ -98,13 +103,31 @@ async function mcp(request: Request, env: Env, principal: Principal | null): Pro
 }
 
 /**
+ * A browser subscribes to a Document it has a Role on. The Document DO records the Worker's Actor,
+ * User and Role, never ones a client sends (ADR-0047).
+ */
+async function socket(request: Request, env: Env, principal: Principal, docId: string) {
+  let role: string;
+  try {
+    role = await authorize(env, principal, docId, "read");
+  } catch (e) {
+    return failure(e);
+  }
+  const headers = new Headers(request.headers);
+  headers.set(ACTOR_HEADER, principal.actor);
+  headers.set(USER_HEADER, principal.userId);
+  headers.set(ROLE_HEADER, role);
+  return env.DOCUMENT.get(env.DOCUMENT.idFromName(docId)).fetch(new Request(request, { headers }));
+}
+
+/**
  * The browser's Open file: the file's text as the body, its name in `?name=`. Over HTTP, not the
  * WebSocket, since a file does not belong in a gesture message (ADR-0017); by the request's User Actor.
  */
-async function openFile(request: Request, env: Env, actor: string): Promise<Response> {
+async function openFile(request: Request, env: Env, principal: Principal): Promise<Response> {
   const name = new URL(request.url).searchParams.get("name") ?? undefined;
   return answer(async () => {
-    const { docId, warnings } = await documentService(env, actor).open({
+    const { docId, warnings } = await documentService(env, principal).open({
       content: await request.text(),
       name,
     });
@@ -121,13 +144,13 @@ async function placeFile(
   docId: string,
   request: Request,
   env: Env,
-  actor: string,
+  principal: Principal,
 ): Promise<Response> {
   const q = new URL(request.url).searchParams;
   const x = Number(q.get("x") ?? Number.NaN);
   const y = Number(q.get("y") ?? Number.NaN);
   return answer(async () =>
-    documentService(env, actor).place(docId, {
+    documentService(env, principal).place(docId, {
       svg: await request.text(),
       parentId: q.get("parentId") ?? "",
       ...(Number.isFinite(x) && Number.isFinite(y) && { position: { x, y } }),
@@ -145,19 +168,20 @@ async function placeBitmap(
   docId: string,
   request: Request,
   env: Env,
-  actor: string,
+  principal: Principal,
 ): Promise<Response> {
   const q = new URL(request.url).searchParams;
   const x = Number(q.get("x") ?? Number.NaN);
   const y = Number(q.get("y") ?? Number.NaN);
   return answer(async () => {
+    await authorize(env, principal, docId, "write");
     const file = await bitmap(request);
     const frame = Number.isFinite(x) && Number.isFinite(y);
     return unwrap(
       await env.DOCUMENT.get(env.DOCUMENT.idFromName(docId)).placeImage(
         // The name only titles a Template Layer, which paste and drop never make.
         { ...file, name: "Image" },
-        actor,
+        principal.actor,
         {
           parentId: q.get("parentId") ?? "",
           ...(frame && { frame: { x: x - file.width / 2, y: y - file.height / 2 } }),
@@ -180,15 +204,16 @@ async function relinkBitmap(
   docId: string,
   request: Request,
   env: Env,
-  actor: string,
+  principal: Principal,
 ): Promise<Response> {
   const q = new URL(request.url).searchParams;
   return answer(async () => {
+    await authorize(env, principal, docId, "write");
     const file = await bitmap(request);
     return unwrap(
       await env.DOCUMENT.get(env.DOCUMENT.idFromName(docId)).relinkImage(
         { ...file, name: q.get("name") ?? undefined },
-        actor,
+        principal.actor,
         { nodeId: q.get("nodeId") ?? "" },
       ),
     );
@@ -196,27 +221,42 @@ async function relinkBitmap(
 }
 
 /**
- * An Image's file for the canvas, streamed from R2 without the Document Durable Object (ADR-0046).
- * An id always names the same bytes, so it is cached for good. Any signed-in User reaches it, like
- * every Document route, until Roles (ADR-0047).
+ * An Image's file for the canvas, streamed from R2 without the Document Durable Object (ADR-0046),
+ * to a caller with a Role on the Document (ADR-0047). An id always names the same bytes, so it is
+ * cached for good, but only by the browser: another User must not get it from a shared cache.
  */
-async function image(env: Env, docId: string, src: string): Promise<Response> {
+async function image(env: Env, principal: Principal, docId: string, src: string) {
+  try {
+    await authorize(env, principal, docId, "read");
+  } catch (e) {
+    return failure(e);
+  }
   const object = IMAGE_ID.test(src) ? await env.IMAGES.get(imageKey(docId, src)) : null;
   if (!object) return new Response("not found", { status: 404 });
   return new Response(object.body, {
     headers: {
       "content-type": object.httpMetadata?.contentType ?? "application/octet-stream",
-      "cache-control": "public, max-age=31536000, immutable",
+      "cache-control": "private, max-age=31536000, immutable",
     },
   });
 }
 
-/** `fn`'s result as JSON, or its ZibelError as a 400. */
+/** `fn`'s result as JSON, or its ZibelError as `failure` answers it. */
 async function answer(fn: () => Promise<object>): Promise<Response> {
   try {
     return Response.json(await fn());
   } catch (e) {
-    if (e instanceof ZibelError) return Response.json(e.data, { status: 400 });
-    throw e;
+    return failure(e);
   }
+}
+
+const STATUS: Partial<Record<ErrorData["code"], number>> = {
+  PERMISSION_DENIED: 403,
+  DOC_NOT_FOUND: 404,
+};
+
+/** A ZibelError as JSON: 403 for PERMISSION_DENIED, 404 for DOC_NOT_FOUND, else 400. */
+function failure(e: unknown): Response {
+  if (!(e instanceof ZibelError)) throw e;
+  return Response.json(e.data, { status: STATUS[e.data.code] ?? 400 });
 }

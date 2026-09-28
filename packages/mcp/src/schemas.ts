@@ -1,4 +1,5 @@
 import { Rect, WriteReceipt } from "@zibel/core";
+import { ROLES } from "@zibel/sync";
 import { z } from "zod";
 
 const Artboards = z.array(
@@ -13,8 +14,17 @@ export const CreatedDocumentOutput = z.object({
 });
 
 export const DocListOutput = z.object({
-  documents: z.array(z.object({ docId: z.string(), name: z.string(), createdAt: z.string() })),
+  documents: z.array(
+    z.object({
+      docId: z.string(),
+      name: z.string(),
+      createdAt: z.string(),
+      role: z.enum(ROLES),
+    }),
+  ),
 });
+
+export const DocDeleteOutput = z.object({ docId: z.string(), deleted: z.literal(true) });
 
 export const DocInfoOutput = z.object({
   docId: z.string(),
