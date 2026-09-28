@@ -5,10 +5,18 @@ import { toDoc } from "./viewport.ts";
 
 /**
  * Place (ADR-0017) and Relink POST the file to the Worker, which writes it as the user; the canvas
- * follows the `tx` broadcast like any other write. What it placed or relinked becomes the Selection.
- * Failures and warnings show as the notice.
+ * follows the `tx` broadcast like any other write. Failures and warnings show as the notice. On
+ * success, what it placed or relinked becomes the Selection and the Isolation goes `from` → `to`,
+ * unless the tab or its Isolation changed while the request was in flight.
  */
-async function postFile(docId: string, url: string, body: BodyInit, what: string) {
+async function postFile(
+  docId: string,
+  url: string,
+  body: BodyInit,
+  what: string,
+  from: string | null,
+  to = from,
+) {
   const notice = (text: string) => useStore.setState({ notice: text });
   try {
     const res = await fetch(url, { method: "POST", body });
@@ -22,16 +30,20 @@ async function postFile(docId: string, url: string, body: BodyInit, what: string
       nodes?: { id: string }[];
     };
     if (!res.ok) notice(`Could not ${what}: ${json.message} ${json.hint ?? ""}`);
-    else
+    else {
+      const s = useStore.getState();
       useStore.setState({
         notice: json.warnings?.map((w) => w.message).join(" ") || null,
-        ...(useStore.getState().doc?.id === docId && {
-          selection: json.nodes?.map((n) => n.id) ?? [
-            ...(json.createdIds ?? []),
-            ...(json.updatedIds ?? []),
-          ],
-        }),
+        ...(s.doc?.id === docId &&
+          s.isolated === from && {
+            isolated: to,
+            selection: json.nodes?.map((n) => n.id) ?? [
+              ...(json.createdIds ?? []),
+              ...(json.updatedIds ?? []),
+            ],
+          }),
       });
+    }
   } catch (e) {
     notice(`Could not ${what}: ${String(e)}`);
   }
@@ -45,9 +57,9 @@ export const placeable = (file: File) => isSvg(file) || file.type.startsWith("im
 
 /**
  * Place at the centre of the canvas, or pasted text where it was with `inPlace`, in placeParent's
- * Layer or isolated Group or sub-Layer, an isolated leaf left first (ADR-0058): an SVG as a Group
- * (ADR-0017), or a Zibel copy's Nodes as they were (ADR-0030), any other file as an Image, which
- * the Worker checks (ADR-0023).
+ * Layer or isolated Group or sub-Layer, an isolated leaf left once it succeeds (ADR-0058): an SVG
+ * as a Group (ADR-0017), or a Zibel copy's Nodes as they were (ADR-0030), any other file as an
+ * Image, which the Worker checks (ADR-0023).
  */
 export function place(file: File | string, inPlace = false) {
   const s = useStore.getState();
@@ -55,12 +67,11 @@ export function place(file: File | string, inPlace = false) {
   const at = doc && forNewArt(doc, s);
   const parentId = doc && at && placeParent(doc, at.selection, at.isolated);
   if (!doc || !v || !at || !parentId) return;
-  useStore.setState(at);
   const docId = doc.id;
   const { x, y } = toDoc(v, size.width / 2, size.height / 2);
   const query = new URLSearchParams({ parentId, x: String(x), y: String(y) });
   const post = (path: string, body: BodyInit, what: string) =>
-    postFile(docId, `/api/docs/${docId}/${path}?${query}`, body, what);
+    postFile(docId, `/api/docs/${docId}/${path}?${query}`, body, what, s.isolated, at.isolated);
   if (typeof file === "string") {
     if (inPlace) query.set("inPlace", "");
     post("place", file, "place the pasted SVG");
@@ -77,10 +88,16 @@ export function place(file: File | string, inPlace = false) {
 
 /** Object > Relink… (ADR-0042): the file becomes the Image's pixels; the Worker checks it. */
 export function relink(nodeId: string, file: File) {
-  const docId = useStore.getState().doc?.id;
-  if (!docId) return;
+  const { doc, isolated } = useStore.getState();
+  if (!doc) return;
   const query = new URLSearchParams({ nodeId, name: file.name });
-  postFile(docId, `/api/docs/${docId}/relink-image?${query}`, file, `relink ${file.name}`);
+  postFile(
+    doc.id,
+    `/api/docs/${doc.id}/relink-image?${query}`,
+    file,
+    `relink ${file.name}`,
+    isolated,
+  );
 }
 
 /** What a paste places: SVG text, else the first image file. */
