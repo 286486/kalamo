@@ -1,5 +1,5 @@
 import { memo, useState } from "react";
-import { layerMask, nameOf, rows } from "./layers.ts";
+import { layerIsolation, layerMask, nameOf, rows } from "./layers.ts";
 import { combine, objects } from "./selection.ts";
 import { send, useStore } from "./store.ts";
 
@@ -40,6 +40,7 @@ export const Layers = memo(function Layers() {
     send({ type: "update", nodeId, patch });
   };
   const mask = layerMask(doc, selection, isolated);
+  const isolation = layerIsolation(doc, selection, isolated);
   const listed = rows(doc, toggled, isolated);
 
   return (
@@ -64,8 +65,8 @@ export const Layers = memo(function Layers() {
           const pick = (e: React.MouseEvent) => {
             const { doc, selection } = useStore.getState();
             if (!doc) return;
-            // A Layer or the isolated Group is never selected itself: its row selects the objects
-            // in it.
+            // A Layer or an isolated container is never selected itself: its row selects the objects
+            // in it. An isolated leaf's row selects the leaf.
             const ids =
               node.type !== "layer" && node.id !== isolated
                 ? [node.id]
@@ -152,8 +153,11 @@ export const Layers = memo(function Layers() {
           );
         })}
       </div>
-      {/* Illustrator's Make/Release Clipping Mask at the panel's foot (ADR-0053). */}
-      <div style={{ display: "flex", padding: 4, borderTop: "1px solid #CCC" }}>
+      {/*
+        Illustrator's Make/Release Clipping Mask (ADR-0053) and its panel menu's Enter Isolation
+        Mode (ADR-0058) at the panel's foot. A viewer isolates as it selects (ADR-0057).
+      */}
+      <div style={{ display: "flex", gap: 4, padding: 4, borderTop: "1px solid #CCC" }}>
         <button
           type="button"
           disabled={!mask.command}
@@ -164,6 +168,19 @@ export const Layers = memo(function Layers() {
           }}
         >
           {mask.label}
+        </button>
+        <button
+          type="button"
+          disabled={!isolation.target}
+          aria-label={isolation.label}
+          title={isolation.label}
+          onClick={() => {
+            if (isolation.target) {
+              useStore.setState({ notice: null, isolated: isolation.target, selection: [] });
+            }
+          }}
+        >
+          Isolation Mode
         </button>
       </div>
     </div>

@@ -1,3 +1,4 @@
+import { forNewArt } from "./isolation.ts";
 import { placeParent } from "./selection.ts";
 import { useStore } from "./store.ts";
 import { toDoc } from "./viewport.ts";
@@ -43,14 +44,18 @@ export const PLACEABLE = ".svg,image/*";
 export const placeable = (file: File) => isSvg(file) || file.type.startsWith("image/");
 
 /**
- * Place at the centre of the canvas, or pasted text where it was with `inPlace`, in the isolated
- * Group, the Selection's Layer or the top one: an SVG as a Group (ADR-0017), or a Zibel copy's
- * Nodes as they were (ADR-0030), any other file as an Image, which the Worker checks (ADR-0023).
+ * Place at the centre of the canvas, or pasted text where it was with `inPlace`, in placeParent's
+ * Layer or isolated Group or sub-Layer, an isolated leaf left first (ADR-0058): an SVG as a Group
+ * (ADR-0017), or a Zibel copy's Nodes as they were (ADR-0030), any other file as an Image, which
+ * the Worker checks (ADR-0023).
  */
 export function place(file: File | string, inPlace = false) {
-  const { doc, viewport: v, selection, isolated, size } = useStore.getState();
-  const parentId = doc && placeParent(doc, selection, isolated);
-  if (!doc || !v || !parentId) return;
+  const s = useStore.getState();
+  const { doc, viewport: v, size } = s;
+  const at = doc && forNewArt(doc, s);
+  const parentId = doc && at && placeParent(doc, at.selection, at.isolated);
+  if (!doc || !v || !at || !parentId) return;
+  useStore.setState(at);
   const docId = doc.id;
   const { x, y } = toDoc(v, size.width / 2, size.height / 2);
   const query = new URLSearchParams({ parentId, x: String(x), y: String(y) });

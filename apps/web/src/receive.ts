@@ -75,7 +75,7 @@ export interface ViewState {
   doc: Document | null;
   /** UI state only, never sent as a Document property (CONTEXT.md). */
   selection: string[];
-  /** The isolated Group (ADR-0057): UI state, like the Selection. */
+  /** The isolated Node (ADR-0057, ADR-0058): UI state, like the Selection. */
   isolated: string | null;
   /** Drawn until the answer to its command arrives, so a committed move does not flicker. */
   drag: Drag | null;
