@@ -241,3 +241,51 @@ it("exports PNG as image content with its viewport, in the same scopes", async (
   });
   expect(pngSize(result)).toEqual({ width: 108, height: 68 });
 });
+
+it("renders and exports a scope while a Clipping Mask or a translucent Node lies far outside it (ADR-0054)", async () => {
+  const doc = await newDoc([
+    { width: 100, height: 100 },
+    { width: 100, height: 100 },
+  ]);
+  const { docId, defaultLayerId: parentId } = doc;
+  const [contentId, clipId] = (
+    await call("zibel_node_create", {
+      docId,
+      nodes: [
+        { type: "rect", parentId, x: 300, y: 0, width: 20, height: 20 },
+        { type: "ellipse", parentId, x: 305, y: 5, width: 5, height: 5 },
+      ],
+    })
+  ).structuredContent.createdIds;
+  const mask = await call("zibel_mask_make", {
+    docId,
+    clipNodeId: clipId,
+    contentIds: [contentId],
+  });
+  expect(mask.isError).toBeFalsy();
+  const artboardId = doc.artboards[0]?.id;
+  await render({ docId, scope: { artboardId } });
+  await render({ docId, scope: { rect: { x: 0, y: 0, width: 50, height: 50 } } });
+  const png = await call("zibel_export", { docId, format: "png", scope: { artboardId } });
+  expect(png.isError).toBeFalsy();
+  expect(pngSize(png)).toEqual(png.structuredContent.viewport.pixelSize);
+  // export SVG still writes the far Clipping Mask.
+  const svg = await call("zibel_export", { docId, format: "svg", scope: { artboardId } });
+  expect(svg.content[0].text).toContain("<clipPath");
+
+  const lone = await newDoc([{ width: 100, height: 100 }]);
+  const [rectId] = (
+    await call("zibel_node_create", {
+      docId: lone.docId,
+      nodes: [
+        { type: "rect", parentId: lone.defaultLayerId, x: 1000, y: 0, width: 20, height: 20 },
+      ],
+    })
+  ).structuredContent.createdIds;
+  const updated = await call("zibel_node_update", {
+    docId: lone.docId,
+    updates: [{ nodeId: rectId, patch: { opacity: 0.5 } }],
+  });
+  expect(updated.isError).toBeFalsy();
+  await render({ docId: lone.docId });
+});

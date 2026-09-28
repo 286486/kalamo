@@ -135,6 +135,12 @@ export interface SvgOptions {
   linked?: "link" | "draw";
   /** The stroke width in pt of a missing link drawn by `draw`: one pixel at the render's scale. */
   hairline?: number;
+  /**
+   * Leaves out, with all it contains, every Node whose visible bounds miss this rect or that draws
+   * nothing; a Clipping Path is written whenever its Clipping Mask is. `render` passes it, since
+   * resvg panics on an isolated Node far outside the image (ADR-0054). Nodes left out are not drawn.
+   */
+  cull?: Rect;
 }
 
 /** Which Nodes a walk draws: all of them, or those inside `scope`. */
@@ -148,6 +154,8 @@ interface Walk {
   images: ImageSource | undefined;
   linked: "link" | "draw";
   hairline: number;
+  /** The cull rect, and the Nodes it keeps so far, whose copies a container's Appearance paints. */
+  cull?: { rect: Rect; kept: Set<string> };
 }
 
 /**
@@ -195,6 +203,7 @@ export function toSvg(doc: Document, rect?: Rect, opts: SvgOptions = {}): string
         images: opts.images,
         linked: opts.linked ?? "link",
         hairline: opts.hairline ?? 1,
+        cull: opts.cull && { rect: opts.cull, kept: new Set() },
       }),
     )
     .join("");
@@ -323,7 +332,16 @@ const transformAttr = (m: Matrix) =>
 
 const style = (...parts: (string | false)[]) => parts.filter(Boolean).join(";") || undefined;
 
+/** Whether two rects share more than an edge. */
+const overlaps = (a: Rect, b: Rect) =>
+  a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+
 function node(doc: Document, n: Node, walk: Walk): string {
+  if (walk.cull) {
+    const b = visibleBounds(doc, n);
+    if (!b || !overlaps(b, walk.cull.rect)) return "";
+    walk.cull.kept.add(n.id);
+  }
   // A hidden Node is written, so Inkscape shows it in the Layers panel, but never drawn.
   const hidden = walk.hidden || !n.visible;
   const inside = walk.inside || walk.scope?.has(n.id) === true;
@@ -351,7 +369,7 @@ function node(doc: Document, n: Node, walk: Walk): string {
     // A Clipping Mask's clip sits among its children, where Inkscape keeps it (ADR-0021); it is
     // written for every scope that draws the Group, and is never drawn itself.
     if (clip) {
-      const leaf = node(doc, clip, { ...walk, inside: true, hidden, drawn: [] });
+      const leaf = node(doc, clip, { ...walk, inside: true, hidden, drawn: [], cull: undefined });
       // An Area Type's frame cannot sit inside the <clipPath>, so its <defs> goes just before.
       const frame =
         clip.type === "text" && clip.kind === "area" ? `<defs>${areaFrame(clip)}</defs>` : "";
@@ -359,7 +377,7 @@ function node(doc: Document, n: Node, walk: Walk): string {
         `${frame}<clipPath${attrs({ id: clipId(n.id), clipPathUnits: "userSpaceOnUse" })}>${leaf}</clipPath>`;
     }
     const clipPath = clip ? `url(#${clipId(n.id)})` : undefined;
-    const paints = inside ? containerPaints(doc, n) : [];
+    const paints = inside ? containerPaints(doc, n, walk.cull?.kept) : [];
     const { contents } = containerAppearance(n);
     const [fills, strokes] =
       clip && inside ? (["fills", "strokes"] as const).map((l) => clipPaint(clip, l)) : ["", ""];
@@ -499,11 +517,12 @@ function clipPaint(clip: LeafNode, list: "fills" | "strokes"): string {
  * A gradient is in a `<defs>` just before the group: Inkscape 1.2.2 never finishes updating a group
  * holding the `<defs>` it paints from. SVG resolves it in each painting element's user space, so a
  * transformed text copy paints with its own copy of it, mapped back through that transform.
+ * Under a cull, only the `kept` leaves get a copy.
  */
-function containerPaints(doc: Document, n: LayerNode | GroupNode): string[] {
+function containerPaints(doc: Document, n: LayerNode | GroupNode, kept?: Set<string>): string[] {
   const { fills, strokes } = containerAppearance(n);
   if (fills.length + strokes.length === 0) return [];
-  const leaves = paintedLeaves(doc, n);
+  const leaves = paintedLeaves(doc, n).filter((l) => !kept || kept.has(l.node.id));
   const group = (list: "fill" | "stroke", p: Fill | Stroke, i: number) => {
     const stroke = list === "stroke" ? (p as Stroke) : undefined;
     const id = gradientId(list, i, n.id);
