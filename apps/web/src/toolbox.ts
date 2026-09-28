@@ -37,6 +37,9 @@ export interface ToolEvent {
   redraw(): void;
 }
 
+/** The modifiers a key can change mid-drag. */
+export type KeyMods = Pick<ToolEvent, "shift" | "alt" | "space">;
+
 /** A touch or pen press, in client px and ms, and its click count. */
 export interface Tap {
   x: number;
@@ -80,8 +83,8 @@ export interface CanvasTool {
   /** Drops the press; also when its release comes after the Document went. */
   cancel?(redraw: () => void): void;
   leave?(e: ToolEvent): void;
-  /** Shift, Alt or Space pressed or released while the tool holds the pointer. */
-  keyChange?(mods: Pick<ToolEvent, "shift" | "alt" | "space">, redraw: () => void): void;
+  /** Any key pressed or released while the tool holds the pointer, with the modifiers now held. */
+  keyChange?(mods: KeyMods, redraw: () => void): void;
   /** Its options dialog, opened by double-clicking the tool. */
   options?(): void;
   /** A key that is neither a tool's nor the Fill and Stroke boxes'; true when it took the key. */

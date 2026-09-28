@@ -15,7 +15,7 @@ import { anchorsOf, hasAnchors, localAnchors, nearestSegment } from "./direct.ts
 import { forNewArt, leaving } from "./isolation.ts";
 import { editable } from "./selection.ts";
 import { send, useStore } from "./store.ts";
-import { constrain, near, newArtNode, pathD } from "./tools.ts";
+import { constrain, NOTHING_DRAWN, near, newArtNode, pathD } from "./tools.ts";
 
 /** The Pencil (research 06 §3): Ink fitted on release, as one `create` or one `path_edit`. */
 
@@ -355,7 +355,7 @@ export function pencilUp(scale: number) {
     { type: "path", d: pathD(r.path.anchors, r.path.closed) },
   );
   if (!node) {
-    useStore.setState({ notice: "The Layer is hidden or locked; nothing was drawn." });
+    useStore.setState({ notice: NOTHING_DRAWN });
     return;
   }
   const commandId = send({ type: "create", nodes: [node] });

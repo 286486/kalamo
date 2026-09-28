@@ -1,4 +1,4 @@
-import { createDocument } from "@zibel/core";
+import { createDocument, createNodes } from "@zibel/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { dragBox, ellipseTool, rectangleTool } from "./shapeTool.ts";
 import { send, useStore } from "./store.ts";
@@ -27,6 +27,7 @@ describe("dragBox", () => {
     [[16, 14], { x: 10, y: 10, width: 6, height: 6 }],
     [[4, 6], { x: 4, y: 4, width: 6, height: 6 }],
     [[12, 2], { x: 10, y: 2, width: 8, height: 8 }],
+    [[8, 17], { x: 3, y: 10, width: 7, height: 7 }],
   ] as const)("Shift makes a square as big as the longer side, toward %j", (p, box) => {
     expect(dragBox(press, [...p], { ...NONE, shift: true })).toEqual(box);
   });
@@ -35,12 +36,16 @@ describe("dragBox", () => {
     const box = { x: 4, y: 6, width: 12, height: 8 };
     expect(dragBox(press, [16, 14], { ...NONE, alt: true })).toEqual(box);
     expect(dragBox(press, [4, 6], { ...NONE, alt: true })).toEqual(box);
+    expect(dragBox(press, [16, 6], { ...NONE, alt: true })).toEqual(box);
+    expect(dragBox(press, [4, 14], { ...NONE, alt: true })).toEqual(box);
   });
 
   it("Shift and Alt make a square centred on the press", () => {
     const box = { x: 4, y: 4, width: 12, height: 12 };
     expect(dragBox(press, [16, 12], { ...NONE, shift: true, alt: true })).toEqual(box);
     expect(dragBox(press, [8, 4], { ...NONE, shift: true, alt: true })).toEqual(box);
+    expect(dragBox(press, [16, 8], { ...NONE, shift: true, alt: true })).toEqual(box);
+    expect(dragBox(press, [8, 16], { ...NONE, shift: true, alt: true })).toEqual(box);
   });
 });
 
@@ -122,13 +127,37 @@ it("Space moves the shape, and sizing resumes from the moved origin", () => {
   expect(sent()).toMatchObject({ nodes: [{ x: 15, y: 20, width: 15, height: 10 }] });
 });
 
-it("reads Shift and Alt pressed without a move", () => {
+it("previews Shift and Alt pressed or released without a move", () => {
+  const rects: number[][] = [];
+  vi.stubGlobal(
+    "Path2D",
+    class {
+      rect(...box: number[]) {
+        rects.push(box);
+      }
+    },
+  );
+  const ctx = { fill() {}, stroke() {} } as unknown as CanvasRenderingContext2D;
   const tool = rectangleTool;
+  const preview = () => {
+    tool.draw?.(ctx, doc, 1);
+    return rects.at(-1);
+  };
   tool.down(at([10, 10]));
   tool.move?.(at([16, 14]));
+  expect(preview()).toEqual([10, 10, 6, 4]);
   tool.keyChange?.({ ...NONE, shift: true, alt: true }, () => {});
-  tool.up?.(at([16, 14], { shift: true, alt: true }));
-  expect(sent()).toMatchObject({ nodes: [{ x: 4, y: 4, width: 12, height: 12 }] });
+  expect(preview()).toEqual([4, 4, 12, 12]);
+  tool.keyChange?.(NONE, () => {});
+  expect(preview()).toEqual([10, 10, 6, 4]);
+  tool.cancel?.(() => {});
+  vi.unstubAllGlobals();
+});
+
+it("sends nothing for a drag back to a line or a point", () => {
+  dragWith(rectangleTool, [30, 40], [[40, 50]], [[50, 40]]);
+  dragWith(ellipseTool, [30, 40], [[40, 50]], [[30, 40], { alt: true }]);
+  expect(send).not.toHaveBeenCalled();
 });
 
 it("draws nothing into a hidden or locked Layer, and says why", () => {
@@ -139,4 +168,19 @@ it("draws nothing into a hidden or locked Layer, and says why", () => {
   dragWith(ellipseTool, [0, 0], [[20, 20]]);
   expect(send).not.toHaveBeenCalled();
   expect(useStore.getState()).toMatchObject({ pen: null, notice: /hidden or locked/ });
+});
+
+it("draws nothing into a locked Layer from an isolated leaf, leaving the Isolation and Selection", () => {
+  const d = structuredClone(doc);
+  const { keyMap } = createNodes(d, [
+    { type: "rect", clientKey: "leaf", parentId: defaultLayerId, x: 0, y: 0, width: 5, height: 5 },
+  ]);
+  const layer = d.nodes.get(defaultLayerId);
+  if (!layer) throw new Error("no Layer");
+  d.nodes.set(defaultLayerId, { ...layer, locked: true });
+  const view = { isolated: keyMap.leaf as string, selection: [keyMap.leaf as string] };
+  useStore.setState({ doc: d, ...view });
+  dragWith(rectangleTool, [0, 0], [[20, 20]]);
+  expect(send).not.toHaveBeenCalled();
+  expect(useStore.getState()).toMatchObject({ ...view, pen: null, notice: /hidden or locked/ });
 });

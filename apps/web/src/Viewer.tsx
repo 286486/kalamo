@@ -90,8 +90,8 @@ export function Viewer({ docId }: { docId: string }) {
   } = useStore();
   /** Space held: drag pans. */
   const [hand, setHand] = useState(false);
-  /** The same, for the key handler, which outlives the render it was made in. */
-  const space = useRef(false);
+  /** Space held, for the key handler, which outlives the render that made it. */
+  const spaceHeld = useRef(false);
   const [alt, setAlt] = useState(false);
   /** Pointer position at the last pan step; movementX/Y scale with devicePixelRatio in some Chromes. */
   const last = useRef({ x: 0, y: 0 });
@@ -270,9 +270,9 @@ export function Viewer({ docId }: { docId: string }) {
       // A menu, or the menu bar with focus, takes the keys it handles.
       if (down && (keysTaken() || (e.target as Element).closest?.("[role=menubar]"))) return;
       setAlt(e.altKey);
-      if (e.code === "Space") space.current = down;
+      if (e.code === "Space") spaceHeld.current = down;
       pressed.current?.keyChange?.(
-        { shift: e.shiftKey, alt: e.altKey, space: space.current },
+        { shift: e.shiftKey, alt: e.altKey, space: spaceHeld.current },
         redraw,
       );
       if (e.code === "Space") {

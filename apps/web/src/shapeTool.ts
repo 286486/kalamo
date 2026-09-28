@@ -2,18 +2,20 @@ import { dragged, drawDrawing, type Press } from "./canvas.ts";
 import { forNewArt, leaving } from "./isolation.ts";
 import type { ShapeBox } from "./receive.ts";
 import { send, useStore } from "./store.ts";
-import type { CanvasTool, ToolEvent } from "./toolbox.ts";
-import { newArtNode } from "./tools.ts";
+import type { CanvasTool, KeyMods } from "./toolbox.ts";
+import { NOTHING_DRAWN, newArtNode } from "./tools.ts";
 
 type Point = [number, number];
-type Box = Omit<ShapeBox, "type">;
-export type ShapeMods = Pick<ToolEvent, "shift" | "alt" | "space">;
 
 /**
  * The box a drag from `press` to `p` draws (F-DRAW-01): Shift makes it a square, as big as the
  * drag's longer side, and Alt centres it on `press`. A drag in any direction gives a positive size.
  */
-export function dragBox(press: Point, p: Point, { shift, alt }: Omit<ShapeMods, "space">): Box {
+export function dragBox(
+  press: Point,
+  p: Point,
+  { shift, alt }: Omit<KeyMods, "space">,
+): Omit<ShapeBox, "type"> {
   let [dx, dy] = [p[0] - press[0], p[1] - press[1]];
   if (shift) {
     const side = Math.max(Math.abs(dx), Math.abs(dy));
@@ -40,26 +42,24 @@ let drag: {
   gesture: Press;
   origin: Point;
   at: Point;
-  mods: ShapeMods;
-  box: Box | null;
+  box: ShapeBox | null;
 } | null = null;
 
-function update(p: Point, mods: ShapeMods, moved: boolean) {
+function update(p: Point, mods: KeyMods, moved: boolean) {
   if (!drag) return;
   // Space moves the whole shape: the origin follows the pointer, and sizing resumes from there.
   if (mods.space)
     drag.origin = [drag.origin[0] + p[0] - drag.at[0], drag.origin[1] + p[1] - drag.at[1]];
   drag.at = p;
-  drag.mods = mods;
-  if (moved) drag.box = dragBox(drag.origin, p, mods);
+  if (moved) drag.box = { type: drag.type, ...dragBox(drag.origin, p, mods) };
 }
 
-const outline = ({ type, x, y, width, height }: ShapeBox) => {
+function outline({ type, x, y, width, height }: ShapeBox) {
   const path = new Path2D();
   if (type === "rect") path.rect(x, y, width, height);
   else path.ellipse(x + width / 2, y + height / 2, width / 2, height / 2, 0, 0, 2 * Math.PI);
   return path;
-};
+}
 
 /**
  * Sends the drag as one `create` (ADR-0032), placed as the Pen places new art; the Live Shape is
@@ -71,7 +71,7 @@ function finish(shape: ShapeBox) {
   const at = forNewArt(s.doc, s);
   const node = newArtNode({ ...s, ...at, doc: s.doc }, shape);
   if (!node) {
-    useStore.setState({ notice: "The Layer is hidden or locked; nothing was drawn." });
+    useStore.setState({ notice: NOTHING_DRAWN });
     return;
   }
   const commandId = send({ type: "create", nodes: [node] });
@@ -94,7 +94,6 @@ const shapeTool = (
       gesture: { start: { x: e.x, y: e.y }, moved: false },
       origin: [e.x, e.y],
       at: [e.x, e.y],
-      mods: e,
       box: null,
     };
   },
@@ -113,7 +112,8 @@ const shapeTool = (
     update([e.x, e.y], e, !!dragged(drag.gesture, e));
     const { box } = drag;
     drag = null;
-    if (box) finish({ type, ...box });
+    // One dragged back to a line or a point would be invisible.
+    if (box && box.width > 0 && box.height > 0) finish(box);
     e.redraw();
   },
   cancel(redraw) {
@@ -123,7 +123,7 @@ const shapeTool = (
   draw(ctx, _doc, scale) {
     const { pen, fillStroke } = useStore.getState();
     if (drag?.type === type && drag.box) {
-      drawDrawing(ctx, outline({ type, ...drag.box }), fillStroke, scale);
+      drawDrawing(ctx, outline(drag.box), fillStroke, scale);
     } else if (pen?.shape?.type === type) {
       drawDrawing(ctx, outline(pen.shape), fillStroke, scale);
     }
