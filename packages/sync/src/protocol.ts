@@ -55,6 +55,11 @@ export interface RejectedMessage {
 
 export type ServerMessage = DocumentMessage | TxMessage | RejectedMessage;
 
+/** A socket closes with this after its User's Role changed; the browser reconnects (ADR-0047). */
+export const ACCESS_CHANGED = 4003;
+/** Every socket of a deleted Document closes with this; the browser stops. */
+export const DOC_DELETED = 4004;
+
 /** One gesture, as one core edit. Parsed by the Document DO: browsers are not trusted. */
 export const ClientMessage = z.object({
   type: z.literal("command"),

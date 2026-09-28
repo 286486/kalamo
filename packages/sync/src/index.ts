@@ -61,7 +61,8 @@ export interface DocInfo {
 }
 
 /** A caller's Role on a Document (ADR-0047). */
-export type Role = "owner" | "editor" | "viewer";
+export const ROLES = ["owner", "editor", "viewer"] as const;
+export type Role = (typeof ROLES)[number];
 
 /** A Document as `doc_list` lists it, from the D1 index (ADR-0015), with the caller's Role. */
 export interface DocSummary {

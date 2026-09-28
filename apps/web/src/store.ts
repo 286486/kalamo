@@ -1,5 +1,12 @@
 import { newId } from "@zibel/core";
-import type { ClientMessage, Command, Role, ServerMessage } from "@zibel/sync";
+import {
+  ACCESS_CHANGED,
+  type ClientMessage,
+  type Command,
+  DOC_DELETED,
+  type Role,
+  type ServerMessage,
+} from "@zibel/sync";
 import { create } from "zustand";
 import { parseKey } from "./direct.ts";
 import type { ImageCache } from "./images.ts";
@@ -70,11 +77,6 @@ export const canEdit = (s: Pick<State, "role">) => s.role !== "viewer";
 /** The tools a viewer keeps, which change nothing; Space pans as the Hand for everyone. */
 export const VIEWER_TOOLS: readonly Tool[] = ["selection", "zoom"];
 
-/** The socket closes with this when the User's Role changed, and reconnects. */
-const ACCESS_CHANGED = 4003;
-/** The socket closes with this when the Document was deleted, and stays closed. */
-const DOC_DELETED = 4004;
-
 let socket: WebSocket | null = null;
 
 /** Each Document Tab's viewport and Selection while another tab is shown, for the page's lifetime. */
@@ -115,7 +117,7 @@ export function connect(docId: string): () => void {
   let retry: ReturnType<typeof setTimeout>;
   let stopped = false;
   /** Set by a 4003 close until a Document arrives: failing then means access was removed. */
-  let changed = false;
+  let accessChanged = false;
   const stop = (notice: string) => {
     stopped = true;
     useStore.setState({ live: false, notice });
@@ -128,7 +130,7 @@ export function connect(docId: string): () => void {
       const msg = JSON.parse(e.data) as ServerMessage;
       const next = receive(useStore.getState(), msg, docId);
       if (msg.type === "document") {
-        changed = false;
+        accessChanged = false;
         const { tool } = useStore.getState();
         const viewer = msg.role === "viewer" && !VIEWER_TOOLS.includes(tool);
         useStore.setState({ live: true, role: msg.role, ...(viewer && { tool: "selection" }) });
@@ -139,8 +141,8 @@ export function connect(docId: string): () => void {
     ws.onclose = (e) => {
       if (stopped) return;
       if (e.code === DOC_DELETED) return stop("This Document was deleted.");
-      if (changed) return stop("This Document is no longer shared with you.");
-      changed = e.code === ACCESS_CHANGED;
+      if (accessChanged) return stop("This Document is no longer shared with you.");
+      accessChanged = e.code === ACCESS_CHANGED;
       useStore.setState({ live: false });
       // ponytail: fixed 1 s retry, forever; back off if many tabs hammer a dead server.
       retry = setTimeout(open, 1000);

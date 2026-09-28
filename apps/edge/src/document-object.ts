@@ -58,10 +58,12 @@ import { loadGeometry } from "@zibel/geometry";
 import { type OpenedFile, resolveLinks, scopeRect, svgRect, toSvg } from "@zibel/io";
 import { fit, renderSvg } from "@zibel/render";
 import {
+  ACCESS_CHANGED,
   type ChangeEntry,
   ClientMessage,
   type Command,
   type CreatedDocument,
+  DOC_DELETED,
   type DocInfo,
   type DocumentMessage,
   type OpenedDocument,
@@ -69,6 +71,7 @@ import {
   type RasterRequest,
   type RejectedMessage,
   type RenderRequest,
+  ROLES,
   type Role,
   type TxMessage,
   type Viewport,
@@ -95,13 +98,6 @@ interface Attachment {
   userId: string;
   role: Role;
 }
-
-/** Closes a socket whose Role changed; the browser reconnects and is authorized again. */
-export const ACCESS_CHANGED = 4003;
-/** Closes every socket of a deleted Document; the browser stops. */
-export const DOC_DELETED = 4004;
-
-const ROLES: readonly string[] = ["owner", "editor", "viewer"] satisfies Role[];
 
 /** RPC results carry errors as data: Workers RPC keeps only the message of a thrown error. */
 export type Result<T> = T | { error: ErrorData };
@@ -389,8 +385,8 @@ export class DocumentObject extends DurableObject<Env> {
     if (role === "viewer") {
       const error: ErrorData = {
         code: "PERMISSION_DENIED",
-        message: "You are a viewer of this Document: you can look but not change it.",
-        hint: "Ask the owner to make you an editor.",
+        message: "You are a viewer of this Document: you can read it but not change it.",
+        hint: "As a viewer, you can select, zoom and download. Ask the owner to make you an editor.",
       };
       ws.send(JSON.stringify({ type: "rejected", id, error } satisfies RejectedMessage));
       return;

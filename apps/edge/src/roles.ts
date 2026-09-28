@@ -143,7 +143,7 @@ async function share(
       path: "role",
     });
   }
-  const user = await member(env, principal, login);
+  const user = await member(env, docId, login);
   await env.DB.prepare(
     `INSERT INTO members (doc_id, user_id, role) VALUES (?, ?, ?)
      ON CONFLICT (doc_id, user_id) DO UPDATE SET role = excluded.role`,
@@ -156,7 +156,7 @@ async function share(
 
 async function unshare(env: Env, principal: Principal, docId: string, login: string) {
   await authorize(env, principal, docId, "own");
-  const user = await member(env, principal, login);
+  const user = await member(env, docId, login);
   await env.DB.prepare("DELETE FROM members WHERE doc_id = ? AND user_id = ?")
     .bind(docId, user.id)
     .run();
@@ -164,11 +164,14 @@ async function unshare(env: Env, principal: Principal, docId: string, login: str
   return { login: user.login, removed: true };
 }
 
-/** The User a login names, case-insensitively, who is not the owner. */
-async function member(env: Env, principal: Principal, login: string) {
-  const user = await env.DB.prepare("SELECT id, login FROM users WHERE login = ? COLLATE NOCASE")
-    .bind(login)
-    .first<{ id: string; login: string }>();
+/** The User a login names, case-insensitively, who is not the Document's owner. */
+async function member(env: Env, docId: string, login: string) {
+  const user = await env.DB.prepare(
+    `SELECT u.id, u.login, u.id = d.owner_id AS owns FROM users u, documents d
+     WHERE u.login = ? COLLATE NOCASE AND d.id = ?`,
+  )
+    .bind(login, docId)
+    .first<{ id: string; login: string; owns: number }>();
   if (!user) {
     throw new ZibelError({
       code: "INVALID_INPUT",
@@ -177,10 +180,10 @@ async function member(env: Env, principal: Principal, login: string) {
       path: "login",
     });
   }
-  if (user.id === principal.userId) {
+  if (user.owns) {
     throw new ZibelError({
       code: "INVALID_INPUT",
-      message: "You own this Document; the owner is never a member.",
+      message: `${user.login} owns this Document; the owner is never a member.`,
       hint: "Share it with someone else's GitHub login.",
       path: "login",
     });
