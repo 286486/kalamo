@@ -1078,6 +1078,53 @@ it("opens a file with content Zibel cannot hold, with one warning per kind", () 
   for (const w of file.warnings) expect(w.message).not.toBe("");
 });
 
+it("drops an element its Node cannot hold with one warning per kind, keeping the rest", () => {
+  const bad = [
+    '<text font-size="0">zero</text>',
+    '<text font-size="-3">negative</text>',
+    '<rect width="-5" height="5"/>',
+    '<circle r="-5"/>',
+    '<rect x="1e400" width="5" height="5"/>',
+  ];
+  const good =
+    '<rect id="z-01ARZ3NDEKTSV4RRFFQ69G5FAV" x="1" y="2" width="3" height="4" fill="#FF0000"/>';
+  const at = (body: string) => parseFile(svg('viewBox="0 0 10 10" width="10"', body));
+  const own = (f: ReturnType<typeof at>) => leaves(f).map(({ parentId, index, ...n }) => n);
+  const file = at(`<g>${bad.join("")}</g>${good}`);
+  expect(own(file)).toEqual(own(at(good)));
+  expect(file.warnings.map((w) => [w.code, w.message])).toEqual(
+    // A circle is an ellipse, so r="-5" is a width like the rect's.
+    ["fontSize", "width", "x"].map((key) => [
+      "INVALID_ELEMENT",
+      expect.stringMatching(new RegExp(`^An element was dropped: element\\.${key}: `)),
+    ]),
+  );
+});
+
+it("opens a control character in text as a space, not a failed Open", () => {
+  const file = parseFile(svg("", "<text>a&#x0B;b</text><text>c&#x7F;d</text>"));
+  expect(leaves(file).map((n) => n.type === "text" && n.content)).toEqual(["a b", "c d"]);
+  expect(file.warnings).toEqual([]);
+});
+
+it("ignores a stack paint's unreadable transform, and drops one scaled to nothing, as walk does", () => {
+  const stack = (transform: string) =>
+    parseFile(
+      svg(
+        "",
+        `<g zibel:stack="true"><rect width="5" height="5" fill="#FF0000" transform="${transform}"/><rect width="5" height="5" fill="none" stroke="#0000FF"/></g>`,
+      ),
+    );
+  const unreadable = stack("scale(1e400)");
+  expect(leaves(unreadable)).toMatchObject([
+    { type: "rect", width: 5, transform: [1, 0, 0, 1, 0, 0] },
+  ]);
+  expect(unreadable.warnings).toMatchObject([{ code: "INVALID_TRANSFORM" }]);
+  const flat = stack("scale(0)");
+  expect(leaves(flat)).toMatchObject([{ appearance: { fills: [], strokes: [{}] } }]);
+  expect(flat.warnings).toMatchObject([{ code: "INVALID_TRANSFORM" }]);
+});
+
 it("refuses Groups nested deeper than MAX_DEPTH with LIMIT_EXCEEDED", () => {
   const deep = (n: number) =>
     svg("", `${"<g>".repeat(n)}<rect width="1" height="1"/>${"</g>".repeat(n)}`);

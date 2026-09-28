@@ -151,7 +151,8 @@ const FileSchema = z.strictObject({
     )
     .min(1)
     .max(1000),
-  nodes: z.array(StoredNode),
+  // Each one checked by parseNode, so its errors name its index.
+  nodes: z.array(z.unknown()),
   images: z
     .record(z.string().regex(IMAGE_ID, "An image's key is its SHA-256, in hex."), z.string())
     .optional(),
@@ -160,6 +161,38 @@ const FileSchema = z.strictObject({
 const HINT = "A .zibel.json file is what zibel_export returns with format zibel_json.";
 const invalid = (path: string, message: string, hint = HINT) =>
   new ZibelError({ code: "INVALID_DOCUMENT", message, hint, path });
+
+/**
+ * One Node of a file, checked as `parseDocument` checks each and stored canonical; `at` is its path
+ * in the file, which every error names. The SVG reader checks each element's Node with it.
+ */
+export function parseNode(raw: unknown, at: string): Node {
+  const parsed = StoredNode.safeParse(raw);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0] as z.core.$ZodIssue;
+    const keys = issue.code === "unrecognized_keys" ? issue.keys.slice(0, 1) : [];
+    const path = `${at}${zodPath([...issue.path, ...keys])}`;
+    throw invalid(path, `${path}: ${issue.message}`);
+  }
+  const n = parsed.data;
+  if (n.type === "layer" || n.type === "group") {
+    const { appearance: a, ...rest } = n;
+    return a ? { ...rest, appearance: paintContainer(a, `${at}.appearance`, () => null) } : rest;
+  }
+  if (n.type === "image") return n;
+  if (n.type === "text") {
+    const { ranges, ...text } = n;
+    const canonical = canonicalRanges(ranges, `${at}.ranges`);
+    const appearance = paint(text.appearance as AppearanceInput, `${at}.appearance`, text);
+    return { ...text, ...(canonical && { ranges: canonical }), appearance } as Node;
+  }
+  const painted = {
+    ...n,
+    appearance: paint(n.appearance as AppearanceInput, `${at}.appearance`, n),
+  };
+  if (painted.type === "path") painted.d = formatPath(parsePath(painted.d, `${at}.d`));
+  return painted as Node;
+}
 
 /**
  * Reads `.zibel.json` text (ADR-0016): runs the `up` migrations of an older version, then checks
@@ -213,26 +246,7 @@ export function parseDocument(
       }),
     }),
   );
-  const nodes = parsed.data.nodes.map((n, i): Node => {
-    const at = `nodes[${i}]`;
-    if (n.type === "layer" || n.type === "group") {
-      const { appearance: a, ...rest } = n;
-      return a ? { ...rest, appearance: paintContainer(a, `${at}.appearance`, () => null) } : rest;
-    }
-    if (n.type === "image") return n;
-    if (n.type === "text") {
-      const { ranges, ...text } = n;
-      const canonical = canonicalRanges(ranges, `${at}.ranges`);
-      const appearance = paint(text.appearance as AppearanceInput, `${at}.appearance`, text);
-      return { ...text, ...(canonical && { ranges: canonical }), appearance } as Node;
-    }
-    const painted = {
-      ...n,
-      appearance: paint(n.appearance as AppearanceInput, `${at}.appearance`, n),
-    };
-    if (painted.type === "path") painted.d = formatPath(parsePath(painted.d, `${at}.d`));
-    return painted as Node;
-  });
+  const nodes = parsed.data.nodes.map((n, i) => parseNode(n, `nodes[${i}]`));
 
   const unique = (ids: string[], at: (i: number) => string) => {
     const seen = new Set<string>();

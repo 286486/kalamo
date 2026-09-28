@@ -26,6 +26,7 @@ import {
   newId,
   normalizePath,
   parseDocument,
+  parseNode,
   pathBounds,
   preserveAspectRatio,
   type Rect,
@@ -285,6 +286,21 @@ const zibelAttr = (e: Element, name: ZibelAttr) => e.getAttributeNS(NS.zibel, na
 /** One paint of a container's Appearance, as export writes it (ADR-0043). */
 const isPaint = (e: Element) => zibelAttr(e, "paint") === "true";
 
+/** The properties every Node has, as `holds` checks a leaf's own without placing it. */
+const PLACED = {
+  id: "-",
+  name: "",
+  parentId: "-",
+  index: "a0",
+  visible: true,
+  locked: false,
+  opacity: 1,
+  blendMode: "normal",
+  transform: IDENTITY,
+  tags: [],
+  meta: {},
+};
+
 const CAPS = ["butt", "round", "square"];
 const JOINS = ["miter", "round", "bevel"];
 
@@ -407,16 +423,8 @@ class Reader {
       );
       return;
     }
-    let own = parseTransform(e.getAttribute("transform"));
-    // An unreadable transform is ignored, as SVG does; one that flattens the element to a line
-    // or point draws nothing, and a Node cannot carry it.
-    if (!own.every(Number.isFinite)) {
-      this.warn("INVALID_TRANSFORM", "nan", "An unreadable transform was ignored.");
-      own = [...IDENTITY] as Matrix;
-    } else if (flat(own)) {
-      this.warn("INVALID_TRANSFORM", "flat", "An element scaled to nothing was dropped.");
-      return;
-    }
+    const own = this.own(e);
+    if (!own) return;
     const matrix = multiply(ctx.matrix, own);
     const style = computeStyle(e, ctx.style, this.rules);
     const tag = e.localName;
@@ -471,10 +479,12 @@ class Reader {
     } else if (stack) {
       // One Node painted several times: its geometry from the first paint, its Fills, then its
       // Strokes, in order (ADR-0017).
-      const paints = elements(e).map((c) => {
+      const paints = elements(e).flatMap((c) => {
+        const own = this.own(c);
+        if (!own) return [];
         const s = computeStyle(c, style, this.rules);
-        const m = multiply(matrix, parseTransform(c.getAttribute("transform")));
-        return { shape: this.shape(c, m, s), look: this.appearance(s, c, m) };
+        const m = multiply(matrix, own);
+        return [{ shape: this.shape(c, m, s), look: this.appearance(s, c, m) }];
       });
       shape = paints.find((p) => p.shape)?.shape ?? null;
       appearance = {
@@ -489,7 +499,7 @@ class Reader {
       shape = this.shape(e, matrix, style);
       appearance = this.appearance(style, e, matrix);
     }
-    if (!shape) return;
+    if (!shape || !this.holds({ ...shape, ...(appearance && { appearance }) })) return;
     this.unsupported(e, style);
     // A clipped leaf, as Inkscape's Set Clip writes one, becomes a Clipping Mask of its own.
     const clip = this.clipOf(style, false);
@@ -502,6 +512,40 @@ class Reader {
     this.add({ ...base, ...shape, ...(appearance && { appearance }) } as Node);
     if (link) this.links.set(base.id, link);
     if (clip) this.clipping(clip, parentId, matrix);
+  }
+
+  /**
+   * `e`'s own transform. An unreadable one is ignored, as SVG does; one that flattens the element
+   * to a line or point is null, as it draws nothing and a Node cannot carry it.
+   */
+  private own(e: Element): Matrix | null {
+    const own = parseTransform(e.getAttribute("transform"));
+    if (!own.every(Number.isFinite)) {
+      this.warn("INVALID_TRANSFORM", "nan", "An unreadable transform was ignored.");
+      return [...IDENTITY] as Matrix;
+    }
+    if (!flat(own)) return own;
+    this.warn("INVALID_TRANSFORM", "flat", "An element scaled to nothing was dropped.");
+    return null;
+  }
+
+  /**
+   * Whether a leaf Node can hold `shape`, checked as the file will be; one that cannot, such as a
+   * negative width or a font size of 0, drops its element with a warning per key.
+   */
+  private holds(shape: Record<string, unknown>) {
+    try {
+      parseNode({ ...PLACED, ...shape }, "element");
+      return true;
+    } catch (error) {
+      if (!(error instanceof ZibelError)) throw error;
+      this.warn(
+        "INVALID_ELEMENT",
+        error.data.path ?? "",
+        `An element was dropped: ${error.data.message}`,
+      );
+      return false;
+    }
   }
 
   /**
@@ -521,14 +565,9 @@ class Reader {
       const s = computeStyle(c, style, this.rules);
       // Hidden in the editor, it draws nothing.
       if (s.display === "none") return;
-      const own = parseTransform(c.getAttribute("transform"));
-      // An unreadable transform is ignored, as walk ignores a leaf's; one that flattens it drops it.
-      const readable = own.every(Number.isFinite);
-      if (readable && flat(own)) {
-        this.warn("INVALID_TRANSFORM", "flat", "An element scaled to nothing was dropped.");
-        return;
-      }
-      const m = readable ? multiply(matrix, own) : matrix;
+      const own = this.own(c);
+      if (!own) return;
+      const m = multiply(matrix, own);
       // A container has no matrix, so its Strokes scale, and its gradients map into document
       // coordinates, as node_transform does them.
       const look = this.appearance(s, c, m, scaleOf(m));
