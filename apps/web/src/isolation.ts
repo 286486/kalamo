@@ -81,11 +81,12 @@ export function forNewArt(
 }
 
 /**
- * What new art from the Isolation `from` leaves once the Worker creates it (#137): the isolated leaf
- * that `at`, forNewArt's result, went up from, and the level it went to.
+ * The Isolation move a drawn `create` makes once the Worker's `tx` creates it (#137): from the
+ * isolated leaf `from` up to the level forNewArt's result `at` went to. Place checks the same in
+ * postFile.
  */
 export const leaving = (from: string | null, at: { isolated: string | null }) =>
-  from !== null && from !== at.isolated ? { leaf: from, to: at.isolated } : undefined;
+  from !== null && from !== at.isolated ? { from, to: at.isolated } : undefined;
 
 /**
  * The Isolation after `prev` became `doc`, from any Actor, undo or redo: the innermost level that

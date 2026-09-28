@@ -46,8 +46,8 @@ export interface PenPath {
   commandId: string | null;
   /** A Pencil stroke, sent on release: the Fill it is drawn with, and whether it stays selected. */
   pencil?: { fill: string | null; keep: boolean };
-  /** A `create` from an isolated leaf: the level to go up to once it is answered (`leaving`). */
-  leave?: { leaf: string; to: string | null };
+  /** A `create` from an isolated leaf `from`: the level `to` go up to once its `tx` creates the path. */
+  leave?: { from: string; to: string | null };
 }
 
 /**
@@ -161,7 +161,7 @@ export function receive(
   const leave = drawn ? s.pen?.leave : undefined;
   return {
     doc,
-    isolated: leave && isolated === leave.leaf ? prune(s.doc, doc, leave.to) : isolated,
+    isolated: leave && isolated === leave.from ? prune(s.doc, doc, leave.to) : isolated,
     // The path the Pen drew becomes the Selection, as in Illustrator.
     selection: drawn ? (s.pen?.pencil?.keep === false ? [] : [...made]) : [...new Set(selection)],
     ...(answered && { drag: null }),

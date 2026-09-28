@@ -91,38 +91,32 @@ const reconnect = () => {
   } as ServerMessage);
 };
 
-const tools: [string, (keep?: boolean) => void][] = [
-  [
-    "Pen",
-    () => {
-      for (const p of [[50, 50] as Point, [80, 60] as Point]) {
-        penDown(p, 1);
-        penUp();
-      }
-      finishPen();
-    },
-  ],
-  [
-    "Curvature",
-    () => {
-      for (const p of [[50, 50] as Point, [80, 60] as Point, [90, 90] as Point]) {
-        vi.advanceTimersByTime(1000);
-        curvatureDown(p, 1, false);
-        curvatureUp();
-      }
-      finishPen();
-    },
-  ],
-  [
-    "Pencil",
-    (keep = true) => {
-      savePencilOptions({ ...DEFAULT_PENCIL, keepSelected: keep });
-      pencilDown([50, 50]);
-      for (let x = 51; x <= 120; x++)
-        pencilMove([[x, 50 + ((x * 7) % 5)]], { shift: false, alt: false });
-      pencilUp(1);
-    },
-  ],
+const drawPen = () => {
+  for (const p of [[50, 50] as Point, [80, 60] as Point]) {
+    penDown(p, 1);
+    penUp();
+  }
+  finishPen();
+};
+const drawCurve = () => {
+  for (const p of [[50, 50] as Point, [80, 60] as Point, [90, 90] as Point]) {
+    vi.advanceTimersByTime(1000);
+    curvatureDown(p, 1, false);
+    curvatureUp();
+  }
+  finishPen();
+};
+const drawPencil = (keep = true) => {
+  savePencilOptions({ ...DEFAULT_PENCIL, keepSelected: keep });
+  pencilDown([50, 50]);
+  for (let x = 51; x <= 120; x++)
+    pencilMove([[x, 50 + ((x * 7) % 5)]], { shift: false, alt: false });
+  pencilUp(1);
+};
+const tools: [string, () => void][] = [
+  ["Pen", drawPen],
+  ["Curvature", drawCurve],
+  ["Pencil", drawPencil],
 ];
 
 beforeEach(() => {
@@ -185,15 +179,14 @@ describe.each(tools)("the %s with a leaf isolated (ADR-0058, #137)", (_, draw) =
 
 it("the Pencil with Keep selected off goes up and selects nothing", () => {
   const { id } = isolateLeaf();
-  const pencil = tools[2]?.[1];
-  pencil?.(false);
+  drawPencil(false);
   accept();
   expect(view()).toEqual({ isolated: id("g"), selection: [] });
 });
 
 it("a prune by another Actor's tx while the create is in flight wins", () => {
   const { id } = isolateLeaf();
-  tools[0]?.[1]();
+  drawPen();
   const doc = useStore.getState().doc as Document;
   const leaf = doc.nodes.get(id("leaf"));
   // Another Actor makes the leaf a Clipping Path: it can no longer be isolated.
@@ -236,7 +229,7 @@ it("a tab switched away while the create is in flight keeps the leaf isolated on
   socket?.onmessage?.({
     data: JSON.stringify({ type: "document", rev, name, artboards, nodes, role: "editor" }),
   });
-  tools[0]?.[1]();
+  drawPen();
   // The Viewer's cleanup: the answer to the create is lost with the socket.
   disconnect();
   connect("d")();
