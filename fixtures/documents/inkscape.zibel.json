@@ -77,6 +77,11 @@
       "frame": { "height": 120, "width": 120, "x": 1460, "y": 130 },
       "id": "01M38T29SYC11PPA1NTA4TB0RD",
       "name": "Clipping Paths"
+    },
+    {
+      "frame": { "height": 120, "width": 120, "x": 1320, "y": 130 },
+      "id": "01M38T29SZTEXTC11PARTB0RD0",
+      "name": "Text Clipping"
     }
   ],
   "nodes": [
@@ -2128,6 +2133,162 @@
       "width": 70,
       "x": 1490,
       "y": 160
+    },
+    {
+      "blendMode": "normal",
+      "id": "01M38T29SZTEXTC11PGR0VP000",
+      "index": "ai",
+      "locked": false,
+      "meta": {},
+      "name": "Type mask",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "blendMode": "normal",
+      "id": "01M38T29SZTEXTC11PGR0VP001",
+      "index": "aj",
+      "locked": false,
+      "meta": {},
+      "name": "Turned type mask",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "gradient": {
+              "end": { "x": 1430, "y": 205 },
+              "start": { "x": 1330, "y": 140 },
+              "stops": [{ "color": "#0066FF", "offset": 0 }, { "color": "#FF6600", "offset": 1 }],
+              "type": "linear"
+            },
+            "type": "gradient"
+          }
+        ],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "height": 65,
+      "id": "01M38T29SZTEXTC11PPH0T0000",
+      "index": "a0",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29SZTEXTC11PGR0VP000",
+      "radius": 0,
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "rect",
+      "visible": true,
+      "width": 100,
+      "x": 1330,
+      "y": 140
+    },
+    {
+      "appearance": { "fills": [{ "color": "#2A9D8F", "type": "solid" }], "strokes": [] },
+      "blendMode": "normal",
+      "height": 40,
+      "id": "01M38T29SZTEXTC11PPH0T0001",
+      "index": "a0",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29SZTEXTC11PGR0VP001",
+      "radius": 0,
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "rect",
+      "visible": true,
+      "width": 100,
+      "x": 1330,
+      "y": 205
+    },
+    {
+      "appearance": {
+        "fills": [{ "color": "#000000", "type": "solid" }],
+        "strokes": [
+          {
+            "cap": "butt",
+            "color": "#1A1A1A",
+            "dash": [],
+            "join": "miter",
+            "miterLimit": 10,
+            "width": 0.75
+          }
+        ]
+      },
+      "blendMode": "normal",
+      "clipping": true,
+      "content": "TYPE MASK\nhidden",
+      "fontFamily": "Source Sans 3",
+      "fontSize": 24,
+      "fontStyle": "Black",
+      "height": 58,
+      "id": "01M38T29SZTEXTC11PTYPE0000",
+      "index": "a1",
+      "kind": "area",
+      "leading": 26,
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29SZTEXTC11PGR0VP000",
+      "ranges": [{ "end": 6, "fill": "#FFFFFF", "start": 5 }],
+      "tags": [],
+      "transform": [0.990268, -0.139173, 0.139173, 0.990268, -10.925228, 193.761967],
+      "type": "text",
+      "visible": true,
+      "width": 96,
+      "x": 1332,
+      "y": 150
+    },
+    {
+      "appearance": {
+        "fills": [],
+        "strokes": [
+          {
+            "cap": "butt",
+            "color": "#264653",
+            "dash": [],
+            "join": "miter",
+            "miterLimit": 10,
+            "width": 0.5
+          }
+        ]
+      },
+      "blendMode": "normal",
+      "clipping": true,
+      "content": "Zibel",
+      "fontFamily": "Source Sans 3",
+      "fontSize": 28,
+      "fontStyle": "Black",
+      "id": "01M38T29SZTEXTC11PTYPE0001",
+      "index": "a1",
+      "kind": "point",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29SZTEXTC11PGR0VP001",
+      "ranges": [{ "baselineShift": 3, "end": 2, "rotation": 12, "start": 1 }],
+      "tags": [],
+      "transform": [0.994522, 0.104528, -0.104528, 0.994522, 31.155827, -142.488585],
+      "type": "text",
+      "visible": true,
+      "x": 1340,
+      "y": 236
     }
   ],
   "images": {

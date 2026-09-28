@@ -23,6 +23,7 @@ import {
   imageFrame,
   imagePixels,
   type LayerNode,
+  type LeafNode,
   type Matrix,
   type Node,
   NodeInput,
@@ -535,8 +536,20 @@ export interface PaintedLeaf {
   segments: Segment[];
   fillRule: FillRule;
   /** The Clipping Paths of the inner Clipping Masks it sits in, outermost first (ADR-0021). */
-  clips: { maskId: string; segments: Segment[]; fillRule: FillRule }[];
+  clips: LeafClip[];
 }
+
+/**
+ * An inner Clipping Mask's clip: a shape's outline under its fill rule, or a text, which clips by
+ * the glyphs it draws (ADR-0052) and whose `segments` are only its frame, for bounds.
+ */
+export type LeafClip = { maskId: string; segments: Segment[] } & (
+  | { fillRule: FillRule; text?: undefined }
+  | { text: TextNode }
+);
+
+const worldFrame = (doc: Document, n: TextNode) =>
+  transformSegments(shapeSegments(frameShape(textBox(n))), worldTransform(doc, n));
 
 const worldOutline = (
   doc: Document,
@@ -545,6 +558,12 @@ const worldOutline = (
   segments: transformSegments(shapeSegments(n), worldTransform(doc, n)),
   fillRule: n.type === "path" && n.fillRule === "evenodd" ? "evenodd" : "nonzero",
 });
+
+/** A Clipping Mask's Clipping Path as the clip of the leaves inside it. */
+export const leafClip = (doc: Document, maskId: string, clip: LeafNode): LeafClip =>
+  clip.type === "text"
+    ? { maskId, segments: worldFrame(doc, clip), text: clip }
+    : { maskId, ...worldOutline(doc, clip) };
 
 /**
  * The leaves a container's Appearance paints (ADR-0043): its descendant Live Shapes, Paths and
@@ -560,17 +579,12 @@ export function paintedLeaves(
     if (!n.visible || n.type === "image") return [];
     if (n.type === "layer" || n.type === "group") {
       const clip = clippingPath(doc, n);
-      const inner = clip ? [...clips, { maskId: n.id, ...worldOutline(doc, clip) }] : clips;
+      const inner = clip ? [...clips, leafClip(doc, n.id, clip)] : clips;
       return paintedLeaves(doc, n, inner);
     }
-    if (n.type === "text") {
-      const frame = transformSegments(
-        shapeSegments(frameShape(textBox(n))),
-        worldTransform(doc, n),
-      );
-      return [{ node: n, segments: frame, fillRule: "nonzero", clips }];
-    }
     if (n.clipping) return [];
+    if (n.type === "text")
+      return [{ node: n, segments: worldFrame(doc, n), fillRule: "nonzero", clips }];
     return [{ node: n, ...worldOutline(doc, n), clips }];
   });
 }
@@ -599,10 +613,10 @@ export const lockedIn = (doc: Document, node: Node | undefined): boolean =>
   (node.locked || lockedIn(doc, node.parentId ? doc.nodes.get(node.parentId) : undefined));
 
 const clipAmong = (children: Node[]) =>
-  children.find((c): c is ShapeNode => c.type !== "text" && "clipping" in c && c.clipping === true);
+  children.find((c): c is LeafNode => "clipping" in c && c.clipping === true);
 
-/** The Group's Clipping Path, which makes it a Clipping Mask (ADR-0021). */
-export function clippingPath(doc: Document, node: Node): ShapeNode | undefined {
+/** The Group's Clipping Path, which makes it a Clipping Mask (ADR-0021, ADR-0052). */
+export function clippingPath(doc: Document, node: Node): LeafNode | undefined {
   return node.type === "group" ? clipAmong(childrenOf(doc, node.id)) : undefined;
 }
 

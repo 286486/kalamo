@@ -775,7 +775,12 @@ export type ShapeNode = NodeBase &
     clipping?: boolean;
   };
 
-export type TextNode = NodeBase & TextShape & { appearance: Appearance };
+export type TextNode = NodeBase &
+  TextShape & {
+    appearance: Appearance;
+    /** The Clipping Path of its Group (ADR-0052); missing means false. */
+    clipping?: boolean;
+  };
 
 /** A Node that paints with an Appearance: a Live Shape, a Path or a text. */
 export type LeafNode = ShapeNode | TextNode;

@@ -18,6 +18,7 @@ import {
   type ImageSource,
   invert,
   type LayerNode,
+  type LeafNode,
   layoutText,
   lookup,
   type Matrix,
@@ -351,8 +352,11 @@ function node(doc: Document, n: Node, walk: Walk): string {
     // written for every scope that draws the Group, and is never drawn itself.
     if (clip) {
       const leaf = node(doc, clip, { ...walk, inside: true, hidden, drawn: [] });
+      // An Area Type's frame cannot sit inside the <clipPath>, so its <defs> goes just before.
+      const frame =
+        clip.type === "text" && clip.kind === "area" ? `<defs>${areaFrame(clip)}</defs>` : "";
       kids[children.indexOf(clip)] =
-        `<clipPath${attrs({ id: clipId(n.id), clipPathUnits: "userSpaceOnUse" })}>${leaf}</clipPath>`;
+        `${frame}<clipPath${attrs({ id: clipId(n.id), clipPathUnits: "userSpaceOnUse" })}>${leaf}</clipPath>`;
     }
     const clipPath = clip ? `url(#${clipId(n.id)})` : undefined;
     const paints = inside ? containerPaints(doc, n) : [];
@@ -405,7 +409,9 @@ function node(doc: Document, n: Node, walk: Walk): string {
       style: style(...looks),
     })}/>`;
   }
-  // Inside a <clipPath> SVG reads only the geometry and clip-rule (ADR-0051).
+  // Inside a <clipPath> SVG reads only the geometry and clip-rule (ADR-0051); a text's glyphs clip
+  // under nonzero (ADR-0052).
+  if (n.type === "text" && n.clipping) return text(n, { ...own, fill: "none" }, []);
   if (n.type !== "text" && n.clipping) {
     const rule = n.type === "path" && n.fillRule === "evenodd" ? "evenodd" : undefined;
     return `<${shape(n)}${attrs({ ...own, fill: "none", "clip-rule": rule })}/>`;
@@ -425,6 +431,7 @@ function leaf(
   { fills, strokes }: Appearance,
   own: Attrs,
   looks: readonly (string | false)[],
+  withFrame = true,
 ): { defs: string; body: string } {
   const element = (a: Attrs, extra: (string | false)[] = []) =>
     n.type === "text"
@@ -455,23 +462,24 @@ function leaf(
     body = `<g${attrs({ ...own, [zibel("stack")]: "true", style: style(...looks) })}>${paints}</g>`;
   }
   // Area Type flows in a frame Inkscape keeps in <defs>, one for all its paints (ADR-0022).
-  const frame =
-    n.type === "text" && n.kind === "area"
-      ? `<rect${attrs({ id: areaId(n.id), ...num(textBox(n)) })}/>`
-      : "";
+  const frame = withFrame && n.type === "text" && n.kind === "area" ? areaFrame(n) : "";
   const defs = frame || gradients.length > 0 ? `<defs>${frame}${gradients.join("")}</defs>` : "";
   return { defs, body };
 }
 
+const areaFrame = (n: TextNode) => `<rect${attrs({ id: areaId(n.id), ...num(textBox(n)) })}/>`;
+
 /**
  * A Clipping Path's Fills or its Strokes as a locked `<g zibel:paint>` in its opacity and mode,
  * holding one copy of it without an id painted as a leaf is, in its own transform, with the copy's
- * gradients in a `<defs>` just before the group (ADR-0051). Empty when it has none.
+ * gradients in a `<defs>` just before the group (ADR-0051); a text's copy flows in the frame its
+ * `<clipPath>` wrote. Empty when it has none.
  */
-function clipPaint(clip: ShapeNode, list: "fills" | "strokes"): string {
+function clipPaint(clip: LeafNode, list: "fills" | "strokes"): string {
   if (clip.appearance[list].length === 0) return "";
   const appearance = { fills: [], strokes: [], [list]: clip.appearance[list] };
-  const { defs, body } = leaf(clip, appearance, { transform: transformAttr(clip.transform) }, []);
+  const own = { transform: transformAttr(clip.transform) };
+  const { defs, body } = leaf(clip, appearance, own, [], false);
   const fill = list === "fills";
   return `${defs}<g${attrs({
     [zibel("paint")]: fill ? "clip-fill" : "clip-stroke",

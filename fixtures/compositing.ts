@@ -452,6 +452,38 @@ COMPOSITING.push(
   },
 );
 
+// A text Clipping Path (ADR-0052): the content shows through the glyphs as laid out, and the
+// overflow clips nothing. The Area Type's first stem spans x 12.5..18.2 on each line.
+COMPOSITING.push(
+  {
+    name: "a text Clipping Path shows the content only through its glyphs, its overflow clipping nothing",
+    nodes: [rect("photo", 0, 0, 200, 100, RED), areaType],
+    masks: [{ name: "mask", clip: "type", content: ["photo"] }],
+    patches: {},
+    probes: [
+      { x: 15, y: 18, rgb: RED },
+      { x: 15, y: 50, rgb: RED },
+      { x: 15, y: 34, rgb: WHITE },
+      { x: 15, y: 82, rgb: WHITE },
+      { x: 180, y: 50, rgb: WHITE },
+    ],
+  },
+  {
+    name: "a text Clipping Path's Fill shows behind the content in its glyphs, its Stroke over it",
+    nodes: [rect("photo", 0, 0, 200, 20, RED), areaType],
+    masks: [{ name: "mask", clip: "type", content: ["photo"] }],
+    patches: { type: { appearance: look([CYAN], [[BLUE, 2]]) } },
+    probes: [
+      { x: 15, y: 12, rgb: RED },
+      { x: 15, y: 25, rgb: CYAN },
+      { x: 12, y: 25, rgb: BLUE },
+      { x: 10, y: 25, rgb: WHITE },
+      { x: 15, y: 34, rgb: WHITE },
+      { x: 15, y: 82, rgb: WHITE },
+    ],
+  },
+);
+
 /** Whether `rgb` is within `tolerance` of `expected` on every channel. */
 export const near = (rgb: ArrayLike<number>, expected: RGB, tolerance = 3) =>
   expected.every((v, i) => Math.abs(Number(rgb[i]) - v) <= tolerance);

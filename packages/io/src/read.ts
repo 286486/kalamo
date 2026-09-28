@@ -5,6 +5,7 @@ import {
   applyTo,
   BlendMode,
   BUNDLED_FONT,
+  type CharacterRange,
   type ContainerAppearance,
   canonicalRanges,
   cssColor,
@@ -226,6 +227,17 @@ function lineHeight(value: string | undefined, fontSize: number, k: number) {
   return leading && leading > 0 ? n3(leading) : undefined;
 }
 
+/** A text without its Range Fills, which a `<clipPath>`'s paint never gives it (ADR-0052). */
+function unfilled(text: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  if (!text) return text;
+  const { ranges, ...rest } = text;
+  const kept = canonicalRanges(
+    (ranges as CharacterRange[] | undefined)?.map(({ fill: _, ...r }) => r),
+    "ranges",
+  );
+  return { ...rest, ...(kept && { ranges: kept }) };
+}
+
 /** Elements that draw, and those that only define or describe and are skipped without a word. */
 const DRAWN = new Set([
   "g",
@@ -241,8 +253,17 @@ const DRAWN = new Set([
   "text",
   "image",
 ]);
-/** What a Clipping Path can be: a Live Shape or Path, not a text (ADR-0021). */
-const CLIP_SHAPES = new Set(["rect", "circle", "ellipse", "line", "polyline", "polygon", "path"]);
+/** What a Clipping Path can be: a Live Shape, a Path or a text (ADR-0021, ADR-0052). */
+const CLIP_SHAPES = new Set([
+  "rect",
+  "circle",
+  "ellipse",
+  "line",
+  "polyline",
+  "polygon",
+  "path",
+  "text",
+]);
 const SILENT = new Set([
   "defs",
   "title",
@@ -665,21 +686,24 @@ class Reader {
       !el.getAttribute("clip-path") &&
       inner.length === 1 &&
       !!only &&
-      CLIP_SHAPES.has(only.localName ?? "");
+      CLIP_SHAPES.has(only.localName ?? "") &&
+      // Type on a Path is not a Node yet.
+      only.getElementsByTagName("textPath").length === 0;
     if (holds) return el;
     this.warn(
       "UNSUPPORTED_ATTRIBUTE",
       "clip-path",
-      "A clip-path Zibel cannot hold (on a Layer, a missing reference, objectBoundingBox units, or anything but one shape or path inside) was dropped; the artwork imports unclipped.",
+      "A clip-path Zibel cannot hold (on a Layer, a missing reference, objectBoundingBox units, or anything but one shape, path or text inside) was dropped; the artwork imports unclipped.",
     );
     return undefined;
   }
 
   /**
-   * The Clipping Path of `parentId` from the one shape in `clip`, drawn in `matrix`'s space. Its
-   * Appearance, opacity and blend mode come only from its Group's clip paint groups, each read from
-   * its copy as a leaf's (ADR-0051): the element inside a <clipPath> is never drawn, and Inkscape's
-   * Set Clip leaves the clipped object's old style on it.
+   * The Clipping Path of `parentId` from the one shape or text in `clip`, drawn in `matrix`'s
+   * space. Its Appearance, opacity and blend mode come only from its Group's clip paint groups, each
+   * read from its copy as a leaf's (ADR-0051): the element inside a <clipPath> is never drawn, and
+   * Inkscape's Set Clip leaves the clipped object's old style on it. So a text's Range Fills come
+   * from its Fill copy, by character index (ADR-0052).
    */
   private clipping(
     clip: Element,
@@ -695,10 +719,14 @@ class Reader {
       parseTransform(e.getAttribute("transform")),
     );
     // Inside a <clipPath> SVG reads clip-rule, never fill-rule.
-    const shape = this.shape(e, m, { ...style, "fill-rule": style["clip-rule"] ?? "nonzero" });
+    const shape =
+      e.localName === "text"
+        ? unfilled(this.text(e, style, m)?.shape)
+        : this.shape(e, m, { ...style, "fill-rule": style["clip-rule"] ?? "nonzero" });
     if (!shape) return;
     const appearance: Appearance = { fills: [], strokes: [] };
     let looks: Style | undefined;
+    let rangeFills: CharacterRange[] | undefined;
     for (const p of painted.paints) {
       const s = computeStyle(p, painted.style, this.rules);
       const own = this.own(p);
@@ -712,9 +740,27 @@ class Reader {
         zibelAttr(copy, "stack") === "true"
           ? stacked(this.stack(copy, cs, cm))
           : this.appearance(cs, copy, cm);
-      if (zibelAttr(p, "paint") === "clip-fill") appearance.fills.push(...look.fills);
+      const fill = zibelAttr(p, "paint") === "clip-fill";
+      if (fill) appearance.fills.push(...look.fills);
       else appearance.strokes.push(...look.strokes);
+      const t =
+        copy.localName === "text" ? copy : elements(copy).find((c) => c.localName === "text");
+      if (fill && e.localName === "text" && t && !rangeFills) {
+        const ts = t === copy ? cs : computeStyle(t, cs, this.rules);
+        const ranges = this.text(t, ts, t === copy ? cm : multiply(cm, this.own(t) ?? IDENTITY))
+          ?.shape.ranges as CharacterRange[] | undefined;
+        rangeFills = ranges?.flatMap(({ start, end, fill }) =>
+          fill ? [{ start, end, fill }] : [],
+        );
+      }
       looks ??= s;
+    }
+    if (rangeFills?.length) {
+      const ranges = canonicalRanges(
+        [...((shape.ranges as CharacterRange[]) ?? []), ...rangeFills],
+        "ranges",
+      );
+      Object.assign(shape, { ranges });
     }
     // SVG draws nothing through a hidden clip path, and a Clipping Path is never hidden.
     // One the Node cannot hold leaves the content unclipped.

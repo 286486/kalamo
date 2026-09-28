@@ -1,7 +1,8 @@
 import { clippingPath, createNodes } from "./document.ts";
 import { lookup } from "./edit.ts";
 import { collect, ZibelError } from "./errors.ts";
-import type { Document, GroupNode, MaskInput, Node, ShapeNode } from "./schema.ts";
+import type { Document, GroupNode, LeafNode, MaskInput, Node } from "./schema.ts";
+import { canonicalRanges } from "./text.ts";
 
 const invalid = (path: string, message: string, hint: string) =>
   new ZibelError({ code: "INVALID_MASK", message, hint, path });
@@ -23,16 +24,11 @@ export function makeMask(
     );
   }
   const clip = lookup(doc, clipNodeId, "clipNodeId");
-  if (
-    clip.type === "layer" ||
-    clip.type === "group" ||
-    clip.type === "text" ||
-    clip.type === "image"
-  ) {
+  if (clip.type === "layer" || clip.type === "group" || clip.type === "image") {
     throw invalid(
       "clipNodeId",
       `A ${clip.type} cannot be a Clipping Path.`,
-      "Clip with a Live Shape or Path; a text waits for Create Outlines.",
+      "Clip with a Live Shape, a Path or a text.",
     );
   }
   if (clip.clipping) {
@@ -90,12 +86,25 @@ export function makeMask(
   const group = { ...(made as GroupNode), index: top.index };
   const updated = members.map((m): Node => {
     const moved = { ...m, parentId: group.id };
-    return m === clip
-      ? { ...(moved as ShapeNode), clipping: true, appearance: { fills: [], strokes: [] } }
-      : moved;
+    return m === clip ? emptied({ ...clip, parentId: group.id }) : moved;
   });
   for (const n of [group, ...updated]) doc.nodes.set(n.id, n);
   return { group, updated };
+}
+
+/**
+ * The clip Node as a Clipping Path: no Fill and no Stroke, and for a text no Range Fill either,
+ * its Ranges kept canonical (ADR-0052).
+ */
+function emptied(clip: LeafNode): LeafNode {
+  const appearance = { fills: [], strokes: [] };
+  if (clip.type !== "text") return { ...clip, clipping: true, appearance };
+  const { ranges, ...text } = clip;
+  const kept = canonicalRanges(
+    ranges?.map(({ fill: _, ...r }) => r),
+    "ranges",
+  );
+  return { ...text, ...(kept && { ranges: kept }), clipping: true, appearance };
 }
 
 /**
@@ -105,7 +114,7 @@ export function makeMask(
 export function releaseMask(doc: Document, nodeIds: string[], { partial = false } = {}) {
   const { ok, failed } = collect(nodeIds, partial, (id, i) => {
     const n = lookup(doc, id, `nodeIds[${i}]`);
-    const clip = n.type !== "text" && "clipping" in n && n.clipping ? n : clippingPath(doc, n);
+    const clip = "clipping" in n && n.clipping ? n : clippingPath(doc, n);
     if (clip) return clip;
     throw invalid(
       `nodeIds[${i}]`,
@@ -115,7 +124,7 @@ export function releaseMask(doc: Document, nodeIds: string[], { partial = false 
   });
   const nodes = [...new Map(ok.map((c) => [c.id, c])).values()].map((c) => {
     const { clipping: _, ...rest } = c;
-    return rest as ShapeNode;
+    return rest as LeafNode;
   });
   for (const n of nodes) doc.nodes.set(n.id, n);
   return { nodes, failed };

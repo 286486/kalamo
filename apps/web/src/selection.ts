@@ -8,7 +8,9 @@ import {
   frameShape,
   type ImageNode,
   isLiveShape,
+  type LeafClip,
   type LeafNode,
+  leafClip,
   lockedIn,
   type MaskInput,
   type Node,
@@ -17,10 +19,12 @@ import {
   type ShapeNode,
   scaleOf,
   shapeSegments,
+  type TextNode,
   touches,
   transformSegments,
   worldTransform,
 } from "@zibel/core";
+import { drawClipGlyphs } from "@zibel/render/canvas";
 
 /**
  * What Illustrator's Selection tool picks for `node`: its outermost ancestor below a Layer, so a
@@ -92,9 +96,11 @@ export function hitTest(
       if (n.type === "layer" || n.type === "group") {
         // Outside its Clipping Path, a Clipping Mask draws only that path's Strokes (ADR-0051).
         const clip = clippingPath(doc, n);
-        const inClip = !clip || ctx.isPointInPath(outline(doc, clip), x, y, ruleOf(clip));
-        // A painted Clipping Path hits as a leaf does, its Fill anywhere it clips.
+        const inClip = !clip || within(ctx, doc, leafClip(doc, n.id, clip), x, y);
+        // A painted Clipping Path hits as a leaf does, its Fill anywhere it clips; a text anywhere
+        // in its frame, as a text leaf does (ADR-0052).
         const painted = clip && !clip.locked ? clip.appearance : { fills: [], strokes: [] };
+        const inFrame = clip?.type === "text" && paintedAt(ctx, doc, clip, x, y, tolerance);
         // Its Appearance hits as the leaf it paints, in draw order around the children
         // (ADR-0043); a leaf locked below it, or a point outside the leaf's inner Clipping Masks,
         // lets the click through.
@@ -103,11 +109,7 @@ export function hitTest(
           fills.length + strokes.length > 0
             ? paintedLeaves(doc, n)
                 .filter((l) => !lockedIn(doc, l.node))
-                .filter((l) =>
-                  l.clips.every((c) =>
-                    ctx.isPointInPath(new Path2D(formatPath(c.segments)), x, y, c.fillRule),
-                  ),
-                )
+                .filter((l) => l.clips.every((c) => within(ctx, doc, c, x, y)))
                 .map((l) => ({ ...l, path: new Path2D(formatPath(l.segments)) }))
             : [];
         type Leaf = (typeof leaves)[number];
@@ -124,12 +126,14 @@ export function hitTest(
         const paintsAt = (some: typeof paints) => {
           for (const p of some) for (const l of leaves) if (p(l)) hit = l.node;
         };
-        if (inClip) {
-          paintsAt(paints.slice(0, contents));
-          if (clip && painted.fills.length > 0) hit = clip;
-          walk(n.id);
+        if (inClip) paintsAt(paints.slice(0, contents));
+        if (clip && painted.fills.length > 0 && (clip.type === "text" ? inFrame : inClip)) {
+          hit = clip;
         }
-        if (clip && painted.strokes.length > 0) {
+        if (inClip) walk(n.id);
+        if (clip?.type === "text") {
+          if (inFrame && painted.strokes.length > 0) hit = clip;
+        } else if (clip && painted.strokes.length > 0) {
           ctx.lineWidth = Math.max(widest(doc, clip), tolerance);
           if (ctx.isPointInStroke(outline(doc, clip), x, y)) hit = clip;
         }
@@ -168,6 +172,28 @@ function paintedAt(
   if (n.appearance.fills.length > 0 && ctx.isPointInPath(path, x, y, ruleOf(n))) return true;
   ctx.lineWidth = Math.max(widest(doc, n), tolerance);
   return ctx.isPointInStroke(path, x, y);
+}
+
+/** Inside a Clipping Path: its outline under its fill rule, or where a text's glyphs draw. */
+const within = (ctx: CanvasRenderingContext2D, doc: Document, c: LeafClip, x: number, y: number) =>
+  c.text
+    ? glyphsAt(doc, c.text, x, y)
+    : ctx.isPointInPath(new Path2D(formatPath(c.segments)), x, y, c.fillRule);
+
+let scratch: OffscreenCanvasRenderingContext2D | null | undefined;
+
+/**
+ * Whether a text's glyphs, drawn as the canvas draws them, cover (x, y) in document coordinates:
+ * drawn into one scratch pixel centred on the point, its alpha read back (ADR-0052).
+ */
+function glyphsAt(doc: Document, t: TextNode, x: number, y: number): boolean {
+  scratch ??= new OffscreenCanvas(1, 1).getContext("2d", { willReadFrequently: true });
+  if (!scratch) return false;
+  scratch.setTransform(1, 0, 0, 1, 0, 0);
+  scratch.clearRect(0, 0, 1, 1);
+  scratch.setTransform(1, 0, 0, 1, 0.5 - x, 0.5 - y);
+  drawClipGlyphs(scratch, t, worldTransform(doc, t));
+  return (scratch.getImageData(0, 0, 1, 1).data[3] ?? 0) > 0;
 }
 
 /** A shape's widest Stroke, in document coordinates. */

@@ -724,6 +724,18 @@ describe("a Clipping Path under node_update and node_create (ADR-0021)", () => {
     expect(doc.nodes.get(content.id)?.visible).toBe(false);
   });
 
+  it("refuses to hide a text Clipping Path", () => {
+    const { doc, clip } = setup();
+    const [text] = createNodes(doc, [
+      { type: "text", parentId: clip.parentId as string, x: 0, y: 20, content: "Hi" },
+    ]).nodes;
+    if (!text) throw new Error("setup");
+    doc.nodes.set(clip.id, { ...shape(doc, clip.id), clipping: undefined });
+    doc.nodes.set(text.id, { ...text, clipping: true } as Node);
+    const e = errorOf(() => updateNodes(doc, [{ nodeId: text.id, patch: { visible: false } }]));
+    expect(e).toMatchObject({ code: "INVALID_PATCH", path: "updates[0].patch.visible" });
+  });
+
   it("refuses clipping given to node_create, as any key a node does not take", () => {
     const { doc, rect } = setup();
     expect(() => createNodes(doc, [rect(0, 0, { clipping: true })])).toThrow(/clipping/);

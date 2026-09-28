@@ -96,11 +96,14 @@ it("auto-names a text by its content", () => {
   ).toBe("Q3 revenue");
 });
 
-it("auto-names a Clipping Mask and its Clipping Path as Illustrator does", () => {
+it.each([
+  ["an ellipse", { type: "ellipse", x: 0, y: 0, width: 5, height: 5 }],
+  ["a text", { type: "text", x: 0, y: 5, content: "Hi" }],
+])("auto-names a Clipping Mask and its Clipping Path, %s, as Illustrator does", (_, by) => {
   const { doc, defaultLayerId: parentId } = createDocument({ id: "d", name: "D", artboards: [] });
   const [content, clip] = createNodes(doc, [
     { type: "rect", parentId, x: 0, y: 0, width: 5, height: 5 },
-    { type: "ellipse", parentId, x: 0, y: 0, width: 5, height: 5 },
+    { ...by, parentId } as never,
   ]).nodes as [Node, Node];
   const { group } = makeMask(doc, { clipNodeId: clip.id, contentIds: [content.id] });
   expect(autoName(doc, group)).toBe("<Clip Group>");

@@ -206,6 +206,9 @@ it("exports the fixture Document as Inkscape SVG that matches the stored file", 
     // ADR-0051: a stroked Clipping Path's clip wraps the content, its Strokes drawn after it.
     `<g ${z("SYC11PPA1NTGR0VP00")} inkscape:label="Framed"><g zibel:clipped="true" clip-path="url(#clip-z-01M38T29SYC11PPA1NTGR0VP00)">`,
     '<g zibel:paint="clip-stroke" sodipodi:insensitive="true" inkscape:label="Clipping Path Stroke" style="opacity:0.6;mix-blend-mode:multiply">',
+    // ADR-0052: a text Clipping Path unpainted in its <clipPath>, its overflow hidden.
+    `<clipPath id="clip-z-01M38T29SZTEXTC11PGR0VP000" clipPathUnits="userSpaceOnUse"><text font-family="Source Sans 3" font-size="24" font-weight="900" ${z("SZTEXTC11PTYPE0000")}`,
+    '<tspan style="visibility:hidden">hidden</tspan></text></clipPath>',
   ]) {
     expect(svg).toContain(part);
   }

@@ -1,4 +1,14 @@
-import { createDocument, createNodes, makeMask, type Node, type ShapeNode } from "@zibel/core";
+import {
+  applyTo,
+  createDocument,
+  createNodes,
+  invert,
+  type Matrix,
+  makeMask,
+  multiply,
+  type Node,
+  type ShapeNode,
+} from "@zibel/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   combine,
@@ -153,6 +163,41 @@ function boxContext() {
   return ctx as unknown as CanvasRenderingContext2D;
 }
 
+/**
+ * A one-pixel OffscreenCanvas whose glyphs are boxes 6 wide and 8 tall above their origin, one per
+ * character but a space, laid out from where fillText puts the string.
+ */
+class GlyphBoxes {
+  getContext() {
+    let m: Matrix = [1, 0, 0, 1, 0, 0];
+    const stack: Matrix[] = [];
+    let alpha = 0;
+    return {
+      setTransform: (...t: Matrix) => {
+        m = t;
+      },
+      transform: (...t: Matrix) => {
+        m = multiply(m, t);
+      },
+      save: () => stack.push(m),
+      restore: () => {
+        m = stack.pop() ?? m;
+      },
+      clearRect: () => {
+        alpha = 0;
+      },
+      fillText: (text: string, x: number, y: number) => {
+        const [px, py] = applyTo(invert(m), 0.5, 0.5);
+        [...text].forEach((c, i) => {
+          const left = x + 6 * i;
+          if (c !== " " && left <= px && px <= left + 6 && y - 8 <= py && py <= y) alpha = 255;
+        });
+      },
+      getImageData: () => ({ data: [0, 0, 0, alpha] }),
+    };
+  }
+}
+
 describe("hitTest", () => {
   it("hits a text anywhere inside its bounds", () => {
     const { doc, defaultLayerId } = createDocument({
@@ -263,6 +308,32 @@ describe("hitTest", () => {
     expect(hitTest(ctx, doc, 45, 20, 1, true)).toBe(content.id);
     expect(hitTest(ctx, doc, 41, 20, 1, true)).toBe(clip.id);
     expect(hitTest(ctx, doc, 90, 20, 1)).toBeNull();
+  });
+
+  it("hits a text Clipping Mask's content only on its glyphs, and a painted text anywhere in its frame (ADR-0052)", () => {
+    vi.stubGlobal("OffscreenCanvas", GlyphBoxes);
+    const ctx = boxContext();
+    const { doc, defaultLayerId: parentId } = createDocument({
+      id: "d",
+      name: "Doc",
+      artboards: [{ width: 200, height: 100 }],
+    });
+    const [content, clip] = createNodes(doc, [
+      { type: "rect", parentId, x: 0, y: 0, width: 100, height: 100 },
+      { type: "text", parentId, x: 10, y: 50, content: "H H" },
+    ]).nodes as [Node, Node];
+    const { group } = makeMask(doc, { clipNodeId: clip.id, contentIds: [content.id] });
+    const text = { ...(doc.nodes.get(clip.id) as Node), transform: [1, 0, 0, 1, 20, 0] } as Node;
+    doc.nodes.set(clip.id, text);
+    // Each H is a box from its origin 6 wide, 8 tall: 30 to 36 and 42 to 48, above y 50.
+    expect(hitTest(ctx, doc, 33, 46, 1)).toBe(group.id);
+    expect(hitTest(ctx, doc, 45, 46, 1, true)).toBe(content.id);
+    expect(hitTest(ctx, doc, 39, 46, 1)).toBeNull();
+    expect(hitTest(ctx, doc, 13, 46, 1)).toBeNull();
+    const fill = { type: "solid" as const, color: "#FF0000" };
+    doc.nodes.set(clip.id, { ...text, appearance: { fills: [fill], strokes: [] } } as Node);
+    expect(hitTest(ctx, doc, 39, 46, 1, true)).toBe(clip.id);
+    expect(hitTest(ctx, doc, 33, 46, 1, true)).toBe(content.id);
   });
 
   describe("a container's Appearance (ADR-0043)", () => {

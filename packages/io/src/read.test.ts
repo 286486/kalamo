@@ -1390,7 +1390,9 @@ describe("Clipping Masks (ADR-0021)", () => {
         ),
       );
     for (const file of [
-      clip('<text x="0" y="5">Hi</text>'),
+      clip('<text x="0" y="5">Hi</text><text x="0" y="9">Ho</text>'),
+      clip('<text x="0" y="5">Hi</text><rect width="1" height="1"/>'),
+      clip('<text><textPath href="#p">Hi</textPath></text>'),
       clip('<rect width="1" height="1"/><rect width="2" height="2"/>'),
       clip('<g><rect width="1" height="1"/></g>'),
       clip('<rect width="1" height="1"/>', 'clipPathUnits="objectBoundingBox"'),
@@ -1543,6 +1545,86 @@ describe("a painted Clipping Path (ADR-0051)", () => {
     expect(clips).toMatchObject([{ type: "rect", width: 1 }]);
     const group = file.nodes.find((n) => n.id === clips[0]?.parentId);
     expect(file.nodes.filter((n) => n.parentId === group?.id)).toHaveLength(3);
+  });
+
+  describe("a text Clipping Path (ADR-0052)", () => {
+    it("reads back a painted Area Type clip, its ranges, Range Fills and overflow", () => {
+      const { doc, defaultLayerId: parentId } = createDocument({
+        id: "d",
+        name: "Doc",
+        artboards: [{ width: 100, height: 100 }],
+      });
+      const [content, clip] = createNodes(doc, [
+        { type: "rect", parentId, x: 0, y: 0, width: 100, height: 100 },
+        {
+          type: "text",
+          kind: "area",
+          parentId,
+          x: 10,
+          y: 10,
+          width: 80,
+          height: 20,
+          content: "one\ntwo",
+        },
+      ]).nodes as [Node, Node];
+      makeMask(doc, { clipNodeId: clip.id, contentIds: [content.id] });
+      const text = doc.nodes.get(clip.id) as Node;
+      const look = {
+        transform: [0.9, 0.2, -0.2, 0.9, 5, 0],
+        ranges: [
+          { start: 0, end: 1, fill: "#FF0000" },
+          { start: 1, end: 2, rotation: 10 },
+        ],
+        appearance: {
+          fills: [{ type: "solid", color: "#000000" }],
+          strokes: [
+            {
+              type: "solid",
+              color: "#0000FF",
+              width: 1,
+              cap: "butt",
+              join: "miter",
+              miterLimit: 10,
+              dash: [],
+            },
+          ],
+        },
+      };
+      doc.nodes.set(clip.id, { ...text, ...look } as unknown as Node);
+      const file = parseSvg(toSvg(doc));
+      expect(file.warnings).toEqual([]);
+      expect(file.nodes.find((n) => n.id === clip.id)).toMatchObject({
+        type: "text",
+        kind: "area",
+        content: "one\ntwo",
+        clipping: true,
+        height: 20,
+        ...look,
+      });
+    });
+
+    it("reads Inkscape's Set Clip on a text, ignoring the paint left inside the <clipPath>", () => {
+      const file = parseFile(
+        svg(
+          "",
+          '<defs><clipPath clipPathUnits="userSpaceOnUse" id="clipPath7"><text id="text5" xml:space="preserve" transform="rotate(10)" style="font-size:20px;font-family:\'Source Sans 3\';fill:#000000"><tspan sodipodi:role="line" x="10" y="40">H<tspan style="fill:#ff0000" rotate="5">i</tspan></tspan></text></clipPath></defs>' +
+            '<rect id="z-01J00000000000000000000R01" clip-path="url(#clipPath7)" width="50" height="50" fill="#00ff00"/>',
+        ),
+      );
+      expect(file.warnings).toEqual([]);
+      const rect = file.nodes.find((n) => n.id === "01J00000000000000000000R01");
+      expect(file.nodes.filter((n) => n.parentId === rect?.parentId)).toMatchObject([
+        { type: "rect" },
+        {
+          type: "text",
+          content: "Hi",
+          fontSize: 20,
+          clipping: true,
+          ranges: [{ start: 1, end: 2, rotation: 5 }],
+          appearance: { fills: [], strokes: [] },
+        },
+      ]);
+    });
   });
 
   it("drops a clip paint group whose Group has no Clipping Path, with a warning", () => {
