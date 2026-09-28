@@ -27,15 +27,15 @@ function explain(
 ): Pick<ErrorData, "path" | "message" | "hint"> {
   const path = dotted(issue.path);
   const says = `${tool}: ${path ? `${path}: ` : ""}${issue.message}`;
-  const fix = `Fix ${path || "the arguments"} as ${tool}'s description says.`;
   switch (issue.code) {
     case "unrecognized_keys": {
       const key = issue.keys[0] ?? "";
       const known = keysAt(schema, raw, issue.path);
       const close = known && closest(key, known);
+      const full = dotted([...issue.path, key]);
       return {
-        path: dotted([...issue.path, key]),
-        message: `${tool} has no argument ${dotted([...issue.path, key])}.`,
+        path: full,
+        message: `${tool} has no argument ${full}.`,
         hint: known
           ? `${close ? `Did you mean ${close}? ` : ""}${path || tool} takes: ${known.join(", ")}.`
           : `Remove ${key}.`,
@@ -74,7 +74,11 @@ function explain(
       };
     }
     default:
-      return { path, message: says, hint: fix };
+      return {
+        path,
+        message: says,
+        hint: `Fix ${path || "the arguments"} as ${tool}'s description says.`,
+      };
   }
 }
 
@@ -101,9 +105,12 @@ function keysAt(schema: z.ZodType, value: unknown, path: PropertyKey[]): string[
 
 function unwrap(s: z.ZodType | undefined, value: unknown): z.ZodType | undefined {
   while (s) {
-    if (s instanceof z.ZodOptional || s instanceof z.ZodNullable || s instanceof z.ZodDefault) {
-      s = s.unwrap() as z.ZodType;
-    } else if (s instanceof z.ZodLazy) {
+    if (
+      s instanceof z.ZodOptional ||
+      s instanceof z.ZodNullable ||
+      s instanceof z.ZodDefault ||
+      s instanceof z.ZodLazy
+    ) {
       s = s.unwrap() as z.ZodType;
     } else if (s instanceof z.ZodDiscriminatedUnion) {
       const tag = s._zod.def.discriminator;
