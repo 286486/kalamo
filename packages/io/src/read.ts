@@ -26,6 +26,7 @@ import {
   newId,
   normalizePath,
   parseDocument,
+  parseNode,
   pathBounds,
   preserveAspectRatio,
   type Rect,
@@ -285,6 +286,21 @@ const zibelAttr = (e: Element, name: ZibelAttr) => e.getAttributeNS(NS.zibel, na
 /** One paint of a container's Appearance, as export writes it (ADR-0043). */
 const isPaint = (e: Element) => zibelAttr(e, "paint") === "true";
 
+/** The properties every Node has, for `holds`, which checks a Node's own without placing it. */
+const PLACED = {
+  id: "-",
+  name: "",
+  parentId: "-",
+  index: "a0",
+  visible: true,
+  locked: false,
+  opacity: 1,
+  blendMode: "normal",
+  transform: IDENTITY,
+  tags: [],
+  meta: {},
+};
+
 const CAPS = ["butt", "round", "square"];
 const JOINS = ["miter", "round", "bevel"];
 
@@ -407,16 +423,8 @@ class Reader {
       );
       return;
     }
-    let own = parseTransform(e.getAttribute("transform"));
-    // An unreadable transform is ignored, as SVG does; one that flattens the element to a line
-    // or point draws nothing, and a Node cannot carry it.
-    if (!own.every(Number.isFinite)) {
-      this.warn("INVALID_TRANSFORM", "nan", "An unreadable transform was ignored.");
-      own = [...IDENTITY] as Matrix;
-    } else if (flat(own)) {
-      this.warn("INVALID_TRANSFORM", "flat", "An element scaled to nothing was dropped.");
-      return;
-    }
+    const own = this.own(e);
+    if (!own) return;
     const matrix = multiply(ctx.matrix, own);
     const style = computeStyle(e, ctx.style, this.rules);
     const tag = e.localName;
@@ -471,10 +479,12 @@ class Reader {
     } else if (stack) {
       // One Node painted several times: its geometry from the first paint, its Fills, then its
       // Strokes, in order (ADR-0017).
-      const paints = elements(e).map((c) => {
+      const paints = elements(e).flatMap((c) => {
+        const paint = this.own(c);
+        if (!paint) return [];
         const s = computeStyle(c, style, this.rules);
-        const m = multiply(matrix, parseTransform(c.getAttribute("transform")));
-        return { shape: this.shape(c, m, s), look: this.appearance(s, c, m) };
+        const m = multiply(matrix, paint);
+        return [{ shape: this.shape(c, m, s), look: this.appearance(s, c, m) }];
       });
       shape = paints.find((p) => p.shape)?.shape ?? null;
       appearance = {
@@ -489,7 +499,7 @@ class Reader {
       shape = this.shape(e, matrix, style);
       appearance = this.appearance(style, e, matrix);
     }
-    if (!shape) return;
+    if (!shape || !this.holds({ ...shape, ...(appearance && { appearance }) })) return;
     this.unsupported(e, style);
     // A clipped leaf, as Inkscape's Set Clip writes one, becomes a Clipping Mask of its own.
     const clip = this.clipOf(style, false);
@@ -502,6 +512,41 @@ class Reader {
     this.add({ ...base, ...shape, ...(appearance && { appearance }) } as Node);
     if (link) this.links.set(base.id, link);
     if (clip) this.clipping(clip, parentId, matrix);
+  }
+
+  /**
+   * `e`'s own transform. An unreadable one is ignored, as SVG does; one that flattens the element
+   * to a line or point is null, as it draws nothing and a Node cannot carry it.
+   */
+  private own(e: Element): Matrix | null {
+    const own = parseTransform(e.getAttribute("transform"));
+    if (!own.every(Number.isFinite)) {
+      this.warn("INVALID_TRANSFORM", "nan", "An unreadable transform was ignored.");
+      return [...IDENTITY] as Matrix;
+    }
+    if (!flat(own)) return own;
+    this.warn("INVALID_TRANSFORM", "flat", "An element scaled to nothing was dropped.");
+    return null;
+  }
+
+  /**
+   * Whether a Node can hold `own`, its properties past those every Node has, checked as the file
+   * will be. When it cannot, such as a negative width or a font size of 0, it warns once per key
+   * and the caller drops the element or paint.
+   */
+  private holds(own: Record<string, unknown>) {
+    try {
+      parseNode({ ...PLACED, ...own }, "element");
+      return true;
+    } catch (error) {
+      if (!(error instanceof ZibelError)) throw error;
+      this.warn(
+        "INVALID_ELEMENT",
+        error.data.path ?? "",
+        `An element was dropped: ${error.data.message}`,
+      );
+      return false;
+    }
   }
 
   /**
@@ -521,14 +566,9 @@ class Reader {
       const s = computeStyle(c, style, this.rules);
       // Hidden in the editor, it draws nothing.
       if (s.display === "none") return;
-      const own = parseTransform(c.getAttribute("transform"));
-      // An unreadable transform is ignored, as walk ignores a leaf's; one that flattens it drops it.
-      const readable = own.every(Number.isFinite);
-      if (readable && flat(own)) {
-        this.warn("INVALID_TRANSFORM", "flat", "An element scaled to nothing was dropped.");
-        return;
-      }
-      const m = readable ? multiply(matrix, own) : matrix;
+      const own = this.own(c);
+      if (!own) return;
+      const m = multiply(matrix, own);
       // A container has no matrix, so its Strokes scale, and its gradients map into document
       // coordinates, as node_transform does them.
       const look = this.appearance(s, c, m, scaleOf(m));
@@ -536,6 +576,8 @@ class Reader {
       const stroke = look.strokes[0];
       const paint = fill ?? stroke;
       if (!paint) return;
+      const one = { fills: fill ? [fill] : [], strokes: fill ? [] : [paint], contents: 0 };
+      if (!this.holds({ type: "group", appearance: one })) return;
       if (fill && appearance.strokes.length) {
         this.warn(
           "UNSUPPORTED_ATTRIBUTE",
@@ -600,6 +642,8 @@ class Reader {
     if (!shape) return;
     const appearance = this.appearance(style, e, m);
     // SVG draws nothing through a hidden clip path, and a Clipping Path is never hidden.
+    // One the Node cannot hold leaves the content unclipped.
+    if (!this.holds({ ...shape, appearance, clipping: true })) return;
     const base = { ...this.base(e, parentId, undefined, style), visible: true };
     this.add({ ...base, ...shape, appearance, clipping: true } as Node);
   }
@@ -1195,9 +1239,10 @@ class Reader {
         this.warn("INVALID_IMAGE", "", UNSIZED);
         return null;
       }
+      const shape = { ...frame(w ?? 1, h ?? 1), file: href };
+      if (!this.holds(shape)) return null;
       // Missing until resolveLinks finds its pixels, so a read that skips it still warns.
       this.warn("IMAGE_LINK_MISSING", "", MISSING);
-      const shape = { ...frame(w ?? 1, h ?? 1), file: href };
       if (!offered) return { shape };
       return { shape, link: { src, ...(!sized && { size: { scale: k, width: w, height: h } }) } };
     }
@@ -1211,6 +1256,8 @@ class Reader {
     const width = w ?? file.width;
     const height = h ?? file.height;
     if (!(width > 0 && height > 0)) return null;
+    // Checked before its file is kept, which no Image would then use.
+    if (!this.holds({ ...frame(width, height), src: "-" })) return null;
     let src = this.keys.get(href);
     if (src === undefined) {
       src = `pending:${this.keys.size}`;

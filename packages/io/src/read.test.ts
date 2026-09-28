@@ -1078,6 +1078,83 @@ it("opens a file with content Zibel cannot hold, with one warning per kind", () 
   for (const w of file.warnings) expect(w.message).not.toBe("");
 });
 
+it("drops an element its Node cannot hold with one warning per kind, keeping the rest", () => {
+  const bad = [
+    '<text font-size="0">zero</text>',
+    '<text font-size="-3">negative</text>',
+    '<rect width="-5" height="5"/>',
+    '<circle r="-5"/>',
+    '<rect x="1e400" width="5" height="5"/>',
+  ];
+  const good =
+    '<rect id="z-01ARZ3NDEKTSV4RRFFQ69G5FAV" x="1" y="2" width="3" height="4" fill="#FF0000"/>';
+  const at = (body: string) => parseFile(svg('viewBox="0 0 10 10" width="10"', body));
+  const own = (f: ReturnType<typeof at>) => leaves(f).map(({ parentId, index, ...n }) => n);
+  const file = at(`<g>${bad.join("")}</g>${good}`);
+  expect(own(file)).toEqual(own(at(good)));
+  expect(file.warnings.map((w) => [w.code, w.message])).toEqual(
+    // A circle is an ellipse, so r="-5" is a width like the rect's.
+    ["fontSize", "width", "x"].map((key) => [
+      "INVALID_ELEMENT",
+      expect.stringMatching(new RegExp(`^An element was dropped: element\\.${key}: `)),
+    ]),
+  );
+});
+
+it("drops an Image, Clipping Path or container paint its Node cannot hold, keeping the rest", () => {
+  const file = parseFile(
+    svg(
+      "",
+      `<image x="1e400" width="2" height="2" href="${RED_2x2_PNG}"/>` +
+        '<image x="1e400" width="2" height="2" href="a.png"/>' +
+        '<clipPath id="c"><rect width="-5" height="5"/></clipPath>' +
+        '<rect clip-path="url(#c)" width="3" height="3"/>' +
+        '<g><g zibel:paint="true" fill="none" stroke="#000000" stroke-width="1e400"><rect width="1" height="1"/></g>' +
+        '<g zibel:paint="true" fill="#FF0000"><rect width="1" height="1"/></g>' +
+        '<rect width="2" height="2"/></g>',
+    ),
+  );
+  // The clipped rect comes in unclipped, and the Group keeps the paint it can hold.
+  expect(leaves(file)).toMatchObject([
+    { type: "rect", width: 3 },
+    { type: "rect", width: 2 },
+  ]);
+  expect(file.nodes.some((n) => n.type === "rect" && n.clipping)).toBe(false);
+  expect(file.nodes.find((n) => n.type === "group" && n.appearance)).toMatchObject({
+    appearance: { fills: [{ color: "#FF0000" }], strokes: [] },
+  });
+  expect(file.images.size).toBe(0);
+  expect(file.warnings.map((w) => w.message)).toEqual(
+    ["x", "width", "appearance.strokes[0].width"].map((key) =>
+      expect.stringContaining(`dropped: element.${key}: `),
+    ),
+  );
+});
+
+it("opens a control character in text as a space, not a failed Open", () => {
+  const file = parseFile(svg("", "<text>a&#x0B;b</text><text>c&#x7F;d</text>"));
+  expect(leaves(file).map((n) => n.type === "text" && n.content)).toEqual(["a b", "c d"]);
+  expect(file.warnings).toEqual([]);
+});
+
+it("ignores a stack paint's unreadable transform, and drops one scaled to nothing, as walk does", () => {
+  const stack = (transform: string) =>
+    parseFile(
+      svg(
+        "",
+        `<g zibel:stack="true"><rect width="5" height="5" fill="#FF0000" transform="${transform}"/><rect width="5" height="5" fill="none" stroke="#0000FF"/></g>`,
+      ),
+    );
+  const unreadable = stack("scale(1e400)");
+  expect(leaves(unreadable)).toMatchObject([
+    { type: "rect", width: 5, transform: [1, 0, 0, 1, 0, 0] },
+  ]);
+  expect(unreadable.warnings).toMatchObject([{ code: "INVALID_TRANSFORM" }]);
+  const flat = stack("scale(0)");
+  expect(leaves(flat)).toMatchObject([{ appearance: { fills: [], strokes: [{}] } }]);
+  expect(flat.warnings).toMatchObject([{ code: "INVALID_TRANSFORM" }]);
+});
+
 it("refuses Groups nested deeper than MAX_DEPTH with LIMIT_EXCEEDED", () => {
   const deep = (n: number) =>
     svg("", `${"<g>".repeat(n)}<rect width="1" height="1"/>${"</g>".repeat(n)}`);
