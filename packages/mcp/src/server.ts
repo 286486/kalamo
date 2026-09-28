@@ -1,5 +1,9 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { CallToolResult, ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
+import {
+  type CallToolResult,
+  isJSONRPCRequest,
+  type ToolAnnotations,
+} from "@modelcontextprotocol/sdk/types.js";
 import {
   ArtboardInput,
   Color,
@@ -789,6 +793,24 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
     },
     async ({ docId, txId }) => json(await service.rollback(docId, txId)),
   );
+
+  // MCP lets tools/call omit arguments, but the SDK validates before any Zibel code and rejects
+  // undefined as text. Fill in {} on each incoming message, after connect installs the SDK's
+  // handler, so parseArgs answers as for any other call (ADR-0050).
+  const connect = server.connect.bind(server);
+  server.connect = async (transport) => {
+    await connect(transport);
+    const dispatch = transport.onmessage;
+    transport.onmessage = (message, extra) =>
+      dispatch?.(
+        isJSONRPCRequest(message) &&
+          message.method === "tools/call" &&
+          message.params?.arguments === undefined
+          ? { ...message, params: { ...message.params, arguments: {} } }
+          : message,
+        extra,
+      );
+  };
 
   return server;
 }

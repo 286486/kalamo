@@ -21,6 +21,16 @@ it("initializes without a session id", async () => {
   expect(res.headers.get("mcp-session-id")).toBeNull();
 });
 
+it("parses a tools/call without arguments as {}, answering INVALID_INPUT, not the SDK's text (#126)", async () => {
+  const { body } = await rpc("tools/call", { name: "zibel_node_query" });
+  expect(errorOf(body.result)).toEqual({
+    code: "INVALID_INPUT",
+    message: "zibel_node_query needs docId.",
+    hint: "docId is required.",
+    path: "docId",
+  });
+});
+
 it("lists the tools over HTTP (their schemas and annotations: packages/mcp server.test.ts)", async () => {
   const { body } = await rpc("tools/list");
   const tools = body.result.tools as { name: string }[];
