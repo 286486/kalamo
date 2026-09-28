@@ -719,7 +719,10 @@ it("fills in a gradient's geometry, reads it back in full, and names start = end
     ],
   });
   expect(refused.isError).toBe(true);
-  expect(refused.content[0].text).toMatch(/Input validation error[\s\S]*end/);
+  expect(JSON.parse(refused.content[0].text)).toMatchObject({
+    code: "INVALID_INPUT",
+    path: expect.stringMatching(/\.end$/),
+  });
 });
 
 it("stores Character Ranges canonical, and a content write clears them (ADR-0029)", async () => {

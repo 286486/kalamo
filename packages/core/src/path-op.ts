@@ -46,7 +46,7 @@ type Point = [number, number];
  * simplify (Simplify), outline_stroke (Outline Stroke), offset (Offset Path), divide_below (Divide
  * Objects Below), split_into_grid (Split Into Grid) and clean_up (Clean Up).
  */
-export const PathOpInput = z.object({
+export const PathOpInput = z.strictObject({
   nodeIds: z
     .array(z.string())
     .max(1000)

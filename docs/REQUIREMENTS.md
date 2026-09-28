@@ -455,7 +455,7 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 6. **事务即撤销单元**：`tx_begin / tx_commit / tx_rollback`。
 7. **工具 annotations 全部声明**：`readOnlyHint`、`destructiveHint`、`idempotentHint`、`openWorldHint`（本服务全部为 false，除 `image_place`：它可从 URL 拉图，annotations 按工具声明，故恒为 true，ADR-0027）。
 8. **`outputSchema` + `structuredContent`**：每个工具声明输出 schema，客户端可程序化消费。
-9. **错误即修正提示**：错误消息包含 `code`、`message`、`hint`（下一步该做什么）、`path`（schema 中出错字段），不返回堆栈。
+9. **错误即修正提示**：错误消息包含 `code`、`message`、`hint`（下一步该做什么）、`path`（schema 中出错字段），不返回堆栈。输入 schema 不接受的参数（包括未知的参数名）与其他错误一样返回 `INVALID_INPUT`，`path` 指向该键，`hint` 给出最接近的已知键名（ADR-0050）。
 10. **Skill 文档随服务分发**：`skill://zibel/*` 资源提供绘图约定、坐标 / 颜色规范、推荐工作流（骨架优先 → 填充 → 校验），客户端按需加载，不塞进工具描述。
 11. **MCP 层无状态**：只用 Streamable HTTP，不发 `Mcp-Session-Id`；每个请求自带 Bearer token 与全部寻址信息（`docId`、`txId`），任意 Worker 实例都能处理，请求之间 MCP 服务端不留任何状态。文档的权威状态（含未提交事务、锁、修订号）全部在该文档的 Durable Object 里。因此：无 stdio、无 `resources/subscribe`、无 elicitation、无服务端发起的请求；进度通知只在单个请求的 SSE 响应流内发送。见 ADR-0006。
 
@@ -712,7 +712,7 @@ flowchart LR
 
 ### 6.7 错误处理、并发与长任务
 
-- **F-MCP-15** 错误码枚举：`REV_CONFLICT`（附当前 `rev` 与冲突节点）、`NEEDS_DECISION`（需要人类决定，附选项）、`DOC_NOT_FOUND`、`NODE_NOT_FOUND`、`NODE_GONE`（并发删除）、`LOCKED_BY_USER`、`INVALID_COLOR`、`INVALID_PATH`、`INVALID_PARENT`（如把节点放进 path）、`INVALID_INPUT`（值合乎 schema 但超出范围，如容器 `appearance.contents`；ADR-0043）、`INVALID_PATCH`（patch 含只读键、该类型没有的键或删除了必填键）、`INVALID_MASK`（`mask_make` / `mask_release` 的对象不合规则；ADR-0021）、`INVALID_DOCUMENT`（`.zibel.json` 或 SVG 不合法，附文件内 `path`；ADR-0017）、`INVALID_IMAGE`（图像不是 PNG / JPEG / GIF、是 WebP，或 `src` 指向文档里没有的图像；ADR-0023）、`TX_NOT_FOUND`、`TX_EXPIRED`、`LIMIT_EXCEEDED`、`BOOLEAN_FAILED`（含几何诊断）、`FONT_MISSING`、`SCRIPT_ERROR`（含行号）、`PERMISSION_DENIED`。每条附 `hint`。（P0）
+- **F-MCP-15** 错误码枚举：`REV_CONFLICT`（附当前 `rev` 与冲突节点）、`NEEDS_DECISION`（需要人类决定，附选项）、`DOC_NOT_FOUND`、`NODE_NOT_FOUND`、`NODE_GONE`（并发删除）、`LOCKED_BY_USER`、`INVALID_COLOR`、`INVALID_PATH`、`INVALID_PARENT`（如把节点放进 path）、`INVALID_INPUT`（参数不合工具的输入 schema：未知键、类型不对、缺失、越界、不在允许值中，或合乎 schema 但违反 schema 表达不了的规则，如容器 `appearance.contents`；ADR-0043、ADR-0050）、`INVALID_PATCH`（patch 含只读键、该类型没有的键或删除了必填键）、`INVALID_MASK`（`mask_make` / `mask_release` 的对象不合规则；ADR-0021）、`INVALID_DOCUMENT`（`.zibel.json` 或 SVG 不合法，附文件内 `path`；ADR-0017）、`INVALID_IMAGE`（图像不是 PNG / JPEG / GIF、是 WebP，或 `src` 指向文档里没有的图像；ADR-0023）、`TX_NOT_FOUND`、`TX_EXPIRED`、`LIMIT_EXCEEDED`、`BOOLEAN_FAILED`（含几何诊断）、`FONT_MISSING`、`SCRIPT_ERROR`（含行号）、`PERMISSION_DENIED`。每条附 `hint`。（P0）
 - **F-MCP-16** 批量工具的部分失败：默认**原子**（任一失败整批回滚）；可选 `partial: true` 返回逐项结果。（P0）
 - **F-MCP-17** 长任务（`export_batch`、`image_trace`、大 `svg_import`）：单个请求内可经 SSE 响应流发送 progress；预计超过 30 秒的任务一律返回 `jobId`，由 Queues 执行，用 `job_status / job_cancel` 轮询。（P1）
 - **F-MCP-18** 幂等：读工具与 `doc_save`、`tx_rollback` 幂等；`node_create` 通过 `clientKey` + `txId` 去重（同一事务内重复提交同 key 不重复创建）。（P1）
@@ -987,6 +987,7 @@ zibel/
 | 47 | 链接图像（2026-09-27） | Image 可链接：可选 `file` 是 SVG 所写的路径或 URL（非 data URL，至多 2048 字符），`embedded` 由 `file` 缺省派生；`src` 变为可选，链接 Image 无 `src` 即缺失链接；`export` SVG 写 `xlink:href="<file>"`，有像素时加 `zibel:src`，从不写像素；`render` 与 PNG 画存下的像素，缺失链接画成灰色细线框加两条对角线；`.zibel.json` 的 `version` 仍为 1；导入链接的 `<image>` 得链接 Image，同一 Document 内粘贴经 `zibel:src` 保留像素，别的 Document 中为缺失链接，警告 `IMAGE_LINK_MISSING` 取代 `LINKED_IMAGE_DROPPED` | ADR-0042、#97、#98、#99 |
 | 48 | 容器外观（2026-09-27） | Layer 与 Group 的 `appearance {fills, strokes, contents}` 按 Illustrator 语义描画后代的轮廓，`contents` 定 Contents 在栈中的位置；缺省为空，`version` 仍为 1；`visibleBounds` 随容器描边增长，`geometricBounds` 不变；`node_transform` 按 √\|det\| 缩放容器描边宽度；SVG 中每层描画是锁定的 `<g zibel:paint>`，内含每个后代轮廓的副本；新错误码 `INVALID_INPUT` | ADR-0043、#17、#103、#106 |
 | 49 | 请求体上限（2026-09-29） | Worker 读取前加上限：打开与置入 32 MiB（即 DO RPC 上限，20 MB 图像的文档仍能从自己的导出重新打开），位图 5 MiB；`Content-Length` 先查，缺失或少报时边读边计数；`/api` 回 400 `LIMIT_EXCEEDED`，`/mcp` 回 413 与 JSON-RPC 错误（#125）；`.zibel.json` 不另设格式上限 | ADR-0049、§6.5、§7.5 |
+| 50 | 严格工具参数（2026-09-29） | 工具参数由 Zibel 自己严格解析，SDK 只校验参数是对象，并经 `.meta()` 公布真实 schema（带 `additionalProperties: false`）；未知键（嵌套的也算）让调用失败，不再被静默丢弃，`meta` 与 `node_update` patch 顶层除外；schema 失败统一为 `INVALID_INPUT`，附 `path` 与 `hint`（最接近的键名、必填、边界、允许值），记入每次调用的日志行；不新增错误码；缺 `arguments` 的请求仍是 SDK 文本 | ADR-0050、#23 |
 
 **剩余开放问题**
 

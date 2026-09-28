@@ -36,7 +36,11 @@ function scene() {
     rect(30),
     rect(40),
     { type: "text", parentId: layerId, x: 0, y: 100, content: "Hi" },
-    { type: "group", parentId: layerId, children: [rect(0)] },
+    {
+      type: "group",
+      parentId: layerId,
+      children: [(({ parentId: _, ...child }) => child)(rect(0))],
+    },
   ]).nodes as [Node, Node, Node, Node, Node, Node, Node];
   return { doc, layerId, below, a, clip, b, above, text, group };
 }

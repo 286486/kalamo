@@ -148,10 +148,10 @@ const index = z.number().int().min(0).describe("The Anchor's index in its subpat
 /** One `path_edit` op (REQUIREMENTS §6.4). Every position is in the path's own coordinates. */
 export const PathOp = z.discriminatedUnion("op", [
   z
-    .object({ op: z.literal("move_anchor"), subpath, index, to: XY })
+    .strictObject({ op: z.literal("move_anchor"), subpath, index, to: XY })
     .describe("Move an Anchor to `to`; its Handles move with it."),
   z
-    .object({
+    .strictObject({
       op: z.literal("set_handles"),
       subpath,
       index,
@@ -160,7 +160,7 @@ export const PathOp = z.discriminatedUnion("op", [
     })
     .describe("Set a Handle to a point, or retract it with null; an omitted one stays."),
   z
-    .object({
+    .strictObject({
       op: z.literal("set_point_type"),
       subpath,
       index,
@@ -170,7 +170,7 @@ export const PathOp = z.discriminatedUnion("op", [
       "corner retracts both Handles; smooth lines them up, pulling out a missing one along the neighbouring Anchors.",
     ),
   z
-    .object({
+    .strictObject({
       op: z.literal("add_anchor"),
       subpath,
       segment: z
@@ -184,32 +184,32 @@ export const PathOp = z.discriminatedUnion("op", [
     })
     .describe("Split a segment with a new Anchor, keeping its shape."),
   z
-    .object({ op: z.literal("remove_anchor"), subpath, index })
+    .strictObject({ op: z.literal("remove_anchor"), subpath, index })
     .describe("Remove an Anchor, joining its neighbours."),
-  z.object({ op: z.literal("close"), subpath }).describe("Close a subpath with a segment."),
+  z.strictObject({ op: z.literal("close"), subpath }).describe("Close a subpath with a segment."),
   z
-    .object({ op: z.literal("open"), subpath })
+    .strictObject({ op: z.literal("open"), subpath })
     .describe("Open a closed subpath at its first Anchor, keeping its outline."),
   z
-    .object({
+    .strictObject({
       op: z.literal("reverse"),
       subpath: subpath.removeDefault().optional().describe("Omitted: every subpath."),
     })
     .describe("Reverse the direction; a closed subpath keeps its first Anchor."),
   z
-    .object({ op: z.literal("set_d"), d: z.string() })
+    .strictObject({ op: z.literal("set_d"), d: z.string() })
     .describe("Replace d as a whole; later ops see its Anchors."),
 ]);
 export type PathOp = z.input<typeof PathOp>;
 
-export const PathEditInput = z.object({
+export const PathEditInput = z.strictObject({
   nodeId: z.string().describe("A path's id."),
   ops: z.array(PathOp).min(1).max(1000).describe("Applied in order, each to the result so far."),
 });
 export type PathEditInput = z.input<typeof PathEditInput>;
 
 /** One Anchor of a Node, as `path_op`'s anchors name it. */
-export const AnchorRef = z.object({ nodeId: z.string(), subpath, index });
+export const AnchorRef = z.strictObject({ nodeId: z.string(), subpath, index });
 
 const invalid = (path: string, message: string, hint: string) =>
   new ZibelError({ code: "INVALID_PATH", message, hint, path });

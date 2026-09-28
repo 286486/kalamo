@@ -1,0 +1,29 @@
+---
+status: accepted
+date: 2026-09-29
+---
+
+# Tool arguments are parsed strictly by Zibel, not the SDK
+
+MCP SDK 1.30.0 validates a tool's arguments in `McpServer.validateToolInput` before the handler runs and answers a failure with plain text, `Input validation error: Invalid arguments for tool <name>: <zod message>`. It has no `code`, `hint` or `path`, although §6.1 point 9 and F-MCP-15 promise all four, and it never reaches the per-call log line (§7.7). Worse, the input schemas were plain `z.object`s, which strip keys they do not know: on the hosted deployment `zibel_node_query {docId, name: "Cloud right"}` lost `name` (the filter is `nameRegex`), returned every Node, and the Agent moved the whole Background Layer with the first id (#23). A dropped `ifRev` would drop the conflict guard the same way.
+
+## Decision
+
+- **One registration helper.** `tool(name, config, handler)` in `packages/mcp/src/server.ts` registers every tool; no direct `registerTool` call is left. It builds the real input schema as a strict object, from a raw shape or an object schema, and registers with the SDK `z.looseObject({}).meta(z.toJSONSchema(real, { target: "draft-7", io: "input" }))`. The SDK accepts any object and advertises exactly the JSON Schema it would have made from the real schema, now with `additionalProperties: false`, because zod merges `.meta()` into the generated JSON Schema (as `Color` already relies on). Inside `run`, `parseArgs` parses the raw arguments with the real schema, so a failure is a `ZibelError`, returned and logged with its code like any other, and the handler gets the parsed value with defaults applied.
+- **`INVALID_INPUT` is the code.** It now means an argument that does not satisfy the tool's input schema (unknown key, wrong type, missing, out of bounds, not an allowed value) or a rule the schema cannot express. No `INVALID_ARGUMENT` is added: two near-synonyms would ask for the same fix. The specific codes (`INVALID_COLOR`, `INVALID_PATH`, `INVALID_PATCH`, …) keep coming from the rules that raise them.
+- **Strict everywhere, two exemptions.** The `@zibel/core` schemas that describe Agent input (`NodeInput` and its items, `ArtboardInput`, `AppearanceInput` and its Fills, Strokes and gradients, `TransformInput`, `MaskInput`, `PathEditInput`, `PathOpInput`, `FreehandStrokeInput`, `NodeQuery`, `UpdateInput`, `Rect`) are `z.strictObject` where they are defined. The shapes core parses stored Nodes and items through (`SHAPES`, `TextShape`, `ImageShape`, `Writable`) stay loose; the node_create items spread their shape into a strict object. A Node's `meta` is any JSON, and the top level of a `node_update` patch (`NodePatch`) stays loose so core answers `INVALID_PATCH` with the keys that Node type can write; objects inside a patch are strict. A core caller that sends extra keys is fixed, not the schema.
+- **The first issue, unknown keys first.** Only one zod issue is reported, as `INVALID_PATCH` does. An `unrecognized_keys` issue wins over the others, because a misspelled required argument otherwise reads only as missing. `path` is the issue path as `zodPath` writes it, without the leading dot, plus the unknown key.
+- **Hints by issue.** An unknown key: "Did you mean `<closest>`?" when a known key at that level equals it ignoring case, contains it or is contained in it (3 characters at least), or is within Levenshtein distance 2, the nearest first; then "`<object>` takes: `<keys>`", the keys found by walking the real schema along the path, unwrapping optional, nullable, default, lazy and array and following a discriminated union by the input's tag; "Remove `<key>`" when the walk finds no object. Missing: "`<path>` is required". Wrong type: "Send a `<type>` as `<path>`". Bounds: "`<path>` must be at least / at most `<n>` [items]". Enum, literal or discriminator: "Send one of: …". Another union: it matches none of the forms, see the tool description. A refinement: its message, and fix `path` as the tool description says.
+
+## Considered Options
+
+- **Overriding the private `validateToolInput` or `createToolError`.** It compiles only by bypassing the types, and an SDK upgrade breaks it silently.
+- **Rewriting the `Input validation error:` text on the way out.** Only a joined message is left there: no issue list, no known keys.
+- **The low-level `Server` with our own `tools/list`, `tools/call` and resources.** Fully public API, but it re-implements listing, output validation and resources for no gain today.
+
+## Consequences
+
+- A request without `arguments` still fails in the SDK with its text, because `z.looseObject({})` rejects `undefined`. Clients send `{}`; this gap is not worked around.
+- A test walks every tool's advertised `inputSchema` and fails unless each object has `additionalProperties: false` (but `meta` and `patch`) and the root has its `properties` and `required`. It fails if an SDK upgrade stops honouring `.meta()`; the low-level `Server` is then the fallback, and `tool` is the only place that changes.
+- `outputSchema` is still validated by the SDK.
+- If a future SDK exposes a public hook for input-validation errors, revisit this ADR.

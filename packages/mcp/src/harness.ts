@@ -42,5 +42,7 @@ export async function harness(overrides: Partial<DocumentService> = {}, actor = 
   await client.connect(clientSide);
   const call = (name: string, args: Record<string, unknown> = {}) =>
     client.callTool({ name, arguments: args });
-  return { client, service, log, call };
+  /** The service methods called so far, by name. */
+  const called = () => [...mocks].filter(([, m]) => m.mock.calls.length > 0).map(([name]) => name);
+  return { client, service, log, call, called };
 }
