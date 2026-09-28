@@ -21,7 +21,7 @@ import { preview, previewEdit, previewOp } from "./receive.ts";
 import { editable } from "./selection.ts";
 import { canEdit, connect, send, useStore } from "./store.ts";
 import { Tools } from "./Tools.tsx";
-import { type CanvasTool, TOOL_KEYS, TOOLS, type ToolEvent } from "./toolbox.ts";
+import { type CanvasTool, nextTap, type Tap, TOOL_KEYS, TOOLS, type ToolEvent } from "./toolbox.ts";
 import { fillStrokeKey, finishPen, setTool } from "./tools.ts";
 import { artboardsRect, fit, toDoc, type Viewport, zoomAt } from "./viewport.ts";
 
@@ -95,8 +95,10 @@ export function Viewer({ docId }: { docId: string }) {
   const last = useRef({ x: 0, y: 0 });
   /** Space was held at the press: the drag pans. */
   const panning = useRef(false);
-  /** The last mousedown's click count; pointerdown has none (ToolEvent.clicks). */
+  /** The press's click count (ToolEvent.clicks). */
   const clicks = useRef(0);
+  /** The last touch or pen press, null after a mouse press, whose count comes from mousedown. */
+  const tap = useRef<Tap | null>(null);
   /** The tool that captured the pointer, which gets its moves and release even if the tool changes. */
   const pressed = useRef<CanvasTool | null>(null);
   /** Counts changes to a tool's overlay, so the canvas redraws. */
@@ -378,6 +380,9 @@ export function Viewer({ docId }: { docId: string }) {
   const target = () => pressed.current ?? TOOLS[tool];
 
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    tap.current =
+      e.pointerType === "mouse" ? null : nextTap(tap.current, e.clientX, e.clientY, e.timeStamp);
+    if (tap.current) clicks.current = tap.current.count;
     const ev = toolEvent(e);
     if (!ev) return;
     if (hand) {
@@ -428,7 +433,7 @@ export function Viewer({ docId }: { docId: string }) {
         style={{ position: "absolute", inset: 0, width: "100%", height: "100%", cursor }}
         onPointerDown={onPointerDown}
         onMouseDown={(e) => {
-          clicks.current = e.detail;
+          if (!tap.current) clicks.current = e.detail;
         }}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerEnd}

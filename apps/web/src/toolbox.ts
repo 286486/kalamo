@@ -21,10 +21,9 @@ export interface ToolEvent {
   /** Space held since after the press; Space held at the press pans instead. */
   space: boolean;
   /**
-   * The press's click count in the platform's double-click time and distance, from its mousedown,
-   * which comes after pointerdown: 2 for a double-click's second press. Read it on release.
-   * ponytail: a touch's compatibility mousedown comes after its release, so a tap reads the last
-   * press's count; count taps by pointerdown time and distance if touch double-taps misfire.
+   * The press's click count: 2 for a double-click's second press. Read it on release: a mouse
+   * press's comes from its mousedown, after pointerdown, in the platform's double-click time and
+   * distance; a touch or pen press's from `nextTap`.
    */
   clicks: number;
   doc: Document;
@@ -36,6 +35,26 @@ export interface ToolEvent {
   /** Redraws the canvas after the tool's overlay changed. */
   redraw(): void;
 }
+
+/** A touch or pen press, in client px and ms, and its click count. */
+export interface Tap {
+  x: number;
+  y: number;
+  t: number;
+  count: number;
+}
+
+/**
+ * The press after `last`: it counts on from `last` when it comes in 500 ms and 16 px of it, the
+ * platform's usual double-click time and a fingertip's slack. A touch's compatibility mousedown
+ * comes after its release, too late for its `clicks`, so touch and pen presses count their own.
+ */
+export const nextTap = (last: Tap | null, x: number, y: number, t: number): Tap => ({
+  x,
+  y,
+  t,
+  count: last && t - last.t <= 500 && Math.hypot(x - last.x, y - last.y) <= 16 ? last.count + 1 : 1,
+});
 
 /**
  * A tool of the Tools panel on the canvas. Viewer keeps what every tool shares (viewport, pan,
