@@ -1139,3 +1139,63 @@ it("writes a container gradient in its paint group's <defs>, and a turned text c
   expect(svg).toContain(`<radialGradient id="${stroke}-${turned.id}"`);
   expect(svg).toMatch(new RegExp(`style="stroke:url\\(#${stroke}-${turned.id}\\)`));
 });
+
+it("writes every isolated kind, far and near, byte for byte as before render's band (ADR-0055)", async () => {
+  const { doc, defaultLayerId: parentId } = newDoc();
+  const fill = { fills: [{ color: "#FF0000" }] };
+  const [outer, , inner] = createNodes(doc, [
+    {
+      type: "group",
+      parentId,
+      children: [
+        { type: "rect", x: -500, y: 10, width: 520, height: 20 },
+        { type: "group", children: [{ type: "rect", x: 30, y: -900, width: 20, height: 920 }] },
+        { type: "rect", x: 30, y: 30, width: 20, height: 20, appearance: fill },
+      ],
+    },
+  ]).nodes as ShapeNode[];
+  updateNodes(doc, [
+    { nodeId: outer?.id ?? "", patch: { opacity: 0.5 } },
+    { nodeId: inner?.id ?? "", patch: { blendMode: "multiply" } },
+  ]);
+  const [content, clip, far, near] = createNodes(doc, [
+    { type: "rect", parentId, x: -1000, y: 0, width: 1050, height: 10 },
+    { type: "ellipse", parentId, x: 5, y: 5, width: 40, height: 40 },
+    { type: "rect", parentId, x: 1000, y: 0, width: 10, height: 10 },
+    { type: "rect", parentId, x: 40, y: 40, width: 10, height: 10 },
+  ]).nodes as ShapeNode[];
+  const { group } = makeMask(doc, { clipNodeId: clip?.id ?? "", contentIds: [content?.id ?? ""] });
+  updateNodes(doc, [
+    { nodeId: clip?.id ?? "", patch: { appearance: { strokes: [{ color: "#00FF00" }] } } },
+    { nodeId: group.id, patch: { appearance: { fills: [{ color: "#0000FF" }], contents: 1 } } },
+    { nodeId: far?.id ?? "", patch: { opacity: 0.5 } },
+    { nodeId: near?.id ?? "", patch: { blendMode: "screen" } },
+  ]);
+  const [layer] = createNodes(doc, [{ type: "layer" }]).nodes as [ShapeNode];
+  createNodes(doc, [
+    { type: "rect", parentId: layer.id, x: -800, y: -800, width: 900, height: 900 },
+    { type: "ellipse", parentId: layer.id, x: 0, y: 0, width: 100, height: 100 },
+  ]);
+  makeMask(doc, { layerId: layer.id });
+  const [painter, , masked, circle] = createNodes(doc, [
+    {
+      type: "group",
+      parentId,
+      appearance: { fills: [{ color: "#00FF00" }] },
+      children: [
+        { type: "rect", x: 60, y: 60, width: 10, height: 10 },
+        { type: "rect", x: -900, y: 0, width: 920, height: 10 },
+        { type: "ellipse", x: 0, y: 0, width: 30, height: 30 },
+      ],
+    },
+  ]).nodes as ShapeNode[];
+  makeMask(doc, { clipNodeId: circle?.id ?? "", contentIds: [masked?.id ?? ""] });
+  updateNodes(doc, [{ nodeId: painter?.id ?? "", patch: { opacity: 0.5 } }]);
+  // Node ids are random: each is numbered in the order it first appears.
+  const ids = new Map<string, number>();
+  const svg = toSvg(doc).replace(/[0-9A-HJKMNP-TV-Z]{26}/g, (id) => {
+    if (!ids.has(id)) ids.set(id, ids.size);
+    return `N${ids.get(id)}`;
+  });
+  await expect(svg).toMatchFileSnapshot("__snapshots__/isolated-kinds.svg");
+});
