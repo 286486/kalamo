@@ -1,6 +1,6 @@
 import { createDocument, createNodes } from "@zibel/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { place } from "./place.ts";
+import { place, relink } from "./place.ts";
 import { useStore } from "./store.ts";
 
 /** A Rect isolated in the default Layer, with another Rect selected. */
@@ -28,6 +28,7 @@ const view = () => {
   const { isolated, selection } = useStore.getState();
   return { isolated, selection };
 };
+/** Lets fetch, res.json() and the setState after them run. */
 const flush = async () => {
   for (let i = 0; i < 3; i++) await new Promise((f) => setTimeout(f, 0));
 };
@@ -115,5 +116,28 @@ describe("place: failures before the Worker answers", () => {
     await flush();
     expect(view()).toEqual({ isolated: before.isolated, selection: before.selection });
     expect(useStore.getState().notice).toMatch(/Could not place a.svg: .*unreadable/);
+  });
+});
+
+describe("relink", () => {
+  const png = () => new File([new Uint8Array([1])], "a.png", { type: "image/png" });
+
+  it("selects the relinked Image when the Worker takes it", async () => {
+    const { isolated } = isolateLeaf();
+    relink("image", png());
+    await flush();
+    resolve(answer(200, { updatedIds: ["image"] }));
+    await flush();
+    expect(view()).toEqual({ isolated, selection: ["image"] });
+  });
+
+  it("leaves the Selection alone when the Isolation changed while the request was in flight", async () => {
+    const { leaf } = isolateLeaf();
+    relink("image", png());
+    await flush();
+    useStore.setState({ isolated: null, selection: [leaf] });
+    resolve(answer(200, { updatedIds: ["image"] }));
+    await flush();
+    expect(view()).toEqual({ isolated: null, selection: [leaf] });
   });
 });

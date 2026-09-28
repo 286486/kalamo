@@ -35,6 +35,14 @@ async function pan(page: Page) {
   await page.keyboard.up("Space");
 }
 
+/** A paste of `text` as plain text, as a keyboard Paste delivers it. */
+const pasteText = (page: Page, text: string) =>
+  page.evaluate((text) => {
+    const data = new DataTransfer();
+    data.setData("text/plain", text);
+    document.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true }));
+  }, text);
+
 test("pasting SVG text places it as a Group centred in the viewport, as the user", async ({
   page,
   request,
@@ -42,11 +50,7 @@ test("pasting SVG text places it as a Group centred in the viewport, as the user
   const { docId, defaultLayerId } = await open(page, request);
   await pan(page);
 
-  await page.evaluate((text) => {
-    const data = new DataTransfer();
-    data.setData("text/plain", text);
-    document.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true }));
-  }, SVG);
+  await pasteText(page, SVG);
 
   await expect.poll(async () => (await children(request, docId, defaultLayerId)).length).toBe(1);
   const [group] = await children(request, docId, defaultLayerId);
@@ -157,19 +161,12 @@ test("a refused paste leaves an isolated leaf isolated; an accepted one goes up 
   await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
   const bar = page.getByRole("navigation", { name: "Isolation Mode" });
   await expect(bar.locator("[aria-current=location]")).toContainText("Red");
-  const paste = (text: string) =>
-    page.evaluate((text) => {
-      const data = new DataTransfer();
-      data.setData("text/plain", text);
-      document.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true }));
-    }, text);
-
-  await paste("<svg");
+  await pasteText(page, "<svg");
   await expect(page.locator("body")).toContainText("Could not place the pasted SVG");
   await expect(bar.locator("[aria-current=location]")).toContainText("Red");
   expect(await children(request, docId, defaultLayerId)).toHaveLength(1);
 
-  await paste(SVG);
+  await pasteText(page, SVG);
   await expect(bar).toBeHidden();
   await expect.poll(async () => (await children(request, docId, defaultLayerId)).length).toBe(2);
   const [, group] = await children(request, docId, defaultLayerId);
