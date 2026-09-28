@@ -14,6 +14,7 @@ import {
   formatPath,
   type Gradient,
   type GroupNode,
+  grown,
   IDENTITY,
   type ImageSource,
   invert,
@@ -186,24 +187,19 @@ interface Walk {
    * resvg's rects (ADR-0054, ADR-0055), the Nodes kept so far, whose copies a container's
    * Appearance paints, and whether some `<g>` uses the bound filter.
    */
-  cull?: { rect: Rect; inner: Rect; bound: Rect; kept: Set<string>; bounded: boolean };
+  resvg?: { cull: Rect; inner: Rect; bound: Rect; kept: Set<string>; bounded: boolean };
 }
 
-/** The bound filter, for a `<g>` whose layer reaches past the bound rect (ADR-0055). */
-function bounded(cull: NonNullable<Walk["cull"]>): string {
-  cull.bounded = true;
+/** The bound filter, for a `<g>` whose layer reaches past the bound rect (ADR-0055); marks it used. */
+function boundFilter(resvg: NonNullable<Walk["resvg"]>): string {
+  resvg.bounded = true;
   return `url(#${BOUND_ID})`;
 }
 
 /** What a container's Appearance paints of a leaf reaches, unclipped: the leaf, grown by its Strokes. */
 function copyReach(doc: Document, n: LayerNode | GroupNode) {
   const grow = Math.max(0, ...containerAppearance(n).strokes.map((s) => s.width)) / 2;
-  return (leaf: Node) => {
-    const b = visibleBounds(doc, leaf);
-    return (
-      b && { x: b.x - grow, y: b.y - grow, width: b.width + 2 * grow, height: b.height + 2 * grow }
-    );
-  };
+  return (leaf: Node) => grown(visibleBounds(doc, leaf), grow);
 }
 
 /**
@@ -268,9 +264,9 @@ export function toSvg(doc: Document, rect?: Rect, opts: SvgOptions = {}): string
   ].join("");
   const drawn: Node[] = [];
   const r = { x, y, width, height };
-  const cull = opts.resvg
+  const resvg = opts.resvg
     ? {
-        rect: grownBy(r, CULL_MARGIN),
+        cull: grownBy(r, CULL_MARGIN),
         inner: grownBy(r, INNER_CULL_MARGIN),
         bound: grownBy(r, BOUND_MARGIN),
         kept: new Set<string>(),
@@ -286,14 +282,19 @@ export function toSvg(doc: Document, rect?: Rect, opts: SvgOptions = {}): string
         images: opts.images,
         linked: opts.linked ?? "link",
         hairline: opts.hairline ?? 1,
-        cull,
+        resvg,
       }),
     )
     .join("");
   // An identity filter: resvg sizes a filtered layer from its region (ADR-0055).
-  const bound = cull?.bounded
-    ? `<defs><filter${attrs({ id: BOUND_ID, filterUnits: "userSpaceOnUse", ...num(cull.bound), "color-interpolation-filters": "sRGB" })}><feOffset/></filter></defs>`
-    : "";
+  const filter = resvg && {
+    id: BOUND_ID,
+    filterUnits: "userSpaceOnUse",
+    ...num(resvg.bound),
+    "color-interpolation-filters": "sRGB",
+  };
+  const bound =
+    filter && resvg.bounded ? `<defs><filter${attrs(filter)}><feOffset/></filter></defs>` : "";
   const trailer = opts.trailer?.(drawn) ?? "";
   const root = attrs({
     ...XMLNS,
@@ -420,11 +421,11 @@ const transformAttr = (m: Matrix) =>
 const style = (...parts: (string | false)[]) => parts.filter(Boolean).join(";") || undefined;
 
 function node(doc: Document, n: Node, walk: Walk): string {
-  const { cull } = walk;
-  if (cull) {
+  const { resvg } = walk;
+  if (resvg) {
     const b = visibleBounds(doc, n);
-    if (!b || !touches(b, walk.isolated ? cull.inner : cull.rect)) return "";
-    cull.kept.add(n.id);
+    if (!b || !touches(b, walk.isolated ? resvg.inner : resvg.cull)) return "";
+    resvg.kept.add(n.id);
   }
   // A hidden Node is written, so Inkscape shows it in the Layers panel, but never drawn.
   const hidden = walk.hidden || !n.visible;
@@ -446,9 +447,9 @@ function node(doc: Document, n: Node, walk: Walk): string {
   if (n.type === "layer" || n.type === "group") {
     const clip = clippingPath(doc, n);
     const children = childrenOf(doc, n.id);
+    const composited = n.opacity !== 1 || n.blendMode !== "normal";
     // resvg composes it as a layer (ADR-0055).
-    const looking = n.opacity !== 1 || n.blendMode !== "normal";
-    const layered = looking || !!clip;
+    const layered = composited || !!clip;
     const isolated = walk.isolated || layered;
     const kids = children.map((c) =>
       c === clip ? "" : node(doc, c, { ...walk, inside, hidden, isolated }),
@@ -459,7 +460,7 @@ function node(doc: Document, n: Node, walk: Walk): string {
     // A Clipping Mask's clip sits among its children, where Inkscape keeps it (ADR-0021); it is
     // written for every scope that draws the Group, and is never drawn itself.
     if (clip) {
-      const leaf = node(doc, clip, { ...walk, inside: true, hidden, drawn: [], cull: undefined });
+      const leaf = node(doc, clip, { ...walk, inside: true, hidden, drawn: [], resvg: undefined });
       // An Area Type's frame cannot sit inside the <clipPath>, so its <defs> goes just before.
       const frame =
         clip.type === "text" && clip.kind === "area" ? `<defs>${areaFrame(clip)}</defs>` : "";
@@ -467,28 +468,30 @@ function node(doc: Document, n: Node, walk: Walk): string {
         `${frame}<clipPath${attrs({ id: clipId(n.id), clipPathUnits: "userSpaceOnUse" })}>${leaf}</clipPath>`;
     }
     const clipPath = clip ? `url(#${clipId(n.id)})` : undefined;
-    const paints = inside ? containerPaints(doc, n, cull) : [];
+    const paints = inside ? containerPaints(doc, n, resvg) : [];
     const { contents } = containerAppearance(n);
     const [fills, strokes] =
       clip && inside ? (["fills", "strokes"] as const).map((l) => clipPaint(clip, l)) : ["", ""];
     const below = [...paints.slice(0, contents), fills, ...kids].join("");
     const above = paints.slice(contents).join("");
-    const reach =
-      cull &&
-      layered &&
-      layerReach(doc, n, clip, cull.kept, {
-        clipPainted: !!(fills || strokes),
-        painted: paints.length > 0,
-      });
-    const filter = cull && reach && reaches(reach, cull.bound) ? bounded(cull) : undefined;
+    // The bound filter for a layer holding the painted Clipping Path, or only its Fills.
+    const filterFor = (clipPainted: boolean) => {
+      if (!resvg || !layered) return undefined;
+      const painted = paints.length > 0;
+      const reach = layerReach(doc, n, clip, resvg.kept, { clipPainted, painted });
+      return reach && reaches(reach, resvg.bound) ? boundFilter(resvg) : undefined;
+    };
     const looked = { ...own, ...layer, style: style(...looks) };
     if (!strokes) {
+      const filter = filterFor(!!fills);
       return `<g${attrs({ ...looked, "clip-path": clipPath, filter })}>${below}${above}</g>`;
     }
     // A Clipping Path's Strokes draw unclipped, so what it clips is wrapped instead (ADR-0051).
-    const wrap = (inner: string) =>
-      `<g${attrs({ [zibel("clipped")]: "true", "clip-path": clipPath, filter })}>${inner}</g>`;
-    return `<g${attrs({ ...looked, filter: looking ? filter : undefined })}>${wrap(below)}${strokes}${above && wrap(above)}</g>`;
+    const inner = filterFor(!!fills);
+    const wrap = (content: string) =>
+      `<g${attrs({ [zibel("clipped")]: "true", "clip-path": clipPath, filter: inner })}>${content}</g>`;
+    const filter = composited ? filterFor(true) : undefined;
+    return `<g${attrs({ ...looked, filter })}>${wrap(below)}${strokes}${above && wrap(above)}</g>`;
   }
   if (!inside) return "";
   if (n.type === "image") {
@@ -620,10 +623,10 @@ function clipPaint(clip: LeafNode, list: "fills" | "strokes"): string {
  * For resvg, only the kept leaves get a copy, and a `<g clip-path>` around a far-reaching one is
  * bounded (ADR-0055).
  */
-function containerPaints(doc: Document, n: LayerNode | GroupNode, cull: Walk["cull"]): string[] {
+function containerPaints(doc: Document, n: LayerNode | GroupNode, resvg: Walk["resvg"]): string[] {
   const { fills, strokes } = containerAppearance(n);
   if (fills.length + strokes.length === 0) return [];
-  const leaves = paintedLeaves(doc, n).filter((l) => !cull || cull.kept.has(l.node.id));
+  const leaves = paintedLeaves(doc, n).filter((l) => !resvg || resvg.kept.has(l.node.id));
   const reach = copyReach(doc, n);
   const group = (list: "fill" | "stroke", p: Fill | Stroke, i: number) => {
     const stroke = list === "stroke" ? (p as Stroke) : undefined;
@@ -653,7 +656,7 @@ function containerPaints(doc: Document, n: LayerNode | GroupNode, cull: Walk["cu
       }
       // Each inner Clipping Mask's own <clipPath>, outermost first.
       const b = l.clips.length > 0 && reach(l.node);
-      const filter = cull && b && reaches(b, cull.bound) ? bounded(cull) : undefined;
+      const filter = resvg && b && reaches(b, resvg.bound) ? boundFilter(resvg) : undefined;
       return l.clips.reduceRight(
         (inner, c) =>
           `<g${attrs({ "clip-path": `url(#${clipId(c.maskId)})`, filter })}>${inner}</g>`,

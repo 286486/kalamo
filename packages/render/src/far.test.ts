@@ -101,7 +101,7 @@ const NESTED: Record<string, (doc: Document, layerId: string) => void> = {
     doc,
     p,
   ) => {
-    const [painter, , content, clip] = make(doc, p, [
+    const [painter, content, clip] = make(doc, p, [
       {
         type: "group",
         appearance: { fills: [{ color: "#00FF00" }] },
