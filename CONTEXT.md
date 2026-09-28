@@ -33,7 +33,7 @@ _Avoid_: Container、Frame
 _Avoid_: 把 Selection 作为工具调用的隐式参数
 
 **Isolation Mode（隔离模式）**：
-双击一个 Group（含 Clip Group）后只编辑它的状态，对应 Illustrator 的 Isolation Mode：画布的点选、框选、Select All 与新绘图稿都限于该 Group 内，其余图稿淡化且不可选，Layers 面板只列出该 Group；Esc 或面包屑逐级退出。它与 Selection 一样是每个 Document Tab 的浏览器状态，不写入 Document，MCP 不感知（ADR-0057）。
+只编辑一个 Group（含 Clip Group）、子 Layer 或单个 Live Shape / Path 的状态，对应 Illustrator 的 Isolation Mode：双击 Group 或路径进入，子 Layer 从 Layers 面板底部的 Enter Isolation Mode 进入，顶层 Layer 不能隔离。画布的点选、框选、Select All 与新绘图稿都限于被隔离的 Node 内，其余图稿淡化且不可选，Layers 面板只列出它；Esc 或面包屑逐级退出，其上的每个 Group 与子 Layer 各是一级。它与 Selection 一样是每个 Document Tab 的浏览器状态，不写入 Document，MCP 不感知（ADR-0057、ADR-0058）。
 _Avoid_: Focus mode、Edit mode、Enter group
 
 **Auto-name（自动名称）**：
