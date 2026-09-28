@@ -345,7 +345,7 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 
 ### 5.10 遮罩
 
-- **F-MASK-01** 剪切蒙版（Ctrl+7 / Alt+Ctrl+7）：任意矢量对象（含文字、compound path）作为 clip path；建立时 clip path 的 fill / stroke 清空（与 Illustrator 一致），但可在 Appearance 中重新赋予；隔离模式编辑内容；Release。（P0）模型与 SVG 映射见 ADR-0021；重新赋予的外观按 Illustrator 绘制：Fill 在内容之下、Stroke 在内容之上且不被自身裁切（ADR-0051）；文字作 clip path 按字形裁切并保持可编辑（ADR-0052）。隔离模式暂缓。
+- **F-MASK-01** 剪切蒙版（Ctrl+7 / Alt+Ctrl+7）：任意矢量对象（含文字、compound path）作为 clip path；建立时 clip path 的 fill / stroke 清空（与 Illustrator 一致），但可在 Appearance 中重新赋予；隔离模式编辑内容；Release。（P0）模型与 SVG 映射见 ADR-0021；重新赋予的外观按 Illustrator 绘制：Fill 在内容之下、Stroke 在内容之上且不被自身裁切（ADR-0051）；文字作 clip path 按字形裁切并保持可编辑（ADR-0052）；图层剪切蒙版：Layers 面板底部按钮以 Layer 最上层对象裁切整个 Layer，含子 Layer（ADR-0053）。隔离模式暂缓。
 - **F-MASK-02** 不透明度蒙版：蒙版对象亮度决定透明度（白显黑隐）；Clip / Invert / Link 开关；Transparency 面板缩略图切换编辑目标。（P1）
 - **F-MASK-03** Draw Inside 模式自动生成剪切组。（P1）
 
@@ -977,7 +977,7 @@ zibel/
 | 37 | Agent 身份 | 每个 MCP 客户端一个 token，即一个 Agent Actor | F-COLLAB-07 |
 | 38 | 编辑往返（2026-09-24） | 导入导出是核心功能，以 **Inkscape** 为编辑工具：一个 Inkscape 方言的 SVG 序列化器；打开 / 替换（三方合并）/ 置入三种导入（替换已由决策 45 删除）；Inkscape 能表达而 Zibel 不能的，算 Zibel 缺口并补齐；不保留原始 XML 片段 | ADR-0017、#24 |
 | 39 | Compound Path（2026-09-24） | 不设 `compound_path` 节点类型：Compound Path 是 `d` 含多个子路径、带 `fillRule` 的 `path`，SVG 中即一个 `<path fill-rule>` | ADR-0018、#30 |
-| 40 | Clipping Mask（2026-09-24） | 不设 `clip_group` 节点类型：Clipping Mask 是含一个 `clipping: true` 的 Live Shape 或 Path 的 `group`；`mask_make` / `mask_release` 是写它的唯一入口；SVG 中即 `<g clip-path>` 加内联 `<clipPath>`；文字作剪切路径、图层剪切蒙版、带外观的剪切路径暂缓 | ADR-0021、#31 |
+| 40 | Clipping Mask（2026-09-24） | 不设 `clip_group` 节点类型：Clipping Mask 是含一个 `clipping: true` 的 Live Shape 或 Path 的 `group`；`mask_make` / `mask_release` 是写它的唯一入口；SVG 中即 `<g clip-path>` 加内联 `<clipPath>`；带外观的剪切路径（ADR-0051）、文字作剪切路径（ADR-0052）与图层剪切蒙版（ADR-0053）其后落实 | ADR-0021、#31 |
 | 41 | 多行文字与区域文字（2026-09-25） | Point Type 的 `content` 可含硬回车 `\n`；Area Type 是 `kind: "area"` 加矩形框 `width`/`height`；新增 `leading`（缺省即 Auto，字号的 120%）；区域文字的首行基线、换行与溢出按 Inkscape 1.2 实测排版；SVG 中点文字为 `sodipodi:role="line"` 行，区域文字为 `shape-inside` 引用 `<defs>` 中的矩形 | ADR-0022、#33 |
 | 42 | 置入图像（2026-09-25） | 新增 `image` 节点：框、`preserveAspectRatio`（缺省 `none`）与 `src`（文件的 SHA-256）；字节按 id 存 R2、元数据存 DO SQLite（ADR-0046）；PNG / JPEG / GIF，WebP 暂拒；裁切即 Clipping Mask；SVG 中为 `<image xlink:href="data:…">`（Inkscape 1.2 只绘制 `xlink:href`）；`.zibel.json` 顶层 `images` 按 id 内嵌 base64 | ADR-0023、#32 |
 | 43 | 渐变（2026-09-25） | 线性与径向渐变内联在 Fill / Stroke 中，不设 `gradientId` 与 `assets.gradients[]`（几何本就逐个 Fill；渐变色板施加即复制）；位置在 Node 自身坐标中、随 `transform` 移动，改参数不移动；只有 pad；中点随 Gradient 面板加入；SVG 中为元素前 `<defs>` 里自包含的 `userSpaceOnUse` 渐变，导入折叠 `gradientTransform`、`objectBoundingBox` 与 `href` 链，reflect / repeat 展开为色标 | ADR-0026、#22 |

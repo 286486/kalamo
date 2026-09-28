@@ -1,4 +1,4 @@
-import { clippingPath, createNodes } from "./document.ts";
+import { childrenOf, clippingPath, createNodes } from "./document.ts";
 import { lookup } from "./edit.ts";
 import { collect, ZibelError } from "./errors.ts";
 import type { Document, GroupNode, LeafNode, MaskInput, Node } from "./schema.ts";
@@ -14,15 +14,25 @@ const invalid = (path: string, message: string, hint: string) =>
  */
 export function makeMask(
   doc: Document,
-  { clipNodeId, contentIds, kind = "clip" }: MaskInput,
-): { group: GroupNode; updated: Node[] } {
-  if (kind !== "clip") {
+  input: Extract<MaskInput, { clipNodeId: string }>,
+): { group: GroupNode; updated: Node[] };
+export function makeMask(
+  doc: Document,
+  input: MaskInput,
+): { group: GroupNode | undefined; updated: Node[] };
+export function makeMask(
+  doc: Document,
+  input: MaskInput,
+): { group: GroupNode | undefined; updated: Node[] } {
+  if (input.kind === "opacity") {
     throw invalid(
       "kind",
       "Opacity Masks are not available yet (F-MASK-02).",
       'Use kind "clip", or omit it.',
     );
   }
+  if ("layerId" in input) return { group: undefined, updated: [makeLayerMask(doc, input.layerId)] };
+  const { clipNodeId, contentIds } = input;
   const clip = lookup(doc, clipNodeId, "clipNodeId");
   if (clip.type === "layer" || clip.type === "group" || clip.type === "image") {
     throw invalid(
@@ -93,6 +103,45 @@ export function makeMask(
 }
 
 /**
+ * The Layers panel's Make Clipping Mask (ADR-0053): the Layer's topmost child becomes its Clipping
+ * Path, with an empty Appearance, and nothing moves.
+ */
+function makeLayerMask(doc: Document, layerId: string): LeafNode {
+  const layer = lookup(doc, layerId, "layerId");
+  const refuse = (message: string, hint: string) => invalid("layerId", message, hint);
+  if (layer.type !== "layer") {
+    throw refuse(
+      `A ${layer.type} is not a Layer.`,
+      "Name a Layer, or clip Nodes with clipNodeId and contentIds.",
+    );
+  }
+  if (clippingPath(doc, layer)) {
+    throw refuse(
+      "The Layer is already a Clipping Mask.",
+      "Release it with mask_release first: a Layer has one Clipping Path.",
+    );
+  }
+  const top = childrenOf(doc, layer.id).at(-1);
+  if (!top)
+    throw refuse("The Layer is empty.", "Put the Live Shape, Path or text that clips in it.");
+  if (top.type === "layer" || top.type === "group" || top.type === "image") {
+    throw refuse(
+      `The Layer's topmost child is a ${top.type}, which cannot be a Clipping Path.`,
+      "Put a Live Shape, a Path or a text on top of the Layer first.",
+    );
+  }
+  if (!top.visible) {
+    throw refuse(
+      "The Layer's topmost child is hidden, and a Clipping Path cannot be.",
+      "Show it with node_update {visible: true} first.",
+    );
+  }
+  const clip = emptied(top);
+  doc.nodes.set(clip.id, clip);
+  return clip;
+}
+
+/**
  * The clip Node as a Clipping Path: no Fill and no Stroke, and for a text no Range Fill either,
  * its Ranges kept canonical (ADR-0052).
  */
@@ -116,7 +165,7 @@ export function releaseMask(doc: Document, nodeIds: string[], { partial = false 
     throw invalid(
       `nodeIds[${i}]`,
       `The ${n.type} is not a Clipping Mask or its Clipping Path.`,
-      "List Groups made by mask_make, or their Clipping Paths: node_get with detail full shows clipping: true on one.",
+      "List Groups or Layers made Clipping Masks by mask_make, or their Clipping Paths: node_get with detail full shows clipping: true on one.",
     );
   });
   const nodes = [...new Map(ok.map((c) => [c.id, c])).values()].map((c) => {

@@ -209,3 +209,53 @@ test("Ctrl+7 clips with a text on top: the content shows only through its glyphs
   await expect(row("<Clip Group>")).toBeHidden();
   await expect.poll(red).toEqual([true, true, true]);
 });
+
+test("the Layers panel's button clips the Layer by its topmost object, and releases it (ADR-0053)", async ({
+  page,
+  request,
+}) => {
+  const { docId, defaultLayerId: parentId } = (
+    await call(request, "zibel_doc_create", {
+      name: "Layer mask",
+      artboards: [{ width: 200, height: 100, background: "#FFFFFF" }],
+    })
+  ).structuredContent;
+  const red = { fills: [{ color: "#FF0000" }] };
+  await call(request, "zibel_node_create", {
+    docId,
+    nodes: [
+      { type: "rect", parentId, name: "Art", x: 0, y: 0, width: 200, height: 100, appearance: red },
+      { type: "ellipse", parentId, x: 40, y: 30, width: 40, height: 40 },
+    ],
+  });
+  await page.goto(`/docs/${docId}`);
+  await expect(page.getByTestId("status-bar")).toContainText(/\d+%/);
+  await page.keyboard.press("Control+1");
+  await expect(page.getByTestId("status-bar")).toContainText("100%");
+  const row = (name: string) => page.getByRole("button", { name, exact: true });
+
+  // At 100% the Artboard's centre, (100, 50), is the canvas's.
+  const redAt = () =>
+    page.getByTestId("canvas").evaluate((el: HTMLCanvasElement) => {
+      const k = el.width / el.getBoundingClientRect().width;
+      const ctx = el.getContext("2d");
+      return [60, 150].map((x) => {
+        const [px, py] = [(el.width / k / 2 + x - 100) * k, (el.height / k / 2) * k];
+        const [r, g] = ctx?.getImageData(px, py, 1, 1).data ?? [];
+        return r === 255 && g === 0;
+      });
+    });
+  // The ellipse's default white Fill covers the Art until Make empties it.
+  await expect.poll(redAt).toEqual([false, true]);
+
+  await row("Make Clipping Mask").click();
+  await expect(row("<Clipping Path>")).toHaveCSS("text-decoration-line", "underline");
+  await expect(row("Layer 1")).toHaveCSS("text-decoration-line", "underline");
+  await expect(row("Art")).not.toHaveCSS("text-decoration-line", "underline");
+  await expect.poll(redAt).toEqual([true, false]);
+
+  await row("Release Clipping Mask").click();
+  await expect(row("<Clipping Path>")).toBeHidden();
+  await expect(row("Make Clipping Mask")).toBeEnabled();
+  await expect.poll(redAt).toEqual([true, true]);
+});

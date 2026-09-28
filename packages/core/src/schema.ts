@@ -659,20 +659,39 @@ export const NodePatch = z
 export const UpdateInput = z.strictObject({ nodeId: z.string(), patch: NodePatch });
 export type UpdateInput = z.input<typeof UpdateInput>;
 
-/** Illustrator's Object > Clipping Mask > Make (ADR-0021). */
-export const MaskInput = z.strictObject({
-  clipNodeId: z.string().describe("The Live Shape or Path that clips; it loses its Appearance."),
-  contentIds: z
-    .array(z.string())
-    .min(1)
-    .max(1000)
-    .describe("The Nodes it clips: siblings of the clip Node."),
-  kind: z
-    .enum(["clip", "opacity"])
-    .default("clip")
-    .describe("clip; an Opacity Mask (F-MASK-02) is not available yet."),
-});
+const clipNodeId = z
+  .string()
+  .describe("The Live Shape or Path that clips; it loses its Appearance.");
+const contentIds = z
+  .array(z.string())
+  .min(1)
+  .max(1000)
+  .describe("The Nodes it clips: siblings of the clip Node.");
+const layerId = z
+  .string()
+  .describe(
+    "Alone, instead of clipNodeId and contentIds: the Layer whose topmost child clips it (ADR-0053).",
+  );
+const kind = z
+  .enum(["clip", "opacity"])
+  .default("clip")
+  .describe("clip; an Opacity Mask (F-MASK-02) is not available yet.");
+/**
+ * Illustrator's Object > Clipping Mask > Make (ADR-0021), or with `layerId` alone the Layers
+ * panel's Make Clipping Mask (ADR-0053).
+ */
+export const MaskInput = z.union([
+  z.strictObject({ clipNodeId, contentIds, kind }),
+  z.strictObject({ layerId, kind }),
+]);
 export type MaskInput = z.input<typeof MaskInput>;
+/** MaskInput's arguments in one object, as an MCP tool advertises them. */
+export const MaskFields = z.strictObject({
+  clipNodeId: clipNodeId.optional(),
+  contentIds: contentIds.optional(),
+  layerId: layerId.optional(),
+  kind,
+});
 
 /** `[a, b, c, d, e, f]` with SVG semantics. */
 export type Matrix = [number, number, number, number, number, number];

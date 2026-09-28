@@ -318,13 +318,64 @@ it("draws the fixture Document with known pixels", async () => {
   // whose gradient Fill runs across a rect and a turned text; by #50, a tenth Artboard holding a
   // Clipping Mask whose turned, translucent Clipping Path has a gradient Fill and two Strokes; by
   // #49, an eleventh holding a gradient clipped by turned, stroked, overflowing Area Type and a
-  // fill clipped by turned Point Type with a turned, shifted character.
+  // fill clipped by turned Point Type with a turned, shifted character; by #51, a twelfth holding a
+  // Layer clipped by a turned, stroked Path over a gradient, with a sublayer clipped by a text.
   expect(await hash(toSvg(doc, docRect(doc), { images }))).toBe(
-    "858e56faf7cc4a63c245595dbf18863c9e13904b6eac207373172c24942fde29",
+    "828dadd7fdf0499aee51f53c2cd54894997bef7b4563f16eb0f7f089e4c9dff1",
   );
   expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned, images }))).toBe(
     "24c1e7ad8db33f59933a1b355c879cb19bfdfd67d70b11427b196aa646ea4b60",
   );
+});
+
+it("draws the fixture's Layer Clipping Mask inside its Clipping Path, its Stroke over it (ADR-0053)", async () => {
+  const file = parseDocument(fixture);
+  const layer = file.nodes.find((n) => n.name === "Clipped layer");
+  const inLayer = (n: Node | undefined): boolean =>
+    !!n && (n === layer || inLayer(file.nodes.find((p) => p.id === n.parentId)));
+  // Only the Layer: resvg panics on a Clipping Mask wholly outside the image.
+  const nodes = file.nodes.filter(inLayer);
+  const doc = {
+    id: "d",
+    version: 1 as const,
+    rev: 0,
+    ...file,
+    nodes: new Map(nodes.map((n) => [n.id, n])),
+  };
+  const frame = file.artboards.find((a) => a.name === "Layer Clipping")?.frame;
+  const { pixels, width } = await svgToPixels(toSvg(doc, frame), 4);
+  // The Artboard's (1180, 130) is pixel 0; a Document point reads the pixel it starts.
+  const at = (x: number, y: number) => {
+    const i = (Math.floor((y - 130) * 4) * width + Math.floor((x - 1180) * 4)) * 4;
+    return [...pixels.subarray(i, i + 4)];
+  };
+  // The gradient runs #FFB703 at (1180, 130) to #8338EC at (1300, 250).
+  const gradient = (x: number, y: number) => {
+    const t = (x - 1180 + y - 130 + 0.25) / 240;
+    const [a, b] = [
+      [255, 183, 3],
+      [131, 56, 236],
+    ];
+    return a.map((v, i) => v + ((b[i] as number) - v) * t);
+  };
+  const near = (got: number[], rgb: number[]) =>
+    got[3] === 255 && rgb.every((v, i) => Math.abs((got[i] as number) - v) <= 3);
+  // Inside the clip; on the sublayer's red rect above the glyphs, where its text clip leaves it out.
+  for (const [x, y] of [
+    [1240, 170],
+    [1250, 195],
+  ] as const) {
+    expect(near(at(x, y), gradient(x, y)), `${x}, ${y}`).toBe(true);
+  }
+  // In the I's stem, the sublayer's red rect.
+  expect(near(at(1238, 225), [0xe6, 0x39, 0x46])).toBe(true);
+  // The top edge's middle, turned 20° about (1240, 190), is (1255.39, 147.71), its outward normal
+  // (0.342, -0.94): the Stroke's outer half, 0.8 out, and nothing 3 out.
+  expect(at(1255.66, 146.96)).toEqual([0x26, 0x46, 0x53, 255]);
+  expect(at(1256.42, 144.89)[3]).toBe(0);
+  // Outside the clip, the gradient and the sublayer's red rect are gone.
+  expect(at(1182, 132)[3]).toBe(0);
+  expect(at(1186, 244)[3]).toBe(0);
 });
 
 it("clips by an inline clipPath the Group refers to before it is defined", async () => {

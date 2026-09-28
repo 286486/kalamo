@@ -692,6 +692,44 @@ it("writes an evenodd Clipping Path's clip-rule, and its Fills as a clip-fill gr
   expect(svg.indexOf('zibel:paint="true"')).toBeLessThan(svg.indexOf("clip-fill"));
 });
 
+/** A Layer "L" holding a sublayer with a rect, then its Clipping Path, a circle (ADR-0053). */
+function clippedLayer() {
+  const { doc } = newDoc();
+  const [layer] = createNodes(doc, [{ type: "layer", name: "L" }]).nodes as [ShapeNode];
+  const [sub] = createNodes(doc, [
+    { type: "layer", parentId: layer.id },
+    { type: "ellipse", parentId: layer.id, x: 2, y: 2, width: 4, height: 4 },
+  ]).nodes as [ShapeNode];
+  createNodes(doc, [{ type: "rect", parentId: sub.id, x: 0, y: 0, width: 10, height: 10 }]);
+  const [clip] = makeMask(doc, { layerId: layer.id }).updated as [ShapeNode];
+  return { doc, layer, sub, clip };
+}
+
+it("writes a Layer Clipping Mask as clip-path on the layer <g> with an inline <clipPath> (ADR-0053)", () => {
+  const { doc, layer, clip } = clippedLayer();
+  const svg = toSvg(doc);
+  expect(svg).toContain(
+    `<g id="z-${layer.id}" inkscape:label="L" inkscape:groupmode="layer" clip-path="url(#clip-z-${layer.id})">`,
+  );
+  expect(svg).toContain(
+    `<clipPath id="clip-z-${layer.id}" clipPathUnits="userSpaceOnUse"><circle cx="4" cy="4" r="2" id="z-${clip.id}" fill="none"/></clipPath></g>`,
+  );
+});
+
+it("wraps a stroked Layer Clipping Mask's content, sublayers included, inside the layer <g> (ADR-0053)", () => {
+  const { doc, layer, sub, clip } = clippedLayer();
+  updateNodes(doc, [
+    { nodeId: clip.id, patch: { appearance: { strokes: [{ color: "#00FF00" }] } } },
+  ]);
+  const svg = toSvg(doc);
+  expect(svg).toContain(
+    `<g id="z-${layer.id}" inkscape:label="L" inkscape:groupmode="layer"><g zibel:clipped="true" clip-path="url(#clip-z-${layer.id})"><g id="z-${sub.id}" inkscape:groupmode="layer">`,
+  );
+  expect(svg).toMatch(
+    /<\/clipPath><\/g><g zibel:paint="clip-stroke"[^>]*><circle [^>]*stroke="#00FF00"[^>]*\/><\/g><\/g>/,
+  );
+});
+
 it("wraps what a stroked Clipping Path clips, and writes its Strokes after, unclipped (ADR-0051)", () => {
   const { doc, group, below, clip, above } = clipped();
   const stroke = { color: "#00FF00", width: 2 };

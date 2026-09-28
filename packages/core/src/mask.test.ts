@@ -272,3 +272,119 @@ describe("an Image", () => {
     });
   });
 });
+
+describe("makeMask on a Layer (ADR-0053)", () => {
+  /** A Layer holding, bottom to top: a sublayer with a rect, a rect, then `top`. */
+  function layered(top: object = { type: "ellipse", x: 20, y: 20, width: 20, height: 20 }) {
+    const { doc, defaultLayerId } = createDocument({
+      id: "d",
+      name: "Doc",
+      artboards: [{ width: 200, height: 200 }],
+    });
+    const [layer] = createNodes(doc, [{ type: "layer", name: "L" }]).nodes as [Node];
+    const [sub, rect, clip] = createNodes(doc, [
+      { type: "layer", parentId: layer.id },
+      { type: "rect", parentId: layer.id, x: 0, y: 0, width: 50, height: 50 },
+      { ...top, parentId: layer.id } as never,
+    ]).nodes as [Node, Node, Node];
+    createNodes(doc, [{ type: "rect", parentId: sub.id, x: 0, y: 0, width: 10, height: 10 }]);
+    return { doc, defaultLayerId, layer, sub, rect, clip };
+  }
+
+  it("makes the topmost child the Clipping Path, empties its paint, and moves nothing", () => {
+    const s = layered();
+    const before = childrenOf(s.doc, s.layer.id).map((n) => [n.id, n.index]);
+    const { group, updated } = makeMask(s.doc, { layerId: s.layer.id });
+    expect(group).toBeUndefined();
+    expect(updated.map((n) => n.id)).toEqual([s.clip.id]);
+    expect(s.doc.nodes.get(s.clip.id)).toMatchObject({
+      clipping: true,
+      parentId: s.layer.id,
+      appearance: { fills: [], strokes: [] },
+    });
+    expect(childrenOf(s.doc, s.layer.id).map((n) => [n.id, n.index])).toEqual(before);
+    expect(s.doc.nodes.get(s.layer.id)).toEqual(s.layer);
+    expect(bounds(s.doc, s.layer)).toEqual({ x: 20, y: 20, width: 20, height: 20 });
+    expect(bounds(s.doc, s.rect)).toEqual({ x: 0, y: 0, width: 50, height: 50 });
+  });
+
+  it("clips a sublayer", () => {
+    const s = layered();
+    const { updated } = makeMask(s.doc, { layerId: s.sub.id });
+    expect(updated).toHaveLength(1);
+    expect(updated[0]).toMatchObject({ parentId: s.sub.id, clipping: true });
+  });
+
+  it("makes a text the Clipping Path and drops its Range Fills (ADR-0052)", () => {
+    const s = layered({
+      type: "text",
+      x: 0,
+      y: 0,
+      content: "Hi",
+      ranges: [{ start: 0, end: 1, fill: "#FF0000" }],
+    });
+    makeMask(s.doc, { layerId: s.layer.id });
+    expect(s.doc.nodes.get(s.clip.id)).toMatchObject({ clipping: true });
+    expect(s.doc.nodes.get(s.clip.id)).not.toHaveProperty("ranges");
+  });
+
+  it("accepts a Layer whose only child is the clip", () => {
+    const { doc } = createDocument({ id: "d", name: "Doc", artboards: [{ width: 9, height: 9 }] });
+    const [layer] = createNodes(doc, [{ type: "layer" }]).nodes as [Node];
+    createNodes(doc, [{ type: "rect", parentId: layer.id, x: 0, y: 0, width: 5, height: 5 }]);
+    expect(makeMask(doc, { layerId: layer.id }).updated).toHaveLength(1);
+  });
+
+  it.each<[string, (s: ReturnType<typeof layered>) => string]>([
+    ["a Node that is not a Layer", (s) => s.rect.id],
+    [
+      "an already clipped Layer",
+      (s) => {
+        makeMask(s.doc, { layerId: s.layer.id });
+        return s.layer.id;
+      },
+    ],
+    ["an empty Layer", (s) => (createNodes(s.doc, [{ type: "layer" }]).nodes[0] as Node).id],
+    [
+      "a Layer topped by a sublayer",
+      (s) => {
+        createNodes(s.doc, [{ type: "layer", parentId: s.layer.id }]);
+        return s.layer.id;
+      },
+    ],
+    [
+      "a Layer topped by a Group",
+      (s) => {
+        createNodes(s.doc, [{ type: "group", parentId: s.layer.id }]);
+        return s.layer.id;
+      },
+    ],
+    [
+      "a Layer topped by a hidden Node",
+      (s) => {
+        s.doc.nodes.set(s.clip.id, { ...s.clip, visible: false });
+        return s.layer.id;
+      },
+    ],
+  ])("refuses %s, at layerId", (_, target) => {
+    const s = layered();
+    const layerId = target(s);
+    const before = [...s.doc.nodes.values()];
+    const e = errorOf(() => makeMask(s.doc, { layerId }));
+    expect(e).toMatchObject({
+      code: "INVALID_MASK",
+      path: "layerId",
+      hint: expect.stringMatching(/\S/),
+    });
+    expect([...s.doc.nodes.values()]).toEqual(before);
+  });
+
+  it.each(["layer", "clip"] as const)("releases from the %s's id", (by) => {
+    const s = layered();
+    makeMask(s.doc, { layerId: s.layer.id });
+    const { nodes } = releaseMask(s.doc, [s[by].id]);
+    expect(nodes.map((n) => n.id)).toEqual([s.clip.id]);
+    expect(s.doc.nodes.get(s.clip.id)).not.toHaveProperty("clipping");
+    expect(bounds(s.doc, s.layer)).toEqual({ x: 0, y: 0, width: 50, height: 50 });
+  });
+});

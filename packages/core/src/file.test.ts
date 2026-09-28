@@ -397,13 +397,15 @@ describe("validation", () => {
       (f) => `nodes[${Math.max(at(f, byType(f, "text")), at(f, byType(f, "rect")))}].clipping`,
     ],
     [
-      "a Clipping Path in a Layer",
+      "two Clipping Paths in one Layer (ADR-0053)",
       (f) => {
-        byType(f, "path").clipping = true;
+        const path = byType(f, "path");
+        path.clipping = true;
+        f.nodes.push({ ...path, id: "~second", index: "a9" });
         return f;
       },
       "INVALID_DOCUMENT",
-      (f) => `nodes[${at(f, byType(f, "path"))}].clipping`,
+      (f) => `nodes[${f.nodes.length - 1}].clipping`,
     ],
     [
       "two Clipping Paths in one Group",
@@ -464,13 +466,17 @@ describe("validation", () => {
   });
 });
 
-it.each(["rect", "text"])("reads a Clipping Mask of a %s back as it was written", (type) => {
-  const f = JSON.parse(serializeDocument(scene()));
-  f.nodes.find((n: { type: string }) => n.type === type).clipping = true;
-  const text = JSON.stringify(f, null, 2);
-  const { nodes } = parseDocument(text);
-  expect(nodes.find((n) => n.type === type)).toMatchObject({ clipping: true });
-});
+// The path is a Layer's child: a Layer Clipping Mask (ADR-0053).
+it.each(["rect", "text", "path"])(
+  "reads a Clipping Mask of a %s back as it was written",
+  (type) => {
+    const f = JSON.parse(serializeDocument(scene()));
+    f.nodes.find((n: { type: string }) => n.type === type).clipping = true;
+    const text = JSON.stringify(f, null, 2);
+    const { nodes } = parseDocument(text);
+    expect(nodes.find((n) => n.type === type)).toMatchObject({ clipping: true });
+  },
+);
 
 it("reads Area Type back with its frame and no leading", () => {
   const f = JSON.parse(serializeDocument(scene()));

@@ -332,12 +332,18 @@ export function parseDocument(
     }
     siblings.add(key);
     if ("clipping" in n && n.clipping) {
-      const hint = "A Clipping Path is the one clipping child of a Group, and visible (ADR-0021).";
-      if (doc.nodes.get(n.parentId ?? "")?.type !== "group") {
-        throw invalid(`${at}.clipping`, "A Clipping Path's parent is a Group.", hint);
+      const hint =
+        "A Clipping Path is the one clipping child of a Layer or Group, and visible (ADR-0021, ADR-0053).";
+      const parent = doc.nodes.get(n.parentId ?? "")?.type;
+      if (parent !== "group" && parent !== "layer") {
+        throw invalid(`${at}.clipping`, "A Clipping Path's parent is a Layer or Group.", hint);
       }
       if (clipped.has(n.parentId)) {
-        throw invalid(`${at}.clipping`, "Its Group already has a Clipping Path.", hint);
+        throw invalid(
+          `${at}.clipping`,
+          `Its ${parent === "layer" ? "Layer" : "Group"} already has a Clipping Path.`,
+          hint,
+        );
       }
       if (!n.visible) throw invalid(`${at}.visible`, "A Clipping Path cannot be hidden.", hint);
       clipped.add(n.parentId);

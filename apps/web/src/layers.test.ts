@@ -1,6 +1,6 @@
 import { createDocument, createNodes, makeMask, type Node } from "@zibel/core";
-import { expect, it } from "vitest";
-import { autoName, rows } from "./layers.ts";
+import { describe, expect, it } from "vitest";
+import { autoName, layerMask, rows } from "./layers.ts";
 
 /**
  * Layer 1: Group g (rects a, b), rect c, hidden rect h, locked Group lg (rect m), Layer 3 (rect e).
@@ -143,4 +143,59 @@ it("names a linked Image <Linked File>, with or without its pixels", () => {
   } as const;
   const images = createNodes(doc, [frame, { ...frame, src }]).nodes as Node[];
   expect(images.map((n) => autoName(doc, n))).toEqual(["<Linked File>", "<Linked File>"]);
+});
+
+describe("a Layer Clipping Mask (ADR-0053)", () => {
+  /** Layer 1 holding rect a and ellipse clip, then Layer 2 on top, empty. */
+  function layered() {
+    const { doc, defaultLayerId: l1 } = createDocument({ id: "d", name: "D", artboards: [] });
+    const [a, clip] = createNodes(doc, [
+      { type: "rect", parentId: l1, x: 0, y: 0, width: 5, height: 5 },
+      { type: "ellipse", parentId: l1, x: 0, y: 0, width: 5, height: 5 },
+    ]).nodes as [Node, Node];
+    const [l2] = createNodes(doc, [{ type: "layer" }]).nodes as [Node];
+    return { doc, l1, a, clip, l2 };
+  }
+
+  it("keeps a clipped Layer's name, and underlines it and its Clipping Path's", () => {
+    const { doc, l1, a, clip } = layered();
+    makeMask(doc, { layerId: l1 });
+    const layer = doc.nodes.get(l1) as Node;
+    expect(autoName(doc, layer)).toBe("<Layer>");
+    expect(autoName(doc, doc.nodes.get(clip.id) as Node)).toBe("<Clipping Path>");
+    const underlined = rows(doc, new Set())
+      .filter((r) => r.underlined)
+      .map((r) => r.node.id);
+    expect(underlined).toEqual([l1, clip.id]);
+    expect(rows(doc, new Set()).find((r) => r.node.id === a.id)?.underlined).toBe(false);
+  });
+
+  it("underlines a Clip Group's name", () => {
+    const { doc, a, clip } = layered();
+    const { group } = makeMask(doc, { clipNodeId: clip.id, contentIds: [a.id] });
+    expect(
+      rows(doc, new Set([group.id]))
+        .filter((r) => r.underlined)
+        .map((r) => r.node.id),
+    ).toEqual([group.id, clip.id]);
+  });
+
+  it("makes or releases the Layer of the Selection, else the top Layer", () => {
+    const { doc, l1, a, l2 } = layered();
+    expect(layerMask(doc, [a.id])).toEqual({
+      label: "Make Clipping Mask",
+      command: { type: "mask_make", input: { layerId: l1 } },
+    });
+    makeMask(doc, { layerId: l1 });
+    expect(layerMask(doc, [a.id])).toEqual({
+      label: "Release Clipping Mask",
+      command: { type: "mask_release", nodeIds: [l1] },
+    });
+    // The top Layer is empty.
+    expect(layerMask(doc, [])).toEqual({ label: "Make Clipping Mask", command: null });
+    createNodes(doc, [{ type: "rect", parentId: l2.id, x: 0, y: 0, width: 1, height: 1 }]);
+    expect(layerMask(doc, []).command).toEqual({ type: "mask_make", input: { layerId: l2.id } });
+    doc.nodes.set(l2.id, { ...l2, locked: true });
+    expect(layerMask(doc, []).command).toBeNull();
+  });
 });

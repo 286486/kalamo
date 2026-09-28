@@ -1440,6 +1440,53 @@ describe("container Appearance (ADR-0043)", () => {
     expect(visibleBounds(doc, group)).toEqual({ x: 25, y: 0, width: 10, height: 10 });
   });
 
+  it("bounds a clipped Layer by its Clipping Path, its Stroke too, its children by their own (ADR-0053)", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const [art, clip] = createNodes(doc, [
+      { type: "rect", parentId: defaultLayerId, x: 0, y: 0, width: 100, height: 100 },
+      {
+        type: "ellipse",
+        parentId: defaultLayerId,
+        x: 40,
+        y: 40,
+        width: 20,
+        height: 20,
+        appearance: { strokes: [stroke(6)] },
+      },
+    ]).nodes as [Node, Node];
+    makeMask(doc, { layerId: defaultLayerId });
+    const layer = doc.nodes.get(defaultLayerId) as Node;
+    expect(bounds(doc, layer)).toEqual({ x: 40, y: 40, width: 20, height: 20 });
+    expect(visibleBounds(doc, layer)).toEqual({ x: 40, y: 40, width: 20, height: 20 });
+    doc.nodes.set(clip.id, {
+      ...(doc.nodes.get(clip.id) as Node),
+      appearance: AppearanceInput.parse({ strokes: [stroke(6)] }),
+    } as Node);
+    expect(visibleBounds(doc, layer)).toEqual({ x: 37, y: 37, width: 26, height: 26 });
+    expect(bounds(doc, art)).toEqual({ x: 0, y: 0, width: 100, height: 100 });
+  });
+
+  it("paints a Layer's Stroke on a clipped sublayer's leaf inside its Clipping Path (ADR-0053)", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const [sub] = createNodes(doc, [{ type: "layer", parentId: defaultLayerId }]).nodes as [Node];
+    createNodes(doc, [
+      { type: "rect", parentId: sub.id, x: 20, y: 0, width: 10, height: 10 },
+      { type: "rect", parentId: sub.id, x: 25, y: 0, width: 10, height: 10 },
+    ]);
+    makeMask(doc, { layerId: sub.id });
+    const layer = doc.nodes.get(defaultLayerId) as Node;
+    doc.nodes.set(layer.id, {
+      ...layer,
+      appearance: {
+        fills: [],
+        strokes: AppearanceInput.parse({ strokes: [stroke(4)] }).strokes,
+        contents: 0,
+      },
+    } as Node);
+    // Grown on every side the leaf would reach 18; its clip starts at 25.
+    expect(visibleBounds(doc, layer)).toEqual({ x: 25, y: 0, width: 10, height: 10 });
+  });
+
   it("grows visibleBounds around an Area Type child's frame by half the container Stroke (#112)", () => {
     const { doc, defaultLayerId } = newDoc();
     const [group] = createNodes(doc, [

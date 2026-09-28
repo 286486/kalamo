@@ -112,6 +112,86 @@ it("makes a Clipping Mask from a circle over a Group, renders it clipped and rel
   expect(nodes[1]).toMatchObject({ parentId: maskId });
 });
 
+it("clips a Layer by its topmost child, clipping Nodes created in it later, and releases it by the Layer's id (ADR-0053)", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const red = { fills: [{ color: "#FF0000" }] };
+  const { keyMap } = (
+    await call("zibel_node_create", {
+      docId,
+      nodes: [
+        { type: "layer", parentId: defaultLayerId, clientKey: "sub" },
+        {
+          type: "ellipse",
+          parentId: defaultLayerId,
+          clientKey: "clip",
+          x: 20,
+          y: 30,
+          width: 40,
+          height: 40,
+          appearance: red,
+        },
+      ],
+    })
+  ).structuredContent;
+  await call("zibel_node_create", {
+    docId,
+    nodes: [
+      { type: "rect", parentId: keyMap.sub, x: 0, y: 0, width: 100, height: 100, appearance: red },
+    ],
+  });
+  const made = await call("zibel_mask_make", { docId, layerId: defaultLayerId });
+  expect(made.isError).toBeFalsy();
+  expect(made.structuredContent).toMatchObject({ createdIds: [], updatedIds: [keyMap.clip] });
+  const layer = (await call("zibel_doc_outline", { docId })).structuredContent.nodes[0];
+  expect(layer).toMatchObject({
+    id: defaultLayerId,
+    bounds: { x: 20, y: 30, width: 40, height: 40 },
+  });
+  // Drawn after Make, above the Clipping Path, and still clipped.
+  await call("zibel_node_create", {
+    docId,
+    nodes: [
+      {
+        type: "rect",
+        parentId: defaultLayerId,
+        x: 0,
+        y: 0,
+        width: 200,
+        height: 100,
+        appearance: red,
+      },
+    ],
+  });
+  // A 1 pt square of the render, compared with one where nothing is drawn.
+  const at = async (x: number, y: number, id = docId) =>
+    (await call("zibel_render", { docId: id, scope: { rect: { x, y, width: 1, height: 1 } } }))
+      .content[0].data;
+  const empty = await at(40, 50, (await newDoc()).docId);
+  expect(await at(40, 50)).not.toBe(empty);
+  expect(await at(150, 50)).toBe(empty);
+
+  const released = await call("zibel_mask_release", { docId, nodeIds: [defaultLayerId] });
+  expect(released.structuredContent.updatedIds).toEqual([keyMap.clip]);
+  expect(await at(150, 50)).not.toBe(empty);
+});
+
+it("refuses layerId given with clipNodeId as INVALID_INPUT, and each Make on a Layer it cannot as INVALID_MASK", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const mixed = await call("zibel_mask_make", {
+    docId,
+    layerId: defaultLayerId,
+    clipNodeId: defaultLayerId,
+    contentIds: [defaultLayerId],
+  });
+  expect(errorOf(mixed)).toMatchObject({ code: "INVALID_INPUT" });
+  const empty = await call("zibel_mask_make", { docId, layerId: defaultLayerId });
+  expect(errorOf(empty)).toMatchObject({
+    code: "INVALID_MASK",
+    path: "layerId",
+    hint: expect.stringMatching(/\S/),
+  });
+});
+
 it("clips by a text, which stays editable: node_update changes the clip, and warns as any text (ADR-0052)", async () => {
   const { docId, defaultLayerId } = await newDoc();
   const { keyMap } = (
@@ -1414,6 +1494,8 @@ it("places an SVG as one Group under the parent, and refuses a .zibel.json", asy
     ["group", "Guides"],
     ["group", "Painted"],
     ["group", "Transformed"],
+    // A clipped Layer arrives as a Clip Group (ADR-0053).
+    ["group", "Clipped layer"],
   ]);
   // The fixture's one missing link; its other Images are embedded.
   expect(warnings).toMatchObject([{ code: "IMAGE_LINK_MISSING" }]);

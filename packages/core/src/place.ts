@@ -56,7 +56,15 @@ export function placeNodes(
           { type: "group", parentId: opts.parentId, name: file.name, children: [] },
         ]).nodes[0] as Node)
       : undefined;
-  const roots = group ? childrenIn(null) : tops(null);
+  // A pasted Clipping Path never clips the parent (ADR-0053): a listed one comes as an ordinary
+  // Path; one written only for the Clipping Mask that leads to a listed Node stays behind.
+  const roots = group
+    ? childrenIn(null)
+    : tops(null).flatMap((n): Node[] => {
+        if (!("clipping" in n && n.clipping)) return [n];
+        const { clipping: _, ...path } = n;
+        return listed.has(n.id) ? [path] : [];
+      });
   const keys = group
     ? roots.map((n) => n.index)
     : generateNKeysBetween(
