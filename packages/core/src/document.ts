@@ -615,9 +615,11 @@ export const lockedIn = (doc: Document, node: Node | undefined): boolean =>
 const clipAmong = (children: Node[]) =>
   children.find((c): c is LeafNode => "clipping" in c && c.clipping === true);
 
-/** The Group's Clipping Path, which makes it a Clipping Mask (ADR-0021, ADR-0052). */
+/** The Layer's or Group's Clipping Path, which makes it a Clipping Mask (ADR-0021, ADR-0053). */
 export function clippingPath(doc: Document, node: Node): LeafNode | undefined {
-  return node.type === "group" ? clipAmong(childrenOf(doc, node.id)) : undefined;
+  return node.type === "layer" || node.type === "group"
+    ? clipAmong(childrenOf(doc, node.id))
+    : undefined;
 }
 
 /** A frame as the rect Live Shape that outlines it: an Image's, or a text's box. */
@@ -634,7 +636,7 @@ export const frameShape = (r: Rect) => ({
 export function bounds(doc: Document, node: Node): Rect | null {
   if (node.type === "layer" || node.type === "group") {
     const children = childrenOf(doc, node.id);
-    const clip = node.type === "group" ? clipAmong(children) : undefined;
+    const clip = clipAmong(children);
     return clip ? bounds(doc, clip) : union(children.map((c) => bounds(doc, c)));
   }
   const shape =
@@ -654,7 +656,7 @@ export function visibleBounds(doc: Document, node: Node): Rect | null {
   if (node.type === "layer" || node.type === "group") {
     const children = childrenOf(doc, node.id);
     // Everything else is clipped, and the Clipping Path's Strokes draw unclipped.
-    const clip = node.type === "group" ? clipAmong(children) : undefined;
+    const clip = clipAmong(children);
     if (clip) return visibleBounds(doc, clip);
     const grow = Math.max(0, ...containerAppearance(node).strokes.map((s) => s.width)) / 2;
     // A leaf inside an inner Clipping Mask paints only within its Clipping Paths.

@@ -469,7 +469,8 @@ export class DocumentObject extends DurableObject<Env> {
         }),
     },
     mask_make: {
-      nodeIds: (c) => [c.input.clipNodeId, ...c.input.contentIds],
+      nodeIds: (c) =>
+        "layerId" in c.input ? [c.input.layerId] : [c.input.clipNodeId, ...c.input.contentIds],
       run: (c, actor, commandId) => this.makeMask(c.input, actor, { commandId }),
     },
     mask_release: {
@@ -838,7 +839,8 @@ export class DocumentObject extends DurableObject<Env> {
   makeMask(input: MaskInput, actor: string, opts: Options = {}): Result<WriteReceipt> {
     return this.write(actor, opts, "Make Clipping Mask", (doc) => {
       const { group, updated } = makeMask(doc, input);
-      return { created: [group], updated, failed: [], summary: "Make Clipping Mask" };
+      // A Layer becomes a Clipping Mask in place: nothing is created (ADR-0053).
+      return { created: group ? [group] : [], updated, failed: [], summary: "Make Clipping Mask" };
     });
   }
 

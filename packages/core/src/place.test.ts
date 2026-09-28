@@ -291,6 +291,65 @@ it("keeps a placed Clipping Mask clipping under its new ids", () => {
   expect(doc.nodes.get(placed.parentId ?? "")?.type).toBe("group");
 });
 
+describe("Layer Clipping Masks (ADR-0053)", () => {
+  /** A file whose Layer is clipped by its topmost ellipse, over a rect `a` and a sublayer's rect. */
+  function clippedLayer() {
+    const f = createDocument({ id: "f", name: "F", artboards: [] });
+    const [sub, a] = createNodes(f.doc, [
+      { type: "layer", parentId: f.defaultLayerId },
+      { type: "rect", parentId: f.defaultLayerId, name: "a", x: 0, y: 0, width: 20, height: 20 },
+      {
+        type: "ellipse",
+        parentId: f.defaultLayerId,
+        name: "clip",
+        x: 5,
+        y: 5,
+        width: 4,
+        height: 4,
+      },
+    ]).nodes as [Node, Node, Node];
+    createNodes(f.doc, [{ type: "rect", parentId: sub.id, x: 0, y: 0, width: 9, height: 9 }]);
+    const [clip] = makeMask(f.doc, { layerId: f.defaultLayerId }).updated as [Node];
+    return { name: "F", nodes: [...f.doc.nodes.values()], a, clip };
+  }
+
+  it("places a clipped Layer as a Clip Group", () => {
+    const { doc, defaultLayerId } = setup();
+    const { a: _, clip, ...f } = clippedLayer();
+    const { created } = placeNodes(doc, f, { parentId: defaultLayerId, fit: false });
+    const placed = created.find((n) => n.name === "clip") as ShapeNode;
+    expect(placed).toMatchObject({ clipping: true });
+    expect(doc.nodes.get(placed.parentId ?? "")?.type).toBe("group");
+    expect(created.some((n) => n.type === "layer")).toBe(false);
+  });
+
+  it("pastes content copied out of a clipped Layer unclipped, without its Clipping Path", () => {
+    const { doc, defaultLayerId } = setup();
+    const { a, clip: _, ...f } = clippedLayer();
+    const { created } = placeNodes(
+      doc,
+      { ...f, scope: { nodeIds: [a.id] } },
+      { parentId: defaultLayerId },
+    );
+    expect(created.map((n) => n.name)).toContain("a");
+    expect(created.map((n) => n.name)).not.toContain("clip");
+    expect(childrenOf(doc, defaultLayerId).some((n) => "clipping" in n && n.clipping)).toBe(false);
+  });
+
+  it("pastes a listed Clipping Path as an ordinary Path", () => {
+    const { doc, defaultLayerId } = setup();
+    const { a, clip, ...f } = clippedLayer();
+    const { created } = placeNodes(
+      doc,
+      { ...f, scope: { nodeIds: [a.id, clip.id] } },
+      { parentId: defaultLayerId },
+    );
+    const pasted = created.find((n) => n.name === "clip");
+    expect(pasted).toMatchObject({ type: "ellipse", parentId: defaultLayerId });
+    expect(pasted).not.toHaveProperty("clipping");
+  });
+});
+
 describe("placeImage", () => {
   const src = "a".repeat(64);
   const withImage = () => {

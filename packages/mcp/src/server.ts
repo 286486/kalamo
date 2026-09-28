@@ -10,6 +10,7 @@ import {
   FreehandStrokeInput,
   freehandPath,
   imageFrame,
+  MaskFields,
   MaskInput,
   NodeInput,
   NodeQuery,
@@ -425,9 +426,10 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       description: [
         "Clip Nodes by a shape, as Illustrator's Object > Clipping Mask > Make: a new Group, the Clipping Mask, takes the place of the topmost of them and holds clipNodeId and contentIds in their stacking order; the content draws only inside the clip Node, which becomes the Group's Clipping Path and loses its Fills and Strokes. An appearance given to it later with zibel_node_update draws its Fills behind the content and its Strokes over it, unclipped.",
         "The clip Node is a Live Shape, a path or a text, which clips by its glyphs, and every Node listed shares its parent. The Group's geometricBounds are the Clipping Path's. Move the clip or the content with zibel_node_transform; zibel_mask_release undoes the clip.",
-        "One Transaction. createdIds is the Group; updatedIds the Nodes moved into it.",
+        "Or give layerId alone, as Illustrator's Layers panel button: the Layer's topmost child becomes its Clipping Path, losing its Fills and Strokes, and clips everything else in the Layer, sublayers and Nodes created in it later included. Nothing moves and no Group is made. INVALID_MASK when the Layer is already clipped, is empty, or its topmost child is hidden or is a Group, Layer or image.",
+        "One Transaction. createdIds is the Group, none for a Layer; updatedIds the Nodes moved into it, or the Layer's new Clipping Path.",
       ].join(" "),
-      inputSchema: { docId, ...MaskInput.shape, ...txWrite },
+      inputSchema: { docId, ...MaskFields.shape, ...txWrite },
       outputSchema: WriteReceipt.shape,
       annotations: {
         readOnlyHint: false,
@@ -436,7 +438,11 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         openWorldHint: false,
       },
     },
-    async (args) => json(await service.makeMask(...splitTxWrite(args))),
+    async (args) => {
+      const [id, input, opts] = splitTxWrite(args);
+      const mask = parseArgs("zibel_mask_make", MaskInput, input);
+      return json(await service.makeMask(id, mask, opts));
+    },
   );
 
   tool(
@@ -444,7 +450,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
     {
       title: "Release Clipping Mask",
       description:
-        "Stop Clipping Masks clipping, as Illustrator's Object > Clipping Mask > Release. List each by its Group id or its Clipping Path's id. The Group and its Nodes stay; the former Clipping Path keeps its appearance, which is empty unless one was given to it with zibel_node_update.",
+        "Stop Clipping Masks clipping, as Illustrator's Object > Clipping Mask > Release. List each by its Group's or Layer's id or its Clipping Path's id. The Group or Layer and its Nodes stay; the former Clipping Path keeps its appearance, which is empty unless one was given to it with zibel_node_update.",
       inputSchema: { docId, nodeIds: z.array(z.string()).min(1).max(1000), ...txWrite },
       outputSchema: WriteReceipt.shape,
       annotations: {

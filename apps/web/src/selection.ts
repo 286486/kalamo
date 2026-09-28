@@ -246,7 +246,10 @@ export const inverse = (doc: Document, selection: string[]) =>
  * Object > Clipping Mask > Make on the Selection: the topmost selected Node clips the others, as
  * Illustrator picks it. Null without two editable Nodes; core rejects what cannot be clipped.
  */
-export function maskInput(doc: Document, selection: string[]): MaskInput | null {
+export function maskInput(
+  doc: Document,
+  selection: string[],
+): Extract<MaskInput, { clipNodeId: string }> | null {
   const ids = selection.filter((id) => editable(doc, doc.nodes.get(id)));
   if (ids.length < 2) return null;
   let clipNodeId = "";

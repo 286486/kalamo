@@ -310,6 +310,32 @@ describe("hitTest", () => {
     expect(hitTest(ctx, doc, 90, 20, 1)).toBeNull();
   });
 
+  it("hits a clipped Layer's content itself, only inside its Clipping Path, and a painted one's Stroke outside it (ADR-0053)", () => {
+    const ctx = boxContext();
+    const { doc, defaultLayerId: parentId } = createDocument({
+      id: "d",
+      name: "Doc",
+      artboards: [{ width: 200, height: 100 }],
+    });
+    const [sub, clip] = createNodes(doc, [
+      { type: "layer", parentId },
+      { type: "rect", parentId, x: 40, y: 0, width: 40, height: 40 },
+    ]).nodes as [Node, Node];
+    const [content] = createNodes(doc, [
+      { type: "rect", parentId: sub.id, x: 0, y: 0, width: 50, height: 50 },
+    ]).nodes as [Node];
+    makeMask(doc, { layerId: parentId });
+    expect(hitTest(ctx, doc, 45, 20, 1)).toBe(content.id);
+    expect(hitTest(ctx, doc, 20, 20, 1)).toBeNull();
+    // Unpainted, the Clipping Path is never hit.
+    expect(hitTest(ctx, doc, 70, 20, 1)).toBeNull();
+    const pen = { cap: "butt", join: "miter", miterLimit: 10, dash: [] } as const;
+    const stroke = { type: "solid" as const, color: "#0000FF", width: 10, ...pen, dash: [] };
+    const unpainted = doc.nodes.get(clip.id) as ShapeNode;
+    doc.nodes.set(clip.id, { ...unpainted, appearance: { fills: [], strokes: [stroke] } });
+    expect(hitTest(ctx, doc, 83, 20, 1)).toBe(clip.id);
+  });
+
   it("hits a text Clipping Mask's content only on its glyphs, and a painted text anywhere in its frame (ADR-0052)", () => {
     vi.stubGlobal("OffscreenCanvas", GlyphBoxes);
     const ctx = boxContext();

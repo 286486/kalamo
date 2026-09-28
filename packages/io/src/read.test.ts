@@ -1399,16 +1399,60 @@ describe("Clipping Masks (ADR-0021)", () => {
       clip('<rect width="1" height="1"/>', 'clipPathUnits="objectBoundingBox"'),
       clip('<rect width="1" height="1"/>', 'clip-path="url(#d)"'),
       parseFile(svg("", '<g clip-path="url(#nope)"><rect width="5" height="5"/></g>')),
+      // A Layer's, for the same reasons as a Group's (ADR-0053).
       parseFile(
         svg(
           "",
-          '<defs><clipPath id="c"><rect width="1" height="1"/></clipPath></defs><g inkscape:groupmode="layer" clip-path="url(#c)"><rect width="5" height="5"/></g>',
+          '<defs><clipPath id="c"><rect width="1" height="1"/><rect width="2" height="2"/></clipPath></defs><g inkscape:groupmode="layer" clip-path="url(#c)"><rect width="5" height="5"/></g>',
         ),
       ),
     ]) {
       expect(file.warnings).toMatchObject([{ code: "UNSUPPORTED_ATTRIBUTE" }]);
       expect(file.nodes.some((n) => "clipping" in n)).toBe(false);
     }
+  });
+
+  it("reads a layer's inline <clipPath> as the Layer's Clipping Path, where it sits (ADR-0053)", () => {
+    const file = parseFile(
+      svg(
+        "",
+        `<g id="${G}" inkscape:groupmode="layer" clip-path="url(#k)"><rect width="9" height="9"/>` +
+          `<clipPath id="k" clipPathUnits="userSpaceOnUse"><path id="${C}" d="M 0 0 L 9 0 L 9 9 Z"/></clipPath>` +
+          '<rect x="5" width="9" height="9"/></g>',
+      ),
+    );
+    expect(file.warnings).toEqual([]);
+    const layer = byId(file, G);
+    expect(layer).toMatchObject({ type: "layer", parentId: null });
+    expect(children(file, layer?.id).map((n) => n.type)).toEqual(["rect", "path", "rect"]);
+    expect(byId(file, C)).toMatchObject({ clipping: true, parentId: layer?.id });
+  });
+
+  it("reads Inkscape's Set Clip on a translated layer as a Clipping Path on top, unpainted (ADR-0053)", () => {
+    // As select-by-id:L1,c1;object-set-clip writes it: the clip in <defs> under a new id, in the
+    // layer's user space, the object's old style left on it.
+    const file = parseFile(
+      svg(
+        "",
+        '<defs><clipPath clipPathUnits="userSpaceOnUse" id="clipPath7"><rect id="c1" x="0" y="0" width="4" height="4" style="fill:#0000ff;stroke:#000000;stroke-width:2"/></clipPath></defs>' +
+          `<g id="${G}" inkscape:groupmode="layer" inkscape:label="L1" transform="translate(10 20)" clip-path="url(#clipPath7)">` +
+          '<rect width="9" height="9"/><g inkscape:groupmode="layer" inkscape:label="Sub"><rect width="2" height="2"/></g></g>',
+      ),
+    );
+    expect(file.warnings).toEqual([]);
+    const layer = byId(file, G);
+    expect(children(file, layer?.id)).toMatchObject([
+      { type: "rect", x: 10, y: 20 },
+      { type: "layer", name: "Sub" },
+      {
+        type: "rect",
+        x: 10,
+        y: 20,
+        width: 4,
+        clipping: true,
+        appearance: { fills: [], strokes: [] },
+      },
+    ]);
   });
 
   it("takes clip-path none, as Inkscape's Release writes it, as no clip", () => {
@@ -1494,6 +1538,42 @@ describe("a painted Clipping Path (ADR-0051)", () => {
       same(doc, back);
     },
   );
+
+  it("reads back a stroked Layer Clipping Mask, its sublayer still a Layer (ADR-0053)", () => {
+    const { doc } = createDocument({
+      id: "d",
+      name: "Doc",
+      artboards: [{ width: 50, height: 50 }],
+    });
+    const [layer] = createNodes(doc, [{ type: "layer", name: "L" }]).nodes as [ShapeNode];
+    const [sub, ellipse] = createNodes(doc, [
+      { type: "layer", parentId: layer.id, name: "Sub" },
+      { type: "ellipse", parentId: layer.id, x: 2, y: 2, width: 30, height: 20 },
+    ]).nodes as [ShapeNode, ShapeNode];
+    transformNodes(doc, { nodeIds: [ellipse.id], rotate: 30 });
+    createNodes(doc, [{ type: "rect", parentId: sub.id, x: 0, y: 0, width: 40, height: 40 }]);
+    const [clip] = makeMask(doc, { layerId: layer.id }).updated as [ShapeNode];
+    const appearance = {
+      fills: [{ type: "solid" as const, color: "#00FF00" }],
+      strokes: [
+        {
+          type: "solid" as const,
+          color: "#FF0000",
+          width: 4,
+          cap: "butt" as const,
+          join: "miter" as const,
+          miterLimit: 10,
+          dash: [],
+        },
+      ],
+    };
+    doc.nodes.set(clip.id, { ...clip, appearance });
+    const xml = toSvg(doc);
+    expect(xml).toContain("zibel:clipped");
+    const { file, doc: back } = opened(doc as never, xml);
+    expect(file.warnings).toEqual([]);
+    same(doc as never, back);
+  });
 
   it("ignores the ids Inkscape adds to the wrappers and copies when it saves", () => {
     const { doc } = framed({ strokes: true, above: true });
@@ -1759,6 +1839,19 @@ describe("<image>", () => {
       () => undefined,
     );
     expect(clipped.nodes.map((n) => n.type)).toEqual(["layer"]);
+  });
+
+  it("keeps a Layer left with only its Clipping Path by a dropped image (ADR-0053)", () => {
+    const file = resolveLinks(
+      open(
+        `<defs><clipPath id="c"><rect width="1" height="1"/></clipPath></defs><g id="z-01J00000000000000000000L01" inkscape:groupmode="layer" clip-path="url(#c)"><image href="a.png" zibel:src="${ID}"/></g>`,
+      ),
+      () => undefined,
+    );
+    expect(file.nodes.map((n) => [n.type, "clipping" in n])).toEqual([
+      ["layer", false],
+      ["rect", true],
+    ]);
   });
 
   it("drops a linked image with a negative or zero size silently, as SVG draws nothing", () => {

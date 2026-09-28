@@ -186,11 +186,11 @@ _Avoid_: Filter（保留给 SVG filter 的技术语境）
 _Avoid_: Style preset、Theme
 
 **Clipping Mask（剪切蒙版）**：
-用一个 Path 或文字的形状裁切一组 Node 可见范围的容器。在模型中它就是一个含 Clipping Path 的 `group`，没有单独的 `clip_group` 类型（ADR-0021）。
+用一个 Path 或文字的形状裁切一组 Node 可见范围的容器。在模型中它就是一个含 Clipping Path 的 `group` 或 `layer`，没有单独的 `clip_group` 类型（ADR-0021）。Layer 作 Clipping Mask 时（Layers 面板底部的 Make/Release Clipping Mask，ADR-0053），它的最上层子 Node 成为 Clipping Path，裁切 Layer 中其余一切，含子 Layer 与之后画入的 Node；Layer 保持原名与结构，不生成 Group。
 _Avoid_: Clip、Crop（那是位图操作）、Clip group 作为类型名
 
 **Clipping Path（剪切路径）**：
-Clipping Mask 中做裁切的那个子 Node：一个 `clipping: true` 的 Live Shape、Path 或文字。文字按其排好的字形裁切，且仍可编辑（ADR-0052）。每个 Group 至多一个；它裁切同组的其他 Node。建立时其 Appearance 清空（文字的 Character Range fill 一并清空）；重新赋予后，Fill 画在被裁切内容之下，Stroke 画在其上且不被自身裁切（ADR-0051）。
+Clipping Mask 中做裁切的那个子 Node：一个 `clipping: true` 的 Live Shape、Path 或文字。文字按其排好的字形裁切，且仍可编辑（ADR-0052）。每个 Group 或 Layer 至多一个；它裁切同一容器中的其他 Node（ADR-0053）。建立时其 Appearance 清空（文字的 Character Range fill 一并清空）；重新赋予后，Fill 画在被裁切内容之下，Stroke 画在其上且不被自身裁切（ADR-0051）。
 _Avoid_: Mask path、Clip shape
 
 **Opacity Mask（不透明度蒙版）**：

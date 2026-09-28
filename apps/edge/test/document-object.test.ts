@@ -556,6 +556,33 @@ it("makes and releases a Clipping Mask as one Transaction each, undone and redon
   expect(released).toMatchObject({ parentId: groupId });
 });
 
+it("makes a Layer a Clipping Mask in one Transaction, creating nothing, its paint back on undo (ADR-0053)", async () => {
+  const { s, defaultLayerId, rectId } = await withRect("m4");
+  const [clipId = ""] = ok(
+    await s.createNodes(
+      [{ type: "ellipse", parentId: defaultLayerId, x: 2, y: 2, width: 4, height: 4 }],
+      "agent-a",
+    ),
+  ).createdIds;
+  const get = async (id: string) => ok(await s.get([id], "full", "agent-a")).nodes[0];
+  const painted = await get(clipId);
+  const made = ok(await s.makeMask({ layerId: defaultLayerId }, "agent-a"));
+  expect(made).toMatchObject({ createdIds: [], updatedIds: [clipId], deletedIds: [] });
+  expect(await layerChildren(s)).toEqual([rectId, clipId]);
+  expect(await get(clipId)).toMatchObject({
+    clipping: true,
+    appearance: { fills: [], strokes: [] },
+  });
+  expect((await get(defaultLayerId))?.geometricBounds).toEqual({ x: 2, y: 2, width: 4, height: 4 });
+
+  ok(await s.undo("user"));
+  expect(await get(clipId)).toEqual(painted);
+  ok(await s.redo("user"));
+  expect(await get(clipId)).toMatchObject({ clipping: true });
+  ok(await s.releaseMask([defaultLayerId], "agent-a"));
+  expect(await get(clipId)).not.toHaveProperty("clipping");
+});
+
 it("brings a text Clipping Path's Range Fills back on undo of Make (ADR-0052)", async () => {
   const { s, defaultLayerId, rectId } = await withRect("m3");
   const ranges = [{ start: 0, end: 1, fill: "#FF0000", rotation: 5 }];

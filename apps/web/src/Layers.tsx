@@ -1,5 +1,5 @@
 import { memo, useState } from "react";
-import { autoName, rows } from "./layers.ts";
+import { autoName, layerMask, rows } from "./layers.ts";
 import { combine, objects } from "./selection.ts";
 import { send, useStore } from "./store.ts";
 
@@ -38,6 +38,7 @@ export const Layers = memo(function Layers() {
     useStore.setState({ notice: null });
     send({ type: "update", nodeId, patch });
   };
+  const mask = layerMask(doc, selection);
 
   return (
     <div
@@ -47,98 +48,121 @@ export const Layers = memo(function Layers() {
         right: 0,
         bottom: 0,
         width: 260,
-        overflow: "auto",
+        display: "flex",
+        flexDirection: "column",
         background: "#F5F5F5",
         borderLeft: "1px solid #CCC",
         font: "12px system-ui, sans-serif",
       }}
     >
-      {rows(doc, toggled).map(({ node, depth, expandable, expanded, dimmed }) => {
-        const label = node.name || autoName(doc, node);
-        const selected = selection.includes(node.id);
-        const pick = (e: React.MouseEvent) => {
-          const { doc, selection } = useStore.getState();
-          if (!doc) return;
-          // A Layer is never selected itself: its row selects the objects in it.
-          const ids =
-            node.type !== "layer"
-              ? [node.id]
-              : dimmed
-                ? []
-                : objects(doc, node.id).map((n) => n.id);
-          useStore.setState({
-            notice: null,
-            selection: combine(selection, ids, { shift: e.shiftKey, alt: e.altKey }),
-          });
-        };
-        return (
-          <div
-            key={node.id}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              height: 22,
-              paddingLeft: 4 + depth * 14,
-              background: selected ? SELECTED : undefined,
-              opacity: dimmed ? 0.5 : 1,
-              borderBottom: "1px solid #E4E4E4",
-            }}
-          >
-            <button
-              type="button"
-              style={icon}
-              aria-label={`${node.visible ? "Hide" : "Show"} ${label}`}
-              onClick={() => update(node.id, { visible: !node.visible })}
+      <div style={{ flex: 1, overflow: "auto" }}>
+        {rows(doc, toggled).map(({ node, depth, expandable, expanded, dimmed, underlined }) => {
+          const label = node.name || autoName(doc, node);
+          const selected = selection.includes(node.id);
+          const pick = (e: React.MouseEvent) => {
+            const { doc, selection } = useStore.getState();
+            if (!doc) return;
+            // A Layer is never selected itself: its row selects the objects in it.
+            const ids =
+              node.type !== "layer"
+                ? [node.id]
+                : dimmed
+                  ? []
+                  : objects(doc, node.id).map((n) => n.id);
+            useStore.setState({
+              notice: null,
+              selection: combine(selection, ids, { shift: e.shiftKey, alt: e.altKey }),
+            });
+          };
+          return (
+            <div
+              key={node.id}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                height: 22,
+                paddingLeft: 4 + depth * 14,
+                background: selected ? SELECTED : undefined,
+                opacity: dimmed ? 0.5 : 1,
+                borderBottom: "1px solid #E4E4E4",
+              }}
             >
-              {node.visible && EYE}
-            </button>
-            <button
-              type="button"
-              style={icon}
-              aria-label={`${node.locked ? "Unlock" : "Lock"} ${label}`}
-              onClick={() => update(node.id, { locked: !node.locked })}
-            >
-              {node.locked && LOCK}
-            </button>
-            {expandable ? (
               <button
                 type="button"
                 style={icon}
-                aria-label={`${expanded ? "Collapse" : "Expand"} ${label}`}
-                aria-expanded={expanded}
-                onClick={() => toggle(node.id)}
+                aria-label={`${node.visible ? "Hide" : "Show"} ${label}`}
+                onClick={() => update(node.id, { visible: !node.visible })}
               >
-                {expanded ? "▾" : "▸"}
+                {node.visible && EYE}
               </button>
-            ) : (
-              <span style={{ width: 20 }} />
-            )}
-            <button
-              type="button"
-              aria-pressed={selected}
-              onClick={pick}
-              style={{
-                ...icon,
-                width: "auto",
-                minWidth: 40,
-                textAlign: "left",
-                whiteSpace: "nowrap",
-                fontWeight: node.type === "layer" ? 600 : 400,
-              }}
-            >
-              {label}
-            </button>
-            {node.tags.map((tag) => (
-              <span
-                key={tag}
-                style={{ marginLeft: 4, padding: "0 4px", borderRadius: 3, background: "#E0E0E0" }}
+              <button
+                type="button"
+                style={icon}
+                aria-label={`${node.locked ? "Unlock" : "Lock"} ${label}`}
+                onClick={() => update(node.id, { locked: !node.locked })}
               >
-                {tag}
-              </span>
-            ))}
-          </div>
-        );
-      })}
+                {node.locked && LOCK}
+              </button>
+              {expandable ? (
+                <button
+                  type="button"
+                  style={icon}
+                  aria-label={`${expanded ? "Collapse" : "Expand"} ${label}`}
+                  aria-expanded={expanded}
+                  onClick={() => toggle(node.id)}
+                >
+                  {expanded ? "▾" : "▸"}
+                </button>
+              ) : (
+                <span style={{ width: 20 }} />
+              )}
+              <button
+                type="button"
+                aria-pressed={selected}
+                onClick={pick}
+                style={{
+                  ...icon,
+                  width: "auto",
+                  minWidth: 40,
+                  textAlign: "left",
+                  whiteSpace: "nowrap",
+                  fontWeight: node.type === "layer" ? 600 : 400,
+                  textDecoration: underlined ? "underline" : undefined,
+                }}
+              >
+                {label}
+              </button>
+              {node.tags.map((tag) => (
+                <span
+                  key={tag}
+                  style={{
+                    marginLeft: 4,
+                    padding: "0 4px",
+                    borderRadius: 3,
+                    background: "#E0E0E0",
+                  }}
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+          );
+        })}
+      </div>
+      {/* Illustrator's Make/Release Clipping Mask at the panel's foot (ADR-0053). */}
+      <div style={{ display: "flex", padding: 4, borderTop: "1px solid #CCC" }}>
+        <button
+          type="button"
+          disabled={!mask.command}
+          onClick={() => {
+            if (!mask.command) return;
+            useStore.setState({ notice: null });
+            send(mask.command);
+          }}
+        >
+          {mask.label}
+        </button>
+      </div>
     </div>
   );
 });

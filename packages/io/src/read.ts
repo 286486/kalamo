@@ -479,9 +479,10 @@ class Reader {
       // A container's mask or filter is lost like a leaf's.
       this.unsupported(e, style);
       const layer = ctx.layerLevel && e.getAttributeNS(NS.inkscape, "groupmode") === "layer";
-      // A Group's <g zibel:clipped> is not a Node: its children are the Group's, and its clip-path
-      // the Group's Clipping Mask, written so its Clipping Path's Strokes draw unclipped (ADR-0051).
-      const wrapped = (c: Element) => tag === "g" && !layer && zibelAttr(c, "clipped") === "true";
+      // A Layer's or Group's <g zibel:clipped> is not a Node: its children are the container's, and
+      // its clip-path the container's Clipping Mask, written so its Clipping Path's Strokes draw
+      // unclipped (ADR-0051, ADR-0053).
+      const wrapped = (c: Element) => tag === "g" && zibelAttr(c, "clipped") === "true";
       const named = (s: Style) =>
         s["clip-path"] && s["clip-path"] !== "none" ? [s["clip-path"]] : [];
       const inner = elements(e)
@@ -492,10 +493,10 @@ class Reader {
         this.warn(
           "UNSUPPORTED_ATTRIBUTE",
           "clip-path",
-          "A Group clipped by more than one clip-path keeps only the first.",
+          "A Layer or Group clipped by more than one clip-path keeps only the first.",
         );
       }
-      const clip = this.clipOf(clips[0], layer);
+      const clip = this.clipOf(clips[0]);
       const parentId = layer ? ctx.parentId : this.parent(ctx);
       // Zibel supports no SVG extension, so a <switch> never renders a child that requires one, such
       // as Illustrator's private-data <foreignObject>.
@@ -551,7 +552,7 @@ class Reader {
     if (!shape || !this.holds({ ...shape, ...(appearance && { appearance }) })) return;
     this.unsupported(e, style);
     // A clipped leaf, as Inkscape's Set Clip writes one, becomes a Clipping Mask of its own.
-    const clip = this.clipOf(style["clip-path"], false);
+    const clip = this.clipOf(style["clip-path"]);
     const parentId = clip
       ? this.add({ ...this.base(null, this.parent(ctx)), type: "group" }).id
       : this.parent(ctx);
@@ -667,18 +668,17 @@ class Reader {
   }
 
   /**
-   * The <clipPath> a `clip-path` names when Zibel can hold it as a Clipping Path (ADR-0021): one
-   * Live Shape or Path in the referencing element's user space. Otherwise the content imports
-   * unclipped, with a warning.
+   * The <clipPath> a `clip-path` names when Zibel can hold it as a Clipping Path (ADR-0021,
+   * ADR-0053): one Live Shape, Path or text in the referencing element's user space. Otherwise the
+   * content imports unclipped, with a warning.
    */
-  private clipOf(value: string | undefined, layer: boolean): Element | undefined {
+  private clipOf(value: string | undefined): Element | undefined {
     if (!value || value === "none") return undefined;
     const id = urlId(value);
     const el = id === undefined ? undefined : this.byId.get(id);
     const inner = el ? elements(el).filter((c) => !SILENT.has(c.localName ?? "")) : [];
     const [only] = inner;
     const holds =
-      !layer &&
       el?.localName === "clipPath" &&
       el.getAttribute("clipPathUnits") !== "objectBoundingBox" &&
       !el.getAttribute("clip-path") &&
@@ -691,7 +691,7 @@ class Reader {
     this.warn(
       "UNSUPPORTED_ATTRIBUTE",
       "clip-path",
-      "A clip-path Zibel cannot hold (on a Layer, a missing reference, objectBoundingBox units, or anything but one shape, path or text inside) was dropped; the artwork imports unclipped.",
+      "A clip-path Zibel cannot hold (a missing reference, objectBoundingBox units, or anything but one shape, path or text inside) was dropped; the artwork imports unclipped.",
     );
     return undefined;
   }
@@ -1646,8 +1646,10 @@ export function resolveLinks(
     ];
   });
   const kept = resolved.filter((n) => !dropped.has(n.id));
-  // A Group left with only its Clipping Path was the Clipping Mask of a dropped Image.
+  // A Group left with only its Clipping Path was the Clipping Mask of a dropped Image. A Layer stays
+  // (ADR-0053).
   const clipOnly = (g: string) =>
+    kept.find((n) => n.id === g)?.type === "group" &&
     kept.some((c) => c.parentId === g) &&
     kept.every((c) => c.parentId !== g || ("clipping" in c && c.clipping));
   const emptied = new Set(

@@ -692,6 +692,82 @@ it("clips a Clipping Mask's children by its Clipping Path, in document coordinat
   ]);
 });
 
+describe("a Layer Clipping Mask (ADR-0053)", () => {
+  /** The default Layer: a red rect in a sublayer, then a blue-stroked `top`, made its Clipping Path. */
+  const clippedLayer = (top: object) => {
+    const { doc, defaultLayerId: parentId } = newDoc();
+    const [sub, clip] = createNodes(doc, [
+      { type: "layer", parentId },
+      { ...top, parentId } as never,
+    ]).nodes as [Node, Node];
+    createNodes(doc, [
+      {
+        type: "rect",
+        parentId: sub.id,
+        x: 0,
+        y: 0,
+        width: 50,
+        height: 50,
+        appearance: { fills: [{ color: "#FF0000" }] },
+      },
+    ]);
+    makeMask(doc, { layerId: parentId });
+    Object.assign(doc.nodes.get(clip.id) as Node, {
+      appearance: { fills: [], strokes: [{ ...STROKE, color: "#0000FF" }] },
+    });
+    const { ctx, log, layer } = recorder();
+    drawDocument(ctx, doc, layer);
+    return log;
+  };
+  const STROKE = {
+    type: "solid",
+    width: 2,
+    cap: "butt",
+    join: "miter",
+    miterLimit: 4,
+    dash: [],
+  };
+
+  it("clips its sublayer before drawing it, and strokes its Clipping Path after the clip is restored", () => {
+    const log = clippedLayer({ type: "rect", x: 5, y: 5, width: 10, height: 10 });
+    const ops = log.filter((l) => /^(save|restore|clip|fill$|stroke$)/.test(l));
+    expect(ops).toEqual([
+      "save",
+      "save",
+      "clip nonzero",
+      // The sublayer and its rect, inside the clip.
+      "save",
+      "save",
+      "fill",
+      "restore",
+      "restore",
+      "restore",
+      // The Clipping Path's Stroke, unclipped (ADR-0051).
+      "save",
+      "stroke",
+      "restore",
+      "restore",
+    ]);
+  });
+
+  it("masks its content by a text Clipping Path's glyphs in a layer", () => {
+    const log = clippedLayer({ type: "text", x: 5, y: 30, content: "Hi" });
+    expect(log).not.toContainEqual(expect.stringMatching(/^(> )*clip/));
+    const ops = log.filter((l) =>
+      /^(> )*(layer|drawImage|fill$|globalCompositeOperation|strokeText)/.test(l),
+    );
+    expect(ops).toEqual([
+      "layer",
+      "> fill",
+      "> globalCompositeOperation=destination-in",
+      "layer",
+      "> drawImage L2 0 0",
+      "drawImage L1 0 0",
+      "strokeText Hi 5 30",
+    ]);
+  });
+});
+
 describe("a text Clipping Path (ADR-0052)", () => {
   /** A red rect clipped by "Hi", its Clipping Path given `appearance`; `outer` strokes the rect's Group. */
   const clippedByText = (content = "Hi", appearance = {}, outer = false) => {
