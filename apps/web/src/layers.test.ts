@@ -1,6 +1,14 @@
-import { createDocument, createNodes, makeMask, type Node } from "@kalamo/core";
+import {
+  childrenOf,
+  createDocument,
+  createNodes,
+  makeMask,
+  type Node,
+  type ReparentInput,
+  reparentNodes,
+} from "@kalamo/core";
 import { describe, expect, it } from "vitest";
-import { autoName, layerMask, rows } from "./layers.ts";
+import { autoName, type Drop, dropMoves, layerMask, rows } from "./layers.ts";
 
 /**
  * Layer 1: Group g (rects a, b), rect c, hidden rect h, locked Group lg (rect m), Layer 3 (rect e).
@@ -229,5 +237,74 @@ describe("in Isolation Mode (ADR-0057)", () => {
       label: "Make Clipping Mask",
       command: null,
     });
+  });
+});
+
+describe("dropMoves (ADR-0075)", () => {
+  /** The keys of the parent's children after the moves, bottom first. */
+  const after = (drop: ReturnType<typeof fixture>, moves: ReparentInput[], parent: string) => {
+    const doc = { ...drop.doc, nodes: new Map(drop.doc.nodes) };
+    reparentNodes(doc, moves);
+    return childrenOf(doc, drop.id(parent)).map((n) => drop.key(n.id));
+  };
+
+  it("puts a Node dropped on a Group on top inside it", () => {
+    const f = fixture();
+    const out = dropMoves(f.doc, [f.id("c")], { zone: "onto", id: f.id("g") }, null);
+    expect(out).toEqual({ moves: [{ nodeId: f.id("c"), parentId: f.id("g") }], moved: true });
+    expect(after(f, out?.moves ?? [], "g")).toEqual(["a", "b", "c"]);
+  });
+
+  it("restacks a Node dropped between its siblings, and sees a drop where it is as no move", () => {
+    const f = fixture();
+    const up = dropMoves(f.doc, [f.id("g")], { zone: "above", id: f.id("c") }, null);
+    expect(up?.moves).toEqual([{ nodeId: f.id("g"), parentId: f.id("l1"), after: f.id("c") }]);
+    expect(after(f, up?.moves ?? [], "l1")).toEqual(["c", "g", "h", "lg", "l3"]);
+    expect(dropMoves(f.doc, [f.id("c")], { zone: "above", id: f.id("g") }, null)?.moved).toBe(
+      false,
+    );
+    expect(dropMoves(f.doc, [f.id("c")], { zone: "below", id: f.id("h") }, null)?.moved).toBe(
+      false,
+    );
+  });
+
+  it("keeps two dragged Nodes in their panel order, whatever order they are named in", () => {
+    const f = fixture();
+    const out = dropMoves(f.doc, [f.id("c"), f.id("d")], { zone: "onto", id: f.id("l3") }, null);
+    expect(after(f, out?.moves ?? [], "l3")).toEqual(["e", "c", "d"]);
+    // Anchored on an undragged sibling, never on a dragged one.
+    const gap = dropMoves(f.doc, [f.id("h"), f.id("g")], { zone: "below", id: f.id("c") }, null);
+    expect(after(f, gap?.moves ?? [], "l1")).toEqual(["g", "h", "c", "lg", "l3"]);
+  });
+
+  it("moves a Sublayer to the top level and back, and drops a descendant of a dragged Node", () => {
+    const f = fixture();
+    const out = dropMoves(f.doc, [f.id("l3"), f.id("e")], { zone: "above", id: f.id("l2") }, null);
+    expect(out?.moves).toEqual([{ nodeId: f.id("l3"), parentId: null, after: f.id("l2") }]);
+    const doc = { ...f.doc, nodes: new Map(f.doc.nodes) };
+    reparentNodes(doc, out?.moves ?? []);
+    const back = dropMoves(doc, [f.id("l3")], { zone: "onto", id: f.id("l1") }, null);
+    expect(back?.moves).toEqual([{ nodeId: f.id("l3"), parentId: f.id("l1") }]);
+  });
+
+  it("refuses a drop core refuses, or into or out of a locked container, or out of scope", () => {
+    const f = fixture();
+    const refused = (dragged: string, drop: Drop, scope: string | null = null) =>
+      dropMoves(f.doc, [f.id(dragged)], drop, scope);
+    expect(refused("l1", { zone: "onto", id: f.id("l3") })).toBeNull();
+    expect(refused("g", { zone: "onto", id: f.id("g") })).toBeNull();
+    expect(refused("l3", { zone: "onto", id: f.id("g") })).toBeNull();
+    expect(refused("l3", { zone: "above", id: f.id("a") })).toBeNull();
+    expect(refused("c", { zone: "above", id: f.id("l2") })).toBeNull();
+    expect(refused("c", { zone: "onto", id: f.id("lg") })).toBeNull();
+    expect(refused("c", { zone: "above", id: f.id("m") })).toBeNull();
+    expect(refused("m", { zone: "above", id: f.id("c") })).toBeNull();
+    expect(refused("a", { zone: "above", id: f.id("g") }, f.id("g"))).toBeNull();
+    // A locked Node in an unlocked parent moves, and a hidden container takes a drop.
+    expect(refused("lg", { zone: "above", id: f.id("c") })?.moved).toBe(true);
+    expect(refused("a", { zone: "above", id: f.id("b") }, f.id("g"))?.moved).toBe(true);
+    const hidden = { ...f.doc.nodes.get(f.id("g")), visible: false } as Node;
+    f.doc.nodes.set(hidden.id, hidden);
+    expect(refused("c", { zone: "onto", id: f.id("g") })?.moved).toBe(true);
   });
 });

@@ -359,7 +359,7 @@ Kalamo 要填的空位是：**Agent 能生成、人能精修、二者共享同�
 
 ### 5.12 图层面板与对象管理
 
-- **F-LAYER-01** Layers 面板：树形展示图层 / 子图层 / 组 / 对象；缩略图；显示 / 隐藏、锁定、图层颜色；拖拽重排与重新父级；点击右侧圆点选中（target）对象；Alt 点击选中图层全部内容；搜索与按类型过滤。（P0）
+- **F-LAYER-01** Layers 面板：树形展示图层 / 子图层 / 组 / 对象；缩略图；显示 / 隐藏、锁定、图层颜色；拖拽重排与重新父级（浏览器 `reparent` 命令，与 `node_reparent` 同一核心编辑，ADR-0075）；点击右侧圆点选中（target）对象；Alt 点击选中图层全部内容；搜索与按类型过滤。（P0）
 - **F-LAYER-02** 图层操作：新建、复制、合并、拼合、Release to Layers（Sequence / Build）、Collect in New Layer、Paste Remembers Layers。（P0 前四项；P1 其余）
 - **F-LAYER-03** 对象命名与自动命名（`<Path>`、`<Group>`、图表 / 文字自动取内容）；Agent 写入的名称与 `tags` 显示在面板。（P0）
 - **F-LAYER-04** 模板图层（锁定、半透明显示参考图）。（P1）
@@ -994,6 +994,7 @@ kalamo/
 | 54 | 换父级（2026-09-30） | `node_reparent` 把 Node 连同其后代移到另一 Layer 或 Group，或在原父级内重排：`index` 为父级其余子节点中自下而上的位置，`before` / `after` 落在该兄弟之下 / 之上，缺省置顶，至多给一个；按序施加，一个事务、一个回执、一次撤销，`partial` 按项跳过；Clipping Path 移到别的父级即失去 `clipping`、保留 Appearance，原父级内重排则保留；移空的 Group 保留；不检查锁定；`node_reorder` 仍暂缺（已由 56 补上）| ADR-0071、#54 |
 | 55 | 至少一个顶层 Layer（2026-09-30） | 已提交的 Document 至少保留一个顶层 Layer，同 Illustrator：`node_delete`（含事务内暂存与浏览器 `delete` 命令）删掉最后一个时以新错误码 `LAST_LAYER` 拒绝、不改任何东西，`partial` 下按序拒绝使其清空的那一项；提交合并后没有顶层 Layer 时整体以 `TREE_CONFLICT` 拒绝，事务保持打开；撤销与重做按行序从后往前跳过删除顶层 Layer 的行，直到留下一个；只拒绝把数目从至少一个降到零的写入，已存的无 Layer 文档仍可写、可用 `node_create` 修复 | ADR-0073、#192 |
 | 56 | 排列（2026-09-30） | `node_reorder` 与 Object > Arrange（Bring to Front Shift+Ctrl+]、Bring Forward Ctrl+]、Send Backward Ctrl+[、Send to Back Shift+Ctrl+[）是同一核心编辑：每个 Node 只在其父级内重排，父级不变；forward / backward 越过一个兄弟，不看是否重叠；同一父级的多个 Node 保持相对次序，相邻的整块移动，已在顶 / 底的不动、其余的向它靠拢；不同父级的各自重排；Layer 亦可重排；Clipping Path 保留 `clipping`；只有移动了的 Node 换键；一个事务、一个回执、一次撤销；无一移动时回执不列任何 Node，浏览器不发送命令 | ADR-0074、#191 |
+| 57 | 图层面板拖拽（2026-09-30） | Layers 面板拖动行即重排或换父级：浏览器发 `reparent` 命令，DO 走与 `node_reparent` 相同的核心编辑，一次拖放一个事务、一次撤销；拖动已选中的行带上整个 Selection，保持面板中的相对次序；行的上下四分之一为行间插入线，容器中部为放入其顶部；锁定的目标容器或源容器、自身或后代、Layer 入 Group、隔离范围之外不显示指示、不发送；隐藏容器可接收，Node 自身锁定不阻止；不变位置时不发送；Alt 拖拽复制不在范围内；面板无键盘移动，同 Illustrator，重排用 Object > Arrange | ADR-0075、#190 |
 
 **剩余开放问题**
 

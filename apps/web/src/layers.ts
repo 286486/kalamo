@@ -1,4 +1,13 @@
-import { childrenOf, clippingPath, type Document, lockedIn, type Node } from "@kalamo/core";
+import {
+  childrenOf,
+  clippingPath,
+  type Document,
+  KalamoError,
+  lockedIn,
+  type Node,
+  type ReparentInput,
+  reparentNodes,
+} from "@kalamo/core";
 import type { Command } from "@kalamo/sync";
 import { inScope, isolatable } from "./isolation.ts";
 import { editable, placeParent } from "./selection.ts";
@@ -121,4 +130,84 @@ export function layerIsolation(
     return { label, target: null };
   }
   return { label: `${label} for ${nameOf(doc, layer)}`, target: layer.id };
+}
+
+/** Where a Layers panel drag lands: on a Layer or Group row, or in the gap above or below a row. */
+export interface Drop {
+  zone: "onto" | "above" | "below";
+  id: string;
+}
+
+/**
+ * The moves a Layers panel drag of `dragged` onto `drop` sends as one `reparent` Command (ADR-0075),
+ * and whether any Node would change place; null when the drop is refused, so the panel shows no
+ * indicator. The dragged Nodes, less those whose ancestor is dragged too, keep their panel order:
+ * the topmost lands at the drop and each next one directly below it. Refused: a target container
+ * locked, itself or through an ancestor, or outside the isolated Node `scope`; a dragged Node in a
+ * locked container; and whatever core's reparent refuses, such as a Node into its own descendant or
+ * a Layer into a Group. A hidden container takes a drop, and a Node's own lock does not stop its
+ * move, as in Illustrator.
+ */
+export function dropMoves(
+  doc: Document,
+  dragged: string[],
+  drop: Drop,
+  scope: string | null,
+): { moves: ReparentInput[]; moved: boolean } | null {
+  const at = doc.nodes.get(drop.id);
+  if (!at) return null;
+  const parentId = drop.zone === "onto" ? at.id : at.parentId;
+  const parent = doc.nodes.get(parentId ?? "");
+  if (lockedIn(doc, parent)) return null;
+  if (scope !== null && parentId !== scope && !(parent && inScope(doc, parent, scope))) return null;
+  const set = new Set(dragged);
+  const nodes = panelOrder(doc).filter((n) => {
+    if (!set.has(n.id)) return false;
+    for (let p = doc.nodes.get(n.parentId ?? ""); p; p = doc.nodes.get(p.parentId ?? "")) {
+      if (set.has(p.id)) return false;
+    }
+    return true;
+  });
+  if (nodes.length === 0 || nodes.some((n) => lockedIn(doc, doc.nodes.get(n.parentId ?? "")))) {
+    return null;
+  }
+  // The first lands directly above the nearest undragged sibling below the gap, else directly
+  // below the nearest one above it, else on top; so the anchor is never a dragged Node.
+  let first: Pick<ReparentInput, "before" | "after"> = {};
+  if (drop.zone !== "onto") {
+    const siblings = childrenOf(doc, parentId);
+    const gap = siblings.indexOf(at) + (drop.zone === "above" ? 1 : 0);
+    const stays = (n: Node) => !set.has(n.id);
+    const below = siblings.slice(0, gap).findLast(stays);
+    const above = siblings.slice(gap).find(stays);
+    first = below ? { after: below.id } : above ? { before: above.id } : {};
+  }
+  const moves = nodes.map(
+    (n, i): ReparentInput => ({
+      nodeId: n.id,
+      parentId,
+      ...(i === 0 ? first : { before: (nodes[i - 1] as Node).id }),
+    }),
+  );
+  try {
+    const placed = reparentNodes({ ...doc, nodes: new Map(doc.nodes) }, moves).nodes;
+    const moved = placed.some((n) => {
+      const was = doc.nodes.get(n.id) as Node;
+      return n.parentId !== was.parentId || n.index !== was.index;
+    });
+    return { moves, moved };
+  } catch (e) {
+    // Core's refusal (INVALID_PARENT and the like) is the backstop for every tree rule.
+    if (e instanceof KalamoError) return null;
+    throw e;
+  }
+}
+
+/** Every Node in the order the Layers panel lists them fully expanded: topmost first, depth first. */
+function panelOrder(doc: Document): Node[] {
+  const walk = (parentId: string | null): Node[] =>
+    childrenOf(doc, parentId)
+      .reverse()
+      .flatMap((n) => [n, ...walk(n.id)]);
+  return walk(null);
 }

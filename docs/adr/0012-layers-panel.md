@@ -23,4 +23,4 @@ The browser's Layers panel (F-LAYER-01, F-LAYER-03) is drawn from the Document t
 ## Consequences
 
 - The Selection may hold a Node inside a Group or a locked Node, so code that acts on the Selection filters it to the editable Nodes first.
-- No thumbnails, Layer colours, drag reordering, search or filters yet (the rest of F-LAYER-01).
+- No thumbnails, Layer colours, drag reordering, search or filters yet (the rest of F-LAYER-01). Amended by ADR-0075: rows drag to restack and reparent.

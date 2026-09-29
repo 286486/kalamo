@@ -8,6 +8,7 @@ import {
   PathEditInput,
   PathOpInput,
   ReorderOp,
+  ReparentInput,
   TransformInput,
   Writable,
 } from "@kalamo/core";
@@ -88,6 +89,8 @@ export const ClientMessage = z.object({
     z.object({ type: z.literal("embed"), nodeIds: z.array(z.string()).min(1) }),
     // Object > Arrange (ADR-0074).
     z.object({ type: z.literal("reorder"), nodeIds: z.array(z.string()).min(1), op: ReorderOp }),
+    // A drag in the Layers panel (ADR-0075).
+    z.object({ type: z.literal("reparent"), moves: z.array(ReparentInput).min(1) }),
     // Object > Clipping Mask > Make and Release (ADR-0021).
     z.object({ type: z.literal("mask_make"), input: MaskInput }),
     z.object({ type: z.literal("mask_release"), nodeIds: z.array(z.string()).min(1) }),
