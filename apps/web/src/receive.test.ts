@@ -47,6 +47,7 @@ it("keeps the drag preview until the tx answering its command arrives", () => {
     edit: null,
     anchors: [],
     segments: [],
+    layerRows: [],
     isolated: null,
   };
   const other = { ...state, ...receive(state, tx(doc, { actor: "agent-a" }), "d") };
@@ -69,6 +70,7 @@ it("snaps back and shows a notice when its command is rejected", () => {
     edit: null,
     anchors: [],
     segments: [],
+    layerRows: [],
     isolated: null,
   };
   const error = { code: "NODE_GONE" as const, message: "gone", hint: "", nodeIds: [a.id] };
@@ -89,6 +91,7 @@ it("shows a LAST_LAYER rejection's message and keeps the Selection (ADR-0073)", 
     edit: null,
     anchors: [],
     segments: [],
+    layerRows: [],
     isolated: null,
   };
   const message = "A Document keeps at least one top-level Layer.";
@@ -112,6 +115,7 @@ it("drops deleted Nodes from the Selection", () => {
     edit: null,
     anchors: [],
     segments: [],
+    layerRows: [],
     isolated: null,
   };
   expect(receive(state, tx(doc, { deletedIds: [a.id] }), "d")).toMatchObject({
@@ -132,6 +136,7 @@ it("asks to reconnect on a missed rev, and drops an unanswered drag on a new Doc
     edit: null,
     anchors: [],
     segments: [],
+    layerRows: [],
     isolated: null,
   };
   expect(receive(state, tx(doc, { rev: doc.rev + 2 }), "d")).toBeNull();
@@ -167,6 +172,7 @@ it("tells the person when an undo skipped Nodes deleted meanwhile", () => {
     edit: null,
     anchors: [],
     segments: [],
+    layerRows: [],
     isolated: null,
   };
   expect(receive(state, tx(doc, { skippedIds: [a.id] }), "d")).toMatchObject({
@@ -188,6 +194,7 @@ it("selects the Group a selected Node was just moved into, as Make Clipping Mask
     edit: null,
     anchors: [],
     segments: [],
+    layerRows: [],
     isolated: null,
   };
   const group = { ...a, id: "g", type: "group" } as unknown as Node;
@@ -225,6 +232,7 @@ it("keeps each drawn create until its own answer, which selects what it made", (
     edit: null,
     anchors: [],
     segments: [],
+    layerRows: [],
     isolated: null,
   };
   const other = receive(state, tx(doc, { actor: "agent-a" }), "d");
@@ -255,6 +263,7 @@ it("keeps a path the Pen is still drawing across a reconnect, and drops every cr
     edit: null,
     anchors: [],
     segments: [],
+    layerRows: [],
     isolated: null,
   };
   const msg = {
@@ -290,6 +299,7 @@ it("keeps a Direct Selection drag's preview until every path_edit is answered", 
     edit,
     anchors: [],
     segments: [],
+    layerRows: [],
     isolated: null,
   };
   expect(receive(state, tx(doc, { actor: "agent-a" }), "d")).not.toHaveProperty("edit");
@@ -332,6 +342,7 @@ it("drops selected Anchors of a Node someone else changed, and keeps ours still 
     edit: null,
     anchors,
     segments: [],
+    layerRows: [],
     isolated: null,
   };
   const other = receive(state, tx(doc, { updated: [a] }), "d");
@@ -375,7 +386,7 @@ it("keeps a Simplify preview until the answer to its path_op, and previews it wi
     notice: null,
     edit: null,
   };
-  const open = { ...base, opPreview, anchors: [], segments: [], isolated: null };
+  const open = { ...base, opPreview, anchors: [], segments: [], layerRows: [], isolated: null };
   // Not yet sent: nothing answers it, a reconnect included.
   expect(receive(open, tx(doc, { commandId: "c1" }), "d")).not.toHaveProperty("simplify");
   const msg = {
@@ -474,6 +485,7 @@ it("selects an Alt-drag's copies once its own answer creates them, and only then
     edit: null,
     anchors: [],
     segments: [],
+    layerRows: [],
     isolated: null,
   };
   const group = { ...a, id: "g", type: "group", index: "b0" } as unknown as Node;
@@ -489,4 +501,81 @@ it("selects an Alt-drag's copies once its own answer creates them, and only then
   expect(receive(moved, tx(doc, { actor: "user", created, commandId: "c1" }), "d")).toMatchObject({
     selection: [a.id],
   });
+});
+
+it("selects a copied Layer as its row's click does: its objects, and its row (ADR-0076)", () => {
+  const { doc, a, b } = fixture();
+  const state = {
+    doc,
+    selection: [a.id],
+    drag: null,
+    pen: null,
+    pending: [{ commandId: "c1", nodes: [], select: true }],
+    opPreview: null,
+    notice: null,
+    edit: null,
+    anchors: [],
+    segments: [],
+    layerRows: ["old"],
+    isolated: null,
+  };
+  const layer = { ...a, id: "L", type: "layer", parentId: null, name: "A copy" } as unknown as Node;
+  const art = { ...a, id: "x", parentId: "L" } as Node;
+  const locked = { ...a, id: "y", parentId: "L", locked: true } as Node;
+  const copy = { ...b, id: "z" } as Node;
+  const created = [layer, art, locked, copy];
+  expect(receive(state, tx(doc, { actor: "user", created, commandId: "c1" }), "d")).toMatchObject({
+    selection: ["x", "z"],
+    layerRows: ["L"],
+  });
+});
+
+it("keeps an unchanged Selection the same array, so the Layer rows stay; a changed one is new", () => {
+  const { doc, a, b } = fixture();
+  const state = {
+    doc,
+    selection: [a.id],
+    drag: null,
+    pen: null,
+    pending: [],
+    opPreview: null,
+    notice: null,
+    edit: null,
+    anchors: [],
+    segments: [],
+    layerRows: [],
+    isolated: null,
+  };
+  const other = receive(state, tx(doc, { updated: [b] }), "d");
+  expect(other?.selection).toBe(state.selection);
+  expect(other).not.toHaveProperty("layerRows");
+  const gone = receive(state, tx(doc, { deletedIds: [a.id] }), "d");
+  expect(gone?.selection).toEqual([]);
+});
+
+it("selects none of a copied Layer's objects when an ancestor hides or locks it, as its row", () => {
+  const { doc, a } = fixture();
+  const [made] = createNodes(doc, [{ type: "layer" }]).nodes as [Node];
+  const hidden = { ...made, visible: false } as Node;
+  doc.nodes.set(hidden.id, hidden);
+  const state = {
+    doc,
+    selection: [a.id],
+    drag: null,
+    pen: null,
+    pending: [{ commandId: "c1", nodes: [], select: true }],
+    opPreview: null,
+    notice: null,
+    edit: null,
+    anchors: [],
+    segments: [],
+    layerRows: [],
+    isolated: null,
+  };
+  // A nested Layer's copy in the hidden Layer, as Duplicate or an Alt-drag onto it makes.
+  const layer = { ...a, id: "L", type: "layer", parentId: hidden.id } as unknown as Node;
+  const art = { ...a, id: "x", parentId: "L" } as Node;
+  expect(
+    receive(state, tx(doc, { actor: "user", created: [layer, art], commandId: "c1" }), "d"),
+  ).toMatchObject({ selection: [], layerRows: ["L"] });
 });

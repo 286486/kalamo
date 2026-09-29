@@ -493,8 +493,14 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
 
   /** The write options of a tool without partial. */
   const txWrite = { intent, txId: writeFields.txId, ifRev };
-  // index, before and after are the browser's, for Alt-drag (ADR-0076).
-  const duplicateFields = DuplicateInput.omit({ index: true, before: true, after: true }).shape;
+  // index, before and after are the browser's, for Alt-drag (ADR-0076); layerSuffix is its
+  // Layers panel Duplicate's (#195).
+  const duplicateFields = DuplicateInput.omit({
+    index: true,
+    before: true,
+    after: true,
+    layerSuffix: true,
+  }).shape;
   tool(
     "kalamo_node_duplicate",
     {

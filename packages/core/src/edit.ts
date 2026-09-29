@@ -537,7 +537,8 @@ export function reorderNodes(
  * `targetParentId` each Node's copies stack directly above it in its parent, k = 1 lowest; with it
  * they go there as one block, k by k and the originals in paint order, at `index`, `before` or
  * `after` or else on top. No existing Node's key changes. A copied top-level Node loses `clipping`,
- * so no container gets a second Clipping Path; a copied container keeps its own.
+ * so no container gets a second Clipping Path; a copied container keeps its own. With `layerSuffix`
+ * every copied Layer with a name gets it appended (#195).
  *
  * Returns the new Nodes, depth first, and each outermost source id's copies in order k.
  */
@@ -584,9 +585,11 @@ export function duplicateNodes(
   }
 
   const created: Node[] = [];
+  const { layerSuffix } = input;
   const copy = (n: Node, parentId: string | null, index: string): string => {
     const id = newId();
-    doc.nodes.set(id, { ...structuredClone(n), id, parentId, index });
+    const name = layerSuffix && n.type === "layer" && n.name ? n.name + layerSuffix : n.name;
+    doc.nodes.set(id, { ...structuredClone(n), id, parentId, index, name });
     created.push(doc.nodes.get(id) as Node);
     for (const c of childrenOf(doc, n.id)) copy(c, id, c.index);
     return id;

@@ -149,6 +149,7 @@ describe("prune", () => {
       opPreview: null,
       anchors: [],
       segments: [],
+      layerRows: [],
       notice: null,
     };
     const tx = (extra: Partial<TxMessage>): TxMessage => ({
@@ -385,6 +386,7 @@ describe("a sub-Layer or a single path (ADR-0058)", () => {
         opPreview: null,
         anchors: [],
         segments: [],
+        layerRows: [],
         notice: null,
       };
       const tx: TxMessage = {
