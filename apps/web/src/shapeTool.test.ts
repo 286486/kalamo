@@ -8,6 +8,7 @@ import {
   dragBox,
   dragLine,
   dragRadial,
+  dragSpiral,
   dragStar,
   ellipseTool,
   lineTool,
@@ -16,6 +17,8 @@ import {
   rectangleTool,
   roundedRectangleTool,
   shouldersRatio,
+  spiralExpansion,
+  spiralTool,
   starTool,
   uprightAngle,
 } from "./shapeTool.ts";
@@ -881,5 +884,184 @@ describe("the Arc tool", () => {
     vi.mocked(send).mockClear();
     dragWith(arcTool, [0, 0], [[20, 10]], [[0, 0]]);
     expect(send).not.toHaveBeenCalled();
+  });
+});
+
+describe("dragSpiral", () => {
+  const spiral = { segments: 10, decay: 80, hold: null };
+  /** Where the spiral core draws ends, to 1e-4: core reads the parameters as float32. */
+  const outerEnd = (art: ReturnType<typeof dragSpiral>) => {
+    const last = shapeSegments(Shape.parse(art)).at(-1)?.args ?? [];
+    return last.slice(-2).map((v) => Math.round(v * 1e4) / 1e4);
+  };
+
+  it("is centred on the press, as big as the drag, with its outer end at the pointer", () => {
+    expect(dragSpiral([10, 20], [10, 40], NONE, spiral)).toEqual({
+      type: "spiral",
+      cx: 10,
+      cy: 20,
+      radius: 20,
+      revolution: 2.5,
+      expansion: 1,
+      argument: 270,
+    });
+    for (const p of [
+      [40, 20],
+      [-5, 3],
+      [10, -30],
+    ] as Point[])
+      expect(outerEnd(dragSpiral([10, 20], p, NONE, spiral))).toEqual(p);
+    // A quarter turn more, 11 segments, keeps the outer end there.
+    expect(outerEnd(dragSpiral([10, 20], [-5, 3], NONE, { ...spiral, segments: 11 }))).toEqual([
+      -5, 3,
+    ]);
+  });
+
+  it("maps Illustrator's decay onto expansion: 80% is 1, nearer 100% less, 100% and over 0", () => {
+    expect(spiralExpansion(80)).toBe(1);
+    expect(spiralExpansion(64)).toBeCloseTo(2, 12);
+    expect(spiralExpansion(90)).toBeCloseTo(0.4722, 4);
+    expect([spiralExpansion(100), spiralExpansion(150)]).toEqual([0, 0]);
+    expect(dragSpiral([0, 0], [0, 10], NONE, { ...spiral, decay: 64 }).expansion).toBeCloseTo(
+      2,
+      12,
+    );
+  });
+
+  it("Shift turns the outer end to a multiple of 45°, the radius still the drag's", () => {
+    const shift = { ...NONE, shift: true };
+    expect(dragSpiral([0, 0], [10, 30], shift, spiral)).toMatchObject({ argument: 270 });
+    expect(dragSpiral([0, 0], [30, 10], shift, spiral)).toMatchObject({ argument: 180 });
+    const art = dragSpiral([0, 0], [30, 29], shift, { ...spiral, segments: 7 });
+    expect(art.radius).toBeCloseTo(Math.hypot(30, 29), 12);
+    const [x, y] = outerEnd(art);
+    expect(x).toBeCloseTo(y ?? Number.NaN, 4);
+  });
+
+  it("Ctrl keeps the radius it held and scales the decay by the pointer's distance, 5…150%", () => {
+    const held = { ...spiral, hold: { by: "ctrl" as const, radius: 20 } };
+    expect(dragSpiral([0, 0], [0, 10], NONE, held)).toMatchObject({
+      radius: 20,
+      revolution: 2.5,
+      expansion: spiralExpansion(40),
+    });
+    expect(dragSpiral([0, 0], [0, 25], NONE, held).expansion).toBe(0);
+    expect(dragSpiral([0, 0], [0, 0.1], NONE, held).expansion).toBe(spiralExpansion(5));
+  });
+
+  it("Alt adds a segment per 1 / decay the pointer moves out, and removes one per as much in", () => {
+    const held = { ...spiral, hold: { by: "alt" as const, radius: 20 } };
+    expect(dragSpiral([0, 0], [0, 20 * 1.25 ** 2], NONE, held)).toMatchObject({
+      radius: 31.25,
+      revolution: 3,
+      expansion: 1,
+    });
+    expect(dragSpiral([0, 0], [0, 16], NONE, held).revolution).toBe(2.25);
+    // Down to 1 segment, the centre included.
+    expect(dragSpiral([0, 0], [0, 0], NONE, held).revolution).toBe(0.25);
+    // A decay of 100% counts as 95%, one segment per 1 / 0.95.
+    const flat = { ...held, decay: 100 };
+    expect(dragSpiral([0, 0], [0, 20 / 0.95], NONE, flat).revolution).toBe(2.75);
+  });
+});
+
+describe("the Spiral tool", () => {
+  const key = (k: string, down = true, mods: Partial<typeof NONE> = {}) =>
+    spiralTool.keyChange?.({ ...NONE, ...mods, key: k, down }, () => {});
+  const created = () => {
+    const command = sent();
+    return command?.type === "create" ? command.nodes[0] : null;
+  };
+
+  // In order: the segments and decay each drag leaves are the next one's.
+  it("draws 10 segments at 80% in the current Fill and Stroke; Up and Down step a segment", () => {
+    dragWith(spiralTool, [30, 40], [[30, 50]], [[30, 60]]);
+    expect(vi.mocked(send)).toHaveBeenCalledTimes(1);
+    expect(created()).toEqual({
+      type: "spiral",
+      parentId: defaultLayerId,
+      cx: 30,
+      cy: 40,
+      radius: 20,
+      revolution: 2.5,
+      expansion: 1,
+      argument: 270,
+      appearance: { fills: [{ color: "#FF0000" }], strokes: [] },
+    });
+
+    spiralTool.down(at([0, 0]));
+    spiralTool.move?.(at([0, 20]));
+    expect([key("ArrowUp"), key("ArrowUp"), key("ArrowDown"), key("C")]).toEqual([
+      true,
+      true,
+      true,
+      false,
+    ]);
+    spiralTool.up?.(at([0, 20]));
+    expect(created()).toMatchObject({ revolution: 2.75, argument: 180 });
+    dragWith(spiralTool, [0, 0], [[0, 20]]);
+    expect(created()).toMatchObject({ revolution: 2.75 });
+
+    // Down to 1 segment, kept by a press that draws nothing.
+    spiralTool.down(at([0, 0]));
+    for (let i = 0; i < 20; i++) key("ArrowDown");
+    spiralTool.up?.(at([1, 1]));
+    dragWith(spiralTool, [0, 0], [[0, 20]]);
+    expect(created()).toMatchObject({ revolution: 0.25 });
+    spiralTool.down(at([0, 0]));
+    for (let i = 0; i < 9; i++) key("ArrowUp");
+    spiralTool.up?.(at([0, 20]));
+    expect(created()).toMatchObject({ revolution: 2.5 });
+  });
+
+  it("Ctrl changes the decay with the radius held, and the decay carries over", () => {
+    const ctrl = { ctrl: true };
+    spiralTool.down(at([0, 0]));
+    spiralTool.move?.(at([0, 20]));
+    key("Control", true, ctrl);
+    spiralTool.move?.(at([0, 40], ctrl));
+    spiralTool.move?.(at([0, 10], ctrl));
+    key("Control", false);
+    spiralTool.move?.(at([0, 30]));
+    spiralTool.up?.(at([0, 30]));
+    // 40%, from 80% at half the held 20.
+    expect(created()).toMatchObject({ radius: 30, revolution: 2.5 });
+    expect((created() as { expansion: number }).expansion).toBeCloseTo(spiralExpansion(40), 12);
+    dragWith(spiralTool, [0, 0], [[0, 10]]);
+    expect((created() as { expansion: number }).expansion).toBeCloseTo(spiralExpansion(40), 12);
+    // Ctrl read from the move alone, held to the release: back to 80%.
+    dragWith(spiralTool, [0, 0], [[0, 20]], [[0, 20], ctrl], [[0, 40], ctrl]);
+    expect(created()).toMatchObject({ radius: 20 });
+    expect((created() as { expansion: number }).expansion).toBeCloseTo(1, 12);
+  });
+
+  it("Shift snaps its outer end to 45°, Space moves it, and back to its centre it sends nothing", () => {
+    dragWith(spiralTool, [0, 0], [[30, 10], { shift: true }]);
+    expect(created()).toMatchObject({ argument: 180 });
+    const space = { space: true };
+    dragWith(spiralTool, [0, 0], [[0, 10]], [[5, 15], space], [[5, 25], space], [[5, 30]]);
+    expect(created()).toMatchObject({ cx: 5, cy: 15, radius: 15, argument: 270 });
+    vi.mocked(send).mockClear();
+    dragWith(spiralTool, [0, 0], [[20, 0]], [[0, 0]]);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("Alt changes the segments as the pointer moves, and they carry over", () => {
+    const alt = { alt: true };
+    dragWith(spiralTool, [0, 0], [[0, 20]], [[0, 20], alt], [[0, 31.25], alt]);
+    expect(created()).toMatchObject({ radius: 31.25, revolution: 3 });
+    dragWith(spiralTool, [0, 0], [[0, 20]]);
+    expect(created()).toMatchObject({ radius: 20, revolution: 3 });
+    // Ctrl over Alt: the decay changes, not the segments.
+    const both = { ctrl: true, alt: true };
+    dragWith(spiralTool, [0, 0], [[0, 20]], [[0, 20], both], [[0, 10], both]);
+    expect(created()).toMatchObject({ radius: 20, revolution: 3 });
+    expect((created() as { expansion: number }).expansion).toBeCloseTo(spiralExpansion(40), 12);
+    // Back to 10 segments and 80% for the tests after.
+    dragWith(spiralTool, [0, 0], [[0, 20]], [[0, 20], { ctrl: true }], [[0, 40], { ctrl: true }]);
+    dragWith(spiralTool, [0, 0], [[0, 20]], [[0, 20], alt], [[0, 12.8], alt]);
+    dragWith(spiralTool, [0, 0], [[0, 20]]);
+    expect(created()).toMatchObject({ revolution: 2.5 });
+    expect((created() as { expansion: number }).expansion).toBeCloseTo(1, 12);
   });
 });

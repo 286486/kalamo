@@ -40,16 +40,16 @@ async function openShapes(page: Page, request: Parameters<typeof call>[0], name:
   return { nodes, drag };
 }
 
-/** Picks `name`, a tool without a shortcut, from the Rectangle group's flyout. */
-async function pickFromRectangleGroup(page: Page, name: string) {
-  await page
-    .getByRole("button", { name: "Rectangle Tool (M)", exact: true })
-    .click({ button: "right" });
+/** Picks `name`, a tool without a shortcut, from the flyout of the group whose button is `group`. */
+async function pickFromGroup(page: Page, group: string, name: string) {
+  await page.getByRole("button", { name: group, exact: true }).click({ button: "right" });
   await page.getByRole("menuitemradio", { name, exact: true }).click();
   const button = page.getByRole("button", { name, exact: true });
   await expect(button).toHaveAttribute("aria-pressed", "true");
   return button;
 }
+
+const LINE_GROUP = "Line Segment Tool (\\)";
 
 // #135: the Rectangle and Ellipse tools drag out Live Shapes, one create each.
 test("the Rectangle and Ellipse tools drag out Live Shapes with Shift, Alt and Space", async ({
@@ -114,7 +114,7 @@ test("the Rounded Rectangle tool's arrow keys set the radius, which the next dra
   const dragAt = (from: number, ...keys: string[]) => drag([from, 10], [from + 40, 90], ...keys);
 
   // No shortcut: the Rectangle group's flyout picks it.
-  const button = await pickFromRectangleGroup(page, "Rounded Rectangle Tool");
+  const button = await pickFromGroup(page, "Rectangle Tool (M)", "Rounded Rectangle Tool");
 
   // 12 pt, Up twice and Down once: 13. The arrows switch no tool.
   await dragAt(10, "ArrowUp", "ArrowUp", "ArrowDown");
@@ -145,7 +145,7 @@ test("the Polygon tool drags a Live Polygon from its centre, and Up and Down set
   const polygons = () =>
     nodes<{ cx: number; cy: number; radius: number; sides: number; angle: number }>("polygon");
 
-  const button = await pickFromRectangleGroup(page, "Polygon Tool");
+  const button = await pickFromGroup(page, "Rectangle Tool (M)", "Polygon Tool");
 
   // Straight down: 6 sides, flat. Then to the left, a quarter turn clockwise, with one side fewer.
   await drag([30, 50], [30, 80]);
@@ -178,7 +178,7 @@ test("the Star tool drags a Live Star from its centre, and Up and Down set its p
   };
   const stars = () => nodes<Star>("star");
 
-  const button = await pickFromRectangleGroup(page, "Star Tool");
+  const button = await pickFromGroup(page, "Rectangle Tool (M)", "Star Tool");
 
   // Straight down: 5 points, upright. Then to the left, a quarter turn clockwise, with one more.
   await drag([30, 50], [30, 90]);
@@ -252,13 +252,7 @@ test("the Arc tool drags an arc Path whose keys change it without switching tool
   const arcs = () => nodes<Arc>("path");
 
   // It has no shortcut: the Line Segment group's flyout picks it.
-  await page.keyboard.press("\\");
-  await page
-    .getByRole("button", { name: "Line Segment Tool (\\)", exact: true })
-    .click({ button: "right" });
-  await page.getByRole("menuitemradio", { name: "Arc Tool", exact: true }).click();
-  const button = page.getByRole("button", { name: "Arc Tool", exact: true });
-  await expect(button).toHaveAttribute("aria-pressed", "true");
+  const button = await pickFromGroup(page, LINE_GROUP, "Arc Tool");
 
   // Open, X Axis, slope 50: the current Stroke and no Fill.
   await drag([20, 20], [60, 80]);
@@ -276,4 +270,59 @@ test("the Arc tool drags an arc Path whose keys change it without switching tool
     d: "M 100 20 C 100 50.6 119.6 80 140 80 L 100 80 Z",
     appearance: { fills: [{}], strokes: [{ width: 1 }] },
   });
+});
+
+// #149: the Spiral tool draws a Live Spiral (ADR-0060) from its centre, its outer end at the pointer.
+test("the Spiral tool drags a Live Spiral whose winds and decay carry over", async ({
+  page,
+  request,
+}) => {
+  const { nodes, drag } = await openShapes(page, request, "Spirals");
+  type Spiral = {
+    cx: number;
+    cy: number;
+    radius: number;
+    revolution: number;
+    expansion: number;
+    argument: number;
+    t0: number;
+    d: string;
+    appearance: { fills: object[]; strokes: object[] };
+  };
+  const spirals = () => nodes<Spiral>("spiral");
+  const at = async (cx: number) => (await spirals()).find((s) => s.cx === cx);
+
+  const button = await pickFromGroup(page, LINE_GROUP, "Spiral Tool");
+
+  // Straight down: 10 segments at 80%, 2.5 turns at expansion 1, in the current Fill and Stroke.
+  await drag([100, 50], [100, 80]);
+  await expect.poll(spirals).toMatchObject([
+    {
+      cx: 100,
+      cy: 50,
+      radius: 30,
+      revolution: 2.5,
+      expansion: 1,
+      argument: 270,
+      t0: 0,
+      d: expect.stringMatching(/^M 100 50 C .* 100 80$/),
+      appearance: { fills: [{}], strokes: [{ width: 1 }] },
+    },
+  ]);
+
+  // Up adds a segment; Ctrl at half the 20 pt drawn halves the decay to 40%, keeping the radius.
+  await drag([40, 50], [40, 70], "ArrowUp", "+Control", [40, 60], [40, 60]);
+  await page.keyboard.up("Control");
+  await expect.poll(async () => (await spirals()).length).toBe(2);
+  const decayed = await at(40);
+  expect(decayed).toMatchObject({ radius: 20, revolution: 2.75, argument: 180 });
+  expect(decayed?.expansion).toBeCloseTo(Math.log(0.4) / Math.log(0.8), 6);
+  await expect(button).toHaveAttribute("aria-pressed", "true");
+
+  // Both carry over; to the right, the outer end points right.
+  await drag([160, 50], [180, 50]);
+  await expect.poll(async () => (await spirals()).length).toBe(3);
+  const kept = await at(160);
+  expect(kept).toMatchObject({ radius: 20, revolution: 2.75, argument: 90 });
+  expect(kept?.expansion).toBeCloseTo(Math.log(0.4) / Math.log(0.8), 6);
 });

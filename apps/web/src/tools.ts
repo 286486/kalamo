@@ -68,13 +68,20 @@ export type NewArt =
   | ShapeBox
   | Pick<Extract<Shape, { type: "polygon" }>, "type" | "cx" | "cy" | "radius" | "sides" | "angle">
   | StarArt
-  | LineArt;
+  | LineArt
+  | SpiralArt;
 
 /** A path: the Pen's, the Pencil's, or an arc, which is not a Live Shape (ADR-0059). */
 export type PathArt = { type: "path"; d: string };
 
 /** A line from (x1, y1) to (x2, y2). */
 export type LineArt = Extract<Shape, { type: "line" }>;
+
+/** A spiral as the Spiral tool draws it: from its centre, `t0` 0 (ADR-0060). */
+export type SpiralArt = Pick<
+  Extract<Shape, { type: "spiral" }>,
+  "type" | "cx" | "cy" | "radius" | "revolution" | "expansion" | "argument"
+>;
 
 /** A star as the Star tool draws it: not twisted, rounded or randomized. */
 export type StarArt = Pick<

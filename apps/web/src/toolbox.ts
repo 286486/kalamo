@@ -13,6 +13,7 @@ import {
   polygonTool,
   rectangleTool,
   roundedRectangleTool,
+  spiralTool,
   starTool,
 } from "./shapeTool.ts";
 import { useStore } from "./store.ts";
@@ -140,6 +141,7 @@ export const TOOLS = {
   curvature: curvatureTool,
   line: lineTool,
   arc: arcTool,
+  spiral: spiralTool,
   rectangle: rectangleTool,
   roundedRectangle: roundedRectangleTool,
   ellipse: ellipseTool,

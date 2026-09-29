@@ -12,6 +12,7 @@ import {
   polygonTool,
   rectangleTool,
   roundedRectangleTool,
+  spiralTool,
   starTool,
 } from "./shapeTool.ts";
 import { connect, DEFAULT_FILL_STROKE, send, useStore } from "./store.ts";
@@ -160,6 +161,7 @@ const tools: [string, () => void][] = [
   ["Star", drawShape(starTool)],
   ["Line Segment", drawShape(lineTool)],
   ["Arc", drawShape(arcTool)],
+  ["Spiral", drawShape(spiralTool)],
 ];
 
 beforeEach(() => {

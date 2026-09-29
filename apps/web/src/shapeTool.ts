@@ -1,4 +1,11 @@
-import { formatPath, MAX_COUNT, MIN_COUNT, parsePath, pathBounds } from "@zibel/core";
+import {
+  formatPath,
+  MAX_COUNT,
+  MAX_REVOLUTION,
+  MIN_COUNT,
+  parsePath,
+  pathBounds,
+} from "@zibel/core";
 import { dragged, drawDrawing, type Press, shapePath } from "./canvas.ts";
 import type { ShapeBox } from "./receive.ts";
 import { useStore } from "./store.ts";
@@ -8,6 +15,7 @@ import {
   type LineArt,
   type NewArt,
   type PathArt,
+  type SpiralArt,
   type StarArt,
   sendNewArt,
 } from "./tools.ts";
@@ -226,6 +234,67 @@ const unhold = (star: StarOption, art: StarArt | null): StarOption => ({
     star.inner !== null && art && art.outerRadius > 0 ? star.inner / art.outerRadius : star.ratio,
   inner: null,
 });
+
+/**
+ * The Spiral tool's option (ADR-0060), as Illustrator's: its Segments, four to a wind, and its
+ * Decay in percent. `hold` is Ctrl's or Alt's, with the radius drawn when it was pressed, or null.
+ */
+export interface SpiralOption {
+  segments: number;
+  decay: number;
+  hold: { by: "ctrl" | "alt"; radius: number } | null;
+}
+
+/** The most segments a spiral can have, four to each of core's most turns. */
+const MAX_SEGMENTS = 4 * MAX_REVOLUTION;
+const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
+
+/** Illustrator's Decay as Inkscape's `expansion` (ADR-0060): 80% is 1, and 100% or more is 0. */
+export const spiralExpansion = (decay: number) =>
+  decay >= 100 ? 0 : Math.log(decay / 100) / Math.log(0.8);
+
+/**
+ * The spiral a drag from `press` to `p` draws (ADR-0060), as Illustrator's Spiral tool does: from
+ * the press, as big as the pointer's distance, its outer end at the pointer, `segments` / 4 turns
+ * and `expansion` from `decay`. Shift turns the outer end to a multiple of 45°. Held since the
+ * spiral was `hold.radius` big, Ctrl keeps that radius and scales the decay by the pointer's
+ * distance over it, within Illustrator's 5…150%; Alt adds a segment each time the pointer moves
+ * out by a segment's growth, 1 / decay, and removes one each time it moves in by as much.
+ */
+export function dragSpiral(
+  press: Point,
+  p: Point,
+  { shift }: Pick<KeyMods, "shift">,
+  { segments, decay, hold }: SpiralOption,
+): SpiralArt {
+  const distance = Math.hypot(p[0] - press[0], p[1] - press[1]);
+  if (hold?.by === "ctrl") decay = clamp((decay * distance) / hold.radius, 5, 150);
+  if (hold?.by === "alt") {
+    // A decay of 95% or more barely grows; its segments are counted as at 95%.
+    const growth = Math.log(100 / Math.min(decay, 95));
+    const added = Math.round(Math.log(distance / hold.radius) / growth);
+    segments = clamp(segments + added, 1, MAX_SEGMENTS);
+  }
+  const revolution = segments / 4;
+  // The outer end, at 2π·revolution + argument, points at the pointer: upright for a drag straight
+  // down is 90° less the turns. They are whole quarter turns, so Shift can snap `argument` itself.
+  const { cx, cy, angle } = dragRadial(press, p, { shift: false }, 90 - 360 * revolution);
+  return {
+    type: "spiral",
+    cx,
+    cy,
+    radius: hold?.by === "ctrl" ? hold.radius : distance,
+    revolution,
+    expansion: spiralExpansion(decay),
+    argument: shift ? (Math.round(angle / 45) * 45) % 360 : angle,
+  };
+}
+
+/** `spiral` once Ctrl or Alt is up: the segments and decay `art` drew become its own. */
+const unholdSpiral = (spiral: SpiralOption, art: SpiralArt | null): SpiralOption =>
+  spiral.hold && art
+    ? { segments: art.revolution * 4, decay: 100 * 0.8 ** art.expansion, hold: null }
+    : { ...spiral, hold: null };
 
 /**
  * What a shape tool's drag draws, and the option (corner radius, side count, a star's radii) its
@@ -453,5 +522,38 @@ export const arcTool = shapeTool<PathArt, ArcOption>(
     },
     key: arcKey,
     unfilled: ({ closed }) => !closed,
+  },
+);
+
+/**
+ * Illustrator's Spiral tool (ADR-0060): a Live Spiral in the current Fill and Stroke. Up and Down
+ * add and remove a segment, a quarter turn, down to 1; Ctrl changes the decay and Alt the
+ * segments as the pointer moves. The segments and decay carry over, from Illustrator's 10 and 80%.
+ */
+export const spiralTool = shapeTool<SpiralArt, SpiralOption>(
+  {
+    title: "Spiral Tool",
+    shortcut: "",
+    group: "line",
+    icon: "M8 8 C8 7 9.5 7 9.5 8.5 C9.5 10 7.5 10.5 6.5 9.5 C5 8 6 5.5 8.5 5.5 C11.5 5.5 12.5 9 11 11 C9 13.5 4.5 13 3.5 10 C2.5 6.5 5 3 8.5 3 C11 3 13 4.5 13.5 6.5",
+  },
+  {
+    option: { segments: 10, decay: 80, hold: null },
+    art: dragSpiral,
+    visible: (spiral) => spiral.radius > 0,
+    key(spiral, key) {
+      if (key === "ArrowUp")
+        return { ...spiral, segments: Math.min(MAX_SEGMENTS, spiral.segments + 1) };
+      if (key === "ArrowDown") return { ...spiral, segments: Math.max(1, spiral.segments - 1) };
+      return null;
+    },
+    // Ctrl, over Alt, holds the radius drawn; either released leaves what it drew.
+    mods(spiral, { ctrl, alt }, art) {
+      const by = ctrl ? "ctrl" : alt ? "alt" : null;
+      if ((spiral.hold?.by ?? null) === by) return spiral;
+      const free = unholdSpiral(spiral, art);
+      return by && art && art.radius > 0 ? { ...free, hold: { by, radius: art.radius } } : free;
+    },
+    keep: unholdSpiral,
   },
 );
