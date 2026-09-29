@@ -44,4 +44,4 @@ So `render` splits every line where the drawing family changes. `io`'s `toSvg` d
 - **No Hangul.** Noto Sans SC has none, so Korean still draws `.notdef` boxes and warns `MISSING_GLYPHS`; #164 bundles a Hangul face.
 - **Japanese kanji draw in their SC forms**, which differ from Japanese forms for some characters. TC, JP and KR faces are out of scope.
 - The Inkscape round trip gains a CJK Artboard with a Regular and a Bold Point Type mixed with Latin. Inkscape finds Noto in `packages/render/fonts` through the fixture's `fonts.conf`, and this machine has no system CJK font, so it can fall back only to Noto. The two regions differ by 0.68% and 4.34% against the 15% text budget, and the Document reopens unchanged.
-- The browser draws a character neither bundled family has with a system font if it has one, not `.notdef`; its bounds still count the `.notdef` advance, as before.
+- The browser draws a character neither bundled family has with a system font if it has one, not `.notdef`; its bounds still count the `.notdef` advance, as before. Amended by ADR-0065: the canvas traces the first face's `.notdef` outline itself.

@@ -10,7 +10,9 @@ import {
   type Fill,
   fontFace,
   fontFamilies,
+  type Glyph,
   glyphs,
+  hasGlyph,
   invert,
   type LeafNode,
   layoutText,
@@ -18,6 +20,7 @@ import {
   MISSING_LINK_STROKE,
   mapPaint,
   type Node,
+  notdefBox,
   type PaintedLeaf,
   paintedLeaves,
   type Rect,
@@ -344,7 +347,7 @@ function paint(ctx: Canvas2D, n: Node, scene: Scene) {
             if (f.type === "gradient") {
               ctx.fillStyle = styleOf(ctx, mapPaint(f, invert(m)), false).style;
             }
-            text(ctx, t, (c, x, y) => ctx.fillText(c, x, y));
+            text(ctx, t, "fill");
           },
           (ctx, l) => {
             if (f.type === "gradient") {
@@ -364,7 +367,7 @@ function paint(ctx: Canvas2D, n: Node, scene: Scene) {
             const k = scaleOf(m);
             if (k !== 1 || s.type === "gradient")
               pen(ctx, mapPaint(unscaledStroke(s, k), invert(m)));
-            text(ctx, t, (c, x, y) => ctx.strokeText(c, x, y));
+            text(ctx, t, "stroke");
           },
           (ctx) => ctx.stroke(),
         );
@@ -424,7 +427,7 @@ function paint(ctx: Canvas2D, n: Node, scene: Scene) {
         ctx.save();
         ctx.transform(...m);
       }
-      if (n.type === "text") text(ctx, n, (t, x, y) => ctx.fillText(t, x, y), style);
+      if (n.type === "text") text(ctx, n, "fill", style);
       else if (n.type === "path" && n.fillRule === "evenodd") ctx.fill("evenodd");
       else ctx.fill();
       if (m) ctx.restore();
@@ -433,7 +436,7 @@ function paint(ctx: Canvas2D, n: Node, scene: Scene) {
       // ponytail: the ellipse would also scale the pen, so a Stroke draws an elliptical radial
       // gradient as its circle; SVG draws it exactly. Stroke to an offscreen layer when it matters.
       pen(ctx, s);
-      if (n.type === "text") text(ctx, n, (t, x, y) => ctx.strokeText(t, x, y));
+      if (n.type === "text") text(ctx, n, "stroke");
       else ctx.stroke();
     }
   }
@@ -480,7 +483,7 @@ export function drawClipGlyphs(ctx: Canvas2D, t: TextNode, m: Matrix): void {
   ctx.transform(...m);
   font(ctx, t);
   ctx.fillStyle = "#000000";
-  text(ctx, t, (c, x, y) => ctx.fillText(c, x, y));
+  text(ctx, t, "fill");
   ctx.restore();
 }
 
@@ -508,18 +511,45 @@ function pen(ctx: Canvas2D, s: Stroke) {
 }
 
 /**
- * Paints a text's shown lines, so overflowing Area Type is not drawn (ADR-0022). With tracking or
- * ranges each character paints on its own at its origin, raised by its baseline shift and turned
- * about the origin by its rotation, in its range's fill when `fill` is the Fill's style (ADR-0029).
+ * Fills or strokes a text's shown lines, so overflowing Area Type is not drawn (ADR-0022). With
+ * tracking or ranges each character paints on its own at its origin, raised by its baseline shift
+ * and turned about the origin by its rotation, in its range's fill when `fill` is the Fill's style
+ * (ADR-0029). A character no bundled face has paints as the first face's `.notdef` box at its
+ * origin, traced, since `fillText` would draw it in a system font (ADR-0065); a line holding one
+ * paints the characters around it in runs from their first character's origin.
  */
-function text(
-  ctx: Canvas2D,
-  n: TextNode,
-  paint: (text: string, x: number, y: number) => void,
-  fill?: unknown,
-) {
+function text(ctx: Canvas2D, n: TextNode, how: "fill" | "stroke", fill?: unknown) {
+  const paint = (t: string, x: number, y: number) =>
+    how === "fill" ? ctx.fillText(t, x, y) : ctx.strokeText(t, x, y);
+  const box = (x: number, y: number) => {
+    trace(ctx, notdefBox(n, x, y));
+    if (how === "fill") ctx.fill();
+    else ctx.stroke();
+  };
   if (!n.tracking && !n.ranges) {
-    for (const l of layoutText(n).lines) paint(l.text, l.x, l.y);
+    let placed: Glyph[] | undefined;
+    let k = 0;
+    for (const l of layoutText(n).lines) {
+      const chars = [...l.text];
+      if (chars.every((ch) => hasGlyph(n, ch))) paint(l.text, l.x, l.y);
+      else {
+        placed ??= glyphs(n);
+        let run: Glyph[] = [];
+        const flush = () => {
+          if (run[0]) paint(run.map((g) => g.char).join(""), run[0].x, run[0].y);
+          run = [];
+        };
+        for (const g of placed.slice(k, k + chars.length)) {
+          if (hasGlyph(n, g.char)) run.push(g);
+          else {
+            flush();
+            box(g.x, g.y);
+          }
+        }
+        flush();
+      }
+      k += chars.length;
+    }
     return;
   }
   let style = fill;
@@ -537,7 +567,8 @@ function text(
       ctx.save();
       ctx.transform(cos, sin, -sin, cos, g.x - cos * g.x + sin * g.y, y - sin * g.x - cos * g.y);
     }
-    paint(g.char, g.x, g.y);
+    if (hasGlyph(n, g.char)) paint(g.char, g.x, g.y);
+    else box(g.x, g.y);
     if (turned) ctx.restore();
   }
 }

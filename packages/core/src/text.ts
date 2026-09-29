@@ -1,6 +1,7 @@
 import { parseColor } from "./color.ts";
 import { lineBreakUnits } from "./line-break.ts";
 import { NOTO_SANS_SC } from "./noto-sans-sc.ts";
+import { parsePath, type Segment } from "./path.ts";
 import type { CharacterRange, Node, Rect, Warning } from "./schema.ts";
 import { SOURCE_SANS_3 } from "./source-sans-3.ts";
 
@@ -51,8 +52,15 @@ export function bundledStyle(style?: FontStyle): BundledStyle {
   return fontStyleName(weight <= 500 ? 400 : weight <= 700 ? 700 : 900, italic) as BundledStyle;
 }
 
-/** A face's advance by code point in font units, undefined where it has no glyph, and its `.notdef`'s. */
-type Face = { advance: (codePoint: number) => number | undefined; notdef: number };
+/**
+ * A face's advance by code point in font units, undefined where it has no glyph, and its `.notdef`'s
+ * advance and outline, y up.
+ */
+type Face = {
+  advance: (codePoint: number) => number | undefined;
+  notdef: number;
+  notdefOutline: Segment[];
+};
 
 /** The advance of `codePoint` in sorted runs of `[first, count, advance]`, by binary search. */
 function runAdvance(runs: [number, number, number][], codePoint: number) {
@@ -69,13 +77,24 @@ function runAdvance(runs: [number, number, number][], codePoint: number) {
 const sourceSans3 = Object.fromEntries(
   Object.entries(SOURCE_SANS_3.faces).map(([style, f]) => {
     const advances: Record<number, number> = f.advances;
-    return [style, { advance: (c: number) => advances[c], notdef: f.notdef }];
+    return [
+      style,
+      {
+        advance: (c: number) => advances[c],
+        notdef: f.notdef,
+        notdefOutline: parsePath(f.notdefPath, "notdefPath"),
+      },
+    ];
   }),
 ) as Record<BundledStyle, Face>;
 const notoSansSC = Object.fromEntries(
   Object.entries(NOTO_SANS_SC.faces).map(([style, f]) => [
     style,
-    { advance: (c: number) => runAdvance(f.runs, c), notdef: f.notdef },
+    {
+      advance: (c: number) => runAdvance(f.runs, c),
+      notdef: f.notdef,
+      notdefOutline: parsePath(f.notdefPath, "notdefPath"),
+    },
   ]),
 ) as Record<NotoStyle, Face>;
 
@@ -134,6 +153,25 @@ const facesOf = (text: TextFont) =>
 function faceFor(faces: [DrawnFace, ...DrawnFace[]], char: string) {
   const c = char.codePointAt(0) as number;
   return faces.find((f) => f.face.advance(c) !== undefined) ?? faces[0];
+}
+
+/** Whether a face a text draws in has a character's glyph; a hard return needs none (ADR-0062, ADR-0065). */
+export function hasGlyph(text: TextFont, char: string): boolean {
+  const c = char.codePointAt(0) as number;
+  return char === "\n" || facesOf(text).some((f) => f.face.advance(c) !== undefined);
+}
+
+/**
+ * The `.notdef` box a character no bundled face has draws as, from its origin `x, y` on the
+ * baseline: the outline of the first face in the text's fallback order, as resvg draws it
+ * (ADR-0063, ADR-0065).
+ */
+export function notdefBox(text: TextFont & { fontSize: number }, x: number, y: number): Segment[] {
+  const s = text.fontSize / SOURCE_SANS_3.unitsPerEm;
+  return facesOf(text)[0].face.notdefOutline.map(({ cmd, args }) => ({
+    cmd,
+    args: args.map((v, i) => (i % 2 ? y - v * s : x + v * s)),
+  }));
 }
 
 /** The bundled family a character of a text draws in (ADR-0063). */
@@ -438,11 +476,7 @@ export function fileFontWarnings(nodes: Node[]): Warning[] {
 
 /** The distinct characters of `content` no face a text draws in has, in order; `\n` is a hard return. */
 function missingGlyphs(text: Extract<Node, { type: "text" }>): string[] {
-  const faces = facesOf(text);
-  return [...new Set(text.content)].filter((ch) => {
-    const c = ch.codePointAt(0) as number;
-    return ch !== "\n" && faces.every((f) => f.face.advance(c) === undefined);
-  });
+  return [...new Set(text.content)].filter((ch) => !hasGlyph(text, ch));
 }
 
 const MISSING_GLYPHS_NAMED = 20;

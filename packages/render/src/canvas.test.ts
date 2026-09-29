@@ -2,6 +2,7 @@ import {
   bounds,
   createDocument,
   createNodes,
+  glyphs,
   makeMask,
   type Node,
   type ShapeNode,
@@ -1214,5 +1215,118 @@ describe("a subtree (ADR-0057)", () => {
       expect(drawn).toContain("> clip nonzero");
       expect(drawn).not.toContain("> globalAlpha=0.5");
     }
+  });
+});
+
+describe("a character no bundled face has (ADR-0065)", () => {
+  /** Draws `nodes` and returns the log from the first text's font on. */
+  const drawnText = (nodes: object[]) => {
+    const { doc, defaultLayerId: parentId } = newDoc();
+    const created = createNodes(doc, nodes.map((n) => ({ parentId, ...n })) as never).nodes;
+    const { ctx, log, layer } = recorder();
+    drawDocument(ctx, doc, layer);
+    return { doc, created: created as Node[], log };
+  };
+  const text = (content: string, more: object = {}) => ({
+    type: "text",
+    x: 10,
+    y: 50,
+    content,
+    appearance: { fills: [{ color: "#000000" }], strokes: [] },
+    ...more,
+  });
+  const at = (l: string) => l.split(" ").slice(1).map(Number);
+  /** The text arguments of every fillText and strokeText. */
+  const painted = (log: string[]) =>
+    log.flatMap((l) => {
+      const m = /^(?:> )*(?:fill|stroke)Text (.*) \S+ \S+$/.exec(l);
+      return m ? [m[1]] : [];
+    });
+  /** Where each traced `.notdef` box starts: Source Sans 3 Regular's at (89, 0), in 12 pt. */
+  const boxes = (log: string[]) =>
+    log.flatMap((l, i) =>
+      /^(> )*beginPath$/.test(l) ? [at((log[i + 1] ?? "").replace(/^(> )*/, ""))] : [],
+    );
+  const glyphX = (doc: ReturnType<typeof newDoc>["doc"], id: string, i: number) =>
+    glyphs(doc.nodes.get(id) as never)[i]?.x as number;
+
+  it("splits a plain line into runs around a box at the glyph's origin, asking no font for it", () => {
+    for (const missing of ["😀", "ก"]) {
+      const { doc, created, log } = drawnText([text(`A${missing}B`)]);
+      const id = created[0]?.id as string;
+      expect(painted(log)).toEqual(["A", "B"]);
+      const [a, box, b] = [0, 1, 2].map((i) => glyphX(doc, id, i));
+      expect(log).toContain(`fillText A ${a} 50`);
+      expect(log).toContain(`fillText B ${b} 50`);
+      // The box is Source Sans 3 Regular's .notdef, 653 units wide: B follows at its advance.
+      expect((b as number) - (box as number)).toBeCloseTo(653 * 0.012, 9);
+      expect(boxes(log)).toEqual([[expect.closeTo((box as number) + 89 * 0.012, 9), 50]]);
+      const fill = log.indexOf("fill");
+      expect(fill).toBeGreaterThan(log.findIndex((l) => l.startsWith("moveTo")));
+      expect(fill).toBeLessThan(log.indexOf(`fillText B ${b} 50`));
+    }
+  });
+
+  it("paints a line without one in one fillText, as before", () => {
+    const { log } = drawnText([text("AB\nA😀")]);
+    expect(painted(log)).toEqual(["AB", "A"]);
+  });
+
+  it("strokes the box on a Stroke, as strokeText strokes a glyph", () => {
+    const { log } = drawnText([
+      text("A😀", { appearance: { fills: [], strokes: [{ color: "#0000FF", width: 1 }] } }),
+    ]);
+    expect(painted(log)).toEqual(["A"]);
+    expect(boxes(log)).toHaveLength(1);
+    expect(log.filter((l) => !/^(save|restore)$/.test(l)).at(-1)).toBe("stroke");
+  });
+
+  it("draws a box per character on the tracked path too, at the tracked origin", () => {
+    const { doc, created, log } = drawnText([text("A😀B", { tracking: 100 })]);
+    expect(painted(log)).toEqual(["A", "B"]);
+    const box = glyphX(doc, created[0]?.id as string, 1);
+    expect(boxes(log)).toEqual([[expect.closeTo(box + 89 * 0.012, 9), 50]]);
+  });
+
+  it("draws the box of a Noto Sans SC text's own first family, 1000 units wide", () => {
+    const { doc, created, log } = drawnText([text("😀B", { fontFamily: "Noto Sans SC" })]);
+    expect(glyphX(doc, created[0]?.id as string, 1)).toBeCloseTo(10 + 12, 9);
+    // Noto Sans SC's .notdef starts at (100, -120).
+    expect(boxes(log)).toEqual([[expect.closeTo(10 + 1.2, 9), expect.closeTo(50 + 1.44, 9)]]);
+  });
+
+  it("paints the box in a container's paint copies", () => {
+    const { log } = drawnText([
+      {
+        type: "group",
+        appearance: { fills: [{ color: "#CCCCCC" }], strokes: [], contents: 0 },
+        children: [text("😀", { appearance: { fills: [], strokes: [] } })],
+      },
+    ]);
+    expect(painted(log)).toEqual([]);
+    expect(boxes(log)).toHaveLength(1);
+    expect(log.slice(log.indexOf("fillStyle=#CCCCCC"))).toContain("fill");
+  });
+
+  it("masks by the box in a text Clipping Path", () => {
+    const { doc, defaultLayerId: parentId } = newDoc();
+    const [, rect, clip] = createNodes(doc, [
+      {
+        type: "group",
+        parentId,
+        children: [
+          { type: "rect", x: 0, y: 0, width: 50, height: 50 },
+          { type: "text", x: 5, y: 30, content: "A😀" },
+        ],
+      },
+    ] as never).nodes as Node[];
+    if (!rect || !clip) throw new Error("setup");
+    makeMask(doc, { clipNodeId: clip.id, contentIds: [rect.id] });
+    const { ctx, log, layer } = recorder();
+    drawDocument(ctx, doc, layer);
+    const mask = log.slice(log.lastIndexOf("layer"));
+    expect(painted(mask)).toEqual(["A"]);
+    expect(boxes(mask)).toHaveLength(1);
+    expect(mask).toContain("> fill");
   });
 });

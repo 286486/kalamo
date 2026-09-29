@@ -10,7 +10,9 @@ import {
   fontWarnings,
   glyphs,
   glyphWarnings,
+  hasGlyph,
   layoutText,
+  notdefBox,
   overflowWarnings,
   textBox,
 } from "./text.ts";
@@ -464,4 +466,23 @@ it("measures Area Type with ranges as its frame", () => {
       ranges: [{ start: 0, end: 1, rotation: 90 }],
     }),
   ).toEqual(frame);
+});
+
+it("has a glyph where a face in the fallback order has one, and a hard return always (ADR-0065)", () => {
+  const t = { fontFamily: "Source Sans 3" };
+  expect(["A", "小", "\n"].map((ch) => hasGlyph(t, ch))).toEqual([true, true, true]);
+  expect(["😀", "ก", "한"].map((ch) => hasGlyph(t, ch))).toEqual([false, false, false]);
+});
+
+it("places the first face's .notdef outline at an origin, y down, in the text's size (ADR-0065)", () => {
+  // Source Sans 3 Regular's .notdef is a 89..565 by 0..660 box; Noto Sans SC's 100..900 by -120..880.
+  const first = (fontFamily: string, fontStyle?: FontStyle) =>
+    notdefBox({ fontFamily, fontStyle, fontSize: 12 }, 10, 50).slice(0, 3);
+  expect(first("Source Sans 3")).toEqual([
+    { cmd: "M", args: [10 + at12(89), 50] },
+    { cmd: "L", args: [10 + at12(89), 50 - at12(660)] },
+    { cmd: "L", args: [10 + at12(565), 50 - at12(660)] },
+  ]);
+  expect(first("Noto Sans SC")[0]).toEqual({ cmd: "M", args: [10 + at12(100), 50 + at12(120)] });
+  expect(first("Source Sans 3", "Black Italic")[1]?.args[0]).toBeCloseTo(10 + at12(156), 9);
 });
