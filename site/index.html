@@ -1,0 +1,585 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zibel</title>
+<meta name="description" content="Zibel is a vector editor in the browser. AI agents draw on it through MCP, and people edit the same document on an Illustrator-style canvas.">
+<meta name="color-scheme" content="light dark">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Code+Pro:wght@400;600&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --pasteboard: #d4d4d8;
+    --artboard: #ffffff;
+    --ink: #000000;
+    --text: #26262b;
+    --muted: #5c5c64;
+    --panel: #ececef;
+    --panel-line: #b9b9c0;
+    --person: #3565e8;
+    --agent: #b82fb5;
+    --focus: #3565e8;
+    --sans: "Source Sans 3", "Source Sans Pro", system-ui, sans-serif;
+    --mono: "Source Code Pro", ui-monospace, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --pasteboard: #38383d;
+      --text: #ececf0;
+      --muted: #a8a8b1;
+      --panel: #2a2a2e;
+      --panel-line: #4b4b52;
+      --focus: #8fb0ff;
+    }
+  }
+  :root[data-theme="dark"] {
+    --pasteboard: #38383d;
+    --text: #ececf0;
+    --muted: #a8a8b1;
+    --panel: #2a2a2e;
+    --panel-line: #4b4b52;
+    --focus: #8fb0ff;
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--pasteboard);
+    color: var(--text);
+    font: 400 1.125rem/1.5 var(--sans);
+  }
+  a { color: inherit; }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); white-space: nowrap;
+  }
+
+  /* App bar */
+  .bar {
+    display: flex; align-items: center; justify-content: space-between;
+    height: 48px; padding: 0 16px;
+    background: var(--panel); border-bottom: 1px solid var(--panel-line);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 1.0625rem; text-decoration: none; }
+  .brand svg { display: block; }
+  .links { display: flex; gap: 4px; }
+  .links a {
+    display: grid; place-items: center; width: 40px; height: 40px;
+    border-radius: 6px; color: var(--text);
+  }
+  .links a:hover { background: color-mix(in srgb, var(--text) 10%, transparent); }
+  .links svg { width: 20px; height: 20px; fill: currentColor; }
+
+  /* Pasteboard and artboards */
+  main { max-width: 1280px; margin: 0 auto; padding: 40px 16px 24px; }
+  .board { margin-bottom: 56px; }
+  .board-name { margin: 0 0 6px; font-size: 0.8125rem; color: var(--muted); }
+  .artboard {
+    background: var(--artboard); color: var(--ink);
+    padding: clamp(24px, 5vw, 64px);
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(0, 0, 0, 0.06);
+  }
+  .artboard h2 {
+    margin: 0 0 12px; font-size: clamp(1.75rem, 3.4vw, 2.25rem); line-height: 1.15;
+    font-weight: 700; letter-spacing: -0.01em;
+  }
+  .artboard .intro { margin: 0 0 40px; max-width: 58ch; color: #3d3d44; }
+
+  /* Hero */
+  .hero { display: grid; gap: 24px; }
+  @media (min-width: 1120px) {
+    .hero { grid-template-columns: minmax(0, 1fr) 340px; align-items: end; }
+  }
+  .hero .artboard { position: relative; }
+  #word { display: block; width: 100%; height: auto; touch-action: none; cursor: default; overflow: visible; }
+  #stage:focus-visible { outline-offset: 8px; }
+  @media (max-width: 760px) { #word { margin-top: 28px; } }
+  #word { --sel: var(--person); }
+  #word.agent { --sel: var(--agent); }
+  #word .fill { fill: var(--ink); opacity: 0; transition: opacity 0.35s ease 0.3s; }
+  #word .outline {
+    fill: none; stroke: var(--sel); stroke-width: 1.25; vector-effect: non-scaling-stroke;
+    stroke-dasharray: 1 1; stroke-dashoffset: 1;
+    transition: stroke-dashoffset 0.55s ease-in-out, stroke 0.4s;
+  }
+  #word .anchor { fill: #fff; stroke: var(--sel); stroke-width: 1.25; vector-effect: non-scaling-stroke; opacity: 0; transition: opacity 0.2s ease 0.45s, stroke 0.4s; }
+  #word .anchor.selected { fill: var(--sel); }
+  #word .letter.on .fill, #word .letter.on .anchor { opacity: 1; }
+  #word .letter.on .outline { stroke-dashoffset: 0; }
+  #word .handle { stroke: var(--sel); stroke-width: 1.25; vector-effect: non-scaling-stroke; }
+  #word .knob { fill: #fff; stroke: var(--sel); stroke-width: 1.25; vector-effect: non-scaling-stroke; }
+  #word.still * { transition: none; }
+
+  .cursor {
+    position: absolute; left: 0; top: 0; pointer-events: none;
+    display: flex; align-items: flex-start; gap: 2px;
+    transition: transform 0.5s cubic-bezier(0.3, 0.7, 0.3, 1), opacity 0.4s;
+    will-change: transform;
+  }
+  .cursor span {
+    margin-top: 16px; padding: 1px 7px 2px; border-radius: 3px;
+    background: var(--agent); color: #fff; font: 600 0.75rem/1.4 var(--sans); white-space: nowrap;
+  }
+  .cursor.idle { opacity: 0.8; }
+  .try.pending { visibility: hidden; }
+
+  .lede {
+    margin: clamp(24px, 4vw, 48px) 0 0; max-width: 32ch;
+    font-size: clamp(1.375rem, 2.6vw, 1.875rem); line-height: 1.3; font-weight: 400;
+  }
+  .try {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 20px;
+    margin: 20px 0 0; font-size: 1rem; color: #4a4a52;
+  }
+  .try b { color: var(--person); font-weight: 600; }
+  .reset {
+    font: 600 0.9375rem/1 var(--sans); color: var(--person);
+    background: none; border: 0; padding: 4px 0; cursor: pointer;
+    text-decoration: underline; text-underline-offset: 3px;
+  }
+
+  /* MCP panel */
+  .panel {
+    background: var(--panel); border: 1px solid var(--panel-line);
+    font-size: 0.875rem; color: var(--text);
+  }
+  .panel header {
+    display: flex; justify-content: space-between; align-items: center;
+    border-bottom: 1px solid var(--panel-line); padding-right: 10px;
+  }
+  .panel h2 {
+    margin: 0; padding: 7px 14px 6px; font-size: 0.8125rem; font-weight: 600;
+    background: var(--panel); border-right: 1px solid var(--panel-line);
+    position: relative; top: 1px;
+  }
+  .who { display: flex; align-items: center; gap: 6px; font-size: 0.8125rem; color: var(--muted); }
+  .who i { width: 9px; height: 9px; background: var(--agent); display: inline-block; }
+  .panel ol { list-style: none; margin: 0; padding: 6px 0; }
+  .call { padding: 8px 14px; font: 400 0.8125rem/1.5 var(--mono); overflow-wrap: anywhere; }
+  .call + .call { border-top: 1px solid color-mix(in srgb, var(--panel-line) 55%, transparent); }
+  .panel .tool { display: block; font-weight: 600; color: var(--text); }
+  .panel .args { display: block; color: var(--muted); }
+  .panel .ret { display: block; color: var(--agent); }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .panel .ret { color: #e07ade; } }
+  :root[data-theme="dark"] .panel .ret { color: #e07ade; }
+  .call.pending { visibility: hidden; }
+
+  /* What it draws */
+  .kinds { display: grid; gap: 40px; margin: 0; padding: 0; list-style: none; }
+  @media (min-width: 760px) { .kinds { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px; } }
+  .kinds svg { display: block; width: 100%; max-width: 280px; height: auto; margin-bottom: 16px; overflow: visible; }
+  .kinds h3 { margin: 0 0 4px; font-size: 1.25rem; font-weight: 700; }
+  .kinds p { margin: 0; max-width: 34ch; color: #3d3d44; }
+  .sel-line { fill: none; stroke: var(--person); stroke-width: 1; }
+  .sel-dash { fill: none; stroke: var(--person); stroke-width: 1; stroke-dasharray: 4 3; }
+  .sel-pt { fill: #fff; stroke: var(--person); stroke-width: 1; }
+  .sel-pt.on { fill: var(--person); }
+
+  /* Where it is */
+  .path-steps { list-style: none; margin: 0 0 48px; padding: 0; display: grid; gap: 28px; position: relative; }
+  .path-steps li { position: relative; padding-left: 32px; }
+  .path-steps li::before {
+    content: ""; position: absolute; left: 0; top: 7px; width: 11px; height: 11px;
+    background: #fff; border: 1.5px solid var(--person);
+  }
+  .path-steps li.done::before { background: #fff; border-color: #9a9aa3; }
+  .path-steps li.now::before { background: var(--person); }
+  /* Each stop draws the segment to the next: solid where the work is done, dashed ahead. */
+  .path-steps li:not(:last-child)::after {
+    content: ""; position: absolute; left: 5.25px; top: 12.5px; width: 1.5px; height: calc(100% + 28px);
+    background: var(--person);
+  }
+  .path-steps li.now::after, .path-steps li.now ~ li::after {
+    background: repeating-linear-gradient(to bottom, var(--person) 0 5px, transparent 5px 9px);
+  }
+  .path-steps h3 { margin: 0; font-size: 1.125rem; font-weight: 700; }
+  .path-steps h3 small { font-size: 0.9375rem; font-weight: 600; color: var(--person); margin-left: 8px; }
+  .path-steps li.done h3 small { color: #6b6b73; }
+  .path-steps p { margin: 2px 0 0; max-width: 40ch; color: #3d3d44; font-size: 1rem; }
+  @media (min-width: 900px) {
+    .path-steps { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px; }
+    .path-steps li { padding: 32px 0 0; }
+    .path-steps li::before { top: 0; }
+    .path-steps li:not(:last-child)::after { left: 12.5px; top: 5.25px; width: calc(100% + 12px); height: 1.5px; }
+    .path-steps li.now::after, .path-steps li.now ~ li::after {
+      background: repeating-linear-gradient(to right, var(--person) 0 5px, transparent 5px 9px);
+    }
+  }
+  .follow { display: flex; flex-wrap: wrap; gap: 12px; }
+  .follow a {
+    display: inline-flex; align-items: center; gap: 10px;
+    padding: 11px 18px 12px; border: 1.5px solid var(--ink); border-radius: 6px;
+    font-weight: 600; font-size: 1rem; text-decoration: none; color: var(--ink);
+  }
+  .follow a:first-child { background: var(--ink); color: #fff; }
+  .follow a:hover { border-color: var(--person); }
+  .follow a:first-child:hover { background: var(--person); }
+  .follow svg { width: 18px; height: 18px; fill: currentColor; }
+
+  footer { max-width: 1280px; margin: 0 auto; padding: 0 16px 48px; color: var(--muted); font-size: 0.9375rem; }
+  .fine { margin: 0; max-width: 72ch; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .cursor { transition: none; }
+  }
+</style>
+</head>
+<body>
+<header class="bar">
+  <a class="brand" href="#top" aria-label="Zibel">
+    <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M2 15 C 5 3, 13 3, 16 15" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="0.75" y="13.75" width="3" height="3" fill="var(--panel)" stroke="currentColor" stroke-width="1.5"/><rect x="14.25" y="13.75" width="3" height="3" fill="var(--person)" stroke="var(--person)" stroke-width="1.5"/></svg>
+    Zibel
+  </a>
+  <nav class="links" aria-label="Zibel elsewhere">
+    <a href="https://github.com/286486/zibel" title="GitHub">
+      <span class="sr-only">Zibel on GitHub</span>
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+    </a>
+    <a href="https://x.com/woodywang_cdr" title="X">
+      <span class="sr-only">Follow on X</span>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+    </a>
+  </nav>
+</header>
+
+<main id="top">
+  <section class="board" aria-labelledby="hero-title">
+    <p class="board-name" aria-hidden="true">Artboard 1</p>
+    <div class="hero">
+      <div class="artboard">
+        <h1 id="hero-title" class="sr-only">Zibel</h1>
+        <!-- biome-ignore lint/a11y/noNoninteractiveTabindex: role="application" makes it a widget; Biome does not read the role -->
+        <div id="stage" tabindex="0" role="application" aria-label="The word Zibel as editable outlines. Drag an anchor or a handle to reshape it; with the wordmark focused, the arrow keys nudge the selected anchor."><svg id="word" class="agent" aria-hidden="true"></svg></div>
+        <div class="cursor" id="cursor" aria-hidden="true">
+          <svg width="16" height="20" viewBox="0 0 16 20" aria-hidden="true"><path d="M1 1 L1 16 L5 12.5 L8 19 L10.5 18 L7.6 11.6 L13 11.6 Z" fill="var(--agent)" stroke="#fff" stroke-width="1.2" stroke-linejoin="round"/></svg>
+          <span>claude-code</span>
+        </div>
+        <p class="lede">A vector editor in the browser. AI agents draw on it through MCP, and you edit the same document on an Illustrator-style canvas.</p>
+        <p class="try pending" id="try"><span>An agent drew this wordmark. <b>The selection is yours now:</b> drag an anchor or a handle, and hold Alt on a handle to make a corner.</span> <button class="reset" type="button" id="reset">Reset the wordmark</button></p>
+      </div>
+      <aside class="panel" aria-labelledby="mcp-title">
+        <header>
+          <h2 id="mcp-title">MCP</h2>
+          <span class="who"><i aria-hidden="true"></i>claude-code</span>
+        </header>
+        <ol id="log">
+          <li class="call"><span class="tool">zibel_tx_begin</span><span class="args">{ "docId": "01K6ZB…", "label": "Wordmark" }</span><span class="ret">txId "tx_7Q2M…"</span></li>
+          <li class="call"><span class="tool">zibel_node_create</span><span class="args">{ "txId": "tx_7Q2M…", "nodes": [{ "type": "path", "name": "Z", "parentId": "layer-1", "d": "M0 734L480 734L480 590…Z" }, … 4 more] }</span><span class="ret">createdIds [5]</span></li>
+          <li class="call"><span class="tool">zibel_tx_commit</span><span class="args">{ "txId": "tx_7Q2M…" }</span><span class="ret">rev 2, one undo step</span></li>
+        </ol>
+      </aside>
+    </div>
+  </section>
+
+  <section class="board" aria-labelledby="draws-title">
+    <p class="board-name" aria-hidden="true">Artboard 2</p>
+    <div class="artboard">
+      <h2 id="draws-title">Editable vectors, not pictures</h2>
+      <p class="intro">Whatever an agent makes stays as paths, shapes and text. Pick any of it up and keep working by hand.</p>
+      <ul class="kinds">
+        <li>
+          <svg viewBox="0 0 240 150" aria-hidden="true">
+            <path d="M16 134 H232" stroke="#000" stroke-width="1.5"/>
+            <rect x="28" y="92" width="26" height="42"/><rect x="68" y="60" width="26" height="74"/>
+            <rect x="108" y="74" width="26" height="60"/><rect x="148" y="30" width="26" height="104" fill="var(--person)"/>
+            <rect x="188" y="50" width="26" height="84"/>
+            <rect class="sel-line" x="148" y="30" width="26" height="104"/>
+            <rect class="sel-pt" x="145" y="27" width="6" height="6"/><rect class="sel-pt" x="171" y="27" width="6" height="6"/>
+            <rect class="sel-pt" x="145" y="131" width="6" height="6"/><rect class="sel-pt" x="171" y="131" width="6" height="6"/>
+          </svg>
+          <h3>Charts and diagrams</h3>
+          <p>From data or a Mermaid description, drawn as shapes you can select, restyle and move.</p>
+        </li>
+        <li>
+          <svg viewBox="0 0 240 150" aria-hidden="true">
+            <defs><mask id="bite"><rect x="0" y="0" width="240" height="150" fill="#fff"/><circle cx="138" cy="60" r="52" fill="#000"/></mask></defs>
+            <circle cx="104" cy="78" r="62" mask="url(#bite)"/>
+            <circle class="sel-dash" cx="138" cy="60" r="52"/>
+            <rect class="sel-pt" x="135" y="5" width="6" height="6"/><rect class="sel-pt" x="187" y="57" width="6" height="6"/>
+            <rect class="sel-pt on" x="135" y="109" width="6" height="6"/><rect class="sel-pt" x="83" y="57" width="6" height="6"/>
+          </svg>
+          <h3>Illustration, icons and logos</h3>
+          <p>Bezier paths, compound shapes that stay live, gradients and a stack of fills and strokes.</p>
+        </li>
+        <li>
+          <svg viewBox="0 0 240 150" aria-hidden="true">
+            <path d="M21.1 118.4L24.6 111.9L27.7 106.1L30.8 101.1L33.8 96.9L36.7 93.5L39.6 90.7L42.3 88.7L45 87.2L47.5 86.2L49.9 85.7L52.3 85.5L54.7 85.6L57.1 86L59.6 86.6L62.2 87.5L64.9 88.7L67.7 90L70.6 91.6L73.6 93.3L76.6 95.1L79.7 97L82.8 98.9L86 100.8L89.2 102.7L92.5 104.5L95.9 106.2L99.4 107.8L102.9 109.1L106.6 110.2L110.4 110.9L114.3 111.2L118.3 111L122.4 110.3L126.4 108.9L130.2 106.8L133.9 104.1L137.3 100.9L140.5 97L143.6 92.5L146.3 87.6L148.3 83.8L150.3 80.5L152.2 77.3L154.2 74.4L156.2 71.7L158.1 69.2L160.1 66.9L162.1 64.8L164 62.9L166 61.2L167.9 59.7L169.9 58.3L171.8 57.1L173.7 56.1L175.7 55.2L177.6 54.4L179.5 53.8L181.5 53.3L183.4 52.9L185.4 52.7L187.3 52.6L189.3 52.6L191.3 52.8L193.3 53.1L195.3 53.5L197.4 54.1L199.4 54.7L201.5 55.5L203.6 56.4L205.6 57.4L207.4 58.9L209.2 60.4L210.9 62.1L212.5 63.9L214.1 65.8L215.6 67.8L217 69.8L218.4 72L219.7 74.2L220.9 76.6L223.1 75.4L221.8 73.1L220.5 70.7L219 68.5L217.5 66.3L216 64.3L214.3 62.3L212.6 60.4L210.8 58.7L209 57L207.1 55.5L205.4 53.7L203.6 52.1L201.6 50.6L199.6 49.2L197.5 48L195.3 46.9L193 46L190.6 45.3L188.1 44.7L185.6 44.3L183.1 44.1L180.5 44.1L177.8 44.2L175.1 44.6L172.4 45.2L169.7 46L166.9 47L164.2 48.3L161.5 49.7L158.8 51.4L156.1 53.3L153.4 55.4L150.8 57.8L148.2 60.3L145.7 63.1L143.2 66.1L140.7 69.4L138.3 72.9L135.9 76.6L133.7 80.4L131.1 84.7L128.8 88L126.5 90.6L124.3 92.6L122.3 94L120.3 94.9L118.5 95.6L116.6 95.9L114.6 96L112.4 95.8L110.1 95.4L107.6 94.7L104.9 93.8L102.1 92.6L99.2 91.3L96.2 89.8L93.1 88.2L90 86.4L86.7 84.7L83.4 82.9L80.1 81.2L76.6 79.6L73.2 78.1L69.6 76.7L66 75.6L62.3 74.8L58.6 74.3L54.8 74.2L51 74.6L47.3 75.6L43.6 77.1L40.1 79.1L36.8 81.8L33.7 85L30.8 88.7L28.1 93.1L25.5 98.1L23 103.8L20.8 110.3L18.9 117.6Z"/>
+            <path class="sel-line" d="M20 118 C55 20 105 150 140 84 C168 32 206 44 222 76"/>
+            <path class="sel-line" d="M105 150 L140 84 L168 32"/>
+            <circle class="sel-pt" cx="105" cy="150" r="3"/><circle class="sel-pt" cx="168" cy="32" r="3"/>
+            <rect class="sel-pt" x="17" y="115" width="6" height="6"/><rect class="sel-pt on" x="137" y="81" width="6" height="6"/>
+            <rect class="sel-pt" x="219" y="73" width="6" height="6"/>
+          </svg>
+          <h3>Freehand drawing</h3>
+          <p>Strokes that follow pen pressure, fitted to smooth curves with a few anchors to adjust.</p>
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="board" aria-labelledby="status-title">
+    <p class="board-name" aria-hidden="true">Artboard 3</p>
+    <div class="artboard">
+      <h2 id="status-title">Not ready to use yet</h2>
+      <p class="intro">Zibel is being built in the open, one milestone at a time. The foundation works: an agent draws over MCP and the browser shows it live. The drawing tools, type, charts and hosting are being built now.</p>
+      <ol class="path-steps">
+        <li class="done"><h3>Foundation <small>Done</small></h3><p>The document model, undo, the MCP server and a live browser viewer.</p></li>
+        <li class="now"><h3>First release <small>In progress</small></h3><p>Pen and Pathfinder, type, charts, SVG round trips with Inkscape, and hosting.</p></li>
+        <li><h3>Freehand and illustration</h3><p>Pressure strokes, brushes, effects, symbols and blends.</p></li>
+        <li><h3>Speed and collaboration</h3><p>GPU rendering, several people and agents at once, and version history.</p></li>
+      </ol>
+      <div class="follow">
+        <a href="https://github.com/286486/zibel">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          Watch the repository
+        </a>
+        <a href="https://x.com/woodywang_cdr">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+          Follow progress on X
+        </a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <p class="fine">Open source under Apache-2.0. Zibel is short for Zobel, the sable marten whose hair makes the finest illustration brushes.</p>
+</footer>
+
+<script>
+(() => {
+  // "Zibel" in Source Sans 3 Black at 1000 units, y down. Each anchor is [x, y, inX, inY, outX, outY].
+  const DATA = {"w":2200,"h":746,"letters":[[[[0,734,0,734,0,734],[480,734,480,734,480,734],[480,590,480,590,480,590],[212,590,212,590,212,590],[478,188,478,188,478,188],[478,84,478,84,478,84],[26,84,26,84,26,84],[26,228,26,228,26,228],[266,228,266,228,266,228],[0,630,0,630,0,630]]],[[[568,734,568,734,568,734],[740,734,740,734,740,734],[740,234,740,234,740,234],[568,234,568,234,568,234]],[[654,172,598,172,710,172],[748,86,748,138,748,34],[654,0,710,0,598,0],[560,86,560,34,560,138]]],[[[1134,746,1090,746,1240,746],[1342,475,1342,648,1342,322],[1147,222,1265,222,1103,222],[1024,272,1059,240,1024,272],[1028,200,1028,200,1028,200],[1028,38,1028,38,1028,38],[856,38,856,38,856,38],[856,734,856,734,856,734],[990,734,990,734,990,734],[1004,680,1004,680,1004,680],[1008,680,1008,680,1046,724]],[[1092,606,1132,606,1070,606],[1028,582,1048,600,1028,582],[1028,398,1028,398,1050,372],[1096,362,1070,362,1142,362],[1166,478,1166,396,1166,574]]],[[[1654,352,1622,352,1706,352],[1722,424,1722,386,1722,424],[1573,424,1573,424,1586,370]],[[1668,746,1522,746,1724,746],[1850,688,1796,726,1850,688],[1796,586,1796,586,1760,606],[1692,616,1726,616,1645,616],[1576,536,1595,601,1576,536],[1861,536,1861,536,1864,524],[1868,464,1868,494,1868,330],[1650,222,1798,222,1528,222],[1410,484,1410,322,1410,650]]],[[[2116,746,2000,746,2154,746],[2200,732,2182,740,2200,732],[2180,606,2180,606,2172,608],[2162,608,2168,608,2150,608],[2134,564,2134,598,2134,564],[2134,38,2134,38,2134,38],[1962,38,1962,38,1962,38],[1962,558,1962,558,1962,670]]]]};
+  const NS = "http://www.w3.org/2000/svg";
+  const PAD = 40;
+  const svg = document.getElementById("word");
+  const cursor = document.getElementById("cursor");
+  const log = [...document.querySelectorAll("#log li")];
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  svg.setAttribute("viewBox", `${-PAD} ${-PAD} ${DATA.w + 2 * PAD} ${DATA.h + 2 * PAD}`);
+
+  const clone = () => DATA.letters.map((l) => l.map((c) => c.map((a) => a.slice())));
+  let letters = clone();
+  const el = (name, attrs, parent) => {
+    const e = document.createElementNS(NS, name);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    parent.appendChild(e);
+    return e;
+  };
+
+  // DOM: one group per letter with its fill, selection outline and anchors; one handle layer on top.
+  const groups = letters.map((l, li) => {
+    const g = el("g", { class: "letter" }, svg);
+    const fill = el("path", { class: "fill" }, g);
+    const outline = el("path", { class: "outline", pathLength: 1 }, g);
+    const anchors = l.map((c, ci) => c.map((_, ai) => el("rect", { class: "anchor", "data-k": `${li},${ci},${ai}` }, g)));
+    return { g, fill, outline, anchors };
+  });
+  const handles = el("g", {}, svg);
+  const hLines = [0, 1].map(() => el("line", { class: "handle" }, handles));
+  const hKnobs = [0, 1].map(() => el("circle", { class: "knob" }, handles));
+
+  let sel = null; // [letter, contour, anchor]
+  let k = 1; // user units per CSS pixel
+  let box = 7; // anchor size in CSS pixels
+
+  const has = (a, s) => a[s] !== a[0] || a[s + 1] !== a[1];
+  const dOf = (l) => l.map((c) => {
+    let d = `M${c[0][0]} ${c[0][1]}`;
+    for (let i = 1; i <= c.length; i++) {
+      const p = c[i - 1], a = c[i % c.length];
+      d += `C${p[4]} ${p[5]} ${a[2]} ${a[3]} ${a[0]} ${a[1]}`;
+    }
+    return `${d}Z`;
+  }).join("");
+
+  function draw() {
+    const s = box * k;
+    letters.forEach((l, li) => {
+      const d = dOf(l);
+      groups[li].fill.setAttribute("d", d);
+      groups[li].outline.setAttribute("d", d);
+      l.forEach((c, ci) => {
+        c.forEach((a, ai) => {
+          const r = groups[li].anchors[ci][ai];
+          r.setAttribute("x", a[0] - s / 2); r.setAttribute("y", a[1] - s / 2);
+          r.setAttribute("width", s); r.setAttribute("height", s);
+          r.classList.toggle("selected", !!sel && sel[0] === li && sel[1] === ci && sel[2] === ai);
+        });
+      });
+    });
+    const a = sel && letters[sel[0]][sel[1]][sel[2]];
+    [2, 4].forEach((slot, i) => {
+      const show = a && has(a, slot);
+      hLines[i].style.display = hKnobs[i].style.display = show ? "" : "none";
+      if (!show) return;
+      hLines[i].setAttribute("x1", a[0]); hLines[i].setAttribute("y1", a[1]);
+      hLines[i].setAttribute("x2", a[slot]); hLines[i].setAttribute("y2", a[slot + 1]);
+      hKnobs[i].setAttribute("cx", a[slot]); hKnobs[i].setAttribute("cy", a[slot + 1]);
+      hKnobs[i].setAttribute("r", 3.5 * k);
+    });
+  }
+
+  function measure() {
+    const w = svg.getBoundingClientRect().width || 1;
+    k = (DATA.w + 2 * PAD) / w;
+    box = w < 520 ? 5 : 7;
+    draw();
+  }
+
+  const toSvg = (e) => {
+    const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM().inverse());
+    return [p.x, p.y];
+  };
+  const toPage = (x, y) => {
+    const m = svg.getScreenCTM(), box = svg.closest(".artboard").getBoundingClientRect();
+    const p = new DOMPoint(x, y).matrixTransform(m);
+    return [p.x - box.left, p.y - box.top];
+  };
+
+  function hit([x, y], radius) {
+    let best = null, bd = radius;
+    const a = sel && letters[sel[0]][sel[1]][sel[2]];
+    if (a) for (const slot of [2, 4]) {
+      if (!has(a, slot)) continue;
+      const d = Math.hypot(a[slot] - x, a[slot + 1] - y);
+      if (d < bd) { bd = d; best = { kind: "handle", slot }; }
+    }
+    letters.forEach((l, li) => {
+      l.forEach((c, ci) => {
+        c.forEach((p, ai) => {
+          const d = Math.hypot(p[0] - x, p[1] - y);
+          if (d < bd) { bd = d; best = { kind: "anchor", at: [li, ci, ai] }; }
+        });
+      });
+    });
+    return best;
+  }
+
+  // Smooth: both handles out and pointing opposite ways, as Illustrator treats a smooth point.
+  function isSmooth(a) {
+    if (!has(a, 2) || !has(a, 4)) return false;
+    const ux = a[2] - a[0], uy = a[3] - a[1], vx = a[4] - a[0], vy = a[5] - a[1];
+    const cross = Math.abs(ux * vy - uy * vx) / (Math.hypot(ux, uy) * Math.hypot(vx, vy));
+    return cross < 0.02 && ux * vx + uy * vy < 0;
+  }
+
+  let drag = null;
+  svg.addEventListener("pointerdown", (e) => {
+    finish();
+    const p = toSvg(e);
+    const h = hit(p, (e.pointerType === "touch" ? 22 : 12) * k);
+    if (!h) return;
+    if (h.kind === "anchor") sel = h.at;
+    const a = letters[sel[0]][sel[1]][sel[2]];
+    drag = { h, last: p, smooth: h.kind === "handle" && isSmooth(a) };
+    svg.setPointerCapture(e.pointerId);
+    draw();
+    e.preventDefault();
+  });
+  svg.addEventListener("pointermove", (e) => {
+    const p = toSvg(e);
+    if (!drag) {
+      svg.style.cursor = hit(p, 12 * k) ? "pointer" : "default";
+      return;
+    }
+    const a = letters[sel[0]][sel[1]][sel[2]];
+    const dx = p[0] - drag.last[0], dy = p[1] - drag.last[1];
+    drag.last = p;
+    if (drag.h.kind === "anchor") {
+      for (let i = 0; i < 6; i += 2) { a[i] += dx; a[i + 1] += dy; }
+    } else {
+      const s = drag.h.slot, o = s === 2 ? 4 : 2;
+      a[s] = p[0]; a[s + 1] = p[1];
+      if (drag.smooth && !e.altKey) {
+        const len = Math.hypot(a[o] - a[0], a[o + 1] - a[1]);
+        const ux = a[s] - a[0], uy = a[s + 1] - a[1], ul = Math.hypot(ux, uy) || 1;
+        a[o] = a[0] - (ux / ul) * len; a[o + 1] = a[1] - (uy / ul) * len;
+      }
+    }
+    draw();
+  });
+  const end = () => { drag = null; };
+  svg.addEventListener("pointerup", end);
+  svg.addEventListener("pointercancel", end);
+
+  document.getElementById("stage").addEventListener("keydown", (e) => {
+    const step = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+    if (!step || !sel) return;
+    finish();
+    const n = e.shiftKey ? 40 : 6;
+    const a = letters[sel[0]][sel[1]][sel[2]];
+    for (let i = 0; i < 6; i += 2) { a[i] += step[0] * n; a[i + 1] += step[1] * n; }
+    draw();
+    e.preventDefault();
+  });
+
+  document.getElementById("reset").addEventListener("click", () => {
+    finish();
+    letters = clone();
+    draw();
+  });
+
+  // The bowl of the b, rightmost anchor: a smooth point, so its handles show off the curve.
+  const firstSel = () => {
+    let best = null;
+    letters[2][0].forEach((a, ai) => { if (isSmooth(a) && (best === null || a[0] > letters[2][0][best][0])) best = ai; });
+    return [2, 0, best];
+  };
+
+  // Park the agent's cursor at a point in the wordmark, in page pixels.
+  const moveCursor = (x, y) => {
+    const [px, py] = toPage(x, y);
+    cursor.style.transform = `translate(${px}px, ${py}px)`;
+  };
+  // Idle, the agent's cursor waits in the artboard's top-right corner.
+  const park = () => {
+    const board = svg.closest(".artboard");
+    cursor.style.transform = `translate(${board.clientWidth - cursor.offsetWidth - 12}px, 8px)`;
+  };
+  const hint = document.getElementById("try");
+
+  // The one orchestrated moment: the agent's three MCP calls draw the word, then hand the selection over.
+  const timers = [];
+  let finished = false;
+  function finish() {
+    if (finished) return;
+    finished = true;
+    for (const t of timers) clearTimeout(t);
+    svg.classList.add("still");
+    for (const g of groups) g.g.classList.add("on");
+    for (const li of log) li.classList.remove("pending");
+    hint.classList.remove("pending");
+    svg.classList.remove("agent");
+    if (!sel) sel = firstSel();
+    cursor.classList.add("idle");
+    park();
+    draw();
+  }
+
+  measure();
+  new ResizeObserver(() => { measure(); if (finished) park(); }).observe(svg);
+
+  if (reduce) { finish(); return; }
+  for (const li of log) li.classList.add("pending");
+  const at = (ms, fn) => timers.push(setTimeout(fn, ms));
+  moveCursor(-PAD, DATA.h * 0.4);
+  at(250, () => log[0].classList.remove("pending"));
+  at(800, () => log[1].classList.remove("pending"));
+  groups.forEach((g, i) => { at(900 + i * 380, () => {
+    const c = letters[i][0];
+    const top = c.reduce((m, a) => (a[1] < m[1] ? a : m), c[0]);
+    moveCursor(top[0], top[1]);
+    g.g.classList.add("on");
+  }); });
+  at(900 + 5 * 380 + 500, () => { log[2].classList.remove("pending"); svg.classList.remove("agent"); park(); });
+  at(900 + 5 * 380 + 900, () => { sel = firstSel(); cursor.classList.add("idle"); hint.classList.remove("pending"); draw(); });
+  at(900 + 5 * 380 + 1000, () => { finished = true; svg.classList.add("still"); });
+})();
+</script>
+</body>
+</html>
