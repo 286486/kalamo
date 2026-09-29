@@ -139,14 +139,40 @@ export interface Drop {
 }
 
 /**
+ * The drop a pointer over `listed[i]` means (ADR-0075), at `y`, its fraction of the row's height
+ * from the top, and at indent `level`, the row depth under the pointer's x; with the depth its
+ * insertion line is drawn at. A container's middle drops into it, on top, and so does its bottom
+ * quarter when it is expanded, since that gap lies over its topmost child; its top and bottom
+ * quarters are the gaps above and below it, a leaf's halves. The gap below the last row of an
+ * expanded container's contents is also the gap below that container, and below each ancestor it
+ * closes: `level` picks which, as Illustrator's insertion line follows the pointer's indent.
+ */
+export function dropAt(
+  listed: Row[],
+  i: number,
+  y: number,
+  level: number,
+): Drop & { depth: number } {
+  const { node, depth, expanded } = listed[i] as Row;
+  const container = node.type === "layer" || node.type === "group";
+  if (container && y >= 0.25 && (expanded || y < 0.75)) return { zone: "onto", id: node.id, depth };
+  if (y < (container ? 0.25 : 0.5)) return { zone: "above", id: node.id, depth };
+  const at = Math.min(depth, Math.max(level, listed[i + 1]?.depth ?? 0));
+  // The nearest row above at that depth or shallower is the ancestor whose contents end here.
+  const below = at === depth ? node : listed.findLast((r, j) => j < i && r.depth <= at)?.node;
+  return { zone: "below", id: (below ?? node).id, depth: at };
+}
+
+/**
  * The moves a Layers panel drag of `dragged` onto `drop` sends as one `reparent` Command (ADR-0075),
  * and whether any Node would change place; null when the drop is refused, so the panel shows no
  * indicator. The dragged Nodes, less those whose ancestor is dragged too, keep their panel order:
- * the topmost lands at the drop and each next one directly below it. Refused: a target container
- * locked, itself or through an ancestor, or outside the isolated Node `scope`; a dragged Node in a
- * locked container; and whatever core's reparent refuses, such as a Node into its own descendant or
- * a Layer into a Group. A hidden container takes a drop, and a Node's own lock does not stop its
- * move, as in Illustrator.
+ * the topmost lands at the drop and each next one directly below it. A dragged Node in a locked
+ * container stays, as code acting on the Selection leaves out what is locked (ADR-0012). Refused: a
+ * target container locked, itself or through an ancestor, or outside the isolated Node `scope`; no
+ * dragged Node left; and whatever core's reparent refuses, such as a Node into its own descendant
+ * or a Layer into a Group. A hidden container takes a drop, and a Node's own lock or hiding does not
+ * stop its move.
  */
 export function dropMoves(
   doc: Document,
@@ -162,15 +188,13 @@ export function dropMoves(
   if (scope !== null && parentId !== scope && !(parent && inScope(doc, parent, scope))) return null;
   const set = new Set(dragged);
   const nodes = panelOrder(doc).filter((n) => {
-    if (!set.has(n.id)) return false;
+    if (!set.has(n.id) || lockedIn(doc, doc.nodes.get(n.parentId ?? ""))) return false;
     for (let p = doc.nodes.get(n.parentId ?? ""); p; p = doc.nodes.get(p.parentId ?? "")) {
       if (set.has(p.id)) return false;
     }
     return true;
   });
-  if (nodes.length === 0 || nodes.some((n) => lockedIn(doc, doc.nodes.get(n.parentId ?? "")))) {
-    return null;
-  }
+  if (nodes.length === 0) return null;
   // The first lands directly above the nearest undragged sibling below the gap, else directly
   // below the nearest one above it, else on top; so the anchor is never a dragged Node.
   let first: Pick<ReparentInput, "before" | "after"> = {};

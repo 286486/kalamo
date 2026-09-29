@@ -8,7 +8,7 @@ import {
   reparentNodes,
 } from "@kalamo/core";
 import { describe, expect, it } from "vitest";
-import { autoName, type Drop, dropMoves, layerMask, rows } from "./layers.ts";
+import { autoName, type Drop, dropAt, dropMoves, layerMask, rows } from "./layers.ts";
 
 /**
  * Layer 1: Group g (rects a, b), rect c, hidden rect h, locked Group lg (rect m), Layer 3 (rect e).
@@ -277,7 +277,7 @@ describe("dropMoves (ADR-0075)", () => {
     expect(after(f, gap?.moves ?? [], "l1")).toEqual(["g", "h", "c", "lg", "l3"]);
   });
 
-  it("moves a Sublayer to the top level and back, and drops a descendant of a dragged Node", () => {
+  it("moves a sub-Layer to the top level and back, and drops a descendant of a dragged Node", () => {
     const f = fixture();
     const out = dropMoves(f.doc, [f.id("l3"), f.id("e")], { zone: "above", id: f.id("l2") }, null);
     expect(out?.moves).toEqual([{ nodeId: f.id("l3"), parentId: null, after: f.id("l2") }]);
@@ -285,6 +285,25 @@ describe("dropMoves (ADR-0075)", () => {
     reparentNodes(doc, out?.moves ?? []);
     const back = dropMoves(doc, [f.id("l3")], { zone: "onto", id: f.id("l1") }, null);
     expect(back?.moves).toEqual([{ nodeId: f.id("l3"), parentId: f.id("l1") }]);
+    // Below Layer 1 from the last row of its contents: the bottom of the top level.
+    const bottom = dropMoves(f.doc, [f.id("l3")], { zone: "below", id: f.id("l1") }, null);
+    expect(bottom?.moves).toEqual([{ nodeId: f.id("l3"), parentId: null, before: f.id("l1") }]);
+  });
+
+  it("leaves a Node in a locked container where it is, and moves the rest", () => {
+    const f = fixture();
+    const out = dropMoves(f.doc, [f.id("c"), f.id("m")], { zone: "onto", id: f.id("l3") }, null);
+    expect(out?.moves).toEqual([{ nodeId: f.id("c"), parentId: f.id("l3") }]);
+  });
+
+  it("keeps a Clipping Path restacked in its Clip Group the Clipping Path (ADR-0071)", () => {
+    const f = fixture();
+    const { group } = makeMask(f.doc, { clipNodeId: f.id("c"), contentIds: [f.id("g")] });
+    const out = dropMoves(f.doc, [f.id("c")], { zone: "below", id: f.id("g") }, null);
+    const doc = { ...f.doc, nodes: new Map(f.doc.nodes) };
+    reparentNodes(doc, out?.moves ?? []);
+    expect(childrenOf(doc, group.id).map((n) => f.key(n.id))).toEqual(["c", "g"]);
+    expect(doc.nodes.get(f.id("c"))).toMatchObject({ clipping: true });
   });
 
   it("refuses a drop core refuses, or into or out of a locked container, or out of scope", () => {
@@ -306,5 +325,48 @@ describe("dropMoves (ADR-0075)", () => {
     const hidden = { ...f.doc.nodes.get(f.id("g")), visible: false } as Node;
     f.doc.nodes.set(hidden.id, hidden);
     expect(refused("c", { zone: "onto", id: f.id("g") })?.moved).toBe(true);
+  });
+});
+
+describe("dropAt (ADR-0075)", () => {
+  // l2, d, l1, l3 (expanded), e, lg, h, c, g: depths 0, 1, 0, 1, 2, 1, 1, 1, 1.
+  /** The drop at `y` and `level` over `key`'s row, as "zone target depth". */
+  const pointer = () => {
+    const f = fixture();
+    const listed = rows(f.doc, new Set(), null);
+    return (key: string, y: number, level = 9) => {
+      const i = listed.findIndex((r) => f.key(r.node.id) === key);
+      const { zone, id, depth } = dropAt(listed, i, y, level);
+      return `${zone} ${f.key(id)} ${depth}`;
+    };
+  };
+
+  it("splits a collapsed container's row in quarters, an expanded one's and a leaf's in two", () => {
+    const at = pointer();
+    expect([0.24, 0.25, 0.74, 0.75].map((y) => at("g", y))).toEqual([
+      "above g 1",
+      "onto g 1",
+      "onto g 1",
+      "below g 1",
+    ]);
+    expect([at("l3", 0.24), at("l3", 0.25), at("l3", 0.99)]).toEqual([
+      "above l3 1",
+      "onto l3 1",
+      "onto l3 1",
+    ]);
+    expect([at("c", 0.49), at("c", 0.5)]).toEqual(["above c 1", "below c 1"]);
+  });
+
+  it("drops below the last row of a container's contents at the pointer's indent", () => {
+    const at = pointer();
+    // The last row: below it, or below Layer 1 at the top level.
+    expect([at("g", 0.9), at("g", 0.9, 0), at("g", 0.9, -1)]).toEqual([
+      "below g 1",
+      "below l1 0",
+      "below l1 0",
+    ]);
+    // e closes l3, not l1, since lg follows at depth 1.
+    expect([at("e", 0.9, 2), at("e", 0.9, 0)]).toEqual(["below e 2", "below l3 1"]);
+    expect(at("d", 0.9, 0)).toBe("below l2 0");
   });
 });

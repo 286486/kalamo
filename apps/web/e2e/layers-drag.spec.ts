@@ -8,10 +8,10 @@ interface Entry {
 }
 
 /**
- * Layer A: Red (0–60) under Green (20–80), and Sublayer Sub. Layer B, on top: Group G holding
- * Blue (40–100). All 100 tall on a 200 × 100 Artboard.
+ * Layer A: Red (0–60) under Green (20–80), and sub-Layer Sub. Layer B, on top: Group G holding
+ * Blue (40–100). All 100 tall on a 200 × 100 Artboard. `viewer` opens it as a viewer would.
  */
-async function setup(page: Page, request: APIRequestContext) {
+async function setup(page: Page, request: APIRequestContext, { viewer = false } = {}) {
   const { docId, defaultLayerId: a } = (
     await call(request, "kalamo_doc_create", {
       name: "Layers drag",
@@ -81,6 +81,21 @@ async function setup(page: Page, request: APIRequestContext) {
   };
   const rev = async () => (await outline()).rev;
 
+  // The Commands the page sends; the role the Document socket gives it rewritten for a viewer.
+  const sent: string[] = [];
+  await page.routeWebSocket(/\/ws$/, (ws) => {
+    const server = ws.connectToServer();
+    ws.onMessage((m) => {
+      sent.push(String(m));
+      server.send(m);
+    });
+    server.onMessage((m) => {
+      const msg = JSON.parse(String(m));
+      ws.send(viewer && msg.type === "document" ? JSON.stringify({ ...msg, role: "viewer" }) : m);
+    });
+  });
+  const reparents = () => sent.filter((m) => JSON.parse(m).command?.type === "reparent").length;
+
   await page.goto(`/docs/${docId}`);
   await expect(page.getByTestId("status-bar")).toContainText(/\d+%/);
   await page.keyboard.press("Control+1");
@@ -102,22 +117,26 @@ async function setup(page: Page, request: APIRequestContext) {
   const row = (name: string) => page.getByRole("listitem", { name, exact: true });
   const rowNames = () =>
     page.getByRole("listitem").evaluateAll((els) => els.map((e) => e.ariaLabel));
-  /** Presses on `from`'s row and moves over `to`'s at `y`, its height's fraction from the top. */
-  const dragOver = async (from: string, to: string, y: number) => {
+  /**
+   * Presses on `from`'s row and moves over `to`'s at `y`, its height's fraction from the top, and
+   * `x` pixels from its left, else its middle.
+   */
+  const dragOver = async (from: string, to: string, y: number, x?: number) => {
     const a = await row(from).boundingBox();
     const b = await row(to).boundingBox();
     if (!a || !b) throw new Error("no row");
     await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
     await page.mouse.down();
-    await page.mouse.move(b.x + b.width / 2, b.y + b.height * y, { steps: 5 });
+    const bx = b.x + (x ?? b.width / 2);
+    await page.mouse.move(bx, b.y + b.height * y, { steps: 5 });
     // Chromium dispatches the drag's first dragover on the move after the one that starts it.
-    await page.mouse.move(b.x + b.width / 2 + 1, b.y + b.height * y);
+    await page.mouse.move(bx + 1, b.y + b.height * y);
   };
-  const drag = async (from: string, to: string, y: number) => {
-    await dragOver(from, to, y);
+  const drag = async (from: string, to: string, y: number, x?: number) => {
+    await dragOver(from, to, y, x);
     await page.mouse.up();
   };
-  return { docId, id, children, rev, top, row, rowNames, dragOver, drag };
+  return { docId, id, children, rev, reparents, top, row, rowNames, dragOver, drag };
 }
 
 test("dragging a Path's row onto a Group in another Layer puts it on top there, geometry unchanged, and one Ctrl+Z restores it (ADR-0075)", async ({
@@ -148,6 +167,7 @@ test("dragging a Path's row onto a Group in another Layer puts it on top there, 
   await expect.poll(s.top).toBe("RRB");
   expect(await geometry()).toEqual(before);
   expect(await s.rev()).toBe(rev + 1);
+  expect(s.reparents()).toBe(1);
 
   await page.keyboard.press("Control+Z");
   await expect.poll(s.top).toBe("GBB");
@@ -169,7 +189,7 @@ test("dragging a row between two siblings restacks it, and the canvas draws the 
   await expect.poll(s.top).toBe("RBB");
 });
 
-test("a Sublayer drags to the top level and back", async ({ page, request }) => {
+test("a sub-Layer drags to the top level and back", async ({ page, request }) => {
   const s = await setup(page, request);
   await s.drag("Sub", "B", 0.1);
   await expect.poll(s.rowNames).toEqual(["Sub", "B", "G", "A", "Green", "Red"]);
@@ -179,6 +199,23 @@ test("a Sublayer drags to the top level and back", async ({ page, request }) => 
   await expect.poll(s.rowNames).toEqual(["B", "G", "A", "Sub", "Green", "Red"]);
   expect(await s.children(null)).toEqual(["A", "B"]);
   expect(await s.children("A")).toEqual(["Red", "Green", "Sub"]);
+});
+
+test("below the last row of an expanded bottom Layer, the pointer's indent picks the gap below the Layer", async ({
+  page,
+  request,
+}) => {
+  const s = await setup(page, request);
+  // Red is the last row. From its left edge, the gap below A: the bottom of the top level.
+  await s.dragOver("Sub", "Red", 0.9, 2);
+  await expect(s.row("Red")).toHaveAttribute("data-drop", "below");
+  await page.mouse.up();
+  await expect.poll(() => s.children(null)).toEqual(["Sub", "A", "B"]);
+  await expect.poll(s.rowNames).toEqual(["B", "G", "A", "Green", "Red", "Sub"]);
+  // From Red's middle, the gap below Red in A.
+  await s.drag("Sub", "Red", 0.9);
+  await expect.poll(() => s.children("A")).toEqual(["Sub", "Red", "Green"]);
+  await expect.poll(s.rowNames).toEqual(["B", "G", "A", "Green", "Red", "Sub"]);
 });
 
 test("two selected rows dragged together keep their relative order", async ({ page, request }) => {
@@ -241,9 +278,10 @@ test("a drop into a descendant, a Layer onto a Group, or into a locked container
   await refused("B", "Blue", 0.1); // B into its own descendant G.
   await refused("G", "Blue", 0.9); // G into itself.
   await refused("Sub", "G", 0.5); // A Layer into a Group.
-  await refused("Red", "Sub", 0.5); // Into a locked Sublayer.
+  await refused("Red", "Sub", 0.5); // Into a locked sub-Layer.
   await expect(page.locator("[data-drop]")).toHaveCount(0);
   expect(await s.rev()).toBe(rev);
+  expect(s.reparents()).toBe(0);
   await expect.poll(s.rowNames).toEqual(["B", "G", "Blue", "A", "Sub", "Green", "Red"]);
 });
 
@@ -258,4 +296,15 @@ test("an Agent's concurrent node_reparent shows up live in the open panel", asyn
   });
   await expect.poll(s.rowNames).toEqual(["B", "Green", "G", "A", "Sub", "Red"]);
   await expect.poll(s.top).toBe("GGG");
+});
+
+test("a viewer's rows do not drag, and a drag sends nothing (ADR-0047)", async ({
+  page,
+  request,
+}) => {
+  const s = await setup(page, request, { viewer: true });
+  await expect(s.row("Red")).toHaveAttribute("draggable", "false");
+  await s.drag("Red", "G", 0.5);
+  await expect.poll(s.rowNames).toEqual(["B", "G", "A", "Sub", "Green", "Red"]);
+  expect(s.reparents()).toBe(0);
 });

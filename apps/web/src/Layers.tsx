@@ -1,10 +1,13 @@
+import { lockedIn } from "@kalamo/core";
 import { memo, useState } from "react";
-import { type Drop, dropMoves, layerIsolation, layerMask, nameOf, rows } from "./layers.ts";
+import { type Drop, dropAt, dropMoves, layerIsolation, layerMask, nameOf, rows } from "./layers.ts";
 import { combine, objects } from "./selection.ts";
 import { canEdit, send, useStore } from "./store.ts";
 
 const SELECTED = "#DCE6FF";
 const DROP = "#3B6CF6";
+/** A row's indent per depth. */
+const INDENT = 14;
 /** Inline SVG, since an emoji eye or lock depends on the system's emoji font. */
 const glyph = (d: string) => (
   <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
@@ -32,7 +35,7 @@ export const Layers = memo(function Layers() {
   const [toggled, setToggled] = useState(() => new Set<string>());
   // The Nodes a drag in the panel carries, and where it would drop them (ADR-0075).
   const [dragged, setDragged] = useState<string[] | null>(null);
-  const [drop, setDrop] = useState<Drop | null>(null);
+  const [drop, setDrop] = useState<(Drop & { row: string; depth: number }) | null>(null);
   if (!doc) return null;
 
   const toggle = (id: string) => {
@@ -67,7 +70,7 @@ export const Layers = memo(function Layers() {
         aria-label="Layers"
         style={{ flex: 1, overflow: "auto", margin: 0, padding: 0, listStyle: "none" }}
       >
-        {listed.map(({ node, depth, expandable, expanded, dimmed, underlined }) => {
+        {listed.map(({ node, depth, expandable, expanded, dimmed, underlined }, i) => {
           const label = nameOf(doc, node);
           const selected = selection.includes(node.id);
           const pick = (e: React.MouseEvent) => {
@@ -86,24 +89,22 @@ export const Layers = memo(function Layers() {
               selection: combine(selection, ids, { shift: e.shiftKey, alt: e.altKey }),
             });
           };
-          const container = node.type === "layer" || node.type === "group";
-          // The row's top and bottom quarters drop above and below it; a container's middle drops
-          // into it, and so does just below it when it is expanded, over its topmost child.
-          const dropAt = (e: React.DragEvent): Drop => {
-            const { top, height } = e.currentTarget.getBoundingClientRect();
-            const y = (e.clientY - top) / height;
-            const onto = container && (expanded ? y >= 0.25 : y >= 0.25 && y < 0.75);
-            const zone = onto ? "onto" : y < (container ? 0.25 : 0.5) ? "above" : "below";
-            return { zone, id: node.id };
+          // The pointer's height in the row picks the zone, its indent the depth of a gap (ADR-0075).
+          const pointer = (e: React.DragEvent) => {
+            const { top, left, height } = e.currentTarget.getBoundingClientRect();
+            const level = Math.floor((e.clientX - left - 4) / INDENT);
+            return { ...dropAt(listed, i, (e.clientY - top) / height, level), row: node.id };
           };
-          const indicated = drop?.id === node.id ? drop.zone : undefined;
+          const indicated = drop?.row === node.id ? drop : undefined;
+          // A row in a locked container does not drag, as the drop would leave its Node in place.
+          const movable = editor && !lockedIn(doc, doc.nodes.get(node.parentId ?? ""));
           return (
             <li
               key={node.id}
               aria-label={label}
               // A viewer's rows do not drag; the server would refuse the Command anyway (ADR-0047).
-              draggable={editor}
-              data-drop={indicated}
+              draggable={movable}
+              data-drop={indicated?.zone}
               onDragStart={(e) => {
                 e.dataTransfer.effectAllowed = "move";
                 // A selected row carries the Selection with it, another row only itself.
@@ -115,11 +116,13 @@ export const Layers = memo(function Layers() {
               }}
               onDragOver={(e) => {
                 if (!dragged) return;
-                const at = dropAt(e);
+                const at = pointer(e);
                 // ponytail: re-plans the drop on every dragover; cache per row and zone if it lags.
                 if (!dropMoves(doc, dragged, at, isolated)) return setDrop(null);
                 e.preventDefault();
-                if (at.id !== drop?.id || at.zone !== drop.zone) setDrop(at);
+                if (at.row !== drop?.row || at.zone !== drop.zone || at.depth !== drop.depth) {
+                  setDrop(at);
+                }
               }}
               onDragLeave={(e) => {
                 // Entering the row's own buttons is no leave.
@@ -130,7 +133,7 @@ export const Layers = memo(function Layers() {
               onDrop={(e) => {
                 e.preventDefault();
                 const { doc, isolated } = useStore.getState();
-                const plan = doc && dragged && dropMoves(doc, dragged, dropAt(e), isolated);
+                const plan = doc && dragged && dropMoves(doc, dragged, pointer(e), isolated);
                 setDragged(null);
                 setDrop(null);
                 // Nothing is sent when no Node would change place, so Undo has no empty step.
@@ -142,19 +145,20 @@ export const Layers = memo(function Layers() {
                 display: "flex",
                 alignItems: "center",
                 height: 22,
-                paddingLeft: 4 + depth * 14,
-                background: selected ? SELECTED : undefined,
+                paddingLeft: 4 + depth * INDENT,
+                backgroundColor: selected ? SELECTED : undefined,
                 opacity: dimmed ? 0.5 : 1,
                 borderBottom: "1px solid #E4E4E4",
-                // Illustrator's indicators: a line in the gap, or the container outlined.
-                boxShadow:
-                  indicated === "above"
-                    ? `inset 0 2px ${DROP}`
-                    : indicated === "below"
-                      ? `inset 0 -2px ${DROP}`
-                      : indicated === "onto"
-                        ? `inset 0 0 0 2px ${DROP}`
-                        : undefined,
+                // Illustrator's indicators: the container outlined, or a line in the gap from the
+                // indent of the depth it drops at.
+                boxShadow: indicated?.zone === "onto" ? `inset 0 0 0 2px ${DROP}` : undefined,
+                ...(indicated &&
+                  indicated.zone !== "onto" && {
+                    backgroundImage: `linear-gradient(${DROP}, ${DROP})`,
+                    backgroundRepeat: "no-repeat",
+                    backgroundSize: "100% 2px",
+                    backgroundPosition: `${4 + indicated.depth * INDENT}px ${indicated.zone === "above" ? 0 : "100%"}`,
+                  }),
               }}
             >
               <button
