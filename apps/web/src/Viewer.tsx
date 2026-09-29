@@ -18,6 +18,7 @@ import { keysTaken } from "./MenuBar.tsx";
 import { pastedArt, place, placeable } from "./place.ts";
 import { preview, previewEdit, previewOp } from "./receive.ts";
 import { editable } from "./selection.ts";
+import { simplifyOpen } from "./simplify.ts";
 import { canEdit, connect, send, useStore } from "./store.ts";
 import { Tools } from "./Tools.tsx";
 import {
@@ -278,13 +279,14 @@ export function Viewer({ docId }: { docId: string }) {
     // A menu, or the menu bar with focus, takes the keys it handles.
     const menus = (e: KeyboardEvent) =>
       e.type === "keydown" && (keysTaken() || !!(e.target as Element).closest?.("[role=menubar]"));
-    // The tool holding the pointer hears a key before the menu bar and the Tools panel, and before
-    // Simplify's bar, whose listener comes later; a key it took stops here. Space is counted here,
-    // for it, even when a focused Tools panel button then takes it.
+    // The tool holding the pointer hears a key before the menu bar and the Tools panel; a key it
+    // took stops here. Simplify listens on window too, so stopping here would not stop it: while
+    // its bar or dialog is open, Enter and Escape pass the tool by and are Simplify's alone. Space
+    // is counted here, for it, even when a focused Tools panel button then takes it.
     const toPressed = (e: KeyboardEvent) => {
       if (menus(e)) return;
       if (e.code === "Space") spaceHeld.current = e.type === "keydown";
-      if (pressedKey(e, pressed.current, spaceHeld.current, redraw)) {
+      if (pressedKey(e, pressed.current, spaceHeld.current, simplifyOpen(), redraw)) {
         e.preventDefault();
         e.stopPropagation();
       }

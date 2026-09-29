@@ -173,17 +173,20 @@ export const TOOL_KEYS: Record<string, Tool> = Object.fromEntries(
 
 /**
  * Hands a key on the page to the tool holding the pointer, if any; true when it took the key.
- * Viewer asks before anything else hears the key (ADR-0031).
+ * Viewer asks before anything else hears the key (ADR-0031). While a `modal` surface is open, an
+ * Enter or Escape keydown is its OK or Cancel, never the tool's.
  */
 export function pressedKey(
   e: Pick<KeyboardEvent, "type" | "key" | "code" | "ctrlKey" | "metaKey" | "shiftKey" | "altKey">,
   pressed: CanvasTool | null,
   space: boolean,
+  modal: boolean,
   redraw: () => void,
 ): boolean {
   const keys = keysOf(e);
   const key = keys.slice(keys.lastIndexOf("+") + 1);
   const down = e.type === "keydown";
+  if (modal && down && (e.key === "Enter" || e.key === "Escape")) return false;
   return !!pressed?.keyChange?.(
     { key, down, shift: e.shiftKey, alt: e.altKey, ctrl: e.ctrlKey || e.metaKey, space },
     redraw,
