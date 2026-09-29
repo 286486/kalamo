@@ -423,3 +423,63 @@ describe("placeImage", () => {
     }
   });
 });
+
+describe("placeNodes' warnings", () => {
+  const warn = (code: string, nodeId?: string) => ({
+    code,
+    message: code,
+    ...(nodeId && { nodeId }),
+  });
+
+  it("name the copied Nodes by their new ids, never the new Group, and keep one without a nodeId in order", () => {
+    const { doc, defaultLayerId } = setup();
+    const f = file();
+    const top = f.nodes.find((n) => n.name === "Top") as Node;
+    const rect = f.nodes.find((n) => n.parentId === top.id) as Node;
+    const { placedIds, created, warnings } = placeNodes(
+      doc,
+      { ...f, warnings: [warn("A", rect.id), warn("B"), warn("C", top.id)] },
+      { parentId: defaultLayerId },
+    );
+    const group = created.find((n) => n.name === "Top") as Node;
+    const copy = created.find((n) => n.parentId === group.id) as Node;
+    expect(warnings).toEqual([warn("A", copy.id), warn("B"), warn("C", group.id)]);
+    expect(warnings.map((w) => w.nodeId)).not.toContain(placedIds[0]);
+  });
+
+  it("drop those on Nodes a Zibel copy leaves behind, and keep a listed Clipping Path's", () => {
+    const { doc, defaultLayerId } = setup();
+    const f = createDocument({ id: "f", name: "F", artboards: [] });
+    const [group] = createNodes(f.doc, [
+      { type: "group", parentId: f.defaultLayerId, children: [] },
+    ]).nodes as [Node];
+    const [a, b, clip] = createNodes(f.doc, [
+      { type: "rect", parentId: group.id, name: "a", x: 0, y: 0, width: 20, height: 20 },
+      { type: "rect", parentId: group.id, name: "b", x: 0, y: 0, width: 20, height: 20 },
+      { type: "ellipse", parentId: group.id, name: "clip", x: 5, y: 5, width: 4, height: 4 },
+    ]).nodes as [Node, Node, Node];
+    makeMask(f.doc, { clipNodeId: clip.id, contentIds: [a.id, b.id] });
+    const nodes = [...f.doc.nodes.values()];
+    const mask = nodes.find((n) => n.type === "group" && n.id !== group.id) as Node;
+    const warnings = [
+      warn("LAYER", f.defaultLayerId),
+      warn("GROUP", group.id),
+      warn("MASK", mask.id),
+      warn("CLIP", clip.id),
+      warn("A", a.id),
+      warn("FILE"),
+    ];
+    const paste = (nodeIds: string[]) =>
+      placeNodes(
+        doc,
+        { name: "F", nodes, warnings, scope: { nodeIds } },
+        { parentId: defaultLayerId },
+      );
+
+    const left = paste([a.id]);
+    expect(left.warnings).toEqual([warn("A", left.created[0]?.id), warn("FILE")]);
+    const listed = paste([a.id, clip.id]);
+    const id = (name: string) => listed.created.find((n) => n.name === name)?.id;
+    expect(listed.warnings).toEqual([warn("CLIP", id("clip")), warn("A", id("a")), warn("FILE")]);
+  });
+});
