@@ -1,5 +1,5 @@
 import { parseColor } from "./color.ts";
-import type { CharacterRange, Node, Rect, WriteReceipt } from "./schema.ts";
+import type { CharacterRange, Node, Rect, Warning } from "./schema.ts";
 import { SOURCE_SANS_3 } from "./source-sans-3.ts";
 
 /** Illustrator's weight names and their CSS `font-weight` (ADR-0028). */
@@ -126,8 +126,6 @@ export interface TextLine {
   /** The code-point index in `content` of the line's first character. */
   start: number;
 }
-
-type Warning = WriteReceipt["warnings"][number];
 
 type Face = { advances: Record<number, number>; notdef: number };
 

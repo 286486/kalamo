@@ -1,10 +1,8 @@
 import { generateKeyBetween, generateNKeysBetween } from "fractional-indexing";
 import { assertParent, bounds, childrenOf, createNodes, newId, union } from "./document.ts";
 import { transformNodes } from "./edit.ts";
-import type { Artboard, Document, Node, Rect, RenderScope, WriteReceipt } from "./schema.ts";
+import type { Artboard, Document, Node, Rect, RenderScope, Warning } from "./schema.ts";
 import { FILE_TEXT_WARNING_CODES, fileTextWarnings } from "./text.ts";
-
-type Warning = WriteReceipt["warnings"][number];
 
 const overlap = (a: Rect, b: Rect) =>
   Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x)) *
