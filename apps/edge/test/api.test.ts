@@ -399,6 +399,73 @@ it("rejects a mask_make naming a Node deleted meanwhile with NODE_GONE", async (
   expect(rejected).toMatchObject({ type: "rejected", id: "m3", error: { code: "NODE_GONE" } });
 });
 
+it("moves Nodes from a reparent command as the User Actor, and rejects one naming a deleted anchor or breaking a tree rule (ADR-0075)", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const [a, b, group] = (
+    await call("kalamo_node_create", {
+      docId,
+      nodes: [
+        rect(defaultLayerId),
+        rect(defaultLayerId),
+        { type: "group", parentId: defaultLayerId },
+      ],
+    })
+  ).structuredContent.createdIds;
+  const { ws, received } = await subscribe(docId);
+  await received(1);
+
+  const moves = [
+    { nodeId: b, parentId: group },
+    { nodeId: a, parentId: group, before: b },
+  ];
+  ws.send(command("r1", { type: "reparent", moves }));
+  const [, moved] = await received(2);
+  expect(moved).toMatchObject({ type: "tx", actor: "user", commandId: "r1" });
+  // b on top of the Group, a directly below it.
+  const { nodes } = (await call("kalamo_node_get", { docId, nodeIds: [a, b], detail: "full" }))
+    .structuredContent;
+  expect(nodes.map((n: { parentId: string }) => n.parentId)).toEqual([group, group]);
+  expect(nodes[0].index < nodes[1].index).toBe(true);
+
+  await call("kalamo_node_delete", { docId, nodeIds: [b] });
+  await received(3);
+  ws.send(command("r2", { type: "reparent", moves: [{ nodeId: a, parentId: group, after: b }] }));
+  const [, , , gone] = await received(4);
+  expect(gone).toMatchObject({
+    type: "rejected",
+    id: "r2",
+    error: { code: "NODE_GONE", nodeIds: [b] },
+  });
+
+  ws.send(
+    command("r3", { type: "reparent", moves: [{ nodeId: defaultLayerId, parentId: group }] }),
+  );
+  const [, , , , refused] = await received(5);
+  expect(refused).toMatchObject({ type: "rejected", id: "r3", error: { code: "INVALID_PARENT" } });
+});
+
+it("rejects a reparent command whose moved Node or parent was deleted meanwhile with NODE_GONE", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const [a, b, group] = (
+    await call("kalamo_node_create", {
+      docId,
+      nodes: [
+        rect(defaultLayerId),
+        rect(defaultLayerId),
+        { type: "group", parentId: defaultLayerId },
+      ],
+    })
+  ).structuredContent.createdIds;
+  await call("kalamo_node_delete", { docId, nodeIds: [a, group] });
+  const { ws, received } = await subscribe(docId);
+  await received(1);
+  ws.send(command("r1", { type: "reparent", moves: [{ nodeId: a, parentId: defaultLayerId }] }));
+  ws.send(command("r2", { type: "reparent", moves: [{ nodeId: b, parentId: group }] }));
+  const [, moved, parent] = await received(3);
+  expect(moved).toMatchObject({ id: "r1", error: { code: "NODE_GONE", nodeIds: [a] } });
+  expect(parent).toMatchObject({ id: "r2", error: { code: "NODE_GONE", nodeIds: [group] } });
+});
+
 it("rejects a delete command naming the last top-level Layer with LAST_LAYER, changing nothing (ADR-0073)", async () => {
   const { docId, defaultLayerId } = await newDoc();
   const [id] = (await call("kalamo_node_create", { docId, nodes: [rect(defaultLayerId)] }))

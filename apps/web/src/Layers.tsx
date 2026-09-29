@@ -1,9 +1,13 @@
+import { lockedIn } from "@kalamo/core";
 import { memo, useState } from "react";
-import { layerIsolation, layerMask, nameOf, rows } from "./layers.ts";
+import { type Drop, dropAt, dropMoves, layerIsolation, layerMask, nameOf, rows } from "./layers.ts";
 import { combine, objects } from "./selection.ts";
-import { send, useStore } from "./store.ts";
+import { canEdit, send, useStore } from "./store.ts";
 
 const SELECTED = "#DCE6FF";
+const DROP = "#3B6CF6";
+/** A row's indent per depth. */
+const INDENT = 14;
 /** Inline SVG, since an emoji eye or lock depends on the system's emoji font. */
 const glyph = (d: string) => (
   <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
@@ -27,7 +31,11 @@ export const Layers = memo(function Layers() {
   const doc = useStore((s) => s.doc);
   const selection = useStore((s) => s.selection);
   const isolated = useStore((s) => s.isolated);
+  const editor = useStore(canEdit);
   const [toggled, setToggled] = useState(() => new Set<string>());
+  // The Nodes a drag in the panel carries, and where it would drop them (ADR-0075).
+  const [dragged, setDragged] = useState<string[] | null>(null);
+  const [drop, setDrop] = useState<(Drop & { row: string; depth: number }) | null>(null);
   if (!doc) return null;
 
   const toggle = (id: string) => {
@@ -58,8 +66,11 @@ export const Layers = memo(function Layers() {
         font: "12px system-ui, sans-serif",
       }}
     >
-      <div style={{ flex: 1, overflow: "auto" }}>
-        {listed.map(({ node, depth, expandable, expanded, dimmed, underlined }) => {
+      <ul
+        aria-label="Layers"
+        style={{ flex: 1, overflow: "auto", margin: 0, padding: 0, listStyle: "none" }}
+      >
+        {listed.map(({ node, depth, expandable, expanded, dimmed, underlined }, i) => {
           const label = nameOf(doc, node);
           const selected = selection.includes(node.id);
           const pick = (e: React.MouseEvent) => {
@@ -78,17 +89,76 @@ export const Layers = memo(function Layers() {
               selection: combine(selection, ids, { shift: e.shiftKey, alt: e.altKey }),
             });
           };
+          // The pointer's height in the row picks the zone, its indent the depth of a gap (ADR-0075).
+          const pointer = (e: React.DragEvent) => {
+            const { top, left, height } = e.currentTarget.getBoundingClientRect();
+            const level = Math.floor((e.clientX - left - 4) / INDENT);
+            return { ...dropAt(listed, i, (e.clientY - top) / height, level), row: node.id };
+          };
+          const indicated = drop?.row === node.id ? drop : undefined;
+          // A row in a locked container does not drag, as the drop would leave its Node in place.
+          const movable = editor && !lockedIn(doc, doc.nodes.get(node.parentId ?? ""));
           return (
-            <div
+            <li
               key={node.id}
+              aria-label={label}
+              // A viewer's rows do not drag; the server would refuse the Command anyway (ADR-0047).
+              draggable={movable}
+              data-drop={indicated?.zone}
+              onDragStart={(e) => {
+                e.dataTransfer.effectAllowed = "move";
+                // A selected row carries the Selection with it, another row only itself.
+                setDragged(selected ? selection : [node.id]);
+              }}
+              onDragEnd={() => {
+                setDragged(null);
+                setDrop(null);
+              }}
+              onDragOver={(e) => {
+                if (!dragged) return;
+                const at = pointer(e);
+                // ponytail: re-plans the drop on every dragover; cache per row and zone if it lags.
+                if (!dropMoves(doc, dragged, at, isolated)) return setDrop(null);
+                e.preventDefault();
+                if (at.row !== drop?.row || at.zone !== drop.zone || at.depth !== drop.depth) {
+                  setDrop(at);
+                }
+              }}
+              onDragLeave={(e) => {
+                // Entering the row's own buttons is no leave.
+                if (!e.currentTarget.contains(e.relatedTarget as globalThis.Node | null)) {
+                  setDrop(null);
+                }
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                const { doc, isolated } = useStore.getState();
+                const plan = doc && dragged && dropMoves(doc, dragged, pointer(e), isolated);
+                setDragged(null);
+                setDrop(null);
+                // Nothing is sent when no Node would change place, so Undo has no empty step.
+                if (!plan?.moved) return;
+                useStore.setState({ notice: null });
+                send({ type: "reparent", moves: plan.moves });
+              }}
               style={{
                 display: "flex",
                 alignItems: "center",
                 height: 22,
-                paddingLeft: 4 + depth * 14,
-                background: selected ? SELECTED : undefined,
+                paddingLeft: 4 + depth * INDENT,
+                backgroundColor: selected ? SELECTED : undefined,
                 opacity: dimmed ? 0.5 : 1,
                 borderBottom: "1px solid #E4E4E4",
+                // Illustrator's indicators: the container outlined, or a line in the gap from the
+                // indent of the depth it drops at.
+                boxShadow: indicated?.zone === "onto" ? `inset 0 0 0 2px ${DROP}` : undefined,
+                ...(indicated &&
+                  indicated.zone !== "onto" && {
+                    backgroundImage: `linear-gradient(${DROP}, ${DROP})`,
+                    backgroundRepeat: "no-repeat",
+                    backgroundSize: "100% 2px",
+                    backgroundPosition: `${4 + indicated.depth * INDENT}px ${indicated.zone === "above" ? 0 : "100%"}`,
+                  }),
               }}
             >
               <button
@@ -149,10 +219,10 @@ export const Layers = memo(function Layers() {
                   {tag}
                 </span>
               ))}
-            </div>
+            </li>
           );
         })}
-      </div>
+      </ul>
       {/*
         Illustrator's Make/Release Clipping Mask (ADR-0053) and its panel menu's Enter Isolation
         Mode (ADR-0058) at the panel's foot. A viewer isolates as it selects (ADR-0057).

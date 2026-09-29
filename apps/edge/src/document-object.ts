@@ -489,6 +489,11 @@ export class DocumentObject extends DurableObject<Env> {
       nodeIds: (c) => c.nodeIds,
       run: (c, actor, commandId) => this.reorderNodes(c.nodeIds, c.op, actor, { commandId }),
     },
+    reparent: {
+      nodeIds: (c) =>
+        c.moves.flatMap((m) => [m.nodeId, m.parentId ?? [], m.before ?? [], m.after ?? []].flat()),
+      run: (c, actor, commandId) => this.reparentNodes(c.moves, actor, { commandId }),
+    },
     mask_make: {
       nodeIds: (c) =>
         "layerId" in c.input ? [c.input.layerId] : [c.input.clipNodeId, ...c.input.contentIds],
