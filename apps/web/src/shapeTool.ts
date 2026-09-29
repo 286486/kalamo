@@ -1,11 +1,26 @@
-import { MAX_COUNT, MIN_COUNT } from "@zibel/core";
+import { formatPath, MAX_COUNT, MIN_COUNT, parsePath, pathBounds } from "@zibel/core";
 import { dragged, drawDrawing, type Press, shapePath } from "./canvas.ts";
 import type { ShapeBox } from "./receive.ts";
 import { useStore } from "./store.ts";
 import type { CanvasTool, KeyMods } from "./toolbox.ts";
-import { constrain, type LineArt, type NewArt, type StarArt, sendNewArt } from "./tools.ts";
+import {
+  constrain,
+  type LineArt,
+  type NewArt,
+  type PathArt,
+  type StarArt,
+  sendNewArt,
+} from "./tools.ts";
 
 type Point = [number, number];
+
+/** The drag from `press` to `p`, made as long in x as in y with Shift, by its longer side. */
+function dragSize(press: Point, p: Point, shift: boolean): Point {
+  const [dx, dy] = [p[0] - press[0], p[1] - press[1]];
+  if (!shift) return [dx, dy];
+  const side = Math.max(Math.abs(dx), Math.abs(dy));
+  return [dx < 0 ? -side : side, dy < 0 ? -side : side];
+}
 
 /**
  * The box a drag from `press` to `p` draws (F-DRAW-01): Shift makes it a square, as big as the
@@ -16,11 +31,7 @@ export function dragBox(
   p: Point,
   { shift, alt }: Pick<KeyMods, "shift" | "alt">,
 ): Omit<ShapeBox, "type"> {
-  let [dx, dy] = [p[0] - press[0], p[1] - press[1]];
-  if (shift) {
-    const side = Math.max(Math.abs(dx), Math.abs(dy));
-    [dx, dy] = [dx < 0 ? -side : side, dy < 0 ? -side : side];
-  }
+  const [dx, dy] = dragSize(press, p, shift);
   if (alt) {
     const [w, h] = [Math.abs(dx), Math.abs(dy)];
     return { x: press[0] - w, y: press[1] - h, width: 2 * w, height: 2 * h };
@@ -46,6 +57,70 @@ export function dragLine(
   const [x2, y2] = shift ? constrain(press, p) : p;
   const [x1, y1] = alt ? [2 * press[0] - x2, 2 * press[1] - y2] : press;
   return { type: "line", x1, y1, x2, y2 };
+}
+
+/** The Arc tool's options (ADR-0059): open or closed, its base axis, and its slope, −100…100. */
+export interface ArcOption {
+  closed: boolean;
+  axis: "x" | "y";
+  slope: number;
+}
+
+/**
+ * The arc a drag from `press` to `p` draws (ADR-0059), as Illustrator's Arc tool does: from the
+ * press to the pointer, bent around the box corner the base axis picks by one cubic whose handles
+ * reach `|slope|`% of the way to the far corner (convex) or to that corner (concave). Closed, it
+ * runs back through that corner. Shift makes Length X equal Length Y, and Alt centres it on `press`.
+ */
+export function dragArc(
+  press: Point,
+  p: Point,
+  { shift, alt }: Pick<KeyMods, "shift" | "alt">,
+  { closed, axis, slope }: ArcOption,
+): PathArt {
+  const [dx, dy] = dragSize(press, p, shift);
+  const b: Point = [press[0] + dx, press[1] + dy];
+  const a: Point = alt ? [press[0] - dx, press[1] - dy] : press;
+  const corner: Point = axis === "x" ? [b[0], a[1]] : [a[0], b[1]];
+  const far: Point = [a[0] + b[0] - corner[0], a[1] + b[1] - corner[1]];
+  const target = slope > 0 ? far : corner;
+  const t = Math.abs(slope) / 100;
+  const toward = (q: Point) => [q[0] + t * (target[0] - q[0]), q[1] + t * (target[1] - q[1])];
+  return {
+    type: "path",
+    d: formatPath([
+      { cmd: "M", args: a },
+      { cmd: "C", args: [...toward(a), ...toward(b), ...b] },
+      ...(closed
+        ? [
+            { cmd: "L" as const, args: corner },
+            { cmd: "Z" as const, args: [] },
+          ]
+        : []),
+    ]),
+  };
+}
+
+/**
+ * The Arc tool's options after `key` during a drag (ADR-0059), or null for another key: Up and Down
+ * step the slope, C opens or closes the arc, F flips it to the other base axis, and X switches
+ * concave and convex.
+ */
+export function arcKey(arc: ArcOption, key: string): ArcOption | null {
+  switch (key) {
+    case "ArrowUp":
+      return { ...arc, slope: Math.min(100, arc.slope + 1) };
+    case "ArrowDown":
+      return { ...arc, slope: Math.max(-100, arc.slope - 1) };
+    case "C":
+      return { ...arc, closed: !arc.closed };
+    case "F":
+      return { ...arc, axis: arc.axis === "x" ? "y" : "x" };
+    case "X":
+      return { ...arc, slope: -arc.slope };
+    default:
+      return null;
+  }
 }
 
 /**
@@ -162,8 +237,8 @@ interface DragShape<A extends NewArt, O> {
   art(origin: Point, p: Point, mods: KeyMods, option: O): A;
   /** False for art dragged back to nothing visible: a point, or a box flat as a line. */
   visible(art: A): boolean;
-  /** Painted with the current Stroke and no Fill, whatever the Fill box holds. */
-  unfilled?: true;
+  /** True when painted with the current Stroke and no Fill, whatever the Fill box holds. */
+  unfilled?(option: O): boolean;
   /** `option` after `key` while `art` is drawn, or null when the key is not the drag's. */
   key?(option: O, key: string, art: A | null): O | null;
   /** `option` with the modifiers `mods` held, re-read before `art` is redrawn. */
@@ -176,7 +251,7 @@ interface DragShape<A extends NewArt, O> {
 }
 
 /**
- * A drag draws a Live Shape, previewed in the current Fill and Stroke until release. The option
+ * A drag draws a Live Shape, or the Arc tool's Path, previewed in its paint until release. The option
  * each drag ends with carries over to the next one in the session.
  */
 function shapeTool<A extends NewArt, O>(
@@ -184,9 +259,9 @@ function shapeTool<A extends NewArt, O>(
   shape: DragShape<A, O>,
 ): CanvasTool {
   let kept = shape.option;
-  const paint = () => {
+  const paint = (option: O) => {
     const { fillStroke } = useStore.getState();
-    return shape.unfilled ? { ...fillStroke, fill: null } : fillStroke;
+    return shape.unfilled?.(option) ? { ...fillStroke, fill: null } : fillStroke;
   };
   /**
    * The drag under way: where it started, moved by Space, the pointer, the option, and the
@@ -237,7 +312,7 @@ function shapeTool<A extends NewArt, O>(
       drag = null;
       const shown = art && shape.visible(art) ? art : null;
       kept = shape.keep ? shape.keep(option, shown, kept) : option;
-      if (shown) sendNewArt([shown], { fillStroke: paint() });
+      if (shown) sendNewArt([shown], { fillStroke: paint(option) });
       e.redraw();
     },
     cancel(redraw) {
@@ -246,7 +321,7 @@ function shapeTool<A extends NewArt, O>(
     },
     draw(ctx, _doc, scale) {
       const path = drag?.art && shapePath(drag.art);
-      if (path) drawDrawing(ctx, path, paint(), scale);
+      if (drag && path) drawDrawing(ctx, path, paint(drag.option), scale);
     },
   };
 }
@@ -358,6 +433,25 @@ export const lineTool = shapeTool(
     option: null,
     art: dragLine,
     visible: ({ x1, y1, x2, y2 }) => x1 !== x2 || y1 !== y2,
-    unfilled: true,
+    unfilled: () => true,
+  },
+);
+
+/**
+ * Illustrator's Arc tool with Fill Arc off, its default (ADR-0059): a Path, open in the current
+ * Stroke and no Fill, or closed in the current Fill and Stroke. A drag flat as a line still draws
+ * it, a straight line, as Illustrator's does.
+ */
+export const arcTool = shapeTool<PathArt, ArcOption>(
+  { title: "Arc Tool", shortcut: "", group: "line", icon: "M2.5 13.5 C2.5 7.5 7.5 2.5 13.5 2.5" },
+  {
+    option: { closed: false, axis: "x", slope: 50 },
+    art: dragArc,
+    visible: ({ d }) => {
+      const box = pathBounds(parsePath(d, "d"));
+      return !!box && (box.width > 0 || box.height > 0);
+    },
+    key: arcKey,
+    unfilled: ({ closed }) => !closed,
   },
 );

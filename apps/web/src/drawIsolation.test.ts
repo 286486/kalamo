@@ -6,6 +6,7 @@ import { curvatureDown, curvatureUp } from "./curvature.ts";
 import { DEFAULT_PENCIL, pencilDown, pencilMove, pencilUp, savePencilOptions } from "./pencil.ts";
 import { receive } from "./receive.ts";
 import {
+  arcTool,
   ellipseTool,
   lineTool,
   polygonTool,
@@ -158,6 +159,7 @@ const tools: [string, () => void][] = [
   ["Polygon", drawShape(polygonTool)],
   ["Star", drawShape(starTool)],
   ["Line Segment", drawShape(lineTool)],
+  ["Arc", drawShape(arcTool)],
 ];
 
 beforeEach(() => {

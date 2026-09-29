@@ -267,7 +267,7 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 ### 5.4 绘图工具
 
 **基本形状（P0）**
-- **F-DRAW-01** Rectangle（M）、Rounded Rectangle、Ellipse（L）、Polygon（3–1000 边）、Star（3–1000 角，内外半径）、Line Segment（\）、Arc、Spiral、Rectangular Grid、Polar Grid。均为 Live Shape，保留参数。Polygon / Star 另有 Inkscape 的 `rounded`、`randomized` 与扭角（Star 内顶点角度偏移），Spiral 参数覆盖 Inkscape 螺旋，保证 Inkscape 往返无损（ADR-0017）。拖拽时 Shift 约束比例 / 角度、Alt 从中心、Space 移动、方向键改边数 / 圆角（Illustrator 惯例）。
+- **F-DRAW-01** Rectangle（M）、Rounded Rectangle、Ellipse（L）、Polygon（3–1000 边）、Star（3–1000 角，内外半径）、Line Segment（\）、Arc、Spiral、Rectangular Grid、Polar Grid。除 Arc 外均为 Live Shape，保留参数；Arc 与 Illustrator 一样画普通 Path，其类型、基准轴与斜率只是工具选项，沿用到下一次拖拽（ADR-0059）。Polygon / Star 另有 Inkscape 的 `rounded`、`randomized` 与扭角（Star 内顶点角度偏移），Spiral 参数覆盖 Inkscape 螺旋，保证 Inkscape 往返无损（ADR-0017）。拖拽时 Shift 约束比例 / 角度、Alt 从中心、Space 移动、方向键改边数 / 圆角（Illustrator 惯例）。
 - **F-DRAW-02** 圆角控件：矩形 / 多边形每个角独立圆角半径与圆角类型（round / inverted round / chamfer）。（P1）
 - **F-DRAW-03** 椭圆饼图控件（起止角）；弧类型 slice / chord / open，对应 Inkscape `sodipodi:type="arc"`（ADR-0017）。（P1）
 

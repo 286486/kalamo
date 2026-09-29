@@ -64,11 +64,14 @@ export const NOTHING_DRAWN = "The Layer is hidden or locked; nothing was drawn."
 
 /** What a drawing tool draws, in document coordinates: a path, or a Live Shape dragged out. */
 export type NewArt =
-  | { type: "path"; d: string }
+  | PathArt
   | ShapeBox
   | Pick<Extract<Shape, { type: "polygon" }>, "type" | "cx" | "cy" | "radius" | "sides" | "angle">
   | StarArt
   | LineArt;
+
+/** A path: the Pen's, the Pencil's, or an arc, which is not a Live Shape (ADR-0059). */
+export type PathArt = { type: "path"; d: string };
 
 /** A line from (x1, y1) to (x2, y2). */
 export type LineArt = Extract<Shape, { type: "line" }>;
