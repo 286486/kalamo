@@ -446,7 +446,7 @@ function average(doc: Document, input: z.output<typeof PathOpInput>): PathOpResu
     throw invalid(
       `anchors[${i}]`,
       `The Node has no Anchor ${r.index} in subpath ${r.subpath}.`,
-      "zibel_path_edit returns each subpath's Anchors.",
+      "kalamo_path_edit returns each subpath's Anchors.",
     );
   });
   const refs = [...new Map(listed.map((r) => [`${r.nodeId} ${r.subpath} ${r.index}`, r])).values()];

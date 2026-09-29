@@ -1,13 +1,13 @@
 import { assert, type Bounds, type Check } from "./mcp.ts";
 
 const check: Check = async (call, docId, tools) => {
-  assert(tools.includes("zibel_freehand_stroke"), "no zibel_freehand_stroke call");
-  const { nodes: all } = (await call("zibel_node_query", { docId, limit: 1000 }))
+  assert(tools.includes("kalamo_freehand_stroke"), "no kalamo_freehand_stroke call");
+  const { nodes: all } = (await call("kalamo_node_query", { docId, limit: 1000 }))
     .structuredContent as { nodes: { id: string; type: string }[] };
   const shapes = all.filter((n) => n.type !== "layer" && n.type !== "group");
   assert(shapes.length === 1, `${shapes.length} shapes, want 1`);
   const { nodes } = (
-    await call("zibel_node_get", { docId, nodeIds: [shapes[0]?.id], detail: "full" })
+    await call("kalamo_node_get", { docId, nodeIds: [shapes[0]?.id], detail: "full" })
   ).structuredContent as {
     nodes: {
       type: string;

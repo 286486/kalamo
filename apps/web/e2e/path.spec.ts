@@ -8,19 +8,19 @@ test("Object > Path reverses a path, adds Anchors and removes the selected one",
   request,
 }) => {
   const { docId, defaultLayerId: parentId } = (
-    await call(request, "zibel_doc_create", {
+    await call(request, "kalamo_doc_create", {
       name: "Path",
       artboards: [{ width: 200, height: 100 }],
     })
   ).structuredContent;
   const [id] = (
-    await call(request, "zibel_node_create", {
+    await call(request, "kalamo_node_create", {
       docId,
       nodes: [{ type: "path", parentId, d: "M 20 50 L 100 50 L 180 50" }],
     })
   ).structuredContent.createdIds as [string];
   const d = async () =>
-    (await call(request, "zibel_node_get", { docId, nodeIds: [id], detail: "full" }))
+    (await call(request, "kalamo_node_get", { docId, nodeIds: [id], detail: "full" }))
       .structuredContent?.nodes[0]?.d;
 
   await page.goto(`/docs/${docId}`);
@@ -51,13 +51,13 @@ test("Join makes two open paths one and closes one alone; Average stacks Anchors
   request,
 }) => {
   const { docId, defaultLayerId: parentId } = (
-    await call(request, "zibel_doc_create", {
+    await call(request, "kalamo_doc_create", {
       name: "Join",
       artboards: [{ width: 200, height: 100 }],
     })
   ).structuredContent;
   const [a, b] = (
-    await call(request, "zibel_node_create", {
+    await call(request, "kalamo_node_create", {
       docId,
       nodes: [
         { type: "path", parentId, d: "M 20 50 L 80 50" },
@@ -66,7 +66,7 @@ test("Join makes two open paths one and closes one alone; Average stacks Anchors
     })
   ).structuredContent.createdIds as [string, string];
   const node = async (id: string) =>
-    (await call(request, "zibel_node_get", { docId, nodeIds: [id], detail: "full" }))
+    (await call(request, "kalamo_node_get", { docId, nodeIds: [id], detail: "full" }))
       .structuredContent?.nodes[0];
 
   await page.goto(`/docs/${docId}`);
@@ -102,7 +102,7 @@ test("Simplify previews on its bar and commits once on OK; More Options converts
   request,
 }) => {
   const { docId, defaultLayerId: parentId } = (
-    await call(request, "zibel_doc_create", {
+    await call(request, "kalamo_doc_create", {
       name: "Simplify",
       artboards: [{ width: 200, height: 100 }],
     })
@@ -113,13 +113,13 @@ test("Simplify previews on its bar and commits once on OK; More Options converts
   );
   const original = `M ${points.join(" L ")}`;
   const [id] = (
-    await call(request, "zibel_node_create", {
+    await call(request, "kalamo_node_create", {
       docId,
       nodes: [{ type: "path", parentId, d: original }],
     })
   ).structuredContent.createdIds as [string];
   const d = async () =>
-    (await call(request, "zibel_node_get", { docId, nodeIds: [id], detail: "full" }))
+    (await call(request, "kalamo_node_get", { docId, nodeIds: [id], detail: "full" }))
       .structuredContent?.nodes[0]?.d as string;
   const segments = async () => (await d()).match(/[LC]/g)?.length ?? 0;
 
@@ -159,13 +159,13 @@ test("Offset Path previews the copy, adds it below on OK, and one Undo takes it 
   request,
 }) => {
   const { docId, defaultLayerId: parentId } = (
-    await call(request, "zibel_doc_create", {
+    await call(request, "kalamo_doc_create", {
       name: "Offset",
       artboards: [{ width: 200, height: 100 }],
     })
   ).structuredContent;
   const [id] = (
-    await call(request, "zibel_node_create", {
+    await call(request, "kalamo_node_create", {
       docId,
       nodes: [
         {
@@ -182,7 +182,7 @@ test("Offset Path previews the copy, adds it below on OK, and one Undo takes it 
   ).structuredContent.createdIds as [string];
   // The Layer's children, bottom to top.
   const layer = async () =>
-    (await call(request, "zibel_doc_outline", { docId, rootId: parentId, depth: 1 }))
+    (await call(request, "kalamo_doc_outline", { docId, rootId: parentId, depth: 1 }))
       .structuredContent?.nodes as { id: string }[];
 
   await page.goto(`/docs/${docId}`);
@@ -224,12 +224,12 @@ test("Split Into Grid replaces the rect with a grid, and Clean Up says how many 
   request,
 }) => {
   const { docId, defaultLayerId: parentId } = (
-    await call(request, "zibel_doc_create", {
+    await call(request, "kalamo_doc_create", {
       name: "Grid",
       artboards: [{ width: 200, height: 100 }],
     })
   ).structuredContent;
-  await call(request, "zibel_node_create", {
+  await call(request, "kalamo_node_create", {
     docId,
     nodes: [
       { type: "rect", parentId, x: 0, y: 0, width: 200, height: 100 },
@@ -237,7 +237,7 @@ test("Split Into Grid replaces the rect with a grid, and Clean Up says how many 
     ],
   });
   const layer = async () =>
-    (await call(request, "zibel_doc_outline", { docId, rootId: parentId, depth: 1 }))
+    (await call(request, "kalamo_doc_outline", { docId, rootId: parentId, depth: 1 }))
       .structuredContent?.nodes as { type: string }[];
 
   await page.goto(`/docs/${docId}`);

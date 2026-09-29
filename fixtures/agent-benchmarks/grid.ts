@@ -1,12 +1,12 @@
 import { assert, type Bounds, type Check, n3 } from "./mcp.ts";
 
 const check: Check = async (call, docId) => {
-  const { nodes: layers } = (await call("zibel_doc_outline", { docId, depth: 1 }))
+  const { nodes: layers } = (await call("kalamo_doc_outline", { docId, depth: 1 }))
     .structuredContent as { nodes: { id: string; name: string }[] };
   const layer = layers.find((l) => l.name === "Grid");
   assert(layer, `no top-level Layer named "Grid" (found ${layers.map((l) => l.name)})`);
 
-  const { nodes: all } = (await call("zibel_node_query", { docId, limit: 1000 }))
+  const { nodes: all } = (await call("kalamo_node_query", { docId, limit: 1000 }))
     .structuredContent as {
     nodes: { id: string; type: string; parentId: string | null; geometricBounds: Bounds }[];
   };
@@ -33,7 +33,7 @@ const check: Check = async (call, docId) => {
     }
 
   const { nodes: full } = (
-    await call("zibel_node_get", { docId, nodeIds: rects.map((r) => r.id), detail: "full" })
+    await call("kalamo_node_get", { docId, nodeIds: rects.map((r) => r.id), detail: "full" })
   ).structuredContent as {
     nodes: { id: string; appearance: { fills: { color: string }[]; strokes: unknown[] } }[];
   };
@@ -45,7 +45,7 @@ const check: Check = async (call, docId) => {
       `${id} has appearance ${JSON.stringify(a)}`,
     );
 
-  const svg = (await call("zibel_export", { docId, format: "svg" })).content[0]?.text ?? "";
+  const svg = (await call("kalamo_export", { docId, format: "svg" })).content[0]?.text ?? "";
   // Node elements carry a z- id; an Artboard background rect does not.
   const drawn = svg.match(/<rect [^>]*id="z-/g)?.length ?? 0;
   assert(drawn === 100, `the SVG export has ${drawn} <rect>, want 100`);

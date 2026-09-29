@@ -10,7 +10,7 @@ const overlaps = (a: Bounds, b: Bounds) =>
   a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
 
 const check: Check = async (call, docId) => {
-  const { nodes: all } = (await call("zibel_node_query", { docId, limit: 1000 }))
+  const { nodes: all } = (await call("kalamo_node_query", { docId, limit: 1000 }))
     .structuredContent as { nodes: { id: string; type: string; geometricBounds: Bounds }[] };
   const leaves = all.filter((n) => n.type !== "layer" && n.type !== "group");
   const shapes = leaves.filter((n) => n.type !== "text");
@@ -21,7 +21,7 @@ const check: Check = async (call, docId) => {
   );
 
   const { nodes: full } = (
-    await call("zibel_node_get", { docId, nodeIds: texts.map((t) => t.id), detail: "full" })
+    await call("kalamo_node_get", { docId, nodeIds: texts.map((t) => t.id), detail: "full" })
   ).structuredContent as { nodes: { content: string; geometricBounds: Bounds }[] };
   const contents = full.map((t) => t.content).sort();
   assert(
@@ -46,7 +46,7 @@ const check: Check = async (call, docId) => {
     );
   }
 
-  const svg = (await call("zibel_export", { docId, format: "svg" })).content[0]?.text ?? "";
+  const svg = (await call("kalamo_export", { docId, format: "svg" })).content[0]?.text ?? "";
   const count = svg.split("<text").length - 1;
   assert(count === 3, `the SVG export has ${count} <text>, want 3`);
 };

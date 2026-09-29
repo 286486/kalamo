@@ -15,7 +15,7 @@ import { counted, fullKalamoFile, MiB } from "./bodies.ts";
 import { call, errorOf, rpc } from "./rpc.ts";
 
 const newDoc = async () =>
-  (await call("zibel_doc_create", { name: "Doc", artboards: [{ width: 200, height: 100 }] }))
+  (await call("kalamo_doc_create", { name: "Doc", artboards: [{ width: 200, height: 100 }] }))
     .structuredContent;
 
 it("initializes without a session id", async () => {
@@ -24,15 +24,15 @@ it("initializes without a session id", async () => {
     capabilities: {},
     clientInfo: { name: "test", version: "0" },
   });
-  expect(body.result.serverInfo.name).toBe("zibel");
+  expect(body.result.serverInfo.name).toBe("kalamo");
   expect(res.headers.get("mcp-session-id")).toBeNull();
 });
 
 it("parses a tools/call without arguments as {}, answering INVALID_INPUT, not the SDK's text (#126)", async () => {
-  const { body } = await rpc("tools/call", { name: "zibel_node_query" });
+  const { body } = await rpc("tools/call", { name: "kalamo_node_query" });
   expect(errorOf(body.result)).toEqual({
     code: "INVALID_INPUT",
-    message: "zibel_node_query needs docId.",
+    message: "kalamo_node_query needs docId.",
     hint: "docId is required.",
     path: "docId",
   });
@@ -42,38 +42,38 @@ it("lists the tools over HTTP (their schemas and annotations: packages/mcp serve
   const { body } = await rpc("tools/list");
   const tools = body.result.tools as { name: string }[];
   expect(tools.map((t) => t.name).sort()).toEqual([
-    "zibel_doc_changes",
-    "zibel_doc_create",
-    "zibel_doc_delete",
-    "zibel_doc_get_info",
-    "zibel_doc_list",
-    "zibel_doc_open",
-    "zibel_doc_outline",
-    "zibel_export",
-    "zibel_freehand_stroke",
-    "zibel_image_place",
-    "zibel_mask_make",
-    "zibel_mask_release",
-    "zibel_node_create",
-    "zibel_node_delete",
-    "zibel_node_get",
-    "zibel_node_query",
-    "zibel_node_transform",
-    "zibel_node_update",
-    "zibel_path_edit",
-    "zibel_path_op",
-    "zibel_render",
-    "zibel_svg_import",
-    "zibel_tx_begin",
-    "zibel_tx_commit",
-    "zibel_tx_rollback",
+    "kalamo_doc_changes",
+    "kalamo_doc_create",
+    "kalamo_doc_delete",
+    "kalamo_doc_get_info",
+    "kalamo_doc_list",
+    "kalamo_doc_open",
+    "kalamo_doc_outline",
+    "kalamo_export",
+    "kalamo_freehand_stroke",
+    "kalamo_image_place",
+    "kalamo_mask_make",
+    "kalamo_mask_release",
+    "kalamo_node_create",
+    "kalamo_node_delete",
+    "kalamo_node_get",
+    "kalamo_node_query",
+    "kalamo_node_transform",
+    "kalamo_node_update",
+    "kalamo_path_edit",
+    "kalamo_path_op",
+    "kalamo_render",
+    "kalamo_svg_import",
+    "kalamo_tx_begin",
+    "kalamo_tx_commit",
+    "kalamo_tx_rollback",
   ]);
 });
 
 it("makes a Clipping Mask from a circle over a Group, renders it clipped and releases it", async () => {
   const { docId, defaultLayerId } = await newDoc();
   const { keyMap } = (
-    await call("zibel_node_create", {
+    await call("kalamo_node_create", {
       docId,
       nodes: [
         {
@@ -95,24 +95,24 @@ it("makes a Clipping Mask from a circle over a Group, renders it clipped and rel
     })
   ).structuredContent;
   const made = (
-    await call("zibel_mask_make", { docId, clipNodeId: keyMap.circle, contentIds: [keyMap.art] })
+    await call("kalamo_mask_make", { docId, clipNodeId: keyMap.circle, contentIds: [keyMap.art] })
   ).structuredContent;
   const [maskId] = made.createdIds;
   expect(made.updatedIds.sort()).toEqual([keyMap.art, keyMap.circle].sort());
-  const svg = (await call("zibel_export", { docId, format: "svg" })).content[0].text;
+  const svg = (await call("kalamo_export", { docId, format: "svg" })).content[0].text;
   expect(svg).toContain(`clip-path="url(#clip-z-${maskId})"`);
   expect(svg).toContain("<clipPath");
   // The Render Scope of the Clipping Mask is the circle's bounds, not the 100 pt square's.
   const { viewport } = (
-    await call("zibel_render", { docId, scope: { nodeIds: [maskId] }, scale: 1 })
+    await call("kalamo_render", { docId, scope: { nodeIds: [maskId] }, scale: 1 })
   ).structuredContent;
   expect(viewport.docRect).toMatchObject({ x: 20, y: 30, width: 40, height: 40 });
 
-  await call("zibel_mask_release", { docId, nodeIds: [maskId] });
-  const after = (await call("zibel_export", { docId, format: "svg" })).content[0].text;
+  await call("kalamo_mask_release", { docId, nodeIds: [maskId] });
+  const after = (await call("kalamo_export", { docId, format: "svg" })).content[0].text;
   expect(after).not.toContain("clip-path");
   const { nodes } = (
-    await call("zibel_node_get", { docId, nodeIds: [keyMap.circle, keyMap.art], detail: "full" })
+    await call("kalamo_node_get", { docId, nodeIds: [keyMap.circle, keyMap.art], detail: "full" })
   ).structuredContent;
   expect(nodes[0]).toMatchObject({ parentId: maskId, appearance: { fills: [], strokes: [] } });
   expect(nodes[0].clipping).toBeUndefined();
@@ -127,7 +127,7 @@ it("places and opens Illustrator's painted <use> Clip Group as one Clipping Mask
     <rect style="clip-path:url(#SVGID_2_);fill:#FF0000;" width="40" height="100"/>
     <use xlink:href="#SVGID_1_" style="overflow:visible;fill:none;stroke:#0000FF;stroke-width:4;stroke-miterlimit:10;"/></g></svg>`;
   const { docId, defaultLayerId } = await newDoc();
-  const placed = await call("zibel_svg_import", {
+  const placed = await call("kalamo_svg_import", {
     docId,
     svg: illustrator,
     parentId: defaultLayerId,
@@ -135,7 +135,7 @@ it("places and opens Illustrator's painted <use> Clip Group as one Clipping Mask
     position: { x: 45, y: 40 },
   });
   expect(placed.structuredContent.warnings).toEqual([]);
-  const rendered = await call("zibel_render", {
+  const rendered = await call("kalamo_render", {
     docId,
     scope: { rect: { x: 0, y: 0, width: 100, height: 100 } },
     scale: 1,
@@ -151,11 +151,11 @@ it("places and opens Illustrator's painted <use> Clip Group as one Clipping Mask
   expect(at(55, 40)).toEqual([0, 255, 0]); // the Clipping Path's Fill, behind the content
   expect(at(71, 40)).toEqual([0, 0, 255]); // its Stroke's outer half, unclipped
 
-  const opened = (await call("zibel_doc_open", { content: illustrator })).structuredContent;
+  const opened = (await call("kalamo_doc_open", { content: illustrator })).structuredContent;
   expect(opened.warnings).toEqual([]);
   const [layer] = opened.nodes;
   const [group] = (
-    await call("zibel_doc_outline", { docId: opened.docId, rootId: layer.id, depth: 2 })
+    await call("kalamo_doc_outline", { docId: opened.docId, rootId: layer.id, depth: 2 })
   ).structuredContent.nodes;
   // The Clipping Path's bounds, not the 40 × 100 content's.
   expect(group).toMatchObject({ type: "group", bounds: { x: 20, y: 20, width: 50, height: 40 } });
@@ -166,7 +166,7 @@ it("clips a Layer by its topmost child, clipping Nodes created in it later, and 
   const { docId, defaultLayerId } = await newDoc();
   const red = { fills: [{ color: "#FF0000" }] };
   const { keyMap } = (
-    await call("zibel_node_create", {
+    await call("kalamo_node_create", {
       docId,
       nodes: [
         { type: "layer", parentId: defaultLayerId, clientKey: "sub" },
@@ -183,22 +183,22 @@ it("clips a Layer by its topmost child, clipping Nodes created in it later, and 
       ],
     })
   ).structuredContent;
-  await call("zibel_node_create", {
+  await call("kalamo_node_create", {
     docId,
     nodes: [
       { type: "rect", parentId: keyMap.sub, x: 0, y: 0, width: 100, height: 100, appearance: red },
     ],
   });
-  const made = await call("zibel_mask_make", { docId, layerId: defaultLayerId });
+  const made = await call("kalamo_mask_make", { docId, layerId: defaultLayerId });
   expect(made.isError).toBeFalsy();
   expect(made.structuredContent).toMatchObject({ createdIds: [], updatedIds: [keyMap.clip] });
-  const layer = (await call("zibel_doc_outline", { docId })).structuredContent.nodes[0];
+  const layer = (await call("kalamo_doc_outline", { docId })).structuredContent.nodes[0];
   expect(layer).toMatchObject({
     id: defaultLayerId,
     bounds: { x: 20, y: 30, width: 40, height: 40 },
   });
   // Drawn after Make, above the Clipping Path, and still clipped.
-  await call("zibel_node_create", {
+  await call("kalamo_node_create", {
     docId,
     nodes: [
       {
@@ -214,27 +214,27 @@ it("clips a Layer by its topmost child, clipping Nodes created in it later, and 
   });
   // A 1 pt square of the render, compared with one where nothing is drawn.
   const at = async (x: number, y: number, id = docId) =>
-    (await call("zibel_render", { docId: id, scope: { rect: { x, y, width: 1, height: 1 } } }))
+    (await call("kalamo_render", { docId: id, scope: { rect: { x, y, width: 1, height: 1 } } }))
       .content[0].data;
   const empty = await at(40, 50, (await newDoc()).docId);
   expect(await at(40, 50)).not.toBe(empty);
   expect(await at(150, 50)).toBe(empty);
 
-  const released = await call("zibel_mask_release", { docId, nodeIds: [defaultLayerId] });
+  const released = await call("kalamo_mask_release", { docId, nodeIds: [defaultLayerId] });
   expect(released.structuredContent.updatedIds).toEqual([keyMap.clip]);
   expect(await at(150, 50)).not.toBe(empty);
 });
 
 it("refuses layerId given with clipNodeId as INVALID_INPUT, and each Make on a Layer it cannot as INVALID_MASK", async () => {
   const { docId, defaultLayerId } = await newDoc();
-  const mixed = await call("zibel_mask_make", {
+  const mixed = await call("kalamo_mask_make", {
     docId,
     layerId: defaultLayerId,
     clipNodeId: defaultLayerId,
     contentIds: [defaultLayerId],
   });
   expect(errorOf(mixed)).toMatchObject({ code: "INVALID_INPUT" });
-  const empty = await call("zibel_mask_make", { docId, layerId: defaultLayerId });
+  const empty = await call("kalamo_mask_make", { docId, layerId: defaultLayerId });
   expect(errorOf(empty)).toMatchObject({
     code: "INVALID_MASK",
     path: "layerId",
@@ -245,7 +245,7 @@ it("refuses layerId given with clipNodeId as INVALID_INPUT, and each Make on a L
 it("clips by a text, which stays editable: node_update changes the clip, and warns as any text (ADR-0052)", async () => {
   const { docId, defaultLayerId } = await newDoc();
   const { keyMap } = (
-    await call("zibel_node_create", {
+    await call("kalamo_node_create", {
       docId,
       nodes: [
         {
@@ -270,7 +270,7 @@ it("clips by a text, which stays editable: node_update changes the clip, and war
       ],
     })
   ).structuredContent;
-  const made = await call("zibel_mask_make", {
+  const made = await call("kalamo_mask_make", {
     docId,
     clipNodeId: keyMap.t,
     contentIds: [keyMap.art],
@@ -278,7 +278,7 @@ it("clips by a text, which stays editable: node_update changes the clip, and war
   expect(made.isError).toBeFalsy();
   const [maskId] = made.structuredContent.createdIds;
   const get = async (id: string) =>
-    (await call("zibel_node_get", { docId, nodeIds: [id], detail: "full" })).structuredContent
+    (await call("kalamo_node_get", { docId, nodeIds: [id], detail: "full" })).structuredContent
       .nodes[0];
   const text = await get(keyMap.t);
   expect(text).toMatchObject({ clipping: true, appearance: { fills: [], strokes: [] } });
@@ -286,7 +286,7 @@ it("clips by a text, which stays editable: node_update changes the clip, and war
   expect((await get(maskId)).geometricBounds).toEqual(text.geometricBounds);
 
   const updated = (
-    await call("zibel_node_update", {
+    await call("kalamo_node_update", {
       docId,
       updates: [{ nodeId: keyMap.t, patch: { content: "Hello", fontFamily: "Futura" } }],
     })
@@ -295,21 +295,21 @@ it("clips by a text, which stays editable: node_update changes the clip, and war
   const edited = await get(keyMap.t);
   expect(edited.geometricBounds.width).toBeGreaterThan(text.geometricBounds.width);
   expect((await get(maskId)).geometricBounds).toEqual(edited.geometricBounds);
-  const svg = (await call("zibel_export", { docId, format: "svg" })).content[0].text;
+  const svg = (await call("kalamo_export", { docId, format: "svg" })).content[0].text;
   expect(svg).toMatch(/<clipPath[^>]*><text[^>]*fill="none"[^>]*>.*Hello.*<\/text><\/clipPath>/);
-  const rendered = await call("zibel_render", { docId, scope: { nodeIds: [maskId] }, scale: 1 });
+  const rendered = await call("kalamo_render", { docId, scope: { nodeIds: [maskId] }, scale: 1 });
   expect(rendered.structuredContent.viewport.docRect.width).toBeGreaterThan(
     text.geometricBounds.width,
   );
 
-  await call("zibel_mask_release", { docId, nodeIds: [keyMap.t] });
+  await call("kalamo_mask_release", { docId, nodeIds: [keyMap.t] });
   expect((await get(keyMap.t)).clipping).toBeUndefined();
 });
 
 it("edits a path's Anchors with path_edit and converts a Live Shape first, with a warning", async () => {
   const { docId, defaultLayerId } = await newDoc();
   const { keyMap } = (
-    await call("zibel_node_create", {
+    await call("kalamo_node_create", {
       docId,
       nodes: [
         { type: "path", parentId: defaultLayerId, clientKey: "p", d: "M 0 0 L 10 0" },
@@ -326,7 +326,7 @@ it("edits a path's Anchors with path_edit and converts a Live Shape first, with 
     })
   ).structuredContent;
   const edited = (
-    await call("zibel_path_edit", {
+    await call("kalamo_path_edit", {
       docId,
       nodeId: keyMap.p,
       ops: [{ op: "add_anchor", segment: 0, t: 0.5 }, { op: "close" }],
@@ -334,11 +334,11 @@ it("edits a path's Anchors with path_edit and converts a Live Shape first, with 
   ).structuredContent;
   expect(edited).toMatchObject({ updatedIds: [keyMap.p], d: "M 0 0 L 5 0 L 10 0 Z" });
   expect(edited.subpaths[0]).toMatchObject({ closed: true, anchors: [{ index: 0 }, {}, {}] });
-  const { nodes } = (await call("zibel_node_get", { docId, nodeIds: [keyMap.p], detail: "full" }))
+  const { nodes } = (await call("kalamo_node_get", { docId, nodeIds: [keyMap.p], detail: "full" }))
     .structuredContent;
   expect(nodes[0].d).toBe("M 0 0 L 5 0 L 10 0 Z");
   const converted = (
-    await call("zibel_path_edit", { docId, nodeId: keyMap.e, ops: [{ op: "open" }] })
+    await call("kalamo_path_edit", { docId, nodeId: keyMap.e, ops: [{ op: "open" }] })
   ).structuredContent;
   expect(converted).toMatchObject({
     updatedIds: [keyMap.e],
@@ -359,12 +359,12 @@ it("converts a rect to a path with path_op, keeping its id", async () => {
     height: 60,
     radius: 15,
   };
-  const [id] = (await call("zibel_node_create", { docId, nodes: [rect] })).structuredContent
+  const [id] = (await call("kalamo_node_create", { docId, nodes: [rect] })).structuredContent
     .createdIds as string[];
-  const receipt = (await call("zibel_path_op", { docId, nodeIds: [id], op: "convert_to_path" }))
+  const receipt = (await call("kalamo_path_op", { docId, nodeIds: [id], op: "convert_to_path" }))
     .structuredContent;
   expect(receipt).toMatchObject({ updatedIds: [id], createdIds: [], deletedIds: [] });
-  const { nodes } = (await call("zibel_node_get", { docId, nodeIds: [id], detail: "full" }))
+  const { nodes } = (await call("kalamo_node_get", { docId, nodeIds: [id], detail: "full" }))
     .structuredContent;
   expect(nodes[0]).toMatchObject({ id, type: "path", name: "Box", parentId: defaultLayerId });
   expect(nodes[0]).not.toHaveProperty("radius");
@@ -374,28 +374,28 @@ it("reverses a path with path_op and adds an Anchor at the middle of every segme
   const { docId, defaultLayerId } = await newDoc();
   const d = "M 0 0 L 10 0 L 10 10";
   const [id] = (
-    await call("zibel_node_create", {
+    await call("kalamo_node_create", {
       docId,
       nodes: [{ type: "path", parentId: defaultLayerId, d }],
     })
   ).structuredContent.createdIds as string[];
   const dOf = async () =>
-    (await call("zibel_node_get", { docId, nodeIds: [id], detail: "full" })).structuredContent
+    (await call("kalamo_node_get", { docId, nodeIds: [id], detail: "full" })).structuredContent
       .nodes[0].d;
-  const reversed = (await call("zibel_path_op", { docId, nodeIds: [id], op: "reverse" }))
+  const reversed = (await call("kalamo_path_op", { docId, nodeIds: [id], op: "reverse" }))
     .structuredContent;
   expect(reversed).toMatchObject({ updatedIds: [id] });
   expect(await dOf()).toBe("M 10 10 L 10 0 L 0 0");
-  await call("zibel_path_op", { docId, nodeIds: [id], op: "reverse" });
+  await call("kalamo_path_op", { docId, nodeIds: [id], op: "reverse" });
   expect(await dOf()).toBe(d);
-  await call("zibel_path_op", { docId, nodeIds: [id], op: "add_anchors" });
+  await call("kalamo_path_op", { docId, nodeIds: [id], op: "add_anchors" });
   expect(await dOf()).toBe("M 0 0 L 5 0 L 10 0 L 10 5 L 10 10");
 });
 
 it("joins two open paths with path_op into the topmost in one Transaction, and averages Anchors", async () => {
   const { docId, defaultLayerId } = await newDoc();
   const [a, b] = (
-    await call("zibel_node_create", {
+    await call("kalamo_node_create", {
       docId,
       nodes: [
         { type: "path", parentId: defaultLayerId, d: "M 0 0 L 10 0" },
@@ -403,19 +403,19 @@ it("joins two open paths with path_op into the topmost in one Transaction, and a
       ],
     })
   ).structuredContent.createdIds as string[];
-  const joined = (await call("zibel_path_op", { docId, nodeIds: [a, b], op: "join" }))
+  const joined = (await call("kalamo_path_op", { docId, nodeIds: [a, b], op: "join" }))
     .structuredContent;
   expect(joined).toMatchObject({ updatedIds: [b], deletedIds: [a] });
-  const { changes } = (await call("zibel_doc_changes", { docId, sinceRev: joined.rev - 1 }))
+  const { changes } = (await call("kalamo_doc_changes", { docId, sinceRev: joined.rev - 1 }))
     .structuredContent;
   expect(changes).toEqual([expect.objectContaining({ rev: joined.rev, summary: "Join" })]);
   const dOf = async () =>
-    (await call("zibel_node_get", { docId, nodeIds: [b], detail: "full" })).structuredContent
+    (await call("kalamo_node_get", { docId, nodeIds: [b], detail: "full" })).structuredContent
       .nodes[0].d;
   expect(await dOf()).toBe("M 30 0 L 20 0 L 10 0 L 0 0");
-  await call("zibel_path_op", { docId, nodeIds: [b], op: "join" });
+  await call("kalamo_path_op", { docId, nodeIds: [b], op: "join" });
   expect(await dOf()).toBe("M 30 0 L 20 0 L 10 0 L 0 0 Z");
-  await call("zibel_path_op", {
+  await call("kalamo_path_op", {
     docId,
     nodeIds: [b],
     op: "average",
@@ -428,31 +428,31 @@ it("simplifies a dense path with path_op in one Transaction, and to straight lin
   const { docId, defaultLayerId } = await newDoc();
   const points = Array.from({ length: 200 }, (_, i) => `${i} ${50 + 30 * Math.sin(i / 15)}`);
   const [id] = (
-    await call("zibel_node_create", {
+    await call("kalamo_node_create", {
       docId,
       nodes: [{ type: "path", parentId: defaultLayerId, d: `M ${points.join(" L ")}` }],
     })
   ).structuredContent.createdIds as string[];
   const dOf = async () =>
-    (await call("zibel_node_get", { docId, nodeIds: [id], detail: "full" })).structuredContent
+    (await call("kalamo_node_get", { docId, nodeIds: [id], detail: "full" })).structuredContent
       .nodes[0].d as string;
-  const simplified = (await call("zibel_path_op", { docId, nodeIds: [id], op: "simplify" }))
+  const simplified = (await call("kalamo_path_op", { docId, nodeIds: [id], op: "simplify" }))
     .structuredContent;
   expect(simplified).toMatchObject({ updatedIds: [id] });
-  const { changes } = (await call("zibel_doc_changes", { docId, sinceRev: simplified.rev - 1 }))
+  const { changes } = (await call("kalamo_doc_changes", { docId, sinceRev: simplified.rev - 1 }))
     .structuredContent;
   expect(changes).toEqual([expect.objectContaining({ rev: simplified.rev, summary: "Simplify" })]);
   const d = await dOf();
   expect(d.startsWith("M 0 50 C")).toBe(true);
   expect(d.match(/[LC]/g)?.length).toBeLessThan(15);
-  await call("zibel_path_op", { docId, nodeIds: [id], op: "simplify", toLines: true });
+  await call("kalamo_path_op", { docId, nodeIds: [id], op: "simplify", toLines: true });
   expect(await dOf()).toMatch(/^M [\d. ]+( L [\d. ]+)+$/);
 });
 
 it("outlines Strokes with path_op: a Stroke alone in place, a filled path as a Group of two", async () => {
   const { docId, defaultLayerId } = await newDoc();
   const [line, rect] = (
-    await call("zibel_node_create", {
+    await call("kalamo_node_create", {
       docId,
       nodes: [
         {
@@ -474,21 +474,21 @@ it("outlines Strokes with path_op: a Stroke alone in place, a filled path as a G
     })
   ).structuredContent.createdIds as string[];
   const receipt = (
-    await call("zibel_path_op", { docId, nodeIds: [line, rect], op: "outline_stroke" })
+    await call("kalamo_path_op", { docId, nodeIds: [line, rect], op: "outline_stroke" })
   ).structuredContent;
   expect(receipt).toMatchObject({
     updatedIds: [line, rect],
     createdIds: [expect.any(String), expect.any(String)],
     warnings: [{ code: "CONVERTED_TO_PATH", nodeId: rect }],
   });
-  const { changes } = (await call("zibel_doc_changes", { docId, sinceRev: receipt.rev - 1 }))
+  const { changes } = (await call("kalamo_doc_changes", { docId, sinceRev: receipt.rev - 1 }))
     .structuredContent;
   expect(changes).toEqual([
     expect.objectContaining({ rev: receipt.rev, summary: "Outline Stroke" }),
   ]);
   const [group, outline] = receipt.createdIds as [string, string];
   const { nodes } = (
-    await call("zibel_node_get", { docId, nodeIds: [line, rect, group, outline], detail: "full" })
+    await call("kalamo_node_get", { docId, nodeIds: [line, rect, group, outline], detail: "full" })
   ).structuredContent;
   expect(nodes).toMatchObject([
     {
@@ -518,7 +518,7 @@ it("outlines Strokes with path_op: a Stroke alone in place, a filled path as a G
 it("offsets a 100 pt square by 10 pt into a 120 pt copy below it, in one Transaction", async () => {
   const { docId, defaultLayerId } = await newDoc();
   const [square] = (
-    await call("zibel_node_create", {
+    await call("kalamo_node_create", {
       docId,
       nodes: [
         {
@@ -534,7 +534,7 @@ it("offsets a 100 pt square by 10 pt into a 120 pt copy below it, in one Transac
     })
   ).structuredContent.createdIds as string[];
   const receipt = (
-    await call("zibel_path_op", {
+    await call("kalamo_path_op", {
       docId,
       nodeIds: [square],
       op: "offset",
@@ -543,12 +543,12 @@ it("offsets a 100 pt square by 10 pt into a 120 pt copy below it, in one Transac
     })
   ).structuredContent;
   expect(receipt).toMatchObject({ updatedIds: [], createdIds: [expect.any(String)], warnings: [] });
-  const { changes } = (await call("zibel_doc_changes", { docId, sinceRev: receipt.rev - 1 }))
+  const { changes } = (await call("kalamo_doc_changes", { docId, sinceRev: receipt.rev - 1 }))
     .structuredContent;
   expect(changes).toEqual([expect.objectContaining({ rev: receipt.rev, summary: "Offset Path" })]);
   const [copy] = receipt.createdIds as [string];
   const { nodes } = (
-    await call("zibel_node_get", { docId, nodeIds: [square, copy], detail: "full" })
+    await call("kalamo_node_get", { docId, nodeIds: [square, copy], detail: "full" })
   ).structuredContent;
   expect(nodes).toMatchObject([
     { type: "rect", width: 100, height: 100 },
@@ -566,7 +566,7 @@ it("offsets a 100 pt square by 10 pt into a 120 pt copy below it, in one Transac
 it("divides a square under a circle into the inside and outside pieces and deletes the circle", async () => {
   const { docId, defaultLayerId } = await newDoc();
   const [square, circle] = (
-    await call("zibel_node_create", {
+    await call("kalamo_node_create", {
       docId,
       nodes: [
         {
@@ -582,20 +582,20 @@ it("divides a square under a circle into the inside and outside pieces and delet
       ],
     })
   ).structuredContent.createdIds as [string, string];
-  const receipt = (await call("zibel_path_op", { docId, nodeIds: [circle], op: "divide_below" }))
+  const receipt = (await call("kalamo_path_op", { docId, nodeIds: [circle], op: "divide_below" }))
     .structuredContent;
   expect(receipt).toMatchObject({
     updatedIds: [square],
     createdIds: [expect.any(String)],
     deletedIds: [circle],
   });
-  const { changes } = (await call("zibel_doc_changes", { docId, sinceRev: receipt.rev - 1 }))
+  const { changes } = (await call("kalamo_doc_changes", { docId, sinceRev: receipt.rev - 1 }))
     .structuredContent;
   expect(changes).toEqual([
     expect.objectContaining({ rev: receipt.rev, summary: "Divide Objects Below" }),
   ]);
   const { nodes } = (
-    await call("zibel_node_get", {
+    await call("kalamo_node_get", {
       docId,
       nodeIds: [square, ...(receipt.createdIds as string[])],
       detail: "full",
@@ -618,7 +618,7 @@ it("divides a square under a circle into the inside and outside pieces and delet
 it("splits a 200x100 rect 2x3 into six rects and cleans up, reporting how many", async () => {
   const { docId, defaultLayerId } = await newDoc();
   const [rect] = (
-    await call("zibel_node_create", {
+    await call("kalamo_node_create", {
       docId,
       nodes: [
         { type: "rect", parentId: defaultLayerId, x: 0, y: 0, width: 200, height: 100 },
@@ -636,7 +636,7 @@ it("splits a 200x100 rect 2x3 into six rects and cleans up, reporting how many",
     })
   ).structuredContent.createdIds as string[];
   const split = (
-    await call("zibel_path_op", {
+    await call("kalamo_path_op", {
       docId,
       nodeIds: [rect],
       op: "split_into_grid",
@@ -648,9 +648,9 @@ it("splits a 200x100 rect 2x3 into six rects and cleans up, reporting how many",
   expect(split).toMatchObject({ deletedIds: [rect] });
   expect(split.createdIds).toHaveLength(6);
   expect(split.bounds).toEqual({ x: 0, y: 0, width: 200, height: 100 });
-  const cleaned = (await call("zibel_path_op", { docId, op: "clean_up" })).structuredContent;
+  const cleaned = (await call("kalamo_path_op", { docId, op: "clean_up" })).structuredContent;
   expect(cleaned.deletedIds).toHaveLength(2);
-  const { changes } = (await call("zibel_doc_changes", { docId, sinceRev: split.rev - 1 }))
+  const { changes } = (await call("kalamo_doc_changes", { docId, sinceRev: split.rev - 1 }))
     .structuredContent;
   expect(changes.map((c: { summary: string }) => c.summary)).toEqual([
     "Split Into Grid",
@@ -665,9 +665,14 @@ it("draws a freehand_stroke as one smooth closed path", async () => {
     y: 50 + 40 * Math.sin((Math.PI * k) / 30),
   }));
   const [id] = (
-    await call("zibel_freehand_stroke", { docId, parentId: defaultLayerId, points, tool: "pencil" })
+    await call("kalamo_freehand_stroke", {
+      docId,
+      parentId: defaultLayerId,
+      points,
+      tool: "pencil",
+    })
   ).structuredContent.createdIds as string[];
-  const { nodes } = (await call("zibel_node_get", { docId, nodeIds: [id], detail: "full" }))
+  const { nodes } = (await call("kalamo_node_get", { docId, nodeIds: [id], detail: "full" }))
     .structuredContent;
   expect(nodes[0]).toMatchObject({ type: "path", parentId: defaultLayerId, closed: true });
   expect(nodes[0].appearance).toMatchObject({
@@ -680,9 +685,9 @@ it("draws a freehand_stroke as one smooth closed path", async () => {
 it("places a PNG as an Image: node_get has its id, render draws it, export and open keep it", async () => {
   const { docId, defaultLayerId } = await newDoc();
   const image = { type: "image", parentId: defaultLayerId, src: RED_2x2_PNG, x: 10, y: 10 };
-  const [id] = (await call("zibel_node_create", { docId, nodes: [image] })).structuredContent
+  const [id] = (await call("kalamo_node_create", { docId, nodes: [image] })).structuredContent
     .createdIds as string[];
-  const { nodes } = (await call("zibel_node_get", { docId, nodeIds: [id], detail: "full" }))
+  const { nodes } = (await call("kalamo_node_get", { docId, nodeIds: [id], detail: "full" }))
     .structuredContent;
   expect(nodes[0]).toMatchObject({
     type: "image",
@@ -691,13 +696,13 @@ it("places a PNG as an Image: node_get has its id, render draws it, export and o
     src: expect.stringMatching(/^[0-9a-f]{64}$/),
   });
   expect(JSON.stringify(nodes)).not.toContain("data:");
-  const rendered = await call("zibel_render", { docId, scope: { nodeIds: [id] }, scale: 1 });
+  const rendered = await call("kalamo_render", { docId, scope: { nodeIds: [id] }, scale: 1 });
   expect(rendered.structuredContent.viewport.pixelSize).toEqual({ width: 2, height: 2 });
-  const svg = (await call("zibel_export", { docId, format: "svg" })).content[0].text;
+  const svg = (await call("kalamo_export", { docId, format: "svg" })).content[0].text;
   expect(svg).toContain(`xlink:href="${RED_2x2_PNG}"`);
-  const opened = (await call("zibel_doc_open", { content: svg })).structuredContent;
+  const opened = (await call("kalamo_doc_open", { content: svg })).structuredContent;
   const back = (
-    await call("zibel_node_get", { docId: opened.docId, nodeIds: [id], detail: "full" })
+    await call("kalamo_node_get", { docId: opened.docId, nodeIds: [id], detail: "full" })
   ).structuredContent;
   expect(back.nodes[0]).toMatchObject({ src: nodes[0].src });
 });
@@ -705,9 +710,9 @@ it("places a PNG as an Image: node_get has its id, render draws it, export and o
 it("node_update Relinks an Image with src and file (ADR-0042)", async () => {
   const { docId, defaultLayerId } = await newDoc();
   const image = { type: "image", parentId: defaultLayerId, src: RED_2x2_PNG, x: 10, y: 10 };
-  const [nodeId] = (await call("zibel_node_create", { docId, nodes: [image] })).structuredContent
+  const [nodeId] = (await call("kalamo_node_create", { docId, nodes: [image] })).structuredContent
     .createdIds as string[];
-  const relinked = await call("zibel_node_update", {
+  const relinked = await call("kalamo_node_update", {
     docId,
     updates: [{ nodeId, patch: { src: BLUE_1x1_PNG, file: "blue.png" } }],
   });
@@ -715,18 +720,18 @@ it("node_update Relinks an Image with src and file (ADR-0042)", async () => {
 });
 
 it("opens an SVG that links its photos as missing links, with one warning (ADR-0042)", async () => {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:zibel="https://zibel.dev/ns/svg" width="100" height="100"><image x="5" y="5" width="30" height="20" xlink:href="photo.png"/><image width="10" height="10" href="b.png" zibel:src="${"a".repeat(64)}"/><image href="unsized.png"/></svg>`;
-  const opened = (await call("zibel_doc_open", { content: svg })).structuredContent;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:kalamo="https://kalamo.cc/ns/svg" width="100" height="100"><image x="5" y="5" width="30" height="20" xlink:href="photo.png"/><image width="10" height="10" href="b.png" kalamo:src="${"a".repeat(64)}"/><image href="unsized.png"/></svg>`;
+  const opened = (await call("kalamo_doc_open", { content: svg })).structuredContent;
   expect(opened.warnings.map((w: { code: string }) => w.code).sort()).toEqual([
     "IMAGE_LINK_MISSING",
     "INVALID_IMAGE",
   ]);
   const [layer] = opened.nodes;
   const { nodes } = (
-    await call("zibel_doc_outline", { docId: opened.docId, rootId: layer.id, depth: 1 })
+    await call("kalamo_doc_outline", { docId: opened.docId, rootId: layer.id, depth: 1 })
   ).structuredContent;
   const full = (
-    await call("zibel_node_get", {
+    await call("kalamo_node_get", {
       docId: opened.docId,
       nodeIds: nodes.map((n: { id: string }) => n.id),
       detail: "full",
@@ -750,13 +755,13 @@ it("creates a missing link from file and a frame (ADR-0042)", async () => {
     width: 30,
     height: 20,
   };
-  const result = await call("zibel_node_create", { docId, nodes: [missing] });
+  const result = await call("kalamo_node_create", { docId, nodes: [missing] });
   expect(result.structuredContent.createdIds).toHaveLength(1);
 });
 
 it("keeps a style Kalamo lacks and warns FONT_MISSING naming the face it renders in", async () => {
   const doc = await newDoc();
-  const created = await call("zibel_node_create", {
+  const created = await call("kalamo_node_create", {
     docId: doc.docId,
     nodes: [
       {
@@ -777,10 +782,11 @@ it("keeps a style Kalamo lacks and warns FONT_MISSING naming the face it renders
       message: expect.stringContaining("renders in Source Sans 3 Bold"),
     }),
   ]);
-  const [full] = (await call("zibel_node_get", { docId: doc.docId, nodeIds: [id], detail: "full" }))
-    .structuredContent.nodes;
+  const [full] = (
+    await call("kalamo_node_get", { docId: doc.docId, nodeIds: [id], detail: "full" })
+  ).structuredContent.nodes;
   expect(full).toMatchObject({ fontStyle: "Semibold" });
-  const updated = await call("zibel_node_update", {
+  const updated = await call("kalamo_node_update", {
     docId: doc.docId,
     updates: [{ nodeId: id, patch: { fontStyle: "Black Italic" } }],
   });
@@ -790,7 +796,7 @@ it("keeps a style Kalamo lacks and warns FONT_MISSING naming the face it renders
 it("writes a text with characters no bundled font has and warns MISSING_GLYPHS naming them", async () => {
   const doc = await newDoc();
   const text = { type: "text", parentId: doc.defaultLayerId, x: 10, y: 50 };
-  const created = await call("zibel_node_create", {
+  const created = await call("kalamo_node_create", {
     docId: doc.docId,
     nodes: [{ ...text, content: "Hi กขค" }],
   });
@@ -803,14 +809,14 @@ it("writes a text with characters no bundled font has and warns MISSING_GLYPHS n
     },
   ]);
   const update = (content: string) =>
-    call("zibel_node_update", { docId: doc.docId, updates: [{ nodeId: id, patch: { content } }] });
+    call("kalamo_node_update", { docId: doc.docId, updates: [{ nodeId: id, patch: { content } }] });
   expect((await update("Hi")).structuredContent.warnings).toEqual([]);
   expect((await update("กข")).structuredContent.warnings).toEqual([
     expect.objectContaining({ code: "MISSING_GLYPHS", nodeId: id }),
   ]);
   // Noto Sans SC draws Chinese and is bundled, so neither warns (ADR-0063).
   expect((await update("你好")).structuredContent.warnings).toEqual([]);
-  const other = await call("zibel_node_create", {
+  const other = await call("kalamo_node_create", {
     docId: doc.docId,
     nodes: [{ ...text, content: "你好", fontFamily: "Noto Sans SC" }],
   });
@@ -819,7 +825,7 @@ it("writes a text with characters no bundled font has and warns MISSING_GLYPHS n
 
 it("keeps a font Kalamo lacks, warns FONT_MISSING and renders it in Source Sans 3", async () => {
   const doc = await newDoc();
-  const created = await call("zibel_node_create", {
+  const created = await call("kalamo_node_create", {
     docId: doc.docId,
     nodes: [
       {
@@ -836,19 +842,20 @@ it("keeps a font Kalamo lacks, warns FONT_MISSING and renders it in Source Sans 
   expect(created.structuredContent.warnings).toEqual([
     expect.objectContaining({ code: "FONT_MISSING", nodeId: id }),
   ]);
-  const updated = await call("zibel_node_update", {
+  const updated = await call("kalamo_node_update", {
     docId: doc.docId,
     updates: [{ nodeId: id, patch: { content: "Ho" } }],
   });
   expect(updated.structuredContent.warnings).toEqual([
     expect.objectContaining({ code: "FONT_MISSING", nodeId: id }),
   ]);
-  const [full] = (await call("zibel_node_get", { docId: doc.docId, nodeIds: [id], detail: "full" }))
-    .structuredContent.nodes;
+  const [full] = (
+    await call("kalamo_node_get", { docId: doc.docId, nodeIds: [id], detail: "full" })
+  ).structuredContent.nodes;
   expect(full).toMatchObject({ fontFamily: "Helvetica" });
-  const svg = await call("zibel_export", { docId: doc.docId, format: "svg" });
+  const svg = await call("kalamo_export", { docId: doc.docId, format: "svg" });
   expect(svg.content[0].text).toContain('font-family="Helvetica"');
-  const rendered = await call("zibel_render", { docId: doc.docId });
+  const rendered = await call("kalamo_render", { docId: doc.docId });
   expect(rendered.content[0]).toMatchObject({ type: "image", mimeType: "image/png" });
 });
 
@@ -856,13 +863,14 @@ it("creates a rounded, randomized, twisted star and gets its parameters and deri
   const doc = await newDoc();
   const params = { angle: 15, twist: 10, rounded: 0.3, randomized: 0.1 };
   const star = { cx: 50.5, cy: 40, outerRadius: 30, innerRadius: 12, points: 5, ...params };
-  const created = await call("zibel_node_create", {
+  const created = await call("kalamo_node_create", {
     docId: doc.docId,
     nodes: [{ type: "star", parentId: doc.defaultLayerId, ...star }],
   });
   const [id] = created.structuredContent.createdIds as string[];
-  const [full] = (await call("zibel_node_get", { docId: doc.docId, nodeIds: [id], detail: "full" }))
-    .structuredContent.nodes;
+  const [full] = (
+    await call("kalamo_node_get", { docId: doc.docId, nodeIds: [id], detail: "full" })
+  ).structuredContent.nodes;
   expect(full).toMatchObject({ type: "star", ...star });
   expect(full.d).toContain("C");
   expect(full.d).toBe(formatPath(shapeSegments(full as ShapeNode)));
@@ -879,20 +887,21 @@ it("creates a spiral, gets its parameters and derived d, and renders it (ADR-006
     argument: 30,
     t0: 0.1,
   };
-  const created = await call("zibel_node_create", {
+  const created = await call("kalamo_node_create", {
     docId: doc.docId,
     nodes: [{ type: "spiral", parentId: doc.defaultLayerId, ...spiral }],
   });
   const [id] = created.structuredContent.createdIds as string[];
-  const [full] = (await call("zibel_node_get", { docId: doc.docId, nodeIds: [id], detail: "full" }))
-    .structuredContent.nodes;
+  const [full] = (
+    await call("kalamo_node_get", { docId: doc.docId, nodeIds: [id], detail: "full" })
+  ).structuredContent.nodes;
   expect(full).toMatchObject({ type: "spiral", ...spiral, closed: false });
   expect(full.d).toBe(formatPath(shapeSegments(full as ShapeNode)));
   expect(full.d).not.toContain("Z");
-  const rendered = await call("zibel_render", { docId: doc.docId, scope: { nodeIds: [id] } });
+  const rendered = await call("kalamo_render", { docId: doc.docId, scope: { nodeIds: [id] } });
   expect(rendered.content[0]).toMatchObject({ type: "image", mimeType: "image/png" });
   const update = (patch: object) =>
-    call("zibel_node_update", { docId: doc.docId, updates: [{ nodeId: id, patch }] });
+    call("kalamo_node_update", { docId: doc.docId, updates: [{ nodeId: id, patch }] });
   expect(errorOf(await update({ t0: 1 }))).toMatchObject({
     code: "INVALID_INPUT",
     hint: expect.stringContaining("at most 0.999"),
@@ -900,7 +909,7 @@ it("creates a spiral, gets its parameters and derived d, and renders it (ADR-006
   expect(errorOf(await update({ turns: 4 }))).toMatchObject({ code: "INVALID_PATCH" });
   expect((await update({ revolution: 4, expansion: 0.5 })).isError).toBeFalsy();
   const [updated] = (
-    await call("zibel_node_get", { docId: doc.docId, nodeIds: [id], detail: "full" })
+    await call("kalamo_node_get", { docId: doc.docId, nodeIds: [id], detail: "full" })
   ).structuredContent.nodes;
   expect(updated).toMatchObject({ ...spiral, revolution: 4, expansion: 0.5 });
   expect(updated.d).toBe(formatPath(shapeSegments(updated as ShapeNode)));
@@ -916,12 +925,12 @@ it("creates a slice, a chord and an open arc of an ellipse, and renders a quarte
     { startAngle: 0, endAngle: 270, arcType: "open" },
     { startAngle: 0, endAngle: 90, arcType: "slice" },
   ];
-  const created = await call("zibel_node_create", {
+  const created = await call("kalamo_node_create", {
     docId: doc.docId,
     nodes: cuts.map((cut) => ({ ...box, ...cut })),
   });
   const ids = created.structuredContent.createdIds as string[];
-  const nodes = (await call("zibel_node_get", { docId: doc.docId, nodeIds: ids, detail: "full" }))
+  const nodes = (await call("kalamo_node_get", { docId: doc.docId, nodeIds: ids, detail: "full" }))
     .structuredContent.nodes;
   nodes.forEach((n: ShapeNode & { d: string }, i: number) => {
     expect(n).toMatchObject(cuts[i] ?? {});
@@ -932,7 +941,7 @@ it("creates a slice, a chord and an open arc of an ellipse, and renders a quarte
   expect(chord.d).toMatch(/ 50 0 Z$/);
   expect(open.d).toMatch(/ 50 0$/);
   expect([slice.closed, chord.closed, open.closed]).toEqual([true, true, false]);
-  const quarter = await call("zibel_render", { docId: doc.docId, scope: { nodeIds: [ids[3]] } });
+  const quarter = await call("kalamo_render", { docId: doc.docId, scope: { nodeIds: [ids[3]] } });
   expect(quarter.content[0]).toMatchObject({ type: "image", mimeType: "image/png" });
   // The quarter's visible bounds, its default 1 pt Stroke included, not the whole ellipse's.
   expect(quarter.structuredContent.viewport.docRect).toEqual({
@@ -949,7 +958,7 @@ it("fills in a gradient's geometry, reads it back in full, and names start = end
     { offset: 0, color: "#1F5FBF" },
     { offset: 1, color: "#9FD0FF00" },
   ];
-  const created = await call("zibel_node_create", {
+  const created = await call("kalamo_node_create", {
     docId: doc.docId,
     nodes: [
       {
@@ -965,7 +974,7 @@ it("fills in a gradient's geometry, reads it back in full, and names start = end
   });
   const [id] = created.structuredContent.createdIds as string[];
   const get = async () =>
-    (await call("zibel_node_get", { docId: doc.docId, nodeIds: [id], detail: "full" }))
+    (await call("kalamo_node_get", { docId: doc.docId, nodeIds: [id], detail: "full" }))
       .structuredContent.nodes[0];
   expect((await get()).appearance.fills).toEqual([
     {
@@ -974,7 +983,7 @@ it("fills in a gradient's geometry, reads it back in full, and names start = end
     },
   ]);
   const strokes = [{ type: "gradient", gradient: { type: "radial", stops }, width: 4 }];
-  const updated = await call("zibel_node_update", {
+  const updated = await call("kalamo_node_update", {
     docId: doc.docId,
     updates: [{ nodeId: id, patch: { appearance: { strokes } } }],
   });
@@ -985,7 +994,7 @@ it("fills in a gradient's geometry, reads it back in full, and names start = end
     focus: { x: 60, y: 45 },
   });
   const flat = { type: "linear", stops, start: { x: 0, y: 0 }, end: { x: 0, y: 0 } };
-  const refused = await call("zibel_node_update", {
+  const refused = await call("kalamo_node_update", {
     docId: doc.docId,
     updates: [
       { nodeId: id, patch: { appearance: { fills: [{ type: "gradient", gradient: flat }] } } },
@@ -1000,7 +1009,7 @@ it("fills in a gradient's geometry, reads it back in full, and names start = end
 
 it("stores Character Ranges canonical, and a content write clears them (ADR-0029)", async () => {
   const doc = await newDoc();
-  const created = await call("zibel_node_create", {
+  const created = await call("kalamo_node_create", {
     docId: doc.docId,
     nodes: [
       {
@@ -1019,7 +1028,7 @@ it("stores Character Ranges canonical, and a content write clears them (ADR-0029
   });
   const [id] = created.structuredContent.createdIds as string[];
   const get = async () =>
-    (await call("zibel_node_get", { docId: doc.docId, nodeIds: [id], detail: "full" }))
+    (await call("kalamo_node_get", { docId: doc.docId, nodeIds: [id], detail: "full" }))
       .structuredContent.nodes[0];
   expect(await get()).toMatchObject({
     tracking: 100,
@@ -1028,7 +1037,7 @@ it("stores Character Ranges canonical, and a content write clears them (ADR-0029
       { start: 2, end: 6, fill: "#0000FF80", baselineShift: 2, rotation: -10 },
     ],
   });
-  await call("zibel_node_update", {
+  await call("kalamo_node_update", {
     docId: doc.docId,
     updates: [{ nodeId: id, patch: { content: "BIG" } }],
   });
@@ -1037,7 +1046,7 @@ it("stores Character Ranges canonical, and a content write clears them (ADR-0029
 
 it("warns TEXT_OVERFLOW while an Area Type's content does not fit its frame", async () => {
   const doc = await newDoc();
-  const created = await call("zibel_node_create", {
+  const created = await call("kalamo_node_create", {
     docId: doc.docId,
     nodes: [
       {
@@ -1056,7 +1065,7 @@ it("warns TEXT_OVERFLOW while an Area Type's content does not fit its frame", as
   expect(created.structuredContent.warnings).toEqual([
     expect.objectContaining({ code: "TEXT_OVERFLOW", nodeId: id }),
   ]);
-  const updated = await call("zibel_node_update", {
+  const updated = await call("kalamo_node_update", {
     docId: doc.docId,
     updates: [{ nodeId: id, patch: { height: 80 } }],
   });
@@ -1065,7 +1074,7 @@ it("warns TEXT_OVERFLOW while an Area Type's content does not fit its frame", as
 
 it("wraps a CJK Area Type between characters, so one that fits warns no TEXT_OVERFLOW", async () => {
   const doc = await newDoc();
-  const created = await call("zibel_node_create", {
+  const created = await call("kalamo_node_create", {
     docId: doc.docId,
     nodes: [
       {
@@ -1091,7 +1100,7 @@ it("creates a rect in the default Layer and reads it back from doc_outline", asy
     rev: 1,
   });
 
-  const created = await call("zibel_node_create", {
+  const created = await call("kalamo_node_create", {
     docId: doc.docId,
     nodes: [{ type: "rect", parentId: doc.defaultLayerId, x: 10, y: 10, width: 50, height: 30 }],
   });
@@ -1102,7 +1111,7 @@ it("creates a rect in the default Layer and reads it back from doc_outline", asy
   const [rectId] = created.structuredContent.createdIds;
 
   const read = async () =>
-    (await call("zibel_doc_outline", { docId: doc.docId })).structuredContent;
+    (await call("kalamo_doc_outline", { docId: doc.docId })).structuredContent;
   const expected = {
     rev: 2,
     nodes: [
@@ -1121,11 +1130,11 @@ it("creates a rect in the default Layer and reads it back from doc_outline", asy
 
 it("lists Documents created in earlier requests, newest first, with doc_list", async () => {
   const create = async (name: string) =>
-    (await call("zibel_doc_create", { name, artboards: [{ width: 10, height: 10 }] }))
+    (await call("kalamo_doc_create", { name, artboards: [{ width: 10, height: 10 }] }))
       .structuredContent.docId;
   const first = await create("First");
   const second = await create("Second");
-  const { documents } = (await call("zibel_doc_list", {})).structuredContent;
+  const { documents } = (await call("kalamo_doc_list", {})).structuredContent;
   expect(documents.slice(0, 2)).toEqual([
     { docId: second, name: "Second", createdAt: expect.any(String), role: "owner" },
     { docId: first, name: "First", createdAt: expect.any(String), role: "owner" },
@@ -1134,11 +1143,11 @@ it("lists Documents created in earlier requests, newest first, with doc_list", a
 
 it("reports name, Artboards, node count, rev and no browsers with doc_get_info", async () => {
   const { docId, defaultLayerId, artboards } = await newDoc();
-  await call("zibel_node_create", {
+  await call("kalamo_node_create", {
     docId,
     nodes: [{ type: "rect", parentId: defaultLayerId, x: 0, y: 0, width: 10, height: 10 }],
   });
-  const result = await call("zibel_doc_get_info", { docId });
+  const result = await call("kalamo_doc_get_info", { docId });
   expect(result.structuredContent).toEqual({
     docId,
     name: "Doc",
@@ -1164,9 +1173,9 @@ describe("edit tools", () => {
   const setup = async () => {
     const doc = await newDoc();
     const make = async (nodes: object[]) =>
-      (await call("zibel_node_create", { docId: doc.docId, nodes })).structuredContent;
+      (await call("kalamo_node_create", { docId: doc.docId, nodes })).structuredContent;
     const full = async (id: string) =>
-      (await call("zibel_node_get", { docId: doc.docId, nodeIds: [id], detail: "full" }))
+      (await call("kalamo_node_get", { docId: doc.docId, nodeIds: [id], detail: "full" }))
         .structuredContent.nodes[0];
     const rect = {
       type: "rect",
@@ -1183,7 +1192,7 @@ describe("edit tools", () => {
     const { doc, make, full, rect } = await setup();
     const [id] = (await make([rect])).createdIds;
 
-    const updated = await call("zibel_node_update", {
+    const updated = await call("kalamo_node_update", {
       docId: doc.docId,
       updates: [
         { nodeId: id, patch: { name: "Box", appearance: { fills: [{ color: "#FF0000" }] } } },
@@ -1204,7 +1213,7 @@ describe("edit tools", () => {
       appearance: { fills: [{ color: "#FF0000" }], strokes: [{ color: "#000000", width: 1 }] },
     });
 
-    const turned = await call("zibel_node_transform", {
+    const turned = await call("kalamo_node_transform", {
       docId: doc.docId,
       nodeIds: [id],
       rotate: 90,
@@ -1228,12 +1237,12 @@ describe("edit tools", () => {
       worldTransform: [0, 1, -1, 0, 60, -10],
       geometricBounds: { x: 20, y: 0, width: 30, height: 50 },
     });
-    const rendered = await call("zibel_render", { docId: doc.docId });
+    const rendered = await call("kalamo_render", { docId: doc.docId });
     expect(rendered.content.find((c: { type: string }) => c.type === "image")?.mimeType).toBe(
       "image/png",
     );
 
-    const deleted = await call("zibel_node_delete", { docId: doc.docId, nodeIds: [id] });
+    const deleted = await call("kalamo_node_delete", { docId: doc.docId, nodeIds: [id] });
     expect(deleted.structuredContent).toEqual({
       txId: expect.any(String),
       rev: 5,
@@ -1263,7 +1272,7 @@ describe("transactions", () => {
       height: 30,
     };
     const tool = async (name: string, args: object = {}, token?: string) =>
-      call(`zibel_${name}`, { docId, ...args }, token);
+      call(`kalamo_${name}`, { docId, ...args }, token);
     const ok = async (name: string, args: object = {}, token?: string) => {
       const result = await tool(name, args, token);
       if (result.isError) throw new Error(result.content[0].text);
@@ -1379,12 +1388,12 @@ describe("node_query", () => {
     const { docId, defaultLayerId } = await newDoc();
     const rect = { type: "rect", parentId: defaultLayerId, x: 0, y: 0, width: 1, height: 1 };
     const created = (
-      await call("zibel_node_create", { docId, nodes: Array.from({ length: 5 }, () => rect) })
+      await call("kalamo_node_create", { docId, nodes: Array.from({ length: 5 }, () => rect) })
     ).structuredContent.createdIds as string[];
     const pages: string[][] = [];
     let cursor: string | undefined;
     do {
-      const page = (await call("zibel_node_query", { docId, types: ["rect"], limit: 2, cursor }))
+      const page = (await call("kalamo_node_query", { docId, types: ["rect"], limit: 2, cursor }))
         .structuredContent;
       pages.push(page.nodes.map((n: { id: string }) => n.id));
       cursor = page.nextCursor ?? undefined;
@@ -1400,52 +1409,54 @@ it("returns a non-empty hint with every error code a tool can return", async () 
   const tool = async (name: string, args: object) => errorOf(await call(name, { docId, ...args }));
   const rect = { type: "rect", parentId: defaultLayerId, x: 0, y: 0, width: 1, height: 1 };
   const create = async (node: object) =>
-    (await call("zibel_node_create", { docId, nodes: [node] })).structuredContent.createdIds[0];
+    (await call("kalamo_node_create", { docId, nodes: [node] })).structuredContent.createdIds[0];
   // A new ErrorCode fails tsc here until it gets a trigger.
   const triggers: Record<ErrorCode, (() => Promise<{ code: string; hint: string }>) | null> = {
-    DOC_NOT_FOUND: () => call("zibel_doc_get_info", { docId: "nope" }).then(errorOf),
-    NODE_NOT_FOUND: () => tool("zibel_node_get", { nodeIds: ["nope"] }),
-    ARTBOARD_NOT_FOUND: () => tool("zibel_render", { scope: { artboardId: "nope" } }),
+    DOC_NOT_FOUND: () => call("kalamo_doc_get_info", { docId: "nope" }).then(errorOf),
+    NODE_NOT_FOUND: () => tool("kalamo_node_get", { nodeIds: ["nope"] }),
+    ARTBOARD_NOT_FOUND: () => tool("kalamo_render", { scope: { artboardId: "nope" } }),
     NOTHING_TO_RENDER: async () =>
-      tool("zibel_render", {
+      tool("kalamo_render", {
         scope: { nodeIds: [await create({ type: "group", parentId: defaultLayerId })] },
       }),
     INVALID_PARENT: () =>
-      tool("zibel_node_create", { nodes: [{ ...rect, parentId: doc.artboards[0].id }] }),
-    INVALID_COLOR: () => tool("zibel_render", { background: "red" }),
+      tool("kalamo_node_create", { nodes: [{ ...rect, parentId: doc.artboards[0].id }] }),
+    INVALID_COLOR: () => tool("kalamo_render", { background: "red" }),
     INVALID_PATH: () =>
-      tool("zibel_node_create", { nodes: [{ type: "path", parentId: defaultLayerId, d: "h 1" }] }),
+      tool("kalamo_node_create", { nodes: [{ type: "path", parentId: defaultLayerId, d: "h 1" }] }),
     INVALID_PATCH: () =>
-      tool("zibel_node_update", { updates: [{ nodeId: defaultLayerId, patch: { type: "rect" } }] }),
+      tool("kalamo_node_update", {
+        updates: [{ nodeId: defaultLayerId, patch: { type: "rect" } }],
+      }),
     INVALID_INPUT: () =>
-      tool("zibel_node_create", {
+      tool("kalamo_node_create", {
         nodes: [{ type: "group", parentId: defaultLayerId, appearance: { contents: 1 } }],
       }),
-    LIMIT_EXCEEDED: () => tool("zibel_node_create", { nodes: Array(2001).fill(rect) }),
+    LIMIT_EXCEEDED: () => tool("kalamo_node_create", { nodes: Array(2001).fill(rect) }),
     PERMISSION_DENIED: async () => (await rpc("tools/list", {}, "nope")).body.error.data,
-    REV_CONFLICT: () => tool("zibel_node_create", { nodes: [rect], ifRev: 99 }),
+    REV_CONFLICT: () => tool("kalamo_node_create", { nodes: [rect], ifRev: 99 }),
     NODE_GONE: async () => {
       const id = await create(rect);
-      const { txId } = (await call("zibel_tx_begin", { docId })).structuredContent;
-      await call("zibel_node_update", { docId, txId, updates: [{ nodeId: id, patch: { x: 1 } }] });
-      await call("zibel_node_delete", { docId, nodeIds: [id] });
-      return tool("zibel_tx_commit", { txId });
+      const { txId } = (await call("kalamo_tx_begin", { docId })).structuredContent;
+      await call("kalamo_node_update", { docId, txId, updates: [{ nodeId: id, patch: { x: 1 } }] });
+      await call("kalamo_node_delete", { docId, nodeIds: [id] });
+      return tool("kalamo_tx_commit", { txId });
     },
-    TX_NOT_FOUND: () => tool("zibel_tx_commit", { txId: "nope" }),
+    TX_NOT_FOUND: () => tool("kalamo_tx_commit", { txId: "nope" }),
     TX_EXPIRED: async () => {
-      const { txId } = (await call("zibel_tx_begin", { docId })).structuredContent;
-      await call("zibel_tx_rollback", { docId, txId });
-      return tool("zibel_tx_commit", { txId });
+      const { txId } = (await call("kalamo_tx_begin", { docId })).structuredContent;
+      await call("kalamo_tx_rollback", { docId, txId });
+      return tool("kalamo_tx_commit", { txId });
     },
-    INVALID_DOCUMENT: () => call("zibel_doc_open", { content: "{" }).then(errorOf),
+    INVALID_DOCUMENT: () => call("kalamo_doc_open", { content: "{" }).then(errorOf),
     INVALID_IMAGE: () =>
-      tool("zibel_node_create", {
+      tool("kalamo_node_create", {
         nodes: [{ type: "image", parentId: defaultLayerId, src: WEBP_HEADER, x: 0, y: 0 }],
       }),
     FETCH_FAILED: () =>
-      tool("zibel_image_place", { src: "http://127.0.0.1/a.png", parentId: defaultLayerId }),
+      tool("kalamo_image_place", { src: "http://127.0.0.1/a.png", parentId: defaultLayerId }),
     INVALID_MASK: async () =>
-      tool("zibel_mask_make", { clipNodeId: defaultLayerId, contentIds: [await create(rect)] }),
+      tool("kalamo_mask_make", { clipNodeId: defaultLayerId, contentIds: [await create(rect)] }),
     // Undo and redo are browser commands over the WebSocket, not tools (ADR-0011).
     NOTHING_TO_UNDO: null,
     NOTHING_TO_REDO: null,
@@ -1458,9 +1469,9 @@ it("returns a non-empty hint with every error code a tool can return", async () 
   }
 });
 
-it("serves skill://zibel/drawing-conventions over HTTP and points at it on initialize", async () => {
+it("serves skill://kalamo/drawing-conventions over HTTP and points at it on initialize", async () => {
   // Its facts and the drift guard: packages/mcp server.test.ts.
-  const uri = "skill://zibel/drawing-conventions";
+  const uri = "skill://kalamo/drawing-conventions";
   const init = await rpc("initialize", {
     protocolVersion: "2025-06-18",
     capabilities: {},
@@ -1477,31 +1488,31 @@ it("serves skill://zibel/drawing-conventions over HTTP and points at it on initi
   });
 });
 
-describe("zibel_json", () => {
-  it("exports the whole Document as .zibel.json text, with a Transaction's edits under its txId", async () => {
+describe("kalamo_json", () => {
+  it("exports the whole Document as .kalamo.json text, with a Transaction's edits under its txId", async () => {
     const doc = await newDoc();
     const { docId, defaultLayerId } = doc;
     const rect = { type: "rect", parentId: defaultLayerId, x: 0, y: 0, width: 10, height: 10 };
-    const [rectId] = (await call("zibel_node_create", { docId, nodes: [rect] })).structuredContent
+    const [rectId] = (await call("kalamo_node_create", { docId, nodes: [rect] })).structuredContent
       .createdIds;
-    const result = await call("zibel_export", { docId, format: "zibel_json" });
+    const result = await call("kalamo_export", { docId, format: "kalamo_json" });
     expect(result.structuredContent).toEqual({});
     expect(result.content[0].type).toBe("text");
     const text = result.content[0].text;
     const file = JSON.parse(text);
     expect(file).toMatchObject({ version: 1, name: "Doc", artboards: doc.artboards });
     expect(file.nodes).toHaveLength(2);
-    const scoped = await call("zibel_export", {
+    const scoped = await call("kalamo_export", {
       docId,
-      format: "zibel_json",
+      format: "kalamo_json",
       scope: { nodeIds: [rectId] },
     });
     expect(scoped.content[0].text).toBe(text);
-    const { txId } = (await call("zibel_tx_begin", { docId })).structuredContent;
-    await call("zibel_node_create", { docId, txId, nodes: [rect] });
+    const { txId } = (await call("kalamo_tx_begin", { docId })).structuredContent;
+    await call("kalamo_node_create", { docId, txId, nodes: [rect] });
     const nodesOf = async (args: object) =>
       JSON.parse(
-        (await call("zibel_export", { docId, format: "zibel_json", ...args })).content[0].text,
+        (await call("kalamo_export", { docId, format: "kalamo_json", ...args })).content[0].text,
       ).nodes;
     expect(await nodesOf({ txId })).toHaveLength(3);
     expect(await nodesOf({})).toHaveLength(2);
@@ -1511,7 +1522,7 @@ describe("zibel_json", () => {
     const doc = await newDoc();
     const { docId, defaultLayerId: parentId } = doc;
     const { keyMap } = (
-      await call("zibel_node_create", {
+      await call("kalamo_node_create", {
         docId,
         nodes: [
           { type: "layer", name: "Top" },
@@ -1537,16 +1548,16 @@ describe("zibel_json", () => {
         ],
       })
     ).structuredContent;
-    await call("zibel_node_transform", { docId, nodeIds: [keyMap.rect], rotate: 30 });
-    await call("zibel_node_update", {
+    await call("kalamo_node_transform", { docId, nodeIds: [keyMap.rect], rotate: 30 });
+    await call("kalamo_node_update", {
       docId,
       updates: [{ nodeId: keyMap.text, patch: { name: "Title", tags: ["t"] } }],
     });
     const exportOf = async (id: string) =>
-      (await call("zibel_export", { docId: id, format: "zibel_json" })).content[0].text as string;
+      (await call("kalamo_export", { docId: id, format: "kalamo_json" })).content[0].text as string;
     const text = await exportOf(docId);
 
-    const opened = await call("zibel_doc_open", { content: text, intent: "reopen" });
+    const opened = await call("kalamo_doc_open", { content: text, intent: "reopen" });
     const { docId: newId, ...rest } = opened.structuredContent;
     expect(newId).not.toBe(docId);
     expect(rest).toEqual({
@@ -1567,10 +1578,10 @@ describe("zibel_json", () => {
     expect(rest.nodes[0]).not.toHaveProperty("children");
     expect(await exportOf(newId)).toBe(text);
     const [rect] = (
-      await call("zibel_node_get", { docId: newId, nodeIds: [keyMap.rect], detail: "full" })
+      await call("kalamo_node_get", { docId: newId, nodeIds: [keyMap.rect], detail: "full" })
     ).structuredContent.nodes;
     expect(rect).toMatchObject({ id: keyMap.rect, type: "rect", width: 3 });
-    const { changes } = (await call("zibel_doc_changes", { docId: newId, sinceRev: 0 }))
+    const { changes } = (await call("kalamo_doc_changes", { docId: newId, sinceRev: 0 }))
       .structuredContent;
     expect(changes).toEqual([
       expect.objectContaining({
@@ -1581,7 +1592,7 @@ describe("zibel_json", () => {
         createdIds: expect.arrayContaining([keyMap.rect, keyMap.text]),
       }),
     ]);
-    const { documents } = (await call("zibel_doc_list", {})).structuredContent;
+    const { documents } = (await call("kalamo_doc_list", {})).structuredContent;
     expect(documents[0]).toEqual({
       docId: newId,
       name: "Doc",
@@ -1591,25 +1602,26 @@ describe("zibel_json", () => {
   });
 
   it("returns a validation error with a path and creates nothing for a malformed file", async () => {
-    const count = async () => (await call("zibel_doc_list", {})).structuredContent.documents.length;
+    const count = async () =>
+      (await call("kalamo_doc_list", {})).structuredContent.documents.length;
     const before = await count();
-    const notJson = errorOf(await call("zibel_doc_open", { content: "{" }));
+    const notJson = errorOf(await call("kalamo_doc_open", { content: "{" }));
     expect(notJson).toMatchObject({
       code: "INVALID_DOCUMENT",
       path: "content",
       hint: expect.stringMatching(/\S/),
     });
     const { docId, defaultLayerId } = await newDoc();
-    await call("zibel_node_create", {
+    await call("kalamo_node_create", {
       docId,
       nodes: [{ type: "rect", parentId: defaultLayerId, x: 0, y: 0, width: 1, height: 1 }],
     });
     const file = JSON.parse(
-      (await call("zibel_export", { docId, format: "zibel_json" })).content[0].text,
+      (await call("kalamo_export", { docId, format: "kalamo_json" })).content[0].text,
     );
     const i = file.nodes.findIndex((n: { type: string }) => n.type === "rect");
     file.nodes[i].appearance.fills[0].color = "red";
-    const badColor = errorOf(await call("zibel_doc_open", { content: JSON.stringify(file) }));
+    const badColor = errorOf(await call("kalamo_doc_open", { content: JSON.stringify(file) }));
     expect(badColor).toMatchObject({
       code: "INVALID_COLOR",
       path: `nodes[${i}].appearance.fills[0].color`,
@@ -1628,11 +1640,11 @@ it("opens and places an SVG set in CJK with one MISSING_GLYPHS for the file", as
       message: expect.stringContaining("has glyphs for ก, ข, ค;"),
     },
   ];
-  expect((await call("zibel_doc_open", { content: svg })).structuredContent.warnings).toEqual(
+  expect((await call("kalamo_doc_open", { content: svg })).structuredContent.warnings).toEqual(
     glyphs,
   );
   const { docId, defaultLayerId } = await newDoc();
-  const placed = await call("zibel_svg_import", { docId, svg, parentId: defaultLayerId });
+  const placed = await call("kalamo_svg_import", { docId, svg, parentId: defaultLayerId });
   expect(placed.structuredContent.warnings).toEqual(glyphs);
 });
 
@@ -1640,7 +1652,7 @@ describe("a Place receipt's warnings name the placed Nodes (#161)", () => {
   const warned = (receipt: { structuredContent: { warnings: Warning[] } }, code: string) =>
     receipt.structuredContent.warnings.filter((w) => w.code === code);
   const texts = async (docId: string, ids: (string | undefined)[]) =>
-    (await call("zibel_node_get", { docId, nodeIds: ids, detail: "full" })).structuredContent
+    (await call("kalamo_node_get", { docId, nodeIds: ids, detail: "full" })).structuredContent
       .nodes as { type: string; content: string; fontFamily: string }[];
   const HELVETICA =
     '<svg xmlns="http://www.w3.org/2000/svg"><text x="0" y="10" font-family="Helvetica">A</text></svg>';
@@ -1651,10 +1663,10 @@ describe("a Place receipt's warnings name the placed Nodes (#161)", () => {
       "</svg>",
       '<pattern id="p"/><rect width="5" height="5" fill="url(#p)"/></svg>',
     );
-    const placed = await call("zibel_svg_import", { docId, svg, parentId: defaultLayerId });
+    const placed = await call("kalamo_svg_import", { docId, svg, parentId: defaultLayerId });
     const [font] = warned(placed, "FONT_MISSING");
     const outline = JSON.stringify(
-      (await call("zibel_doc_outline", { docId, depth: 5 })).structuredContent,
+      (await call("kalamo_doc_outline", { docId, depth: 5 })).structuredContent,
     );
     expect(outline).toContain(`"${font?.nodeId}"`);
     expect(font?.nodeId).not.toBe(placed.structuredContent.createdIds[0]);
@@ -1670,7 +1682,7 @@ describe("a Place receipt's warnings name the placed Nodes (#161)", () => {
       "</svg>",
       '<text x="0" y="30" font-family="Arial">B</text></svg>',
     );
-    const placed = await call("zibel_svg_import", { docId, svg, parentId: defaultLayerId });
+    const placed = await call("kalamo_svg_import", { docId, svg, parentId: defaultLayerId });
     const fonts = warned(placed, "FONT_MISSING");
     expect(new Set(fonts.map((w) => w.nodeId)).size).toBe(2);
     const got = await texts(
@@ -1685,7 +1697,7 @@ describe("a Place receipt's warnings name the placed Nodes (#161)", () => {
     const { docId, defaultLayerId } = await newDoc();
     const text = { type: "text", parentId: defaultLayerId, fontFamily: "Helvetica" };
     const { keyMap } = (
-      await call("zibel_node_create", {
+      await call("kalamo_node_create", {
         docId,
         nodes: [
           { ...text, clientKey: "clip", x: 0, y: 20, content: "Clip" },
@@ -1702,15 +1714,15 @@ describe("a Place receipt's warnings name the placed Nodes (#161)", () => {
         ],
       })
     ).structuredContent;
-    await call("zibel_mask_make", { docId, clipNodeId: keyMap.clip, contentIds: [keyMap.art] });
+    await call("kalamo_mask_make", { docId, clipNodeId: keyMap.clip, contentIds: [keyMap.art] });
     const svg = (
-      await call("zibel_export", {
+      await call("kalamo_export", {
         docId,
         format: "svg",
         scope: { nodeIds: [keyMap.art, keyMap.kept] },
       })
     ).content[0].text;
-    const pasted = await call("zibel_svg_import", { docId, svg, parentId: defaultLayerId });
+    const pasted = await call("kalamo_svg_import", { docId, svg, parentId: defaultLayerId });
     const fonts = warned(pasted, "FONT_MISSING");
     expect(fonts).toHaveLength(1);
     expect(pasted.structuredContent.createdIds).toContain(fonts[0]?.nodeId);
@@ -1722,7 +1734,7 @@ describe("a Place receipt's warnings name the placed Nodes (#161)", () => {
     const copyOf = async (clip: object, kept: object) => {
       const text = { type: "text", parentId: defaultLayerId, x: 0 };
       const { keyMap } = (
-        await call("zibel_node_create", {
+        await call("kalamo_node_create", {
           docId,
           nodes: [
             { ...text, ...clip, clientKey: "clip", y: 20 },
@@ -1739,10 +1751,10 @@ describe("a Place receipt's warnings name the placed Nodes (#161)", () => {
           ],
         })
       ).structuredContent;
-      await call("zibel_mask_make", { docId, clipNodeId: keyMap.clip, contentIds: [keyMap.art] });
+      await call("kalamo_mask_make", { docId, clipNodeId: keyMap.clip, contentIds: [keyMap.art] });
       const scope = { nodeIds: [keyMap.art, keyMap.kept] };
-      const svg = (await call("zibel_export", { docId, format: "svg", scope })).content[0].text;
-      return call("zibel_svg_import", { docId, svg, parentId: defaultLayerId });
+      const svg = (await call("kalamo_export", { docId, format: "svg", scope })).content[0].text;
+      return call("kalamo_svg_import", { docId, svg, parentId: defaultLayerId });
     };
     const clip = { fontFamily: "Helvetica", content: "กข" };
 
@@ -1762,9 +1774,9 @@ describe("a Place receipt's warnings name the placed Nodes (#161)", () => {
   it("gives doc_open's warnings, in order, to a full-file Place, on the placed Texts", async () => {
     const svg =
       '<svg xmlns="http://www.w3.org/2000/svg"><text y="10" font-family="Helvetica">กข</text><text y="30" font-family="Arial">ขค</text><text y="50" font-family="Helvetica">ค</text></svg>';
-    const opened = (await call("zibel_doc_open", { content: svg })).structuredContent.warnings;
+    const opened = (await call("kalamo_doc_open", { content: svg })).structuredContent.warnings;
     const { docId, defaultLayerId } = await newDoc();
-    const placed = await call("zibel_svg_import", { docId, svg, parentId: defaultLayerId });
+    const placed = await call("kalamo_svg_import", { docId, svg, parentId: defaultLayerId });
     const { warnings } = placed.structuredContent as { warnings: Warning[] };
     const bare = (ws: Warning[]) => ws.map(({ code, message }) => ({ code, message }));
     expect(bare(warnings)).toEqual(bare(opened));
@@ -1777,21 +1789,25 @@ describe("a Place receipt's warnings name the placed Nodes (#161)", () => {
   });
 
   it("leaves doc_open's warnings on the file's own ids", async () => {
-    const opened = await call("zibel_doc_open", { content: HELVETICA });
+    const opened = await call("kalamo_doc_open", { content: HELVETICA });
     const [font] = warned(opened, "FONT_MISSING");
     const outline = JSON.stringify(
-      (await call("zibel_doc_outline", { docId: opened.structuredContent.docId, depth: 5 }))
+      (await call("kalamo_doc_outline", { docId: opened.structuredContent.docId, depth: 5 }))
         .structuredContent,
     );
     expect(outline).toContain(`"${font?.nodeId}"`);
   });
 });
 
-it("places an SVG as one Group under the parent, and refuses a .zibel.json", async () => {
+it("places an SVG as one Group under the parent, and refuses a .kalamo.json", async () => {
   const { docId, defaultLayerId } = await newDoc();
-  const placed = await call("zibel_svg_import", { docId, svg: exported, parentId: defaultLayerId });
+  const placed = await call("kalamo_svg_import", {
+    docId,
+    svg: exported,
+    parentId: defaultLayerId,
+  });
   const { createdIds, nodes, warnings } = placed.structuredContent;
-  const outline = (await call("zibel_doc_outline", { docId, rootId: defaultLayerId, depth: 1 }))
+  const outline = (await call("kalamo_doc_outline", { docId, rootId: defaultLayerId, depth: 1 }))
     .structuredContent.nodes;
   expect(outline).toMatchObject([
     { id: createdIds[0], type: "group", name: "Inkscape round trip" },
@@ -1810,7 +1826,7 @@ it("places an SVG as one Group under the parent, and refuses a .zibel.json", asy
   // The export's z-<id> ids are not reused.
   expect(createdIds.filter((id: string) => exported.includes(`z-${id}`))).toEqual([]);
 
-  const file = (await call("zibel_export", { docId, format: "zibel_json" })).content[0].text;
+  const file = (await call("kalamo_export", { docId, format: "kalamo_json" })).content[0].text;
   // Container Appearance comes along, on the Layer that became a Group too (ADR-0043).
   const named = (name: string) =>
     JSON.parse(file).nodes.find((n: { name: string }) => n.name === name);
@@ -1819,32 +1835,32 @@ it("places an SVG as one Group under the parent, and refuses a .zibel.json", asy
     appearance: { contents: 0, strokes: [{ color: "#222222" }] },
   });
   expect(named("Outlined").appearance).toMatchObject({ contents: 1, strokes: [{ width: 8 }] });
-  const refused = await call("zibel_svg_import", { docId, svg: file, parentId: defaultLayerId });
+  const refused = await call("kalamo_svg_import", { docId, svg: file, parentId: defaultLayerId });
   expect(errorOf(refused)).toMatchObject({ code: "INVALID_DOCUMENT", path: "svg" });
-  const text = await call("zibel_svg_import", { docId, svg: "nope", parentId: defaultLayerId });
+  const text = await call("kalamo_svg_import", { docId, svg: "nope", parentId: defaultLayerId });
   expect(errorOf(text)).toMatchObject({ code: "INVALID_DOCUMENT", path: "svg" });
-  expect(errorOf(text).hint).not.toContain(".zibel.json file");
+  expect(errorOf(text).hint).not.toContain(".kalamo.json file");
   const big = `<svg xmlns="http://www.w3.org/2000/svg"><desc>${"x".repeat(5 * 1024 * 1024)}</desc></svg>`;
   const huge = errorOf(
-    await call("zibel_svg_import", { docId, svg: big, parentId: defaultLayerId }),
+    await call("kalamo_svg_import", { docId, svg: big, parentId: defaultLayerId }),
   );
   expect(huge).toMatchObject({ code: "LIMIT_EXCEEDED", path: "svg" });
   expect(huge.message).not.toContain("Open");
 
   // Staged in a Transaction: invisible to the committed rev until commit.
-  const { txId, rev } = (await call("zibel_tx_begin", { docId })).structuredContent;
-  const staged = await call("zibel_svg_import", {
+  const { txId, rev } = (await call("kalamo_tx_begin", { docId })).structuredContent;
+  const staged = await call("kalamo_svg_import", {
     docId,
     txId,
     svg: exported,
     parentId: defaultLayerId,
   });
   expect(staged.structuredContent.rev).toBe(rev);
-  const committed = (await call("zibel_doc_outline", { docId, rootId: defaultLayerId, depth: 1 }))
+  const committed = (await call("kalamo_doc_outline", { docId, rootId: defaultLayerId, depth: 1 }))
     .structuredContent.nodes;
   expect(committed).toHaveLength(1);
-  await call("zibel_tx_commit", { docId, txId });
-  const after = (await call("zibel_doc_outline", { docId, rootId: defaultLayerId, depth: 1 }))
+  await call("kalamo_tx_commit", { docId, txId });
+  const after = (await call("kalamo_doc_outline", { docId, rootId: defaultLayerId, depth: 1 }))
     .structuredContent.nodes;
   expect(after.at(-1)?.id).toBe(staged.structuredContent.createdIds[0]);
 });
@@ -1893,10 +1909,10 @@ describe("request body capped before the SDK reads it (ADR-0049)", () => {
     expect(pulls()).toBeLessThanOrEqual(1);
   });
 
-  it("opens a .zibel.json whose images fill the 20 MB Document cap", async () => {
+  it("opens a .kalamo.json whose images fill the 20 MB Document cap", async () => {
     const { docId, defaultLayerId } = await newDoc();
     const content = await fullKalamoFile(docId, defaultLayerId);
-    const opened = await call("zibel_doc_open", { content });
+    const opened = await call("kalamo_doc_open", { content });
     expect(opened.isError).toBeFalsy();
     expect(opened.structuredContent).toMatchObject({ docId: expect.any(String) });
   }, 60_000);

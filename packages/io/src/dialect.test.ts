@@ -28,7 +28,7 @@ import {
 import { parseSvg } from "./read.ts";
 import { toSvg } from "./write.ts";
 
-const fixtures = import.meta.glob("../../../fixtures/documents/*.zibel.json", {
+const fixtures = import.meta.glob("../../../fixtures/documents/*.kalamo.json", {
   query: "?raw",
   import: "default",
   eager: true,
@@ -52,7 +52,7 @@ it.each(Object.entries(fixtures).map(([path, text]) => [path.split("/").pop(), p
     const images = imageSource(parseDocument(text).images);
     const svg = toSvg(doc, undefined, { images });
     // The export, byte for byte: a change to the dialect shows here first (vitest -u to accept).
-    await expect(svg).toMatchFileSnapshot(path.replace(/\.zibel\.json$/, ".svg"));
+    await expect(svg).toMatchFileSnapshot(path.replace(/\.kalamo\.json$/, ".svg"));
     const read = await resolveImages(parseSvg(svg));
     // The fixture's missing link warns on every read (ADR-0042).
     expect(read.warnings.map((w) => w.code)).toEqual(

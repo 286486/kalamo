@@ -1,6 +1,6 @@
 ## Prompt
 
-Using the zibel tools, open the Document named exactly `{{name}}`. It has one 800×600 pt Artboard and a Layer named `Logo`.
+Using the kalamo tools, open the Document named exactly `{{name}}`. It has one 800×600 pt Artboard and a Layer named `Logo`.
 
 Place the SVG below into the `Logo` Layer at its own size, with the centre of its bounds at (560, 150). Change nothing else in the Document.
 
@@ -19,6 +19,6 @@ Place the SVG below into the `Logo` Layer at its own size, with the centre of it
 
 ## Assertions
 
-- The Agent called `zibel_svg_import` and never `zibel_node_create`; a Place change created the Group, and no change after the setup touches anything but what it placed.
+- The Agent called `kalamo_svg_import` and never `kalamo_node_create`; a Place change created the Group, and no change after the setup touches anything but what it placed.
 - The `Logo` Layer holds exactly one Group, whose children are the Groups `Mark` (two Nodes) and `Wordmark` (one Node).
 - The Group's bounds are 220×100 with their centre at (560, 150).

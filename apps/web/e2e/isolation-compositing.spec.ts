@@ -18,14 +18,14 @@ test("Isolation Mode draws an isolated Group exactly as the whole Document does"
   request,
 }) => {
   const { docId, defaultLayerId: layer } = (
-    await call(request, "zibel_doc_create", {
+    await call(request, "kalamo_doc_create", {
       name: "Isolation compositing",
       artboards: [{ width: 200, height: 100 }],
     })
   ).structuredContent;
   // G holds A (20–100), then H, which holds Y (40–70) and B, which holds Blue (60–140), then C
   // (120–150) above them all.
-  await call(request, "zibel_node_create", {
+  await call(request, "kalamo_node_create", {
     docId,
     nodes: [
       {
@@ -53,11 +53,11 @@ test("Isolation Mode draws an isolated Group exactly as the whole Document does"
   });
   type Entry = { id: string; name: string; children?: Entry[] };
   const flat = (es: Entry[]): Entry[] => es.flatMap((e) => [e, ...flat(e.children ?? [])]);
-  const { nodes } = (await call(request, "zibel_doc_outline", { docId, depth: 4 }))
+  const { nodes } = (await call(request, "kalamo_doc_outline", { docId, depth: 4 }))
     .structuredContent;
   const id = (name: string) => flat(nodes).find((n) => n.name === name)?.id as string;
   const style = (name: string, patch: object) =>
-    call(request, "zibel_node_update", { docId, updates: [{ nodeId: id(name), patch }] });
+    call(request, "kalamo_node_update", { docId, updates: [{ nodeId: id(name), patch }] });
 
   // One tab isolates B; another, not isolated, draws the whole Document to compare with.
   const whole = await context.newPage();

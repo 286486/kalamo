@@ -7,7 +7,7 @@ import { call } from "./mcp.ts";
 // them all per move measured 10 ms median and 18 ms at worst on a fast desktop.
 test.beforeEach(async ({ page, request }) => {
   const { docId, defaultLayerId } = (
-    await call(request, "zibel_doc_create", {
+    await call(request, "kalamo_doc_create", {
       name: "Overlay perf",
       artboards: [{ width: 800, height: 600 }],
     })
@@ -24,7 +24,7 @@ test.beforeEach(async ({ page, request }) => {
         appearance: { fills: [], strokes: [{ color: "#336699", width: 1 }] },
       };
     });
-    await call(request, "zibel_node_create", { docId, nodes });
+    await call(request, "kalamo_node_create", { docId, nodes });
   }
   await page.goto(`/docs/${docId}`);
   await expect(page.getByTestId("status-bar")).toContainText(/\d+%/);

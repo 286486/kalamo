@@ -4,7 +4,7 @@ A vector drawing tool that runs in the browser, built so AI agents can read and 
 
 ![A night landscape with its ridge path's anchors and handles, an Agent → Document ← Person diagram, and a stacked bar chart](docs/images/readme-hero.png)
 
-An Agent drew this over MCP: Live Shapes, Bezier paths and text in two Layers, with each label centred from the bounds the server measured, then exported to PNG with `zibel_export`.
+An Agent drew this over MCP: Live Shapes, Bezier paths and text in two Layers, with each label centred from the bounds the server measured, then exported to PNG with `kalamo_export`.
 
 Zibel is a short form of Zobel / zibeline, the sable marten whose hair makes the finest illustration brushes.
 
@@ -38,8 +38,10 @@ Every MCP request needs `Authorization: Bearer <dev token>`. Copy `apps/edge/.de
 To connect Claude Code, copy [examples/claude-code.mcp.json](examples/claude-code.mcp.json) to `.mcp.json`, or run:
 
 ```sh
-claude mcp add --transport http zibel http://localhost:8787/mcp -H "Authorization: Bearer YOUR_TOKEN"
+claude mcp add --transport http kalamo http://localhost:8787/mcp -H "Authorization: Bearer YOUR_TOKEN"
 ```
+
+The server is named `kalamo`, its tools are `kalamo_*` (`kalamo_doc_create`, `kalamo_export`, …), its resources `skill://kalamo/*`, and `kalamo_export` takes the format `kalamo_json`. In Claude Code, allow its tools with `mcp__kalamo__*`. A client set up before the product was renamed Kalamo (ADR-0069) must be added again under this name, and its permission allowlist and any tool names in prompts updated: the old names have no aliases.
 
 ## Hosting
 
@@ -58,7 +60,7 @@ GitHub mode needs a GitHub OAuth App (GitHub > Settings > Developer settings > O
 
 GitHub mode also needs the `OAUTH_KV` KV namespace, where `@cloudflare/workers-oauth-provider` keeps MCP OAuth grants and tokens (hashed, with encrypted props). The provider needs no secret of its own.
 
-MCP clients connect to `<MCP_ORIGIN>/mcp` with no token, for example `claude mcp add --transport http zibel https://zibel.example.workers.dev/mcp`. The client discovers the authorization server, opens GitHub sign-in and a Zibel consent page in the browser, and becomes an Agent of that person, named after the client and the login. The account menu's Connected Agents lists and revokes them.
+MCP clients connect to `<MCP_ORIGIN>/mcp` with no token, for example `claude mcp add --transport http kalamo https://zibel.example.workers.dev/mcp`. The client discovers the authorization server, opens GitHub sign-in and a Kalamo consent page in the browser, and becomes an Agent of that person, named after the client and the login. The account menu's Connected Agents lists and revokes them.
 
 ```sh
 pnpm exec wrangler login

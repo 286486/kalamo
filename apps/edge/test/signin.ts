@@ -56,7 +56,7 @@ export async function signIn(user = { id: 1, login: "octocat" }, returnTo = "/")
     });
     const session = res.headers
       .getSetCookie()
-      .find((c) => c.startsWith("__Host-zibel_session="))
+      .find((c) => c.startsWith("__Host-kalamo_session="))
       ?.split(";")[0];
     return { res, cookie: session ?? "" };
   } finally {

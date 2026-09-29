@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
+import { LEGACY_NAME } from "../../../packages/core/src/legacy.ts";
 import { call } from "./mcp.ts";
 
 const SVG = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="20" height="10"/></svg>';
@@ -11,10 +12,10 @@ test("Documents open in tabs that switch in place, close, and come back on reloa
   request,
 }) => {
   const create = async (name: string) =>
-    (await call(request, "zibel_doc_create", { name, artboards: [{ width: 200, height: 100 }] }))
+    (await call(request, "kalamo_doc_create", { name, artboards: [{ width: 200, height: 100 }] }))
       .structuredContent as { docId: string; defaultLayerId: string };
   const { docId: a, defaultLayerId } = await create("Tab A");
-  await call(request, "zibel_node_create", {
+  await call(request, "kalamo_node_create", {
     docId: a,
     nodes: [
       { type: "rect", parentId: defaultLayerId, name: "Box", x: 0, y: 0, width: 10, height: 10 },
@@ -81,10 +82,20 @@ test("Documents open in tabs that switch in place, close, and come back on reloa
 
   // A remembered tab whose Document is gone drops on reload.
   await page.evaluate(() => {
-    const stored = JSON.parse(localStorage.getItem("zibel:tabs") ?? "[]");
-    localStorage.setItem("zibel:tabs", JSON.stringify([...stored, "gone"]));
+    const stored = JSON.parse(localStorage.getItem("kalamo:tabs") ?? "[]");
+    localStorage.setItem("kalamo:tabs", JSON.stringify([...stored, "gone"]));
   });
   await page.reload();
   await expect(tabs(page)).toHaveText(["Tab A", "opened"]);
   await expect(page.getByRole("tab", { name: "opened" })).toHaveAttribute("aria-selected", "true");
+
+  // Tabs remembered under the former name's key come back once, then live under Kalamo's
+  // (ADR-0069).
+  await page.evaluate((legacy) => {
+    localStorage.setItem(`${legacy}:tabs`, localStorage.getItem("kalamo:tabs") ?? "");
+    localStorage.removeItem("kalamo:tabs");
+  }, LEGACY_NAME);
+  await page.reload();
+  await expect(tabs(page)).toHaveText(["Tab A", "opened"]);
+  expect(await page.evaluate(() => Object.keys(localStorage))).toEqual(["kalamo:tabs"]);
 });

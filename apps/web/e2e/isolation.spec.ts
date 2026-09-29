@@ -9,18 +9,21 @@ test("Isolation Mode enters, edits inside, navigates and leaves a Clip Group", a
   request,
 }) => {
   const { docId, defaultLayerId: layer } = (
-    await call(request, "zibel_doc_create", {
+    await call(request, "kalamo_doc_create", {
       name: "Isolation",
       artboards: [{ width: 200, height: 100 }],
     })
   ).structuredContent;
   const create = async (nodes: object[]) =>
-    (await call(request, "zibel_node_create", { docId, nodes })).structuredContent
+    (await call(request, "kalamo_node_create", { docId, nodes })).structuredContent
       .createdIds as string[];
   const mask = async (clipNodeId: string, contentIds: string[], name: string) => {
-    const [id] = (await call(request, "zibel_mask_make", { docId, clipNodeId, contentIds }))
+    const [id] = (await call(request, "kalamo_mask_make", { docId, clipNodeId, contentIds }))
       .structuredContent.createdIds as [string];
-    await call(request, "zibel_node_update", { docId, updates: [{ nodeId: id, patch: { name } }] });
+    await call(request, "kalamo_node_update", {
+      docId,
+      updates: [{ nodeId: id, patch: { name } }],
+    });
     return id;
   };
   const rect = (name: string, x: number, y: number, width: number, height: number, color = "") => ({
@@ -54,15 +57,15 @@ test("Isolation Mode enters, edits inside, navigates and leaves a Clip Group", a
     ].map((n) => ({ ...n, parentId: layer2 })),
   )) as [string, string, string];
   await mask(wideClip, [wideContent], "Wide");
-  await call(request, "zibel_mask_make", { docId, layerId: layer2 });
+  await call(request, "kalamo_mask_make", { docId, layerId: layer2 });
 
   const get = async (id: string) =>
-    (await call(request, "zibel_node_get", { docId, nodeIds: [id], detail: "full" }))
+    (await call(request, "kalamo_node_get", { docId, nodeIds: [id], detail: "full" }))
       .structuredContent?.nodes[0];
 
   // Two Document Tabs, the second opened from the list, then back to the first in place.
   const { docId: other } = (
-    await call(request, "zibel_doc_create", {
+    await call(request, "kalamo_doc_create", {
       name: "Isolation other",
       artboards: [{ width: 200, height: 100 }],
     })
@@ -154,7 +157,7 @@ test("Isolation Mode enters, edits inside, navigates and leaves a Clip Group", a
   await page.keyboard.press("Escape");
   const drawn = async () =>
     (
-      await call(request, "zibel_doc_outline", { docId, rootId: outer, depth: 1 })
+      await call(request, "kalamo_doc_outline", { docId, rootId: outer, depth: 1 })
     ).structuredContent.nodes.filter((n: { type: string }) => n.type === "path");
   await expect.poll(async () => (await drawn()).length).toBe(1);
   await expect(bar).toBeVisible();
@@ -181,7 +184,7 @@ test("Isolation Mode enters, edits inside, navigates and leaves a Clip Group", a
   await expect(page.getByTestId("status-bar")).toContainText("100%");
   await page.mouse.dblclick(...at(40, 30));
   await expect(bar).toBeVisible();
-  await call(request, "zibel_node_delete", { docId, nodeIds: [outer] });
+  await call(request, "kalamo_node_delete", { docId, nodeIds: [outer] });
   await expect(bar).toBeHidden();
 
   // Inside a Layer Clipping Mask the isolated Group stays clipped by the Layer too.

@@ -15,7 +15,7 @@ import {
 import { docRect, scopeRect, toSvg } from "@kalamo/io";
 import { expect, it } from "vitest";
 import { COMPOSITING, near } from "../../../fixtures/compositing.ts";
-import fixture from "../../../fixtures/documents/inkscape.zibel.json?raw";
+import fixture from "../../../fixtures/documents/inkscape.kalamo.json?raw";
 import { RED_2x2_PNG } from "../../../fixtures/images.ts";
 import { LAZY_FONTS, renderFonts, svgToPixels, svgToPng } from "./png.ts";
 import { fit, renderSvg } from "./svg.ts";
@@ -462,8 +462,10 @@ it("draws the fixture Document with known pixels", async () => {
   // #160, a fifteenth holding a CJK Area Type wrapped between characters; by #164, a sixteenth
   // holding Korean Point Type in Regular and Bold and a Korean Area Type. This export SVG names no
   // Noto chunk, so its Chinese and Korean draw as .notdef boxes; render's does not.
+  // By #175, the texts that named the product say Kalamo, one clipping text says KAL, and the
+  // namespace is kalamo.cc.
   expect(await hash(toSvg(doc, docRect(doc), { images }))).toBe(
-    "cfb99e448e3a6b28afcc64948f7ebc8b4fe20cef5a96de9593094b297f4a01b5",
+    "09c6ac33a34f34117b992458bf7cef1d03f8f2103f8a6345bb7aba27a3822c2e",
   );
   expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned, images }))).toBe(
     "24c1e7ad8db33f59933a1b355c879cb19bfdfd67d70b11427b196aa646ea4b60",

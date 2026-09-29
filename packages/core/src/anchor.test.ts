@@ -19,7 +19,7 @@ const errorOf = (fn: () => unknown) => {
 
 describe("toAnchors and fromAnchors", () => {
   it("round-trips every fixture path exactly", () => {
-    const files = import.meta.glob("../../../fixtures/documents/*.zibel.json", {
+    const files = import.meta.glob("../../../fixtures/documents/*.kalamo.json", {
       query: "?raw",
       import: "default",
       eager: true,

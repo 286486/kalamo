@@ -1,4 +1,4 @@
-import { COLOR_PATTERN, KalamoError, PathOpInput } from "@kalamo/core";
+import { COLOR_PATTERN, KalamoError, LEGACY_NAME, PathOpInput } from "@kalamo/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { harness } from "./harness.ts";
 
@@ -11,7 +11,7 @@ it("calls list with no arguments and returns the list as structuredContent and a
     ],
   };
   const { service, call } = await harness({ list: async () => result });
-  expect(await call("zibel_doc_list")).toEqual({
+  expect(await call("kalamo_doc_list")).toEqual({
     structuredContent: result,
     content: [{ type: "text", text: JSON.stringify(result) }],
   });
@@ -22,7 +22,7 @@ it("doc_delete deletes by docId and returns the receipt", async () => {
   const { service, call } = await harness({
     delete: async (docId) => ({ docId, deleted: true }),
   });
-  expect((await call("zibel_doc_delete", { docId: "d" })).structuredContent).toEqual({
+  expect((await call("kalamo_doc_delete", { docId: "d" })).structuredContent).toEqual({
     docId: "d",
     deleted: true,
   });
@@ -92,7 +92,7 @@ describe("write tools pass the write and its options apart", () => {
       },
       { type: "image", parentId: "p", src: "data:image/png;base64,AAAA", x: 0, y: 0 },
     ];
-    const result = await call("zibel_node_create", { docId: "d", nodes, ...opts });
+    const result = await call("kalamo_node_create", { docId: "d", nodes, ...opts });
     expect(result.structuredContent).toEqual(receipt);
     const [docId, sent, options] = service.createNodes.mock.calls[0] ?? [];
     expect(docId).toBe("d");
@@ -111,14 +111,14 @@ describe("write tools pass the write and its options apart", () => {
       { type: "image", src: "data:image/png;base64,AAAA", preserveAspectRatio: "none" },
     ]);
     expect(sent?.[10]).not.toHaveProperty("appearance");
-    await call("zibel_node_create", { docId: "d", nodes: [nodes[2]] });
+    await call("kalamo_node_create", { docId: "d", nodes: [nodes[2]] });
     expect(service.createNodes.mock.calls[1]?.[2]).toEqual({ partial: false });
   });
 
   it("node_create: a linked image arrives with file, and src only when sent (ADR-0042)", async () => {
     const { service, call } = await harness({ createNodes: async () => receipt });
     const frame = { parentId: "p", x: 0, y: 0, width: 4, height: 2 };
-    await call("zibel_node_create", {
+    await call("kalamo_node_create", {
       docId: "d",
       nodes: [
         { type: "image", file: "a.png", ...frame },
@@ -149,7 +149,7 @@ describe("write tools pass the write and its options apart", () => {
       { nodeId: "d", patch: { src: "data:image/png;base64,AAAA", file: "a.png" } },
       { nodeId: "e", patch: { file: null } },
     ];
-    await call("zibel_node_update", { docId: "d", updates, ...opts });
+    await call("kalamo_node_update", { docId: "d", updates, ...opts });
     const [docId, sent, options] = service.updateNodes.mock.calls[0] ?? [];
     expect([docId, options]).toEqual(["d", { ...opts, partial: false }]);
     // Strict: a default filled in as an undefined key would still reach the Durable Object.
@@ -158,7 +158,7 @@ describe("write tools pass the write and its options apart", () => {
 
   it("node_delete", async () => {
     const { service, call } = await harness({ deleteNodes: async () => receipt });
-    await call("zibel_node_delete", { docId: "d", nodeIds: ["a", "b"], ...opts });
+    await call("kalamo_node_delete", { docId: "d", nodeIds: ["a", "b"], ...opts });
     expect(service.deleteNodes).toHaveBeenCalledWith("d", ["a", "b"], {
       ...opts,
       partial: false,
@@ -167,7 +167,7 @@ describe("write tools pass the write and its options apart", () => {
 
   it("node_transform: the transform gets none of the write options", async () => {
     const { service, call } = await harness({ transformNodes: async () => receipt });
-    await call("zibel_node_transform", {
+    await call("kalamo_node_transform", {
       docId: "d",
       nodeIds: ["a"],
       rotate: 90,
@@ -189,7 +189,7 @@ describe("write tools pass the write and its options apart", () => {
     "mask_make: kind defaults to clip, with %s write options as given",
     async (_, write) => {
       const { service, call } = await harness({ makeMask: async () => receipt });
-      await call("zibel_mask_make", { docId: "d", clipNodeId: "c", contentIds: ["a"], ...write });
+      await call("kalamo_mask_make", { docId: "d", clipNodeId: "c", contentIds: ["a"], ...write });
       expect(service.makeMask.mock.calls[0]).toStrictEqual([
         "d",
         { clipNodeId: "c", contentIds: ["a"], kind: "clip" },
@@ -204,7 +204,7 @@ describe("write tools pass the write and its options apart", () => {
       const out = { ...receipt, d: "M 0 0 L 5 5", subpaths: [] };
       const { service, call } = await harness({ pathEdit: async () => out });
       const ops = [{ op: "move_anchor", index: 1, to: [5, 5] }, { op: "reverse" }];
-      const result = await call("zibel_path_edit", { docId: "d", nodeId: "p", ops, ...write });
+      const result = await call("kalamo_path_edit", { docId: "d", nodeId: "p", ops, ...write });
       expect(service.pathEdit.mock.calls[0]).toStrictEqual([
         "d",
         {
@@ -222,7 +222,7 @@ describe("write tools pass the write and its options apart", () => {
     async (_, write) => {
       const { service, call } = await harness({ pathOp: async () => receipt });
       const input = { nodeIds: ["r"], op: "simplify", tolerance: 0.5 };
-      await call("zibel_path_op", { docId: "d", ...input, ...write });
+      await call("kalamo_path_op", { docId: "d", ...input, ...write });
       expect(service.pathOp.mock.calls[0]).toStrictEqual(["d", PathOpInput.parse(input), write]);
     },
   );
@@ -236,7 +236,7 @@ describe("write tools pass the write and its options apart", () => {
         { x: 5, y: 0 },
         { x: 10, y: 0 },
       ];
-      const result = await call("zibel_freehand_stroke", {
+      const result = await call("kalamo_freehand_stroke", {
         docId: "d",
         parentId: "p",
         points,
@@ -274,7 +274,7 @@ describe("write tools pass the write and its options apart", () => {
       { x: 0, y: 0 },
       { x: 10, y: 0 },
     ];
-    const result = await call("zibel_freehand_stroke", {
+    const result = await call("kalamo_freehand_stroke", {
       docId: "d",
       parentId: "p",
       points,
@@ -288,7 +288,7 @@ describe("write tools pass the write and its options apart", () => {
 
   it("mask_release", async () => {
     const { service, call } = await harness({ releaseMask: async () => receipt });
-    await call("zibel_mask_release", { docId: "d", nodeIds: ["g"], ...opts });
+    await call("kalamo_mask_release", { docId: "d", nodeIds: ["g"], ...opts });
     expect(service.releaseMask).toHaveBeenCalledWith("d", ["g"], opts);
   });
 
@@ -296,7 +296,7 @@ describe("write tools pass the write and its options apart", () => {
     const placed = { ...receipt, nodes: [] };
     const { service, call } = await harness({ place: async () => placed });
     const position = { x: 1, y: 2 };
-    const result = await call("zibel_svg_import", {
+    const result = await call("kalamo_svg_import", {
       docId: "d",
       svg: "<svg/>",
       parentId: "p",
@@ -317,7 +317,7 @@ describe("write tools pass the write and its options apart", () => {
     const { service, call } = await harness({ placeImage: async () => receipt });
     const frame = { x: 1, y: 2, width: 3, height: 4 };
     const src = "https://example.com/a.png";
-    const result = await call("zibel_image_place", {
+    const result = await call("kalamo_image_place", {
       docId: "d",
       src,
       parentId: "p",
@@ -341,7 +341,7 @@ describe("write tools pass the write and its options apart", () => {
       create: async () => created,
       open: async () => opened,
     });
-    await call("zibel_doc_create", {
+    await call("kalamo_doc_create", {
       name: "Doc",
       artboards: [{ x: 0, width: 10, height: 10 }],
       intent: "i",
@@ -351,7 +351,7 @@ describe("write tools pass the write and its options apart", () => {
       artboards: [expect.objectContaining({ x: 0, y: 0, width: 10, height: 10 })],
       intent: "i",
     });
-    await call("zibel_doc_open", { content: "{}", intent: "i" });
+    await call("kalamo_doc_open", { content: "{}", intent: "i" });
     expect(service.open).toHaveBeenCalledWith({ content: "{}", intent: "i" });
   });
 
@@ -362,15 +362,15 @@ describe("write tools pass the write and its options apart", () => {
       commitTx: async () => receipt,
       rollback: async () => tx,
     });
-    await call("zibel_tx_begin", { docId: "d", label: "Label" });
-    await call("zibel_tx_begin", { docId: "d" });
+    await call("kalamo_tx_begin", { docId: "d", label: "Label" });
+    await call("kalamo_tx_begin", { docId: "d" });
     expect(service.begin.mock.calls).toEqual([
       ["d", "Label"],
       ["d", undefined],
     ]);
-    await call("zibel_tx_commit", { docId: "d", ...opts });
+    await call("kalamo_tx_commit", { docId: "d", ...opts });
     expect(service.commitTx).toHaveBeenCalledWith("d", "t", { ifRev: 3, intent: "why" });
-    await call("zibel_tx_rollback", { docId: "d", txId: "t" });
+    await call("kalamo_tx_rollback", { docId: "d", txId: "t" });
     expect(service.rollback).toHaveBeenCalledWith("d", "t");
   });
 });
@@ -383,8 +383,8 @@ describe("reads pass their filters and txId, and bad arguments never reach the s
 
   it("node_get: concise by default", async () => {
     const { service, call } = await harness({ get: async () => view });
-    await call("zibel_node_get", { docId: "d", nodeIds: ["a"] });
-    await call("zibel_node_get", { docId: "d", nodeIds: ["a"], detail: "full", txId: "t" });
+    await call("kalamo_node_get", { docId: "d", nodeIds: ["a"] });
+    await call("kalamo_node_get", { docId: "d", nodeIds: ["a"], detail: "full", txId: "t" });
     expect(service.get.mock.calls).toEqual([
       ["d", ["a"], "concise", undefined],
       ["d", ["a"], "full", "t"],
@@ -403,14 +403,14 @@ describe("reads pass their filters and txId, and bad arguments never reach the s
       intersectsRect: rect,
       cursor: "c",
     };
-    await call("zibel_node_query", { docId: "d", ...filters, txId: "t" });
+    await call("kalamo_node_query", { docId: "d", ...filters, txId: "t" });
     expect(service.query).toHaveBeenCalledWith("d", { ...filters, limit: 100 }, "t");
   });
 
   it("doc_outline: depth 2 with bounds by default; the options pass through", async () => {
     const { service, call } = await harness({ outline: async () => view });
-    await call("zibel_doc_outline", { docId: "d", txId: "t" });
-    await call("zibel_doc_outline", {
+    await call("kalamo_doc_outline", { docId: "d", txId: "t" });
+    await call("kalamo_doc_outline", {
       docId: "d",
       rootId: "r",
       types: ["rect"],
@@ -435,39 +435,43 @@ describe("reads pass their filters and txId, and bad arguments never reach the s
         browsers: 0,
       }),
     });
-    await call("zibel_doc_changes", { docId: "d", sinceRev: 0 });
+    await call("kalamo_doc_changes", { docId: "d", sinceRev: 0 });
     expect(service.changes).toHaveBeenCalledWith("d", 0, 100);
-    await call("zibel_doc_get_info", { docId: "d" });
+    await call("kalamo_doc_get_info", { docId: "d" });
     expect(service.info).toHaveBeenCalledWith("d");
   });
 
   it.each([
     [
-      "zibel_doc_create",
+      "kalamo_doc_create",
       { name: "D", artboards: Array(1001).fill({ width: 1, height: 1 }) },
       "artboards",
     ],
-    ["zibel_node_get", { docId: "d", nodeIds: [] }, "nodeIds"],
-    ["zibel_node_query", { docId: "d", nameRegex: "(" }, "nameRegex"],
-    ["zibel_node_transform", { docId: "d", nodeIds: ["a"] }, undefined],
+    ["kalamo_node_get", { docId: "d", nodeIds: [] }, "nodeIds"],
+    ["kalamo_node_query", { docId: "d", nameRegex: "(" }, "nameRegex"],
+    ["kalamo_node_transform", { docId: "d", nodeIds: ["a"] }, undefined],
     [
-      "zibel_node_transform",
+      "kalamo_node_transform",
       { docId: "d", nodeIds: ["a"], matrix: [1, 0, 0, 1, 0, 0], rotate: 9 },
       undefined,
     ],
-    ["zibel_node_transform", { docId: "d", nodeIds: ["a"], matrix: [1, 1, 1, 1, 0, 0] }, undefined],
     [
-      "zibel_node_create",
+      "kalamo_node_transform",
+      { docId: "d", nodeIds: ["a"], matrix: [1, 1, 1, 1, 0, 0] },
+      undefined,
+    ],
+    [
+      "kalamo_node_create",
       { docId: "d", nodes: [{ type: "image", parentId: "p", file: "a.png", x: 0, y: 0 }] },
       "nodes[0].width",
     ],
     [
-      "zibel_node_create",
+      "kalamo_node_create",
       { docId: "d", nodes: [{ type: "image", parentId: "p", x: 0, y: 0 }] },
       "nodes[0].src",
     ],
-    ["zibel_render", { docId: "d", scale: 5 }, "scale"],
-    ["zibel_export", { docId: "d", format: "pdf" }, "format"],
+    ["kalamo_render", { docId: "d", scale: 5 }, "scale"],
+    ["kalamo_export", { docId: "d", format: "pdf" }, "format"],
   ])("%s refuses %j by its published schema", async (name, args, path) => {
     const { call, called } = await harness();
     const result = await call(name, args);
@@ -481,7 +485,7 @@ describe("reads pass their filters and txId, and bad arguments never reach the s
 
   it("names nameRegex when it does not compile", async () => {
     const { call } = await harness();
-    const result = await call("zibel_node_query", { docId: "d", nameRegex: "(" });
+    const result = await call("kalamo_node_query", { docId: "d", nameRegex: "(" });
     expect(JSON.stringify(result.content)).toMatch(
       /nameRegex.*regular expression|regular expression.*nameRegex/,
     );
@@ -491,15 +495,15 @@ describe("reads pass their filters and txId, and bad arguments never reach the s
 describe("arguments are parsed strictly: a bad one is INVALID_INPUT and nothing runs (ADR-0050)", () => {
   it("refuses a filter it does not know instead of dropping it, naming the one meant", async () => {
     const { call, called } = await harness();
-    const result = await call("zibel_node_query", { docId: "d", name: "Cloud right" });
+    const result = await call("kalamo_node_query", { docId: "d", name: "Cloud right" });
     expect(result).toEqual({
       isError: true,
       content: [{ type: "text", text: expect.any(String) }],
     });
     expect(errorOf(result)).toEqual({
       code: "INVALID_INPUT",
-      message: "zibel_node_query has no argument name.",
-      hint: "Did you mean nameRegex? zibel_node_query takes: docId, types, nameRegex, tags, parentId, withinRect, intersectsRect, limit, cursor, txId.",
+      message: "kalamo_node_query has no argument name.",
+      hint: "Did you mean nameRegex? kalamo_node_query takes: docId, types, nameRegex, tags, parentId, withinRect, intersectsRect, limit, cursor, txId.",
       path: "name",
     });
     expect(called()).toEqual([]);
@@ -507,7 +511,7 @@ describe("arguments are parsed strictly: a bad one is INVALID_INPUT and nothing 
 
   it("refuses a misspelled ifRev, so the conflict guard is never dropped", async () => {
     const { call, called } = await harness();
-    const result = await call("zibel_node_create", {
+    const result = await call("kalamo_node_create", {
       docId: "d",
       nodes: [{ type: "layer", name: "L" }],
       ifrev: 3,
@@ -547,25 +551,30 @@ describe("arguments are parsed strictly: a bad one is INVALID_INPUT and nothing 
     ],
   ])("points into nested arguments: %j", async (node, path, hint) => {
     const { call, called } = await harness();
-    const result = await call("zibel_node_create", { docId: "d", nodes: [node] });
+    const result = await call("kalamo_node_create", { docId: "d", nodes: [node] });
     expect(errorOf(result)).toMatchObject({ code: "INVALID_INPUT", path, hint });
     expect(called()).toEqual([]);
   });
 
   it.each([
-    ["zibel_node_get", { nodeIds: ["a"] }, "docId", "docId is required."],
-    ["zibel_node_get", { docId: 3, nodeIds: ["a"] }, "docId", "Send a string as docId."],
-    ["zibel_node_get", { docId: "d", nodeIds: [] }, "nodeIds", "nodeIds must be at least 1 item."],
-    ["zibel_render", { docId: "d", scale: 5 }, "scale", "scale must be at most 4."],
-    ["zibel_export", { docId: "d", format: "pdf" }, "format", "Send one of: svg, png, zibel_json."],
+    ["kalamo_node_get", { nodeIds: ["a"] }, "docId", "docId is required."],
+    ["kalamo_node_get", { docId: 3, nodeIds: ["a"] }, "docId", "Send a string as docId."],
+    ["kalamo_node_get", { docId: "d", nodeIds: [] }, "nodeIds", "nodeIds must be at least 1 item."],
+    ["kalamo_render", { docId: "d", scale: 5 }, "scale", "scale must be at most 4."],
     [
-      "zibel_node_create",
+      "kalamo_export",
+      { docId: "d", format: "pdf" },
+      "format",
+      "Send one of: svg, png, kalamo_json.",
+    ],
+    [
+      "kalamo_node_create",
       { docId: "d", nodes: [{ type: "circle", parentId: "p" }] },
       "nodes[0].type",
       "Send one of: layer, rect, ellipse, line, polygon, star, spiral, path, text, image, group.",
     ],
     [
-      "zibel_node_create",
+      "kalamo_node_create",
       {
         docId: "d",
         nodes: [{ type: "spiral", parentId: "p", cx: 0, cy: 0, radius: 9, revolution: 0.01 }],
@@ -574,10 +583,10 @@ describe("arguments are parsed strictly: a bad one is INVALID_INPUT and nothing 
       "nodes[0].revolution must be at least 0.05.",
     ],
     [
-      "zibel_render",
+      "kalamo_render",
       { docId: "d", scope: { artboard: "a" } },
       "scope",
-      "scope matches none of the forms zibel_render takes; see its description.",
+      "scope matches none of the forms kalamo_render takes; see its description.",
     ],
   ])("%s %j: %s, with a hint on what to send", async (name, args, path, hint) => {
     const { call, called } = await harness();
@@ -588,7 +597,7 @@ describe("arguments are parsed strictly: a bad one is INVALID_INPUT and nothing 
   it("takes any keys in a Node's meta", async () => {
     const { service, call } = await harness({ createNodes: async () => receipt });
     const meta = { anything: 1, nested: { deep: [true] } };
-    const result = await call("zibel_node_create", {
+    const result = await call("kalamo_node_create", {
       docId: "d",
       nodes: [{ type: "layer", name: "L", meta }],
     });
@@ -599,9 +608,9 @@ describe("arguments are parsed strictly: a bad one is INVALID_INPUT and nothing 
   it("leaves a patch's own keys to core, which answers INVALID_PATCH, but not the objects in it", async () => {
     const { service, call } = await harness({ updateNodes: async () => receipt });
     const updates = [{ nodeId: "a", patch: { fil: "#FF0000" } }];
-    await call("zibel_node_update", { docId: "d", updates });
+    await call("kalamo_node_update", { docId: "d", updates });
     expect(service.updateNodes.mock.calls[0]?.[1]).toEqual(updates);
-    const nested = await call("zibel_node_update", {
+    const nested = await call("kalamo_node_update", {
       docId: "d",
       updates: [{ nodeId: "a", patch: { appearance: { fils: [] } } }],
     });
@@ -615,9 +624,9 @@ describe("arguments are parsed strictly: a bad one is INVALID_INPUT and nothing 
 
   it("logs the refusal on the call's line with its code (§7.7)", async () => {
     const { call, log } = await harness();
-    await call("zibel_node_query", { docId: "d", name: "x" });
+    await call("kalamo_node_query", { docId: "d", name: "x" });
     expect(log.mock.calls.map(([line]) => JSON.parse(String(line)))).toEqual([
-      expect.objectContaining({ tool: "zibel_node_query", code: "INVALID_INPUT", nodes: 0 }),
+      expect.objectContaining({ tool: "kalamo_node_query", code: "INVALID_INPUT", nodes: 0 }),
     ]);
   });
 });
@@ -626,11 +635,13 @@ describe("a tools/call without arguments is parsed as if it sent {} (#126)", () 
   it("runs a tool with no required argument", async () => {
     const result = { documents: [] };
     const { client, service, call } = await harness({ list: async () => result });
-    expect(await client.callTool({ name: "zibel_doc_list" })).toEqual(await call("zibel_doc_list"));
+    expect(await client.callTool({ name: "kalamo_doc_list" })).toEqual(
+      await call("kalamo_doc_list"),
+    );
     expect(service.list).toHaveBeenCalledTimes(2);
   });
 
-  it.each(["zibel_node_query", "zibel_doc_delete", "zibel_node_create"])(
+  it.each(["kalamo_node_query", "kalamo_doc_delete", "kalamo_node_create"])(
     "%s: a missing docId is INVALID_INPUT, logged, and nothing runs",
     async (name) => {
       const { client, call, called, log } = await harness();
@@ -661,13 +672,13 @@ it("advertises each tool's real input schema, refusing unknown keys but in meta 
   };
   for (const { name, inputSchema } of (await client.listTools()).tools) {
     expect(inputSchema.properties, name).toBeDefined();
-    if (name !== "zibel_doc_list") expect(inputSchema.required ?? [], name).not.toHaveLength(0);
+    if (name !== "kalamo_doc_list") expect(inputSchema.required ?? [], name).not.toHaveLength(0);
     walk(inputSchema, name);
   }
   // A failing SDK upgrade advertises the catch-all object instead, which fails every tool here.
   expect(loose.filter((at) => !/\.properties\.(meta(\.anyOf\.\d)?|patch)$/.test(at))).toEqual([]);
-  expect(loose).toContain("zibel_node_update.properties.updates.items.properties.patch");
-  expect(loose).toContain("zibel_node_create.properties.nodes.items.oneOf.0.properties.meta");
+  expect(loose).toContain("kalamo_node_update.properties.updates.items.properties.patch");
+  expect(loose).toContain("kalamo_node_create.properties.nodes.items.oneOf.0.properties.meta");
 });
 
 describe("a KalamoError becomes the error result (F-MCP-15)", () => {
@@ -675,7 +686,7 @@ describe("a KalamoError becomes the error result (F-MCP-15)", () => {
     const data = {
       code: "REV_CONFLICT" as const,
       message: "The Document is at rev 2.",
-      hint: "Read zibel_doc_changes, then retry with ifRev 2.",
+      hint: "Read kalamo_doc_changes, then retry with ifRev 2.",
       path: "ifRev",
       rev: 2,
       nodeIds: ["a"],
@@ -685,7 +696,7 @@ describe("a KalamoError becomes the error result (F-MCP-15)", () => {
         throw new KalamoError(data);
       },
     });
-    const result = await call("zibel_node_create", {
+    const result = await call("kalamo_node_create", {
       docId: "d",
       nodes: [{ type: "layer", name: "L" }],
     });
@@ -702,15 +713,15 @@ describe("a KalamoError becomes the error result (F-MCP-15)", () => {
         throw new Error("boom");
       },
     });
-    expect(await call("zibel_doc_get_info", { docId: "d" })).toEqual({
+    expect(await call("kalamo_doc_get_info", { docId: "d" })).toEqual({
       isError: true,
       content: [{ type: "text", text: "boom" }],
     });
   });
 
   it.each([
-    ["zibel_render", {}],
-    ["zibel_export", { format: "png" }],
+    ["kalamo_render", {}],
+    ["kalamo_export", { format: "png" }],
   ])("%s refuses a background that is not #RRGGBB[AA] before rendering", async (name, args) => {
     const { service, call } = await harness();
     const result = await call(name, { docId: "d", background: "red", ...args });
@@ -735,10 +746,10 @@ describe("partial (F-MCP-16)", () => {
     },
   ];
   it.each([
-    ["zibel_node_create", "createNodes", { nodes: [{ type: "layer", name: "L" }] }],
-    ["zibel_node_update", "updateNodes", { updates: [{ nodeId: "a", patch: { name: "x" } }] }],
-    ["zibel_node_delete", "deleteNodes", { nodeIds: ["a"] }],
-    ["zibel_node_transform", "transformNodes", { nodeIds: ["a"], rotate: 1 }],
+    ["kalamo_node_create", "createNodes", { nodes: [{ type: "layer", name: "L" }] }],
+    ["kalamo_node_update", "updateNodes", { updates: [{ nodeId: "a", patch: { name: "x" } }] }],
+    ["kalamo_node_delete", "deleteNodes", { nodeIds: ["a"] }],
+    ["kalamo_node_transform", "transformNodes", { nodeIds: ["a"], rotate: 1 }],
   ] as const)("%s passes partial and returns failed intact", async (name, method, args) => {
     const { service, call } = await harness({ [method]: async () => ({ ...receipt, failed }) });
     const result = await call(name, { docId: "d", ...args, partial: true });
@@ -762,7 +773,7 @@ describe("render and export return an image, SVG text or file text", () => {
 
   it("render: the PNG as image content with its viewport", async () => {
     const { service, call } = await harness({ render: async () => ({ png, viewport }) });
-    const result = await call("zibel_render", {
+    const result = await call("kalamo_render", {
       docId: "d",
       scope,
       scale: 2,
@@ -783,7 +794,7 @@ describe("render and export return an image, SVG text or file text", () => {
 
   it("export png: the same image, without maxSize or overlays", async () => {
     const { service, call } = await harness({ png: async () => ({ png, viewport }) });
-    const result = await call("zibel_export", {
+    const result = await call("kalamo_export", {
       docId: "d",
       format: "png",
       scope,
@@ -803,7 +814,7 @@ describe("render and export return an image, SVG text or file text", () => {
   it("export svg: text content with docRect, and no scale", async () => {
     const docRect = { x: 0, y: 0, width: 2, height: 1 };
     const { service, call } = await harness({ svg: async () => ({ svg: "<svg/>", docRect }) });
-    const result = await call("zibel_export", { docId: "d", format: "svg", scope, scale: 3 });
+    const result = await call("kalamo_export", { docId: "d", format: "svg", scope, scale: 3 });
     expect(result).toEqual({
       structuredContent: { docRect },
       content: [{ type: "text", text: "<svg/>" }],
@@ -811,11 +822,11 @@ describe("render and export return an image, SVG text or file text", () => {
     expect(service.svg).toHaveBeenCalledWith("d", { scope, background: undefined });
   });
 
-  it("export zibel_json: the file text; scope, scale and background do not apply", async () => {
+  it("export kalamo_json: the file text; scope, scale and background do not apply", async () => {
     const { service, call } = await harness({ file: async () => ({ text: "{}" }) });
-    const result = await call("zibel_export", {
+    const result = await call("kalamo_export", {
       docId: "d",
-      format: "zibel_json",
+      format: "kalamo_json",
       scope,
       scale: 2,
       background: "#112233",
@@ -835,31 +846,31 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
     outputSchema: object;
   }[];
   expect(tools.map((t) => t.name).sort()).toEqual([
-    "zibel_doc_changes",
-    "zibel_doc_create",
-    "zibel_doc_delete",
-    "zibel_doc_get_info",
-    "zibel_doc_list",
-    "zibel_doc_open",
-    "zibel_doc_outline",
-    "zibel_export",
-    "zibel_freehand_stroke",
-    "zibel_image_place",
-    "zibel_mask_make",
-    "zibel_mask_release",
-    "zibel_node_create",
-    "zibel_node_delete",
-    "zibel_node_get",
-    "zibel_node_query",
-    "zibel_node_transform",
-    "zibel_node_update",
-    "zibel_path_edit",
-    "zibel_path_op",
-    "zibel_render",
-    "zibel_svg_import",
-    "zibel_tx_begin",
-    "zibel_tx_commit",
-    "zibel_tx_rollback",
+    "kalamo_doc_changes",
+    "kalamo_doc_create",
+    "kalamo_doc_delete",
+    "kalamo_doc_get_info",
+    "kalamo_doc_list",
+    "kalamo_doc_open",
+    "kalamo_doc_outline",
+    "kalamo_export",
+    "kalamo_freehand_stroke",
+    "kalamo_image_place",
+    "kalamo_mask_make",
+    "kalamo_mask_release",
+    "kalamo_node_create",
+    "kalamo_node_delete",
+    "kalamo_node_get",
+    "kalamo_node_query",
+    "kalamo_node_transform",
+    "kalamo_node_update",
+    "kalamo_path_edit",
+    "kalamo_path_op",
+    "kalamo_render",
+    "kalamo_svg_import",
+    "kalamo_tx_begin",
+    "kalamo_tx_commit",
+    "kalamo_tx_rollback",
   ]);
   const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
   const inputKeys = (name: string) => {
@@ -867,81 +878,82 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
     return tool ? Object.keys((tool.inputSchema as { properties: object }).properties) : [];
   };
   for (const [name, destructive] of [
-    ["zibel_node_create", false],
-    ["zibel_node_update", true],
-    ["zibel_node_delete", true],
-    ["zibel_node_transform", false],
+    ["kalamo_node_create", false],
+    ["kalamo_node_update", true],
+    ["kalamo_node_delete", true],
+    ["kalamo_node_transform", false],
   ] as const) {
     expect(byName[name]?.annotations).toMatchObject({ destructiveHint: destructive });
     expect(inputKeys(name)).toEqual(
       expect.arrayContaining(["docId", "intent", "txId", "ifRev", "partial"]),
     );
   }
-  expect(inputKeys("zibel_doc_create")).toContain("intent");
-  expect(inputKeys("zibel_svg_import").sort()).toEqual(
+  expect(inputKeys("kalamo_doc_create")).toContain("intent");
+  expect(inputKeys("kalamo_svg_import").sort()).toEqual(
     ["docId", "fit", "ifRev", "intent", "parentId", "position", "svg", "txId"].sort(),
   );
-  expect(byName.zibel_svg_import?.annotations).toMatchObject({ destructiveHint: false });
-  expect(inputKeys("zibel_image_place").sort()).toEqual(
+  expect(byName.kalamo_svg_import?.annotations).toMatchObject({ destructiveHint: false });
+  expect(inputKeys("kalamo_image_place").sort()).toEqual(
     ["asTemplate", "docId", "frame", "ifRev", "intent", "parentId", "src", "txId"].sort(),
   );
   for (const name of [
-    "zibel_freehand_stroke",
-    "zibel_mask_make",
-    "zibel_mask_release",
-    "zibel_path_edit",
-    "zibel_path_op",
+    "kalamo_freehand_stroke",
+    "kalamo_mask_make",
+    "kalamo_mask_release",
+    "kalamo_path_edit",
+    "kalamo_path_op",
   ]) {
     expect(inputKeys(name)).toEqual(expect.arrayContaining(["docId", "intent", "txId", "ifRev"]));
     expect(inputKeys(name)).not.toContain("partial");
   }
   for (const name of [
-    "zibel_node_get",
-    "zibel_node_query",
-    "zibel_doc_outline",
-    "zibel_render",
-    "zibel_export",
+    "kalamo_node_get",
+    "kalamo_node_query",
+    "kalamo_doc_outline",
+    "kalamo_render",
+    "kalamo_export",
   ]) {
     expect(inputKeys(name)).toContain("txId");
   }
-  expect(inputKeys("zibel_tx_commit")).toEqual(
+  expect(inputKeys("kalamo_tx_commit")).toEqual(
     expect.arrayContaining(["docId", "txId", "ifRev", "intent"]),
   );
-  expect(byName.zibel_doc_changes?.annotations).toMatchObject({ readOnlyHint: true });
-  expect(byName.zibel_doc_get_info?.annotations).toMatchObject({ readOnlyHint: true });
-  expect(byName.zibel_doc_list?.annotations).toMatchObject({ readOnlyHint: true });
-  expect(byName.zibel_tx_rollback?.annotations).toMatchObject({ destructiveHint: true });
-  expect(byName.zibel_doc_delete?.annotations).toMatchObject({
+  expect(byName.kalamo_doc_changes?.annotations).toMatchObject({ readOnlyHint: true });
+  expect(byName.kalamo_doc_get_info?.annotations).toMatchObject({ readOnlyHint: true });
+  expect(byName.kalamo_doc_list?.annotations).toMatchObject({ readOnlyHint: true });
+  expect(byName.kalamo_tx_rollback?.annotations).toMatchObject({ destructiveHint: true });
+  expect(byName.kalamo_doc_delete?.annotations).toMatchObject({
     readOnlyHint: false,
     destructiveHint: true,
   });
-  expect(byName.zibel_tx_commit?.annotations).toMatchObject({ destructiveHint: false });
+  expect(byName.kalamo_tx_commit?.annotations).toMatchObject({ destructiveHint: false });
   expect(JSON.stringify(tools)).not.toContain("no effect yet");
   // Descriptions point at the Skill document instead of repeating its conventions.
   const described = (name: string) => (byName[name] as { description?: string })?.description;
-  for (const name of ["zibel_doc_create", "zibel_node_create", "zibel_node_update"]) {
-    expect(described(name)).toContain("skill://zibel/drawing-conventions");
+  for (const name of ["kalamo_doc_create", "kalamo_node_create", "kalamo_node_update"]) {
+    expect(described(name)).toContain("skill://kalamo/drawing-conventions");
   }
-  expect(described("zibel_node_create")).not.toContain("origin top-left");
-  expect(described("zibel_node_create")).toContain("text {");
-  expect(described("zibel_node_create")).toContain("TEXT_OVERFLOW");
-  expect(described("zibel_node_create")).toContain("MISSING_GLYPHS");
-  expect(described("zibel_node_update")).toContain("leading");
-  expect(described("zibel_node_create")).toContain("Bold Italic");
-  expect(described("zibel_node_update")).toContain("fontStyle");
-  for (const word of ["tracking", "ranges"]) expect(described("zibel_node_create")).toContain(word);
-  expect(described("zibel_node_update")).toContain("ranges");
-  expect(described("zibel_node_update")).toContain("clears");
-  expect(described("zibel_node_create")).toContain("image {");
-  expect(described("zibel_node_create")).toContain("missing link");
-  expect(described("zibel_node_update")).toContain("preserveAspectRatio");
+  expect(described("kalamo_node_create")).not.toContain("origin top-left");
+  expect(described("kalamo_node_create")).toContain("text {");
+  expect(described("kalamo_node_create")).toContain("TEXT_OVERFLOW");
+  expect(described("kalamo_node_create")).toContain("MISSING_GLYPHS");
+  expect(described("kalamo_node_update")).toContain("leading");
+  expect(described("kalamo_node_create")).toContain("Bold Italic");
+  expect(described("kalamo_node_update")).toContain("fontStyle");
+  for (const word of ["tracking", "ranges"])
+    expect(described("kalamo_node_create")).toContain(word);
+  expect(described("kalamo_node_update")).toContain("ranges");
+  expect(described("kalamo_node_update")).toContain("clears");
+  expect(described("kalamo_node_create")).toContain("image {");
+  expect(described("kalamo_node_create")).toContain("missing link");
+  expect(described("kalamo_node_update")).toContain("preserveAspectRatio");
   // Relink and Embed (ADR-0042).
-  expect(described("zibel_node_update")).not.toContain("src is read-only");
+  expect(described("kalamo_node_update")).not.toContain("src is read-only");
   for (const word of ["Relink", "file: null", "Embed", "INVALID_IMAGE"]) {
-    expect(described("zibel_node_update")).toContain(word);
+    expect(described("kalamo_node_update")).toContain(word);
   }
   for (const key of ["src", "file"]) {
-    expect(JSON.stringify(byName.zibel_node_update?.inputSchema)).toContain(`"${key}"`);
+    expect(JSON.stringify(byName.kalamo_node_update?.inputSchema)).toContain(`"${key}"`);
   }
   for (const param of [
     "angle",
@@ -952,31 +964,31 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
     "endAngle",
     "arcType",
   ]) {
-    expect(described("zibel_node_create")).toContain(param);
-    expect(JSON.stringify(byName.zibel_node_update?.inputSchema)).toContain(`"${param}"`);
+    expect(described("kalamo_node_create")).toContain(param);
+    expect(JSON.stringify(byName.kalamo_node_update?.inputSchema)).toContain(`"${param}"`);
   }
   for (const word of ["gradient", "stops", "radial", "aspectRatio", "focus"]) {
-    expect(described("zibel_node_create")).toContain(word);
-    expect(JSON.stringify(byName.zibel_node_update?.inputSchema)).toContain(`"${word}"`);
+    expect(described("kalamo_node_create")).toContain(word);
+    expect(JSON.stringify(byName.kalamo_node_update?.inputSchema)).toContain(`"${word}"`);
   }
-  expect(described("zibel_node_update")).toContain("gradient");
-  for (const tool of ["zibel_doc_open", "zibel_svg_import"]) {
+  expect(described("kalamo_node_update")).toContain("gradient");
+  for (const tool of ["kalamo_doc_open", "kalamo_svg_import"]) {
     expect(described(tool)).toContain("IMAGE_LINK_MISSING");
     expect(described(tool)).not.toContain("LINKED_IMAGE_DROPPED");
   }
-  expect(described("zibel_doc_open")).not.toMatch(/\(gradients/);
+  expect(described("kalamo_doc_open")).not.toMatch(/\(gradients/);
   for (const t of tools) {
     expect(t.annotations, t.name).toEqual({
       readOnlyHint: expect.any(Boolean),
       destructiveHint: expect.any(Boolean),
       idempotentHint: expect.any(Boolean),
       // Only image_place reaches outside the service: it fetches a URL (ADR-0027).
-      openWorldHint: t.name === "zibel_image_place",
+      openWorldHint: t.name === "kalamo_image_place",
     });
     expect(t.outputSchema, t.name).toMatchObject({ type: "object" });
   }
   // Core validates colours, but Agents still read the pattern from the published schema (§6.5).
-  const nodeCreate = tools.find((t) => t.name === "zibel_node_create");
+  const nodeCreate = tools.find((t) => t.name === "kalamo_node_create");
   expect(JSON.stringify(nodeCreate?.inputSchema)).toContain(
     JSON.stringify({ type: "string", pattern: COLOR_PATTERN }).slice(1, -1),
   );
@@ -985,7 +997,7 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
 it("publishes appearance with contents on layer and group in node_create and node_update (ADR-0043)", async () => {
   const { client } = await harness();
   const tools = (await client.listTools()).tools;
-  const create = tools.find((t) => t.name === "zibel_node_create");
+  const create = tools.find((t) => t.name === "kalamo_node_create");
   if (!create) throw new Error("setup");
   const variants = (
     (create.inputSchema.properties as { nodes: unknown }).nodes as { items: { oneOf: object[] } }
@@ -996,13 +1008,13 @@ it("publishes appearance with contents on layer and group in node_create and nod
     expect(create.description).toContain(`${type} {`);
   }
   expect(create.description).toContain("contents");
-  const update = tools.find((t) => t.name === "zibel_node_update");
+  const update = tools.find((t) => t.name === "kalamo_node_update");
   expect(JSON.stringify(update?.inputSchema)).toContain('"contents"');
   expect(update?.description).toContain("appearance: null removes it");
 });
 
-it("serves skill://zibel/drawing-conventions and points at it in the instructions", async () => {
-  const uri = "skill://zibel/drawing-conventions";
+it("serves skill://kalamo/drawing-conventions and points at it in the instructions", async () => {
+  const uri = "skill://kalamo/drawing-conventions";
   const { client } = await harness();
   expect(client.getInstructions()).toContain(uri);
   expect((await client.listResources()).resources).toContainEqual(
@@ -1016,9 +1028,9 @@ it("serves skill://zibel/drawing-conventions and points at it in the instruction
     "y down",
     "parentId",
     "ifRev",
-    "zibel_doc_changes",
-    "zibel_json",
-    "zibel_doc_open",
+    "kalamo_doc_changes",
+    "kalamo_json",
+    "kalamo_doc_open",
     "INVALID_DOCUMENT",
     "SVG",
     "FONT_MISSING",
@@ -1028,15 +1040,15 @@ it("serves skill://zibel/drawing-conventions and points at it in the instruction
     "INVALID_IMAGE",
     '"type": "gradient"',
     "aspectRatio",
-    "zibel_image_place",
+    "kalamo_image_place",
     "Template Layer",
   ]) {
     expect(text).toContain(fact);
   }
-  // Drift guard: the document names only tools that exist; zibel_json is an export format.
+  // Drift guard: the document names only tools that exist; kalamo_json is an export format.
   const tools = new Set((await client.listTools()).tools.map((t) => t.name));
-  for (const [name] of text.matchAll(/zibel_(?!json\b)[a-z_]+/g)) expect(tools).toContain(name);
-  await expect(client.readResource({ uri: "skill://zibel/nope" })).rejects.toMatchObject({
+  for (const [name] of text.matchAll(/kalamo_(?!json\b)[a-z_]+/g)) expect(tools).toContain(name);
+  await expect(client.readResource({ uri: "skill://kalamo/nope" })).rejects.toMatchObject({
     code: -32602,
   });
 });
@@ -1051,12 +1063,12 @@ it("logs one line per call: Actor, tool, duration, node count, error code and re
     },
     "agent-b",
   );
-  await call("zibel_node_create", { docId: "d", nodes: [{ type: "layer", name: "L" }] });
-  await call("zibel_doc_outline", { docId: "d" });
+  await call("kalamo_node_create", { docId: "d", nodes: [{ type: "layer", name: "L" }] });
+  await call("kalamo_doc_outline", { docId: "d" });
   expect(log.mock.calls.map(([line]) => JSON.parse(String(line)))).toEqual([
     {
       actor: "agent-b",
-      tool: "zibel_node_create",
+      tool: "kalamo_node_create",
       ms: expect.any(Number),
       nodes: 1,
       code: null,
@@ -1064,11 +1076,32 @@ it("logs one line per call: Actor, tool, duration, node count, error code and re
     },
     {
       actor: "agent-b",
-      tool: "zibel_doc_outline",
+      tool: "kalamo_doc_outline",
       ms: expect.any(Number),
       nodes: 0,
       code: "DOC_NOT_FOUND",
       rev: null,
     },
   ]);
+});
+
+it("names every tool kalamo_ and knows the former name's tools and format as nothing (ADR-0069)", async () => {
+  const { client, call } = await harness();
+  const names = (await client.listTools()).tools.map((t) => t.name);
+  expect(names).toHaveLength(25);
+  expect(names.filter((n) => !n.startsWith("kalamo_") || n.includes(LEGACY_NAME))).toEqual([]);
+
+  const failure = async (name: string) =>
+    JSON.stringify(await call(name, { docId: "d" }).catch((e: Error) => e.message)).replace(
+      name,
+      "<tool>",
+    );
+  expect(await failure(`${LEGACY_NAME}_doc_get_info`)).toBe(await failure("unknown_doc_get_info"));
+
+  const result = await call("kalamo_export", { docId: "d", format: `${LEGACY_NAME}_json` });
+  expect(errorOf(result)).toMatchObject({
+    code: "INVALID_INPUT",
+    path: "format",
+    hint: "Send one of: svg, png, kalamo_json.",
+  });
 });

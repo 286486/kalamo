@@ -44,7 +44,7 @@ export const docNotFound = () =>
   new KalamoError({
     code: "DOC_NOT_FOUND",
     message: "Document not found.",
-    hint: "Check the docId against zibel_doc_list, which lists the Documents you own or that are shared with you.",
+    hint: "Check the docId against kalamo_doc_list, which lists the Documents you own or that are shared with you.",
     path: "docId",
   });
 
@@ -175,8 +175,8 @@ async function member(env: Env, docId: string, login: string) {
   if (!user) {
     throw new KalamoError({
       code: "INVALID_INPUT",
-      message: `${login} has never signed in to Zibel.`,
-      hint: `Ask ${login} to sign in to Zibel with GitHub once, then share again.`,
+      message: `${login} has never signed in to Kalamo.`,
+      hint: `Ask ${login} to sign in to Kalamo with GitHub once, then share again.`,
       path: "login",
     });
   }

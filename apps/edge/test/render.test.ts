@@ -1,11 +1,11 @@
 import { expect, it } from "vitest";
-import fixture from "../../../fixtures/documents/inkscape.zibel.json?raw";
+import fixture from "../../../fixtures/documents/inkscape.kalamo.json?raw";
 import { call, errorOf } from "./rpc.ts";
 
 type Rect = { x: number; y: number; width: number; height: number };
 
 const newDoc = async (artboards: object[] = [{ width: 200, height: 100 }]) =>
-  (await call("zibel_doc_create", { name: "Doc", artboards })).structuredContent as {
+  (await call("kalamo_doc_create", { name: "Doc", artboards })).structuredContent as {
     docId: string;
     defaultLayerId: string;
     artboards: { id: string; frame: Rect }[];
@@ -23,7 +23,7 @@ function pngSize(result: { content: { type: string; data?: string; mimeType?: st
 
 /** Renders, and checks the PNG is as large as the viewport says. */
 async function render(args: object) {
-  const result = await call("zibel_render", args);
+  const result = await call("kalamo_render", args);
   expect(result.isError).toBeFalsy();
   expect(pngSize(result)).toEqual(result.structuredContent.viewport.pixelSize);
   return result.structuredContent.viewport;
@@ -41,7 +41,7 @@ const redRect = (parentId: string) => ({
 
 it("renders the Document to a PNG with viewport metadata", async () => {
   const doc = await newDoc();
-  await call("zibel_node_create", { docId: doc.docId, nodes: [redRect(doc.defaultLayerId)] });
+  await call("kalamo_node_create", { docId: doc.docId, nodes: [redRect(doc.defaultLayerId)] });
   expect(await render({ docId: doc.docId, scale: 2 })).toEqual({
     docRect: { x: 0, y: 0, width: 200, height: 100 },
     pixelSize: { width: 400, height: 200 },
@@ -55,7 +55,7 @@ it("renders each Render Scope at the pixel size and docRect it covers", async ()
     { width: 50, height: 40 },
   ]);
   const rectId = (
-    await call("zibel_node_create", { docId: doc.docId, nodes: [redRect(doc.defaultLayerId)] })
+    await call("kalamo_node_create", { docId: doc.docId, nodes: [redRect(doc.defaultLayerId)] })
   ).structuredContent.createdIds[0];
   const second = doc.artboards[1];
   expect(await render({ docId: doc.docId, scope: { artboardId: second?.id } })).toEqual({
@@ -98,12 +98,12 @@ it("lowers the scale to fit maxSize and reports the scale used", async () => {
 
 it("refuses an image larger than 4096 px per side with LIMIT_EXCEEDED and a hint", async () => {
   const { docId } = await newDoc([{ width: 2000, height: 100 }]);
-  expect(errorOf(await call("zibel_render", { docId, scale: 4, maxSize: 8000 }))).toMatchObject({
+  expect(errorOf(await call("kalamo_render", { docId, scale: 4, maxSize: 8000 }))).toMatchObject({
     code: "LIMIT_EXCEEDED",
     path: "maxSize",
     hint: expect.stringContaining("4096"),
   });
-  expect(errorOf(await call("zibel_export", { docId, format: "png", scale: 4 }))).toMatchObject({
+  expect(errorOf(await call("kalamo_export", { docId, format: "png", scale: 4 }))).toMatchObject({
     code: "LIMIT_EXCEEDED",
     path: "scale",
     hint: expect.stringContaining("scale <= 2.04"),
@@ -113,13 +113,13 @@ it("refuses an image larger than 4096 px per side with LIMIT_EXCEEDED and a hint
 it("answers a scope that names nothing with an error and its path", async () => {
   const doc = await newDoc();
   const groupId = (
-    await call("zibel_node_create", {
+    await call("kalamo_node_create", {
       docId: doc.docId,
       nodes: [{ type: "group", parentId: doc.defaultLayerId, children: [] }],
     })
   ).structuredContent.createdIds[0];
   const err = async (args: object) =>
-    errorOf(await call("zibel_render", { docId: doc.docId, ...args }));
+    errorOf(await call("kalamo_render", { docId: doc.docId, ...args }));
   expect(await err({ scope: { artboardId: "nope" } })).toMatchObject({
     code: "ARTBOARD_NOT_FOUND",
     path: "scope.artboardId",
@@ -137,9 +137,9 @@ it("answers a scope that names nothing with an error and its path", async () => 
 
 it("draws overlays and a background into the image, at the same size", async () => {
   const doc = await newDoc();
-  await call("zibel_node_create", { docId: doc.docId, nodes: [redRect(doc.defaultLayerId)] });
+  await call("kalamo_node_create", { docId: doc.docId, nodes: [redRect(doc.defaultLayerId)] });
   const png = async (args: object) => {
-    const result = await call("zibel_render", { docId: doc.docId, ...args });
+    const result = await call("kalamo_render", { docId: doc.docId, ...args });
     expect(pngSize(result)).toEqual({ width: 200, height: 100 });
     return result.content[0].data;
   };
@@ -151,15 +151,15 @@ it("draws overlays and a background into the image, at the same size", async () 
 });
 
 it("exports the fixture Document as Inkscape SVG that matches the stored file", async () => {
-  const { docId, artboards } = (await call("zibel_doc_open", { content: fixture }))
+  const { docId, artboards } = (await call("kalamo_doc_open", { content: fixture }))
     .structuredContent as { docId: string; artboards: { frame: Rect }[] };
-  const result = await call("zibel_export", { docId, format: "svg" });
+  const result = await call("kalamo_export", { docId, format: "svg" });
   // The viewBox is the first Artboard, the page Inkscape binds to the viewport.
   expect(result.structuredContent).toEqual({ docRect: artboards[0]?.frame });
   expect(result.content).toHaveLength(1);
   expect(result.content[0].type).toBe("text");
   const svg: string = result.content[0].text;
-  expect(svg).toContain('viewBox="0 0 300 200" zibel:scope="doc"');
+  expect(svg).toContain('viewBox="0 0 300 200" kalamo:scope="doc"');
   // Each mapping of ADR-0017, by the fixture's fixed ids.
   const z = (id: string) => `id="z-01M38T29${id}"`;
   for (const part of [
@@ -167,7 +167,7 @@ it("exports the fixture Document as Inkscape SVG that matches the stored file", 
     '<sodipodi:namedview inkscape:document-units="pt">',
     `<inkscape:page x="0" y="0" width="300" height="200" ${z("S8GTJN2S1004N4Q1BH")} inkscape:label="Artboard 1"/>`,
     `<inkscape:page x="320" y="0" width="120" height="120" ${z("S9V6NZ3YY4ARKXBP1G")} inkscape:label="Artboard 2"/>`,
-    'fill="#FFF4D6" zibel:artboard="01M38T29S9V6NZ3YY4ARKXBP1G" sodipodi:insensitive="true"/>',
+    'fill="#FFF4D6" kalamo:artboard="01M38T29S9V6NZ3YY4ARKXBP1G" sodipodi:insensitive="true"/>',
     `<g ${z("SH6VR2ZZQ4C3WAHQMX")} inkscape:label="Guides" sodipodi:insensitive="true" inkscape:groupmode="layer" style="display:none">`,
     `<rect x="20" y="20" width="120" height="70" rx="12" ry="12" ${z("SBZ873XP2NBD2K6CYR")} inkscape:label="Card"`,
     `<ellipse cx="205" cy="45" rx="45" ry="25" ${z("SDPGEMM6AY4DF6ZSGG")}`,
@@ -178,10 +178,10 @@ it("exports the fixture Document as Inkscape SVG that matches the stored file", 
     'sodipodi:type="star" sodipodi:sides="5" sodipodi:cx="260" sodipodi:cy="150" sodipodi:r1="35" sodipodi:r2="15"',
     'inkscape:flatsided="false"',
     `${z("SFMVZ9S4MNJSJD618Z")} fill="#66CCAA" stroke="#004433"`,
-    `<g ${z("SF5XG8X1F6BB53G505")} zibel:stack="true"><path d="M 330 110 L 410 110 L 370 150 Z" fill="#FF0000" fill-opacity="0.502"/>`,
+    `<g ${z("SF5XG8X1F6BB53G505")} kalamo:stack="true"><path d="M 330 110 L 410 110 L 370 150 Z" fill="#FF0000" fill-opacity="0.502"/>`,
     `<path d="M 150 155 L 215 155 L 215 195 L 150 195 Z M 170 165 L 195 165 L 195 185 L 170 185 Z" fill-rule="evenodd" ${z("SK0MP0VNDPATH0RVNG")}`,
     '<text x="20" y="195" font-family="Source Sans 3" font-size="14"',
-    'zibel:tags="[&quot;badge&quot;,&quot;export&quot;]" zibel:meta="{&quot;quote\\&quot;d&quot;:[1,2],&quot;source&quot;:&quot;fixture&quot;}"',
+    'kalamo:tags="[&quot;badge&quot;,&quot;export&quot;]" kalamo:meta="{&quot;quote\\&quot;d&quot;:[1,2],&quot;source&quot;:&quot;fixture&quot;}"',
     // ADR-0023: an Image as <image xlink:href>, which Inkscape 1.2 draws, cropped by a Clipping Mask.
     'xmlns:xlink="http://www.w3.org/1999/xlink"',
     '<image x="470" y="10" width="24" height="16" preserveAspectRatio="none" xlink:href="data:image/png;base64,iVBOR',
@@ -204,8 +204,8 @@ it("exports the fixture Document as Inkscape SVG that matches the stored file", 
     `font-size="20" letter-spacing="2" ${z("SWCHARS000000000A0")}`,
     '<tspan fill="#E9C46A" baseline-shift="2" rotate="-15">L</tspan>',
     // ADR-0051: a stroked Clipping Path's clip wraps the content, its Strokes drawn after it.
-    `<g ${z("SYC11PPA1NTGR0VP00")} inkscape:label="Framed"><g zibel:clipped="true" clip-path="url(#clip-z-01M38T29SYC11PPA1NTGR0VP00)">`,
-    '<g zibel:paint="clip-stroke" sodipodi:insensitive="true" inkscape:label="Clipping Path Stroke" style="opacity:0.6;mix-blend-mode:multiply">',
+    `<g ${z("SYC11PPA1NTGR0VP00")} inkscape:label="Framed"><g kalamo:clipped="true" clip-path="url(#clip-z-01M38T29SYC11PPA1NTGR0VP00)">`,
+    '<g kalamo:paint="clip-stroke" sodipodi:insensitive="true" inkscape:label="Clipping Path Stroke" style="opacity:0.6;mix-blend-mode:multiply">',
     // ADR-0052: a text Clipping Path unpainted in its <clipPath>, its overflow hidden.
     `<clipPath id="clip-z-01M38T29SZTEXTC11PGR0VP000" clipPathUnits="userSpaceOnUse"><text font-family="Source Sans 3" font-size="24" font-weight="900" ${z("SZTEXTC11PTYPE0000")}`,
     '<tspan style="visibility:hidden">hidden</tspan></text></clipPath>',
@@ -224,9 +224,9 @@ it("exports the fixture Document as Inkscape SVG that matches the stored file", 
 it("exports PNG as image content with its viewport, in the same scopes", async () => {
   const doc = await newDoc();
   const rectId = (
-    await call("zibel_node_create", { docId: doc.docId, nodes: [redRect(doc.defaultLayerId)] })
+    await call("kalamo_node_create", { docId: doc.docId, nodes: [redRect(doc.defaultLayerId)] })
   ).structuredContent.createdIds[0];
-  const result = await call("zibel_export", {
+  const result = await call("kalamo_export", {
     docId: doc.docId,
     format: "png",
     scope: { nodeIds: [rectId] },
@@ -249,7 +249,7 @@ it("renders and exports a scope while a Clipping Mask or a translucent Node lies
   ]);
   const { docId, defaultLayerId: parentId } = doc;
   const [contentId, clipId] = (
-    await call("zibel_node_create", {
+    await call("kalamo_node_create", {
       docId,
       nodes: [
         { type: "rect", parentId, x: 300, y: 0, width: 20, height: 20 },
@@ -257,7 +257,7 @@ it("renders and exports a scope while a Clipping Mask or a translucent Node lies
       ],
     })
   ).structuredContent.createdIds;
-  const mask = await call("zibel_mask_make", {
+  const mask = await call("kalamo_mask_make", {
     docId,
     clipNodeId: clipId,
     contentIds: [contentId],
@@ -266,23 +266,23 @@ it("renders and exports a scope while a Clipping Mask or a translucent Node lies
   const artboardId = doc.artboards[0]?.id;
   await render({ docId, scope: { artboardId } });
   await render({ docId, scope: { rect: { x: 0, y: 0, width: 50, height: 50 } } });
-  const png = await call("zibel_export", { docId, format: "png", scope: { artboardId } });
+  const png = await call("kalamo_export", { docId, format: "png", scope: { artboardId } });
   expect(png.isError).toBeFalsy();
   expect(pngSize(png)).toEqual(png.structuredContent.viewport.pixelSize);
   // export SVG still writes the far Clipping Mask.
-  const svg = await call("zibel_export", { docId, format: "svg", scope: { artboardId } });
+  const svg = await call("kalamo_export", { docId, format: "svg", scope: { artboardId } });
   expect(svg.content[0].text).toContain("<clipPath");
 
   const lone = await newDoc([{ width: 100, height: 100 }]);
   const [rectId] = (
-    await call("zibel_node_create", {
+    await call("kalamo_node_create", {
       docId: lone.docId,
       nodes: [
         { type: "rect", parentId: lone.defaultLayerId, x: 1000, y: 0, width: 20, height: 20 },
       ],
     })
   ).structuredContent.createdIds;
-  const updated = await call("zibel_node_update", {
+  const updated = await call("kalamo_node_update", {
     docId: lone.docId,
     updates: [{ nodeId: rectId, patch: { opacity: 0.5 } }],
   });
@@ -294,7 +294,7 @@ it("renders and exports an Artboard while a translucent Group over far artwork h
   const doc = await newDoc([{ width: 100, height: 100 }]);
   const { docId, defaultLayerId: parentId } = doc;
   const [groupId, , innerId] = (
-    await call("zibel_node_create", {
+    await call("kalamo_node_create", {
       docId,
       nodes: [
         {
@@ -308,7 +308,7 @@ it("renders and exports an Artboard while a translucent Group over far artwork h
       ],
     })
   ).structuredContent.createdIds;
-  const updated = await call("zibel_node_update", {
+  const updated = await call("kalamo_node_update", {
     docId,
     updates: [
       { nodeId: groupId, patch: { opacity: 0.5 } },
@@ -320,7 +320,7 @@ it("renders and exports an Artboard while a translucent Group over far artwork h
   expect(await render({ docId, scope: { artboardId } })).toMatchObject({
     pixelSize: { width: 100, height: 100 },
   });
-  const png = await call("zibel_export", { docId, format: "png", scope: { artboardId } });
+  const png = await call("kalamo_export", { docId, format: "png", scope: { artboardId } });
   expect(png.isError).toBeFalsy();
   expect(pngSize(png)).toEqual({ width: 100, height: 100 });
 });

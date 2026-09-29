@@ -223,7 +223,7 @@ export function documentMenus(tabs: {
             save((doc, images) => [
               serializeDocument(doc, images),
               "application/json",
-              `${doc.name}.zibel.json`,
+              `${doc.name}.kalamo.json`,
             ]),
         },
         {

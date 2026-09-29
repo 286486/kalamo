@@ -21,7 +21,7 @@ export function counted(count: number, size = MiB) {
   return { stream, pulls: () => pulls };
 }
 
-/** The `.zibel.json` of a Document whose images fill the 20 MB cap (ADR-0046), over 26 MiB. */
+/** The `.kalamo.json` of a Document whose images fill the 20 MB cap (ADR-0046), over 26 MiB. */
 export async function fullKalamoFile(docId: string, layerId: string) {
   const s = env.DOCUMENT.get(env.DOCUMENT.idFromName(docId));
   const red = readImage(RED_2x2_PNG, "src").bytes;

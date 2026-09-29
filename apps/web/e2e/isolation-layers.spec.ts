@@ -26,23 +26,23 @@ async function open(page: Page, docId: string) {
 // #130: Isolation Mode for a sub-Layer and a single path (ADR-0058).
 test("Isolation Mode isolates a clipped sub-Layer and a single path", async ({ page, request }) => {
   const { docId, defaultLayerId: layer } = (
-    await call(request, "zibel_doc_create", {
+    await call(request, "kalamo_doc_create", {
       name: "Isolation layers",
       artboards: [{ width: 200, height: 100 }],
     })
   ).structuredContent;
   const create = async (parentId: string, nodes: object[]) =>
     (
-      await call(request, "zibel_node_create", {
+      await call(request, "kalamo_node_create", {
         docId,
         nodes: nodes.map((n) => ({ ...n, parentId })),
       })
     ).structuredContent.createdIds as string[];
   const children = async (rootId: string) =>
-    (await call(request, "zibel_doc_outline", { docId, rootId, depth: 1 })).structuredContent
+    (await call(request, "kalamo_doc_outline", { docId, rootId, depth: 1 })).structuredContent
       .nodes as { id: string; type: string; name: string }[];
   const get = async (id: string) =>
-    (await call(request, "zibel_node_get", { docId, nodeIds: [id], detail: "full" }))
+    (await call(request, "kalamo_node_get", { docId, nodeIds: [id], detail: "full" }))
       .structuredContent?.nodes[0];
   // Layer 1: Bg, then sub-Layer S: sub-Layer T (T rect), Rect, Group (Group rect), and the
   // unpainted Circle (20–170 × 5–95) clipping S.
@@ -58,7 +58,7 @@ test("Isolation Mode isolates a clipped sub-Layer and a single path", async ({ p
     { type: "ellipse", name: "Circle", x: 20, y: 5, width: 150, height: 90 },
   ])) as [string, string, string, string, string];
   await create(t, [rect("T rect", 130, 40, 20, 20, "#00FF00")]);
-  await call(request, "zibel_mask_make", { docId, layerId: s });
+  await call(request, "kalamo_mask_make", { docId, layerId: s });
 
   const at = await open(page, docId);
   const bar = page.getByRole("navigation", { name: "Isolation Mode" });
@@ -165,7 +165,7 @@ test("Isolation Mode isolates a clipped sub-Layer and a single path", async ({ p
   await expect(row("Rect")).toHaveAttribute("aria-pressed", "true");
 
   // An Agent deleting the isolated Rect moves the Isolation up to S.
-  await call(request, "zibel_node_delete", { docId, nodeIds: [rectId] });
+  await call(request, "kalamo_node_delete", { docId, nodeIds: [rectId] });
   await expect(current).toContainText("S");
   await page.keyboard.press("Escape");
   await expect(bar).toBeHidden();
@@ -182,14 +182,14 @@ test("Isolation Mode draws a sub-Layer or leaf as the whole Document does", asyn
   request,
 }) => {
   const { docId, defaultLayerId: layer } = (
-    await call(request, "zibel_doc_create", {
+    await call(request, "kalamo_doc_create", {
       name: "Isolation layers compositing",
       artboards: [{ width: 200, height: 100 }],
     })
   ).structuredContent;
   const create = async (parentId: string, nodes: object[]) =>
     (
-      await call(request, "zibel_node_create", {
+      await call(request, "kalamo_node_create", {
         docId,
         nodes: nodes.map((n) => ({ ...n, parentId })),
       })
@@ -198,7 +198,7 @@ test("Isolation Mode draws a sub-Layer or leaf as the whole Document does", asyn
   // (20–160).
   await create(layer, [rect("Bg", 0, 0, 200, 100, "#999999")]);
   const [p] = (
-    await call(request, "zibel_node_create", { docId, nodes: [{ type: "layer", name: "P" }] })
+    await call(request, "kalamo_node_create", { docId, nodes: [{ type: "layer", name: "P" }] })
   ).structuredContent.createdIds as [string];
   const [q] = (await create(p, [{ type: "layer", name: "Q" }, rect("P clip", 0, 0, 120, 100)])) as [
     string,
@@ -207,8 +207,8 @@ test("Isolation Mode draws a sub-Layer or leaf as the whole Document does", asyn
     rect("Other", 0, 20, 15, 60, "#00FF00"),
     rect("Leaf", 20, 20, 140, 60, "#FF0000"),
   ]);
-  await call(request, "zibel_mask_make", { docId, layerId: p });
-  await call(request, "zibel_node_update", {
+  await call(request, "kalamo_mask_make", { docId, layerId: p });
+  await call(request, "kalamo_node_update", {
     docId,
     updates: [{ nodeId: p, patch: { opacity: 0.5 } }],
   });

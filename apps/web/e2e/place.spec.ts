@@ -7,7 +7,7 @@ const SVG = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="20" height="10
 /** A 200 × 100 Document open in the page; the viewer fits its Artboard to the page's centre. */
 async function open(page: Page, request: APIRequestContext) {
   const { docId, defaultLayerId } = (
-    await call(request, "zibel_doc_create", {
+    await call(request, "kalamo_doc_create", {
       name: "E2E",
       artboards: [{ width: 200, height: 100 }],
     })
@@ -19,8 +19,13 @@ async function open(page: Page, request: APIRequestContext) {
 
 /** The Layer's children, with their bounds. */
 const children = async (request: APIRequestContext, docId: string, layerId: string) =>
-  (await call(request, "zibel_doc_outline", { docId, rootId: layerId, depth: 1 })).structuredContent
-    .nodes as { id: string; name: string; type: string; bounds: { x: number; y: number } }[];
+  (await call(request, "kalamo_doc_outline", { docId, rootId: layerId, depth: 1 }))
+    .structuredContent.nodes as {
+    id: string;
+    name: string;
+    type: string;
+    bounds: { x: number; y: number };
+  }[];
 
 /** Pans right by 20 pt, so the viewport centre is (80, 50), no longer the Artboard's. */
 async function pan(page: Page) {
@@ -58,7 +63,7 @@ test("pasting SVG text places it as a Group centred in the viewport, as the user
   // Centred on (80, 50): the Artboard's centre, less the pan. Zoom text rounds the scale.
   expect(group?.bounds.x).toBeCloseTo(70, 0);
   expect(group?.bounds.y).toBeCloseTo(45, 1);
-  const { changes } = (await call(request, "zibel_doc_changes", { docId, sinceRev: 1 }))
+  const { changes } = (await call(request, "kalamo_doc_changes", { docId, sinceRev: 1 }))
     .structuredContent;
   expect(changes).toMatchObject([
     { actor: "user", createdIds: expect.arrayContaining([group?.id]) },
@@ -102,7 +107,7 @@ test("pasting a PNG places an Image at its pixel size centred in the viewport, a
   // Centred on (80, 50). Zoom text rounds the scale.
   expect(image?.bounds.x).toBeCloseTo(79, 0);
   expect(image?.bounds.y).toBeCloseTo(49, 1);
-  const { changes } = (await call(request, "zibel_doc_changes", { docId, sinceRev: 1 }))
+  const { changes } = (await call(request, "kalamo_doc_changes", { docId, sinceRev: 1 }))
     .structuredContent;
   expect(changes).toMatchObject([{ actor: "user", createdIds: [image?.id] }]);
 });
@@ -139,7 +144,7 @@ test("a refused paste leaves an isolated leaf isolated; an accepted one goes up 
   request,
 }) => {
   const { docId, defaultLayerId } = await open(page, request);
-  await call(request, "zibel_node_create", {
+  await call(request, "kalamo_node_create", {
     docId,
     nodes: [
       {

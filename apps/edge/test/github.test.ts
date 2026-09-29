@@ -51,7 +51,7 @@ describe("sign-in", () => {
     expect(to.searchParams.get("redirect_uri")).toBe(`${APP_ORIGIN}/auth/github/callback`);
     expect(to.searchParams.has("scope")).toBe(false);
     expect(res.headers.get("set-cookie")).toMatch(
-      new RegExp(`^__Host-zibel_oauth=${to.searchParams.get("state")}\\|.*HttpOnly; Secure`),
+      new RegExp(`^__Host-kalamo_oauth=${to.searchParams.get("state")}\\|.*HttpOnly; Secure`),
     );
   });
 
@@ -61,7 +61,7 @@ describe("sign-in", () => {
     expect(res.headers.get("location")).toBe("/docs/abc");
     expect(res.headers.getSetCookie()).toContainEqual(
       expect.stringMatching(
-        /^__Host-zibel_session=[0-9a-f]{64}; Max-Age=\d+; Path=\/; HttpOnly; Secure; SameSite=Lax$/,
+        /^__Host-kalamo_session=[0-9a-f]{64}; Max-Age=\d+; Path=\/; HttpOnly; Secure; SameSite=Lax$/,
       ),
     );
     const user = await env.DB.prepare("SELECT * FROM users WHERE github_id = 101").first<{
@@ -116,7 +116,7 @@ describe("sign-in", () => {
     ] as const) {
       const res = await hosted(`/auth/github/callback?${query}`, { headers: { cookie } });
       expect(res.status).toBe(400);
-      expect(res.headers.getSetCookie().join()).not.toContain("__Host-zibel_session=");
+      expect(res.headers.getSetCookie().join()).not.toContain("__Host-kalamo_session=");
     }
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -134,7 +134,7 @@ describe("sign-in", () => {
 
 describe("sessions", () => {
   it("answers 401 to browser routes without a session", async () => {
-    for (const cookie of ["", "__Host-zibel_session=nope"]) {
+    for (const cookie of ["", "__Host-kalamo_session=nope"]) {
       for (const path of ["/api/me", "/api/docs"]) {
         const res = await hosted(path, { headers: { cookie } });
         expect(res.status).toBe(401);
@@ -151,7 +151,7 @@ describe("sessions", () => {
       headers: { cookie, origin: APP_ORIGIN },
     });
     expect(out.status).toBe(303);
-    expect(out.headers.get("set-cookie")).toMatch(/^__Host-zibel_session=; Max-Age=0/);
+    expect(out.headers.get("set-cookie")).toMatch(/^__Host-kalamo_session=; Max-Age=0/);
     expect((await me(cookie)).status).toBe(401);
   });
 
@@ -188,7 +188,7 @@ describe("the Origin check", () => {
   it("refuses a cross-origin or origin-less POST and WebSocket upgrade with 403", async () => {
     const { cookie } = await signIn({ id: 107, login: "fay" });
     const { docId } = (
-      await call("zibel_doc_create", { name: "Doc", artboards: [{ width: 10, height: 10 }] })
+      await call("kalamo_doc_create", { name: "Doc", artboards: [{ width: 10, height: 10 }] })
     ).structuredContent;
     for (const origin of ["https://evil.example", undefined]) {
       const headers = { cookie, ...(origin && { origin }) };
@@ -224,20 +224,20 @@ describe("attribution", () => {
       "id",
     );
     const { docId, defaultLayerId } = (
-      await call("zibel_doc_create", { name: "Doc", artboards: [{ width: 100, height: 100 }] })
+      await call("kalamo_doc_create", { name: "Doc", artboards: [{ width: 100, height: 100 }] })
     ).structuredContent;
     // Made by a dev-mode Agent; hal must own it to open it.
     await env.DB.prepare("UPDATE documents SET owner_id = ? WHERE id = ?")
       .bind(userId, docId)
       .run();
     const { createdIds, rev } = (
-      await call("zibel_node_create", {
+      await call("kalamo_node_create", {
         docId,
         nodes: [{ type: "rect", parentId: defaultLayerId, x: 0, y: 0, width: 10, height: 10 }],
       })
     ).structuredContent;
     const res = await hosted(`/api/docs/${docId}/ws`, {
-      headers: { cookie, origin: APP_ORIGIN, upgrade: "websocket", "x-zibel-actor": "forged" },
+      headers: { cookie, origin: APP_ORIGIN, upgrade: "websocket", "x-kalamo-actor": "forged" },
     });
     const ws = res.webSocket;
     if (!ws) throw new Error(`no WebSocket: ${res.status}`);
@@ -255,7 +255,7 @@ describe("attribution", () => {
     expect(await tx).toMatchObject({ type: "tx", actor: `user_${userId}`, commandId: "h1" });
     ws.close();
 
-    const { changes } = (await call("zibel_doc_changes", { docId, sinceRev: rev }))
+    const { changes } = (await call("kalamo_doc_changes", { docId, sinceRev: rev }))
       .structuredContent;
     expect(changes).toMatchObject([{ actor: `user_${userId}`, summary: "Update 1 Node" }]);
   });

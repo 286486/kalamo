@@ -9,14 +9,14 @@ The product was named Zibel. Arabic زِبْل *zibl* means "manure, dung", said
 
 ## Decision
 
-**The name is Kalamo**: `kalamo` in identifiers, `Kalamo` capitalised, the workspace scope `@kalamo/*`, the MCP tool prefix `kalamo_`, and the SVG namespace `https://kalamo.dev/ns/svg` with the prefix `kalamo:`. It comes from Greek *kálamos*, the reed pen, which lives on as Latin *calamus*, Arabic *qalam*, Turkish *kalem*, Hindi and Urdu *kalam* and Russian *калам*. It is said KAH-lah-moh. The Chinese reading is **卡拉莫** (kǎ lā mò), the Japanese カラモ. The owner chose it on 2026-09-29.
+**The name is Kalamo**: `kalamo` in identifiers, `Kalamo` capitalised, the workspace scope `@kalamo/*`, the MCP tool prefix `kalamo_`, and the SVG namespace `https://kalamo.cc/ns/svg` with the prefix `kalamo:`. It comes from Greek *kálamos*, the reed pen, which lives on as Latin *calamus*, Arabic *qalam*, Turkish *kalem*, Hindi and Urdu *kalam* and Russian *калам*. It is said KAH-lah-moh. The Chinese reading is **卡拉莫** (kǎ lā mò), the Japanese カラモ. The owner chose it on 2026-09-29.
 
 **Risks the owner accepted** when choosing it:
 
 - **A same-name product.** Kalamo at `kalamo.ai` (econf.ai) is a live AI captioning and translation service for conferences. It serves event attendees and venues with speech captions, not developers and agents with drawing.
 - **Trademarks are not cleared.** No live US KALAMO mark exists in classes 9 and 42. EUIPO, WIPO and CNIPA were not searched. Before M1, the owner confirms that nobody holds a KALAMO mark in those classes (#173). If a blocking mark turns up, this decision reopens with **Kalamos** as the fallback.
 - **The prefix.** *kal-* is "mud" in several Slavic languages, and Russian *кал* is the medical word for faeces. The whole word carries neither sense.
-- **Domains and handles.** `kalamo.com` is parked, `kalamo.app` and `kalamo.net` are registered by others, and the GitHub login `kalamo` is a personal user. `kalamo.dev` was unregistered on 2026-09-29; it names the SVG namespace, and registering it is #173.
+- **Domains and handles.** `kalamo.com` is parked, `kalamo.app` and `kalamo.net` are registered by others, and the GitHub login `kalamo` is a personal user. The product domain is `kalamo.cc`, which the owner chose on 2026-09-29; it names the SVG namespace, and confirming that the owner has registered and controls it is #173.
 
 **Every surface is renamed.** Code, packages, MCP names, formats, auth, storage, docs, the landing page, the GitHub repository and the Cloudflare deployment all say Kalamo. Only the old forms below are still read.
 
@@ -32,7 +32,9 @@ The product was named Zibel. Arabic زِبْل *zibl* means "manure, dung", said
 
 **Cloudflare moves to Kalamo, and the old deployment is deleted only after a verified migration.** The owner decided on 2026-09-29 that the Worker, its Durable Object namespace, the D1 database and the R2 bucket all take Kalamo names. A D1 database cannot be renamed and Durable Object storage belongs to its Worker, so the Kalamo resources are created and the live Documents are moved into them. Writes on `zibel` are frozen, a final copy of both Documents and their state is taken, and both are verified field for field against that copy before traffic switches (#180). Only then is the old `zibel` deployment deleted, from an explicit target list checked before and after, with a report of what can still be recovered (#181). The owner authorized that deletion but not any loss of data. Resources of other projects on the same account, including the KV namespace `OAUTH_KV`, are never touched.
 
-**The old-name guard.** `fixtures/old-name.test.ts`, part of `pnpm check`, fails on any case-insensitive `zibel` in a tracked file's content or path that no allowlist entry covers. Each entry states why the hit stays and which rename ticket removes it, and the test also fails on an entry that covers nothing, so each ticket deletes the entries it empties. When the rename is done, only the entries for the read-both rules above, the `zibel_json` rejection test, research note 05, the research note on the rename (`docs/research/07-…`, added in #177), this ADR and the Cloudflare migration records remain.
+**No trace of the old name is left in the working tree.** The owner decided on 2026-09-29 that when the rename is done, a case-insensitive search for the old name over every tracked file's content and path finds nothing: code, tests, XML and JSON fixtures, docs and config alike, with no allowlist entry left to keep a brand trace. GitHub Issues and the Claude project memory reach the same state (#182). Git history is not rewritten, and the Cloudflare backups and recovery records of #179 and #180 are kept outside the working tree, where they do not count. Reading the old forms needs the old name, so `packages/core/src/legacy.ts` is its one source: it builds the name from parts, so no tracked file spells it out, and derives the legacy SVG namespace from it. The SVG importer, the browser-storage fallback and the old-name guard take it from there, and tests build their legacy inputs from it at run time instead of keeping legacy fixtures.
+
+**The old-name guard.** `fixtures/old-name.test.ts`, part of `pnpm check`, fails on any case-insensitive hit of the old name in a tracked file's content or path that no allowlist entry covers. Each entry states why the hit stays and which rename ticket removes it, and the test also fails on an entry that covers nothing, so each ticket deletes the entries it empties. No entry is permanent: when the rename is done, the allowlist is empty and the guard stays as the check that it remains so.
 
 ## Considered Options
 
@@ -46,5 +48,5 @@ The product was named Zibel. Arabic زِبْل *zibl* means "manure, dung", said
 
 - The rename lands in serial tickets under #172, each merged and verified on its own: internal code (#174), protocol and storage surfaces (#175), the repository (#176), docs (#177), the landing page (#178), and the Cloudflare inventory, migration and deletion (#179 to #181), then issues and memory (#182).
 - The DO class `DocumentObject` has no brand and keeps its name.
-- Agent developers must update permission allowlists such as `mcp__zibel__*`, their `claude mcp add` name and the server URL. The README says so (#175).
+- Agent developers must update their MCP permission allowlists to `mcp__kalamo__*`, their `claude mcp add` name to `kalamo` and the server URL. The README says so (#175).
 - #67 (Character Ranges) keeps ADR-0068 and resumes rebased onto the renamed `main`, spelling its changes with the new names.

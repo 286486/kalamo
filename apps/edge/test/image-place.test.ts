@@ -4,12 +4,12 @@ import { RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
 import { call, errorOf } from "./rpc.ts";
 
 const newDoc = async () =>
-  (await call("zibel_doc_create", { name: "Doc", artboards: [{ width: 200, height: 100 }] }))
+  (await call("kalamo_doc_create", { name: "Doc", artboards: [{ width: 200, height: 100 }] }))
     .structuredContent as { docId: string; defaultLayerId: string };
 
 it("places a data URL centred on the parent's Artboard, and never echoes the bytes", async () => {
   const { docId, defaultLayerId } = await newDoc();
-  const placed = await call("zibel_image_place", {
+  const placed = await call("kalamo_image_place", {
     docId,
     src: RED_2x2_PNG,
     parentId: defaultLayerId,
@@ -17,7 +17,7 @@ it("places a data URL centred on the parent's Artboard, and never echoes the byt
   expect(placed.isError).toBeFalsy();
   const { createdIds } = placed.structuredContent;
   expect(createdIds).toHaveLength(1);
-  const got = await call("zibel_node_get", { docId, nodeIds: createdIds, detail: "full" });
+  const got = await call("kalamo_node_get", { docId, nodeIds: createdIds, detail: "full" });
   expect(got.structuredContent.nodes).toMatchObject([
     {
       type: "image",
@@ -33,19 +33,19 @@ it("places a data URL centred on the parent's Artboard, and never echoes the byt
 
 it("asTemplate puts it at 50% on a locked Template Layer beneath the parent's Layer", async () => {
   const { docId, defaultLayerId } = await newDoc();
-  const placed = await call("zibel_image_place", {
+  const placed = await call("kalamo_image_place", {
     docId,
     src: RED_2x2_PNG,
     parentId: defaultLayerId,
     asTemplate: true,
   });
   const [layerId, imageId] = placed.structuredContent.createdIds;
-  const outline = await call("zibel_doc_outline", { docId, depth: 1 });
+  const outline = await call("kalamo_doc_outline", { docId, depth: 1 });
   expect(outline.structuredContent.nodes).toMatchObject([
     { id: layerId, type: "layer", name: "Template Image", locked: true, childCount: 1 },
     { id: defaultLayerId },
   ]);
-  const got = await call("zibel_node_get", { docId, nodeIds: [imageId], detail: "full" });
+  const got = await call("kalamo_node_get", { docId, nodeIds: [imageId], detail: "full" });
   expect(got.structuredContent.nodes).toMatchObject([
     { type: "image", parentId: layerId, opacity: 0.5 },
   ]);
@@ -55,7 +55,7 @@ it.each(["file:///tmp/a.png", "/tmp/a.png"])(
   "refuses %s, since the server cannot read the Agent's disk",
   async (src) => {
     const { docId, defaultLayerId } = await newDoc();
-    const result = await call("zibel_image_place", { docId, src, parentId: defaultLayerId });
+    const result = await call("kalamo_image_place", { docId, src, parentId: defaultLayerId });
     expect(errorOf(result)).toMatchObject({
       code: "INVALID_IMAGE",
       path: "src",
@@ -85,7 +85,7 @@ afterEach(() => vi.restoreAllMocks());
 
 const placeUrl = async (src: string, extra: object = {}) => {
   const { docId, defaultLayerId } = await newDoc();
-  const result = await call("zibel_image_place", {
+  const result = await call("kalamo_image_place", {
     docId,
     src,
     parentId: defaultLayerId,
@@ -102,7 +102,7 @@ it("fetches a URL through a redirect, typing the file by its bytes, and names th
   const { docId, result, error } = await placeUrl("https://example.com/a", { asTemplate: true });
   expect(error).toBeNull();
   const [layerId, imageId] = result.structuredContent.createdIds;
-  const got = await call("zibel_node_get", { docId, nodeIds: [layerId, imageId], detail: "full" });
+  const got = await call("kalamo_node_get", { docId, nodeIds: [layerId, imageId], detail: "full" });
   expect(got.structuredContent.nodes).toMatchObject([
     { name: "Template red dot.png" },
     { type: "image", width: 2, height: 2 },

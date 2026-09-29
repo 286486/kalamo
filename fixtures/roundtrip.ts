@@ -1,6 +1,6 @@
 // `pnpm roundtrip`: each fixture Document goes Kalamo → SVG → Inkscape → Kalamo through a local
 // `wrangler dev` and must come back equal (ADR-0017, REQUIREMENTS §7.2); a painted Group transformed
-// in Inkscape must come back as zibel_node_transform leaves it (ADR-0043). Needs `inkscape` ≥ 1.2.
+// in Inkscape must come back as kalamo_node_transform leaves it (ADR-0043). Needs `inkscape` ≥ 1.2.
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -139,7 +139,7 @@ const rounded = (doc: Doc): Doc =>
     typeof v === "number" ? Math.round(v * 1000) / 1000 || 0 : v,
   );
 
-/** The matrix Inkscape wrote on the `<g>` of the Node `id`, as zibel_node_transform takes it. */
+/** The matrix Inkscape wrote on the `<g>` of the Node `id`, as kalamo_node_transform takes it. */
 function matrixOn(svg: string, id: string): number[] {
   const g = new RegExp(`<g\\s[^>]*\\bid="z-${id}"[^>]*>`).exec(svg)?.[0] ?? "";
   const m = /\btransform="matrix\(([^)]*)\)"/
@@ -320,19 +320,19 @@ async function main() {
   try {
     const call = httpCall(`http://127.0.0.1:${PORT}/mcp`, "dev-token-a");
     const open = async (content: string) =>
-      (await call("zibel_doc_open", { content })).structuredContent as {
+      (await call("kalamo_doc_open", { content })).structuredContent as {
         docId: string;
         name: string;
         warnings: { code: string }[];
       };
-    const text = async (args: object) => (await call("zibel_export", args)).content[0]?.text ?? "";
+    const text = async (args: object) => (await call("kalamo_export", args)).content[0]?.text ?? "";
     /** The regions of the Document `docId` in its PNG of `docRect`, at 1 px per pt: each pixel
      * goes to the first Artboard holding it, and there to text when it is in the bounds of a
      * drawn text or Image grown by MARGIN and half the widest Stroke on it or a container above. */
     const regionMap = async (docId: string, docRect: Rect): Promise<RegionMap> => {
-      const doc = JSON.parse(await text({ docId, format: "zibel_json" })) as Doc;
+      const doc = JSON.parse(await text({ docId, format: "kalamo_json" })) as Doc;
       const views = (
-        await call("zibel_node_get", {
+        await call("kalamo_node_get", {
           docId,
           nodeIds: doc.nodes.map((n) => n.id),
           detail: "full",
@@ -430,7 +430,7 @@ async function main() {
     };
     /** resvg's PNG of `docId`, the whole Document or `rect`, into `dir`; returns the rect drawn. */
     const resvg = async (dir: string, docId: string, rect?: Rect) => {
-      const png = await call("zibel_export", {
+      const png = await call("kalamo_export", {
         docId,
         format: "png",
         background: WHITE,
@@ -454,8 +454,8 @@ async function main() {
       );
       return compare(map, join(dir, "resvg.png"), join(dir, "inkscape.png"), join(dir, "diff.png"));
     };
-    for (const file of readdirSync(FIXTURES).filter((f) => f.endsWith(".zibel.json"))) {
-      const fixture = file.slice(0, -".zibel.json".length);
+    for (const file of readdirSync(FIXTURES).filter((f) => f.endsWith(".kalamo.json"))) {
+      const fixture = file.slice(0, -".kalamo.json".length);
       const json = readFileSync(join(FIXTURES, file), "utf8");
       const dir = join(STATE, fixture);
       mkdirSync(join(dir, "inkscape"), { recursive: true });
@@ -474,7 +474,7 @@ async function main() {
         const reopened = await open(readFileSync(saved, "utf8"));
         const [want, got] = await Promise.all(
           [original, reopened].map(
-            async (d) => JSON.parse(await text({ docId: d.docId, format: "zibel_json" })) as Doc,
+            async (d) => JSON.parse(await text({ docId: d.docId, format: "kalamo_json" })) as Doc,
           ),
         );
         // A missing link warns on every Open; firstDifference still catches a lost src or file.
@@ -497,7 +497,7 @@ async function main() {
         for (const [probe, nodeId] of Object.entries(probing ? PROBES : {})) {
           try {
             const [view] = (
-              await call("zibel_node_get", { docId, nodeIds: [nodeId], detail: "full" })
+              await call("kalamo_node_get", { docId, nodeIds: [nodeId], detail: "full" })
             ).structuredContent.nodes as { visibleBounds: Rect | null }[];
             const b = view?.visibleBounds;
             if (!b) throw new Error("draws nothing");
@@ -505,7 +505,7 @@ async function main() {
             const py = Math.floor(b.y + b.height / 2 - docRect.y);
             const at = px >= 0 && px < docRect.width && py >= 0 ? py * docRect.width + px : -1;
             const copy = await open(json);
-            await call("zibel_node_update", {
+            await call("kalamo_node_update", {
               docId: copy.docId,
               updates: [{ nodeId, patch: { visible: false } }],
             });
@@ -563,7 +563,7 @@ async function main() {
           if (drawn.join() !== matrix.join())
             throw new Error(`framed edit ${drawn}, want ${matrix}`);
           const reopened = await open(edited);
-          await call("zibel_node_transform", {
+          await call("kalamo_node_transform", {
             docId,
             nodeIds: [PAINTED],
             matrix,
@@ -572,7 +572,7 @@ async function main() {
           });
           const [want, got] = await Promise.all(
             [original, reopened].map(async (d) =>
-              rounded(JSON.parse(await text({ docId: d.docId, format: "zibel_json" })) as Doc),
+              rounded(JSON.parse(await text({ docId: d.docId, format: "kalamo_json" })) as Doc),
             ),
           );
           const warnings = reopened.warnings.filter((w) => w.code !== "IMAGE_LINK_MISSING");

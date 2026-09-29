@@ -7,12 +7,12 @@ test("the Pen continues a path onto another, and +, - and Shift+C edit an Agent'
   request,
 }) => {
   const { docId, defaultLayerId: parentId } = (
-    await call(request, "zibel_doc_create", {
+    await call(request, "kalamo_doc_create", {
       name: "Pen edit",
       artboards: [{ width: 200, height: 100 }],
     })
   ).structuredContent;
-  const created = await call(request, "zibel_node_create", {
+  const created = await call(request, "kalamo_node_create", {
     docId,
     nodes: [
       { type: "path", parentId, d: "M 20 20 L 60 20" },
@@ -23,7 +23,7 @@ test("the Pen continues a path onto another, and +, - and Shift+C edit an Agent'
   });
   const [a, b, curve] = created.structuredContent.createdIds as [string, string, string];
   const get = async (id: string) =>
-    (await call(request, "zibel_node_get", { docId, nodeIds: [id], detail: "full" }))
+    (await call(request, "kalamo_node_get", { docId, nodeIds: [id], detail: "full" }))
       .structuredContent?.nodes[0];
 
   await page.goto(`/docs/${docId}`);
@@ -44,7 +44,7 @@ test("the Pen continues a path onto another, and +, - and Shift+C edit an Agent'
   await expect
     .poll(async () => (await get(b))?.d)
     .toBe("M 20 20 L 60 20 L 80 40 L 100 20 L 140 20");
-  const { changes } = (await call(request, "zibel_doc_changes", { docId, sinceRev: rev }))
+  const { changes } = (await call(request, "kalamo_doc_changes", { docId, sinceRev: rev }))
     .structuredContent;
   expect(changes).toMatchObject([{ actor: "user", updatedIds: [b], deletedIds: [a] }]);
 
@@ -69,18 +69,18 @@ test("the Pen continues a path onto another, and +, - and Shift+C edit an Agent'
 // #115: Shift+C bends a Rectangle's segment, converting it in place, and a click retracts a Handle.
 test("Shift+C reshapes a Rectangle's segment and retracts a Handle", async ({ page, request }) => {
   const { docId, defaultLayerId: parentId } = (
-    await call(request, "zibel_doc_create", {
+    await call(request, "kalamo_doc_create", {
       name: "Anchor Point",
       artboards: [{ width: 200, height: 100 }],
     })
   ).structuredContent;
-  const created = await call(request, "zibel_node_create", {
+  const created = await call(request, "kalamo_node_create", {
     docId,
     nodes: [{ type: "rect", parentId, x: 40, y: 30, width: 120, height: 60 }],
   });
   const [rect] = created.structuredContent.createdIds as [string];
   const get = async () =>
-    (await call(request, "zibel_node_get", { docId, nodeIds: [rect], detail: "full" }))
+    (await call(request, "kalamo_node_get", { docId, nodeIds: [rect], detail: "full" }))
       .structuredContent?.nodes[0];
 
   await page.goto(`/docs/${docId}`);
@@ -102,7 +102,7 @@ test("Shift+C reshapes a Rectangle's segment and retracts a Handle", async ({ pa
   await expect.poll(async () => (await get())?.type).toBe("path");
   const bent = await get();
   expect(bent?.d).toMatch(/^M 40 30 C 40 3\.33\d* 160 3\.33\d* 160 30 L/);
-  const { changes } = (await call(request, "zibel_doc_changes", { docId, sinceRev: rev }))
+  const { changes } = (await call(request, "kalamo_doc_changes", { docId, sinceRev: rev }))
     .structuredContent;
   expect(changes).toHaveLength(1);
 

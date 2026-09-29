@@ -86,7 +86,7 @@ export function documentService(env: Env, principal: Principal): DocumentService
         throw new KalamoError({
           code: "INVALID_DOCUMENT",
           message: "Place takes SVG; this is not an SVG file.",
-          hint: "Pass the text of an .svg file. zibel_doc_open reads a Zibel file as a new Document.",
+          hint: "Pass the text of an .svg file. kalamo_doc_open reads a Kalamo file as a new Document.",
           path: "svg",
         });
       }

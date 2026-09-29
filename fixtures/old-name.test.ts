@@ -1,8 +1,13 @@
-// The old-name guard (#172, ADR-0069): the product was Zibel, and every case-insensitive `zibel`
-// left in a tracked file's content or path needs an allowlist entry that says why it stays and
-// which rename ticket removes it. A ticket that removes the last hit of an entry deletes the entry.
+// The old-name guard (#172, ADR-0069): every case-insensitive hit of the former name left in a
+// tracked file's content or path needs an allowlist entry that says why it stays and which rename
+// ticket removes it. A ticket that removes the last hit of an entry deletes the entry; when the
+// rename is done the allowlist is empty. The name comes from its one source, built from parts.
 import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
+import { LEGACY_NAME as OLD } from "../packages/core/src/legacy.ts";
+
+const Old = OLD[0]?.toUpperCase() + OLD.slice(1);
+const hit = new RegExp(OLD, "i");
 
 type Entry = {
   /** Files the entry covers; every file when absent. */
@@ -16,83 +21,23 @@ type Entry = {
 
 const ALLOWLIST: Entry[] = [
   {
-    path: /^fixtures\/old-name\.test\.ts$/,
-    reason: "The guard names what it looks for.",
-    until: "permanent",
-  },
-  {
     path: /^docs\/research\/05-name-conflict-check\.md$/,
-    reason: "The name check that chose Zibel, kept as history.",
-    until: "permanent",
+    reason: "The name check that chose the former name.",
+    until: "#177",
   },
   {
     path: /^docs\/adr\/0069-the-product-is-named-kalamo\.md$/,
-    reason: "The rename ADR is about the old name.",
-    until: "permanent",
+    reason: "The rename ADR names the former name.",
+    until: "#177",
   },
   {
-    token: /zibel_\w*/g,
-    reason: "MCP tool names, the zibel_json format and the __Host-zibel_* cookies.",
-    until: "#175",
-  },
-  {
-    token: /skill:\/\/zibel\/|mcp__zibel/g,
-    reason: "MCP resource URIs and the benchmark's MCP permission prefix.",
-    until: "#175",
-  },
-  {
-    path: /^(packages\/mcp\/src\/server\.ts|apps\/edge\/test\/mcp\.test\.ts|examples\/claude-code\.mcp\.json|fixtures\/agent-benchmarks\/)/,
-    token: /"zibel"|\bzibel(?=: \{ type)|zibel(?=(-bench-| MCP server| tools))/g,
-    reason: "The MCP server name, and the benchmark's server entry, prompts and temp prefix.",
-    until: "#175",
-  },
-  {
-    token: /zibel\.dev\/ns\/svg|xmlns:zibel|zibel:(?=[a-z]|\$\{|<name>)/g,
-    reason:
-      "The SVG namespace and prefix export writes; OAuth scopes zibel:read/write; storage keys zibel:tabs/pencil.",
-    until: "#175",
-  },
-  {
-    token: /\.zibel\.json|\.zibel\\\.json|zibel\\\.json/g,
-    reason: "The saved file name <doc>.zibel.json.",
-    until: "#175",
-  },
-  {
-    path: /^fixtures\/documents\//,
-    reason:
-      "Fixture Documents and their SVG snapshots carry the old namespace, text and file names.",
-    until: "#175",
-  },
-  {
-    token: /x-zibel-|"user-agent": "zibel"/g,
-    reason: "Internal Worker-to-DO headers and the GitHub API user agent.",
-    until: "#175",
-  },
-  {
-    token: /migrations apply zibel\b/g,
-    reason: "Package scripts name the D1 database; they will use the DB binding.",
-    until: "#175",
-  },
-  {
-    path: /^(apps\/edge\/src\/(auth|oauth|roles|service)\.ts|apps\/edge\/test\/roles\.test\.ts|apps\/web\/index\.html|apps\/web\/src\/Viewer\.tsx|packages\/core\/src\/file\.ts|packages\/io\/src\/(index|read)\.ts|packages\/mcp\/src\/server\.ts)$/,
-    token: /\bZibel\b/g,
-    reason:
-      "User-visible strings: page titles, the consent page, error messages, hints and tool descriptions.",
-    until: "#175",
-  },
-  {
-    path: /^packages\/mcp\/src\/drawing-conventions\.md$/,
-    reason: "The drawing conventions the MCP server serves as a resource.",
-    until: "#175",
-  },
-  {
-    token: /286486\/zibel/g,
+    token: new RegExp(`286486/${OLD}`, "g"),
     reason: "Links to the GitHub repository, which moves to 286486/kalamo.",
     until: "#176",
   },
   {
     path: /^(docs\/|README\.md$|CONTEXT\.md$|CLAUDE\.md$|NOTICE$|apps\/edge\/\.deploy\.vars\.example$)/,
-    reason: "Docs, ADRs, research notes and the deploy example (README's MCP setup goes in #175).",
+    reason: "Docs, ADRs, research notes, README and the deploy example.",
     until: "#177",
   },
   {
@@ -119,7 +64,7 @@ function check(hits: Hit[], allowlist: Entry[]) {
       const next = entry.token ? rest.replace(entry.token, "\u0000") : "";
       if (next !== rest) used.add(entry);
       rest = next;
-      if (!/zibel/i.test(rest)) return false;
+      if (!hit.test(rest)) return false;
     }
     return true;
   });
@@ -129,11 +74,11 @@ function check(hits: Hit[], allowlist: Entry[]) {
 function trackedHits(): Hit[] {
   const git = (...args: string[]) => execFileSync("git", args, { encoding: "utf8" });
   const lines = (s: string) => s.split("\n").filter(Boolean);
-  const inContent = lines(git("grep", "-I", "-i", "-n", "zibel", "--", ".")).map((l) => {
+  const inContent = lines(git("grep", "-I", "-i", "-n", OLD, "--", ".")).map((l) => {
     const [, path = "", line, text = ""] = l.match(/^(.+?):(\d+):(.*)$/) ?? [];
     return { path, text, line: Number(line) };
   });
-  const inPaths = lines(git("ls-files")).filter((p) => /zibel/i.test(p));
+  const inPaths = lines(git("ls-files")).filter((p) => hit.test(p));
   return [...inContent, ...inPaths.map((path) => ({ path, text: path }))];
 }
 
@@ -147,25 +92,26 @@ describe("the old name", () => {
   it("fails on a new hit outside the allowlist, in content or in a path", () => {
     const { uncovered } = check(
       [
-        { path: "packages/core/src/x.ts", text: "export class ZibelThing {}" },
-        { path: "packages/core/src/zibel.ts", text: "packages/core/src/zibel.ts" },
-        { path: "packages/io/src/read.ts", text: `// Read zibel:stack; Zibel's own.` },
-        { path: "packages/io/src/read.ts", text: `"A star Zibel cannot hold."` },
+        { path: "packages/core/src/x.ts", text: `export class ${Old}Thing {}` },
+        { path: `packages/core/src/${OLD}.ts`, text: `packages/core/src/${OLD}.ts` },
+        { path: "docs/adr/0001-x.md", text: `The ${Old} Authors.` },
+        { path: "apps/edge/wrangler.jsonc", text: `"name": "${OLD}",` },
       ],
       ALLOWLIST,
     );
     expect(uncovered.map((h) => h.text)).toEqual([
-      "export class ZibelThing {}",
-      "packages/core/src/zibel.ts",
+      `export class ${Old}Thing {}`,
+      `packages/core/src/${OLD}.ts`,
     ]);
   });
 
   it("covers a hit only in the files and tokens its entry names", () => {
-    const entry: Entry = { path: /^a\.ts$/, token: /zibel_\w+/g, reason: "r", until: "#175" };
+    const token = new RegExp(`${OLD}_\\w+`, "g");
+    const entry: Entry = { path: /^a\.ts$/, token, reason: "r", until: "#175" };
     const { uncovered, unused } = check(
       [
-        { path: "a.ts", text: "zibel_export and Zibel" },
-        { path: "b.ts", text: "zibel_export" },
+        { path: "a.ts", text: `${OLD}_export and ${Old}` },
+        { path: "b.ts", text: `${OLD}_export` },
       ],
       [entry, { path: /^never$/, reason: "stale", until: "#177" }],
     );

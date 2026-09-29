@@ -162,7 +162,7 @@ it("writes a cut ellipse, or a whole one with other parameters, as an Inkscape a
   expect(svg.match(/<ellipse /g)).toBeNull();
 });
 
-it("paints an Appearance stack bottom to top in a <g zibel:stack>, with Stroke attributes only when set", () => {
+it("paints an Appearance stack bottom to top in a <g kalamo:stack>, with Stroke attributes only when set", () => {
   const { doc, defaultLayerId: parentId } = newDoc();
   const [line] = createNodes(doc, [
     {
@@ -183,7 +183,7 @@ it("paints an Appearance stack bottom to top in a <g zibel:stack>, with Stroke a
   ]).nodes;
   const svg = toSvg(doc);
   expect(svg).toContain(
-    `<g id="z-${line?.id}" zibel:stack="true"><line x1="0" y1="0" x2="10" y2="0" fill="#111111"/>`,
+    `<g id="z-${line?.id}" kalamo:stack="true"><line x1="0" y1="0" x2="10" y2="0" fill="#111111"/>`,
   );
   const colors = [...svg.matchAll(/(?:fill|stroke)="(#\w+)"/g)].map((m) => m[1]);
   expect(colors).toEqual(["#111111", "#222222", "#333333", "#444444"]);
@@ -212,7 +212,7 @@ it("writes a colour's alpha as fill-opacity and stroke-opacity, which Inkscape 1
   expect(svg).toContain(
     'fill="#FF0000" fill-opacity="0.502" stroke="#000000" stroke-opacity="0.376"',
   );
-  expect(svg).toContain('fill="#112233" fill-opacity="0.251" zibel:background="true"');
+  expect(svg).toContain('fill="#112233" fill-opacity="0.251" kalamo:background="true"');
   expect(svg).not.toMatch(/="#\w{8}"/);
 });
 
@@ -260,7 +260,7 @@ it("writes every Node's id, name, lock, tags and meta, and Layers as Inkscape la
   expect(svg).toContain(
     `<g id="z-${defaultLayerId}" inkscape:label="Layer 1" inkscape:groupmode="layer"><rect x="0" y="0" width="1" height="1" ` +
       `id="z-${rect.id}" inkscape:label="Card &quot;A&quot;&#10;back" sodipodi:insensitive="true" ` +
-      `zibel:tags="[&quot;badge&quot;]" zibel:meta="{&quot;note&quot;:&quot;say \\&quot;hi\\&quot;&quot;}" fill="#FF0000"/></g>`,
+      `kalamo:tags="[&quot;badge&quot;]" kalamo:meta="{&quot;note&quot;:&quot;say \\&quot;hi\\&quot;&quot;}" fill="#FF0000"/></g>`,
   );
   expect(svg).toContain(
     `<g id="z-${layer.id}" inkscape:label="Guides" sodipodi:insensitive="true" inkscape:groupmode="layer" style="display:none"></g></svg>`,
@@ -283,7 +283,7 @@ it("writes a leaf's matrix on its own element, and a stack's on its <g>", () => 
   // At the 6 decimals a matrix is stored in, so importing the file gives the same matrix back.
   expect(svg).toContain(`id="z-${turned.id}" transform="matrix(0 1 -1 0 60 -10)" fill="#FFFFFF"`);
   expect(svg).toContain(
-    `<g id="z-${both.id}" transform="matrix(0.123457 0 0 1 0 0)" zibel:stack="true" style="opacity:0.5"><rect`,
+    `<g id="z-${both.id}" transform="matrix(0.123457 0 0 1 0 0)" kalamo:stack="true" style="opacity:0.5"><rect`,
   );
 });
 
@@ -398,7 +398,7 @@ it("writes one <defs> before an Area Type's stack, for every paint to flow in", 
     appearance: { fills: [{ color: "#FF0000" }, { color: "#00FF00" }] },
   });
   expect(svg.match(/<defs>/g)).toHaveLength(1);
-  expect(svg).toContain(`</defs><g id="z-${id}" zibel:stack="true">`);
+  expect(svg).toContain(`</defs><g id="z-${id}" kalamo:stack="true">`);
   expect(svg.match(new RegExp(`shape-inside:url\\(#area-z-${id}\\)`, "g"))).toHaveLength(2);
 });
 
@@ -480,13 +480,13 @@ it("writes the root in pt with its scope, and each Artboard as an Inkscape page"
   expect(svg).toMatch(
     new RegExp(
       '^<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" ' +
-        'xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd" xmlns:zibel="https://zibel.dev/ns/svg" xmlns:xlink="http://www.w3.org/1999/xlink" ' +
-        'width="200pt" height="100pt" viewBox="0 0 200 100" zibel:scope="doc" sodipodi:docname="Doc.svg">' +
+        'xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd" xmlns:kalamo="https://kalamo.cc/ns/svg" xmlns:xlink="http://www.w3.org/1999/xlink" ' +
+        'width="200pt" height="100pt" viewBox="0 0 200 100" kalamo:scope="doc" sodipodi:docname="Doc.svg">' +
         '<sodipodi:namedview inkscape:document-units="pt">' +
         `<inkscape:page x="0" y="0" width="200" height="100" id="z-${one.id}" inkscape:label="Artboard 1"/>` +
         `<inkscape:page x="300" y="0" width="50" height="50" id="z-${two.id}" inkscape:label="Card &amp; back"/>` +
         "</sodipodi:namedview>" +
-        `<rect x="300" y="0" width="50" height="50" fill="#FFEEDD" zibel:artboard="${two.id}" sodipodi:insensitive="true"/><g`,
+        `<rect x="300" y="0" width="50" height="50" fill="#FFEEDD" kalamo:artboard="${two.id}" sodipodi:insensitive="true"/><g`,
     ),
   );
   // Inkscape resizes the page at (0,0) to the viewBox: the export's viewBox is that page, else
@@ -503,17 +503,17 @@ it("writes the root in pt with its scope, and each Artboard as an Inkscape page"
   const second = toSvg(doc, svgRect(doc, { artboardId: two.id }), {
     scope: { artboardId: two.id },
   });
-  expect(second).toContain(`zibel:scope="artboard:${two.id}"`);
+  expect(second).toContain(`kalamo:scope="artboard:${two.id}"`);
   expect(second.match(/<inkscape:page /g)).toHaveLength(1);
   expect(second).toContain(`<inkscape:page x="300" y="0" width="50" height="50" id="z-${two.id}"`);
   const layer = [...doc.nodes.keys()];
   const nodes = toSvg(doc, { x: 0, y: 0, width: 1, height: 1 }, { scope: { nodeIds: layer } });
   expect(nodes).toContain(`width="1pt" height="1pt" viewBox="0 0 1 1"`);
-  expect(nodes).toContain(`zibel:scope="nodes:${layer.join(",")}"`);
+  expect(nodes).toContain(`kalamo:scope="nodes:${layer.join(",")}"`);
   expect(nodes).toContain('<sodipodi:namedview inkscape:document-units="pt"/>');
   const rect = { x: 1, y: 2, width: 3, height: 4 };
   expect(toSvg(doc, rect, { scope: { rect } })).toContain(
-    'zibel:scope="rect:1,2,3,4" sodipodi:docname="Doc.svg"><sodipodi:namedview inkscape:document-units="pt"/><rect',
+    'kalamo:scope="rect:1,2,3,4" sodipodi:docname="Doc.svg"><sodipodi:namedview inkscape:document-units="pt"/><rect',
   );
 });
 
@@ -648,10 +648,10 @@ it("fills the whole rect with background beneath the Artboard backgrounds", () =
   const { doc, a } = scene();
   const rect = { x: -5, y: -5, width: 300, height: 200 };
   expect(toSvg(doc, rect, { background: "#112233" })).toMatch(
-    /<\/sodipodi:namedview><rect x="-5" y="-5" width="300" height="200" fill="#112233" zibel:background="true"\/><rect x="0" y="0" width="200" height="100" fill="#FFFFFF" zibel:artboard="\w+" sodipodi:insensitive="true"\/><g /,
+    /<\/sodipodi:namedview><rect x="-5" y="-5" width="300" height="200" fill="#112233" kalamo:background="true"\/><rect x="0" y="0" width="200" height="100" fill="#FFFFFF" kalamo:artboard="\w+" sodipodi:insensitive="true"\/><g /,
   );
   expect(toSvg(doc, rect, { background: "#112233", scope: { nodeIds: [a.id] } })).toMatch(
-    /<svg[^>]*><sodipodi:namedview[^>]*\/><rect[^>]*fill="#112233" zibel:background="true"\/><g /,
+    /<svg[^>]*><sodipodi:namedview[^>]*\/><rect[^>]*fill="#112233" kalamo:background="true"\/><g /,
   );
 });
 
@@ -672,7 +672,7 @@ it("writes fill-rule evenodd on a Path and on each paint of its stack, and nothi
   const svg = toSvg(doc);
   expect(svg).toContain(`<path d="${d}" fill-rule="evenodd" id="z-${ring?.id}"`);
   expect(svg).toContain(
-    `zibel:stack="true"><path d="${d}" fill-rule="evenodd" fill="#111111"/><path d="${d}" fill-rule="evenodd" fill="#222222"/></g>`,
+    `kalamo:stack="true"><path d="${d}" fill-rule="evenodd" fill="#111111"/><path d="${d}" fill-rule="evenodd" fill="#222222"/></g>`,
   );
   expect(svg).toContain(`<path d="${d}" id="z-${plain?.id}"`);
 });
@@ -728,15 +728,15 @@ it("writes an evenodd Clipping Path's clip-rule, and its Fills as a clip-fill gr
     `<path d="M 0 0 L 9 0 L 9 9 Z" fill-rule="evenodd" id="z-${clip.id}" fill="none" clip-rule="evenodd"/></clipPath>`,
   );
   expect(svg).toContain(`<g id="z-${group.id}" clip-path="url(#clip-z-${group.id})">`);
-  expect(svg).not.toContain("zibel:clipped");
+  expect(svg).not.toContain("kalamo:clipped");
   expect(svg).toContain(
     `</g><defs><linearGradient id="fill-1-z-${clip.id}" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="9" y2="0">`,
   );
   expect(svg).toContain(
-    `</linearGradient></defs><g zibel:paint="clip-fill" sodipodi:insensitive="true" inkscape:label="Clipping Path Fill" style="opacity:0.5"><g zibel:stack="true"><path d="M 0 0 L 9 0 L 9 9 Z" fill-rule="evenodd" fill="#FF0000"/><path d="M 0 0 L 9 0 L 9 9 Z" fill-rule="evenodd" fill="url(#fill-1-z-${clip.id})"/></g></g><rect x="0" y="0" width="10" height="10" id="z-${content.id}"`,
+    `</linearGradient></defs><g kalamo:paint="clip-fill" sodipodi:insensitive="true" inkscape:label="Clipping Path Fill" style="opacity:0.5"><g kalamo:stack="true"><path d="M 0 0 L 9 0 L 9 9 Z" fill-rule="evenodd" fill="#FF0000"/><path d="M 0 0 L 9 0 L 9 9 Z" fill-rule="evenodd" fill="url(#fill-1-z-${clip.id})"/></g></g><rect x="0" y="0" width="10" height="10" id="z-${content.id}"`,
   );
   // The container's Fill below Contents comes first.
-  expect(svg.indexOf('zibel:paint="true"')).toBeLessThan(svg.indexOf("clip-fill"));
+  expect(svg.indexOf('kalamo:paint="true"')).toBeLessThan(svg.indexOf("clip-fill"));
 });
 
 /** A Layer "L" holding a sublayer with a rect, then its Clipping Path, a circle (ADR-0053). */
@@ -770,10 +770,10 @@ it("wraps a stroked Layer Clipping Mask's content, sublayers included, inside th
   ]);
   const svg = toSvg(doc);
   expect(svg).toContain(
-    `<g id="z-${layer.id}" inkscape:label="L" inkscape:groupmode="layer"><g zibel:clipped="true" clip-path="url(#clip-z-${layer.id})"><g id="z-${sub.id}" inkscape:groupmode="layer">`,
+    `<g id="z-${layer.id}" inkscape:label="L" inkscape:groupmode="layer"><g kalamo:clipped="true" clip-path="url(#clip-z-${layer.id})"><g id="z-${sub.id}" inkscape:groupmode="layer">`,
   );
   expect(svg).toMatch(
-    /<\/clipPath><\/g><g zibel:paint="clip-stroke"[^>]*><circle [^>]*stroke="#00FF00"[^>]*\/><\/g><\/g>/,
+    /<\/clipPath><\/g><g kalamo:paint="clip-stroke"[^>]*><circle [^>]*stroke="#00FF00"[^>]*\/><\/g><\/g>/,
   );
 });
 
@@ -783,19 +783,19 @@ it("wraps what a stroked Clipping Path clips, and writes its Strokes after, uncl
   updateNodes(doc, [
     { nodeId: clip.id, patch: { appearance: { strokes: [stroke] }, blendMode: "multiply" } },
   ]);
-  const wrapper = `<g zibel:clipped="true" clip-path="url(#clip-z-${group.id})">`;
+  const wrapper = `<g kalamo:clipped="true" clip-path="url(#clip-z-${group.id})">`;
   const svg = toSvg(doc);
   expect(svg).toContain(
     `<g id="z-${group.id}">${wrapper}<rect x="0" y="0" width="10" height="10" id="z-${below.id}"`,
   );
   expect(svg).toContain(
-    `<rect x="5" y="5" width="10" height="10" id="z-${above.id}" fill="#FFFFFF" stroke="#000000" stroke-width="1" stroke-miterlimit="10"/></g><g zibel:paint="clip-stroke" sodipodi:insensitive="true" inkscape:label="Clipping Path Stroke" style="mix-blend-mode:multiply"><circle cx="4" cy="4" r="2" fill="none" stroke="#00FF00" stroke-width="2" stroke-miterlimit="10"/></g></g>`,
+    `<rect x="5" y="5" width="10" height="10" id="z-${above.id}" fill="#FFFFFF" stroke="#000000" stroke-width="1" stroke-miterlimit="10"/></g><g kalamo:paint="clip-stroke" sodipodi:insensitive="true" inkscape:label="Clipping Path Stroke" style="mix-blend-mode:multiply"><circle cx="4" cy="4" r="2" fill="none" stroke="#00FF00" stroke-width="2" stroke-miterlimit="10"/></g></g>`,
   );
   // A container paint above Contents goes in a second wrapper naming the same <clipPath>.
   const frame = { strokes: [{ color: "#FF00FF", width: 1 }] };
   updateNodes(doc, [{ nodeId: group.id, patch: { appearance: frame } }]);
   const framed = toSvg(doc);
-  expect(framed).toContain(`stroke-miterlimit="10"/></g>${wrapper}<g zibel:paint="true"`);
+  expect(framed).toContain(`stroke-miterlimit="10"/></g>${wrapper}<g kalamo:paint="true"`);
   expect(framed.split(`clip-path="url(#clip-z-${group.id})"`)).toHaveLength(3);
 });
 
@@ -849,12 +849,12 @@ describe("a text Clipping Path (ADR-0052)", () => {
       },
     ]);
     const svg = toSvg(doc);
-    const fill = svg.slice(svg.indexOf('zibel:paint="clip-fill"'));
+    const fill = svg.slice(svg.indexOf('kalamo:paint="clip-fill"'));
     expect(fill).toMatch(
       /^[^>]*><text [^>]*fill="#000000"[^>]*><tspan[^>]*><tspan fill="#FF0000">o<\/tspan>/,
     );
     expect(fill).toContain('<tspan style="visibility:hidden"><tspan fill="#00FF00">t</tspan>wo');
-    const stroke = svg.slice(svg.indexOf('zibel:paint="clip-stroke"'));
+    const stroke = svg.slice(svg.indexOf('kalamo:paint="clip-stroke"'));
     expect(stroke).toMatch(/^[^>]*><text [^>]*fill="none" stroke="#0000FF"/);
     expect(stroke).not.toContain("#FF0000");
     // One frame for the <clipPath> and both copies.
@@ -895,7 +895,7 @@ it("writes an Image as <image xlink:href>, which Inkscape 1.2 draws, with its fi
   );
 });
 
-it("writes a linked Image as its file, with zibel:src when it has pixels, never the pixels (ADR-0042)", () => {
+it("writes a linked Image as its file, with kalamo:src when it has pixels, never the pixels (ADR-0042)", () => {
   const { doc, defaultLayerId: parentId } = newDoc();
   const src = "a".repeat(64);
   doc.images.set(src, { mime: "image/png", width: 2, height: 2 });
@@ -911,7 +911,7 @@ it("writes a linked Image as its file, with zibel:src when it has pixels, never 
   // No images needed: export writes no pixels for a linked Image.
   const svg = toSvg(doc);
   expect(svg).toContain(
-    `<image x="10" y="20" width="30" height="40" preserveAspectRatio="none" xlink:href="photos/a b.png" zibel:src="${src}" id="z-${linked?.id}"/>`,
+    `<image x="10" y="20" width="30" height="40" preserveAspectRatio="none" xlink:href="photos/a b.png" kalamo:src="${src}" id="z-${linked?.id}"/>`,
   );
   expect(svg).toContain(
     `<image x="0" y="0" width="8" height="4" preserveAspectRatio="none" xlink:href="gone.png" id="z-${missing.id}" transform="matrix(2 0 0 2 5 0)" style="opacity:0.5"/>`,
@@ -919,7 +919,7 @@ it("writes a linked Image as its file, with zibel:src when it has pixels, never 
   // render draws the pixels, and a missing link's frame and diagonals in place, at the hairline.
   const drawn = toSvg(doc, undefined, { images, linked: "draw", hairline: 0.5 });
   expect(drawn).toContain(`xlink:href="${url}" id="z-${linked?.id}"/>`);
-  expect(drawn).not.toContain("zibel:src");
+  expect(drawn).not.toContain("kalamo:src");
   expect(drawn).toContain(
     `<path d="M 5 0 L 21 0 L 21 8 L 5 8 Z M 5 0 L 21 8 M 21 0 L 5 8" id="z-${missing.id}" style="fill:none;stroke:#999999;stroke-width:0.5;opacity:0.5"/>`,
   );
@@ -978,7 +978,7 @@ describe("gradients (ADR-0026)", () => {
     expect(svg.match(/<defs>/g)).toHaveLength(1);
     expect(svg).toMatch(
       new RegExp(
-        `<defs><linearGradient id="fill-1-z-${id}"[^]*<linearGradient id="stroke-0-z-${id}"[^]*</defs><g id="z-${id}" zibel:stack="true">`,
+        `<defs><linearGradient id="fill-1-z-${id}"[^]*<linearGradient id="stroke-0-z-${id}"[^]*</defs><g id="z-${id}" kalamo:stack="true">`,
       ),
     );
     expect(svg).toContain(`fill="url(#fill-1-z-${id})"/>`);
@@ -996,7 +996,7 @@ describe("gradients (ADR-0026)", () => {
   });
 });
 
-it("writes a container's paints as locked <g zibel:paint> copies around its children (ADR-0043)", () => {
+it("writes a container's paints as locked <g kalamo:paint> copies around its children (ADR-0043)", () => {
   const { doc, defaultLayerId } = newDoc();
   const [group, a, , p] = createNodes(doc, [
     {
@@ -1020,14 +1020,14 @@ it("writes a container's paints as locked <g zibel:paint> copies around its chil
   const copies = `<path d="M 0 0 L 10 0 L 10 10 L 0 10 Z"/><path d="M 0 0 L 5 0 L 5 5 Z" fill-rule="evenodd"/>`;
   const svg = toSvg(doc);
   expect(svg).toContain(
-    `<g id="z-${group.id}"><g zibel:paint="true" sodipodi:insensitive="true" inkscape:label="Fill" fill="#00FF00">${copies}</g><rect`,
+    `<g id="z-${group.id}"><g kalamo:paint="true" sodipodi:insensitive="true" inkscape:label="Fill" fill="#00FF00">${copies}</g><rect`,
   );
   expect(svg).toContain(
-    `</g><g zibel:paint="true" sodipodi:insensitive="true" inkscape:label="Stroke" fill="none" stroke="#FF0000" stroke-width="4" stroke-miterlimit="10">${copies}</g></g>`,
+    `</g><g kalamo:paint="true" sodipodi:insensitive="true" inkscape:label="Stroke" fill="none" stroke="#FF0000" stroke-width="4" stroke-miterlimit="10">${copies}</g></g>`,
   );
   // A Group without an Appearance writes no paint.
   updateNodes(doc, [{ nodeId: group.id, patch: { appearance: null } }]);
-  expect(toSvg(doc)).not.toContain("zibel:paint");
+  expect(toSvg(doc)).not.toContain("kalamo:paint");
 });
 
 it("paints a text child as a bare <text> copy, and an inner Clipping Mask's leaf under its <clipPath> (#106)", () => {
@@ -1055,7 +1055,7 @@ it("paints a text child as a bare <text> copy, and an inner Clipping Mask's leaf
   const mask = makeMask(doc, { clipNodeId: clip.id, contentIds: [clipped.id] }).group;
   doc.nodes.set(text.id, { ...text, transform: [2, 0, 0, 2, 0, 0] });
   const svg = toSvg(doc);
-  const [fill, stroke] = [...svg.matchAll(/<g zibel:paint="true"[^>]*>(.*?)<\/g><\/g>?/g)].map(
+  const [fill, stroke] = [...svg.matchAll(/<g kalamo:paint="true"[^>]*>(.*?)<\/g><\/g>?/g)].map(
     (m) => m[0],
   );
   // One copy per leaf, the text in its own transform with no id and no range fill.
@@ -1109,7 +1109,7 @@ it.each([
     // The text, the Fill's copy and the Stroke's copy flow in it; only the text has an id.
     expect(svg.match(new RegExp(`shape-inside:url\\(#area-z-${text.id}\\)`, "g"))).toHaveLength(3);
     expect(svg.match(new RegExp(`id="z-${text.id}"`, "g"))).toHaveLength(1);
-    for (const [paint] of svg.matchAll(/<g zibel:paint="true".*?<\/g>/g)) {
+    for (const [paint] of svg.matchAll(/<g kalamo:paint="true".*?<\/g>/g)) {
       expect(paint).not.toMatch(/<text [^>]*\bid=/);
     }
     expect(svg).toMatch(/inkscape:label="Stroke"[^>]*><text [^>]*stroke-width="3.2"/);

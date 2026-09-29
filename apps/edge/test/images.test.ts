@@ -126,7 +126,7 @@ describe("linked Images (ADR-0042)", () => {
     expect(JSON.stringify(nodes)).not.toContain("data:");
 
     const { svg } = ok(await s.svg("agent", {}));
-    expect(svg).toContain(`xlink:href="photos/red.png" zibel:src="${id}" id="z-${linked}"`);
+    expect(svg).toContain(`xlink:href="photos/red.png" kalamo:src="${id}" id="z-${linked}"`);
     expect(svg).toContain(`xlink:href="gone.png" id="z-${missing}"`);
     expect(svg).not.toContain("data:");
     const raster = ok(await s.raster("agent", { scale: 1 })).svg;

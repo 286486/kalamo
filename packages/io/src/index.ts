@@ -88,13 +88,13 @@ function expandEntities(text: string): string {
 }
 
 /**
- * Reads a file for Open or Place (ADR-0017): `.zibel.json` or SVG, told apart by content. `name` is the
+ * Reads a file for Open or Place (ADR-0017): `.kalamo.json` or SVG, told apart by content. `name` is the
  * file name, used for an SVG that names no Document.
  */
 export function parseFile(
   content: string,
   { name }: { name?: string } = {},
-): OpenedFile & { format: "svg" | "zibel_json" } {
+): OpenedFile & { format: "svg" | "kalamo_json" } {
   const text = content.replace(/^﻿/, "").trimStart();
   let file: OpenedFile;
   if (text.startsWith("{")) file = { ...parseDocument(text), warnings: [] };
@@ -103,7 +103,7 @@ export function parseFile(
     if (size > SVG_LIMIT) {
       throw new KalamoError({
         code: "LIMIT_EXCEEDED",
-        message: `The SVG is ${size} characters outside its embedded images; Zibel reads at most ${SVG_LIMIT}.`,
+        message: `The SVG is ${size} characters outside its embedded images; Kalamo reads at most ${SVG_LIMIT}.`,
         hint: "Split the drawing into several files, or remove embedded images and unused defs.",
         path: "content",
       });
@@ -112,12 +112,12 @@ export function parseFile(
   } else {
     throw new KalamoError({
       code: "INVALID_DOCUMENT",
-      message: "The content is not an SVG or .zibel.json file.",
-      hint: "Pass the text of an .svg file, or of a .zibel.json file as zibel_export returns it.",
+      message: "The content is not an SVG or .kalamo.json file.",
+      hint: "Pass the text of an .svg file, or of a .kalamo.json file as kalamo_export returns it.",
       path: "content",
     });
   }
-  const format = text.startsWith("<") ? "svg" : "zibel_json";
+  const format = text.startsWith("<") ? "svg" : "kalamo_json";
   const warnings = [...file.warnings, ...fileTextWarnings(file.nodes)];
   return { ...file, format, warnings };
 }

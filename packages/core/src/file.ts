@@ -48,7 +48,7 @@ function sortKeys(value: unknown): unknown {
 }
 
 /**
- * The Document as `.zibel.json` (ADR-0016): the same Document always gives the same text. No docId,
+ * The Document as `.kalamo.json` (ADR-0016): the same Document always gives the same text. No docId,
  * `rev` or history: they belong to one running Document. `images` gives the file of each Image,
  * which the file carries once, by id (ADR-0023).
  */
@@ -62,7 +62,7 @@ export function serializeDocument(doc: Document, images?: ImageSource): string {
     if (url !== undefined) return [id, url];
     throw new KalamoError({
       code: "INVALID_IMAGE",
-      message: `The file of image ${id} was not given to the .zibel.json writer.`,
+      message: `The file of image ${id} was not given to the .kalamo.json writer.`,
       hint: "Pass every Image's file through serializeDocument's images.",
       path: "src",
     });
@@ -159,7 +159,7 @@ const FileSchema = z.strictObject({
     .optional(),
 });
 
-const HINT = "A .zibel.json file is what zibel_export returns with format zibel_json.";
+const HINT = "A .kalamo.json file is what kalamo_export returns with format kalamo_json.";
 const invalid = (path: string, message: string, hint = HINT) =>
   new KalamoError({ code: "INVALID_DOCUMENT", message, hint, path });
 
@@ -196,7 +196,7 @@ export function parseNode(raw: unknown, at: string): Node {
 }
 
 /**
- * Reads `.zibel.json` text (ADR-0016): runs the `up` migrations of an older version, then checks
+ * Reads `.kalamo.json` text (ADR-0016): runs the `up` migrations of an older version, then checks
  * everything core checks on a write. Every failure names its `path` in the file. Image files are
  * keyed as the file claims; `resolveImages` checks the claim. The SVG reader, which reads its
  * files itself, passes them as `decoded` under keys of its own.
@@ -213,7 +213,7 @@ export function parseDocument(
     throw invalid("content", `Not JSON: ${(e as Error).message}`);
   }
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
-    throw invalid("content", "A .zibel.json file is one JSON object.");
+    throw invalid("content", "A .kalamo.json file is one JSON object.");
   }
   const current = migrations.length + 1;
   let file = raw as Record<string, unknown>;
@@ -224,8 +224,8 @@ export function parseDocument(
   if (version > current) {
     throw invalid(
       "version",
-      `Version ${version} is newer than this Zibel, which reads up to ${current}.`,
-      "The file was saved by a newer Zibel; open it there. Versions never downgrade.",
+      `Version ${version} is newer than this Kalamo, which reads up to ${current}.`,
+      "The file was saved by a newer Kalamo; open it there. Versions never downgrade.",
     );
   }
   for (let v = version; v < current; v++) {

@@ -7,12 +7,12 @@ test("menu commands run from the menu bar, by their shortcuts, and with the keyb
   request,
 }) => {
   const { docId, defaultLayerId } = (
-    await call(request, "zibel_doc_create", {
+    await call(request, "kalamo_doc_create", {
       name: "Menus",
       artboards: [{ width: 200, height: 100 }],
     })
   ).structuredContent;
-  await call(request, "zibel_node_create", {
+  await call(request, "kalamo_node_create", {
     docId,
     nodes: [
       { type: "rect", parentId: defaultLayerId, name: "Box", x: 0, y: 0, width: 10, height: 10 },
@@ -118,7 +118,7 @@ test("Ctrl+7 clips the selection with its topmost Node, and Alt+Ctrl+7 releases 
   request,
 }) => {
   const { docId, defaultLayerId } = (
-    await call(request, "zibel_doc_create", {
+    await call(request, "kalamo_doc_create", {
       name: "Mask",
       artboards: [{ width: 200, height: 100 }],
     })
@@ -132,7 +132,7 @@ test("Ctrl+7 clips the selection with its topmost Node, and Alt+Ctrl+7 releases 
     width: 10,
     height: 10,
   });
-  await call(request, "zibel_node_create", { docId, nodes: [rect("Art"), rect("Clip")] });
+  await call(request, "kalamo_node_create", { docId, nodes: [rect("Art"), rect("Clip")] });
   await page.goto(`/docs/${docId}`);
   await expect(page.getByTestId("status-bar")).toContainText(/\d+%/);
   const row = (name: string) => page.getByRole("button", { name, exact: true });
@@ -157,12 +157,12 @@ test("Ctrl+7 clips with a text on top: the content shows only through its glyphs
   request,
 }) => {
   const { docId, defaultLayerId: parentId } = (
-    await call(request, "zibel_doc_create", {
+    await call(request, "kalamo_doc_create", {
       name: "Type mask",
       artboards: [{ width: 200, height: 100, background: "#FFFFFF" }],
     })
   ).structuredContent;
-  await call(request, "zibel_node_create", {
+  await call(request, "kalamo_node_create", {
     docId,
     nodes: [
       {
@@ -215,13 +215,13 @@ test("the Layers panel's button clips the Layer by its topmost object, and relea
   request,
 }) => {
   const { docId, defaultLayerId: parentId } = (
-    await call(request, "zibel_doc_create", {
+    await call(request, "kalamo_doc_create", {
       name: "Layer mask",
       artboards: [{ width: 200, height: 100, background: "#FFFFFF" }],
     })
   ).structuredContent;
   const red = { fills: [{ color: "#FF0000" }] };
-  await call(request, "zibel_node_create", {
+  await call(request, "kalamo_node_create", {
     docId,
     nodes: [
       { type: "rect", parentId, name: "Art", x: 0, y: 0, width: 200, height: 100, appearance: red },

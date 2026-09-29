@@ -2,6 +2,7 @@ import {
   createDocument,
   createNodes,
   editPath,
+  LEGACY_NAME,
   type Node,
   type PathEditInput,
   parsePath,
@@ -206,4 +207,26 @@ it("Ink starting between two selected paths edits the nearer", () => {
   stroke(range(20, (t) => [50 + 100 * t, 108 + 30 * Math.sin(t * Math.PI)]));
   const [command] = commands();
   expect(command?.type === "path_edit" && command.input.nodeId).toBe(ids[1]);
+});
+
+it("moves Pencil options saved under the former name's key to Kalamo's on first read (ADR-0069)", async () => {
+  const stored = new Map<string, string>();
+  vi.stubGlobal("localStorage", {
+    getItem: (k: string) => stored.get(k) ?? null,
+    setItem: (k: string, v: string) => stored.set(k, v),
+    removeItem: (k: string) => stored.delete(k),
+  });
+  const old = JSON.stringify({ ...DEFAULT_PENCIL, fidelity: 80, close: false });
+  const legacy = `${LEGACY_NAME}:pencil`;
+  stored.set(legacy, old);
+  vi.resetModules();
+  const fresh = await import("./pencil.ts");
+  expect(fresh.pencilOptions()).toEqual({ ...DEFAULT_PENCIL, fidelity: 80, close: false });
+  expect([...stored]).toEqual([["kalamo:pencil", old]]);
+
+  // Kalamo's key wins over a former key left behind.
+  stored.set(legacy, JSON.stringify({ ...DEFAULT_PENCIL, fidelity: 10 }));
+  vi.resetModules();
+  expect((await import("./pencil.ts")).pencilOptions().fidelity).toBe(80);
+  vi.unstubAllGlobals();
 });

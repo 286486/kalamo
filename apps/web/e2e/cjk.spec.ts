@@ -42,13 +42,13 @@ function inkColumns(
 
 async function textDoc(page: Page, request: Parameters<typeof call>[0], text: object) {
   const { docId, defaultLayerId } = (
-    await call(request, "zibel_doc_create", {
+    await call(request, "kalamo_doc_create", {
       name: "CJK",
       artboards: [{ width: 200, height: 100 }],
     })
   ).structuredContent;
   const { createdIds } = (
-    await call(request, "zibel_node_create", {
+    await call(request, "kalamo_node_create", {
       docId,
       nodes: [{ type: "text", parentId: defaultLayerId, x: 20, y: 70, fontSize: 48, ...text }],
     })
@@ -69,9 +69,9 @@ const canvas = (page: Page) =>
     return { k, width: pixels?.width ?? 0, data: [...(pixels?.data ?? [])] };
   });
 
-/** The Artboard as `zibel_render` draws it at 1 px per pt, decoded in the page, whose canvas reads a PNG. */
+/** The Artboard as `kalamo_render` draws it at 1 px per pt, decoded in the page, whose canvas reads a PNG. */
 async function rendered(page: Page, request: Parameters<typeof call>[0], docId: string) {
-  const result = await call(request, "zibel_render", {
+  const result = await call(request, "kalamo_render", {
     docId,
     scope: { rect: { x: 0, y: 0, width: 200, height: 100 } },
     scale: 1,
@@ -106,7 +106,7 @@ test("a CJK text loads Noto Sans SC and draws its glyphs inside the bounds rende
   await page.evaluate(() => document.fonts.ready);
   expect(korean).toEqual([]);
 
-  const b = (await call(request, "zibel_node_get", { docId, nodeIds: [id] })).structuredContent
+  const b = (await call(request, "kalamo_node_get", { docId, nodeIds: [id] })).structuredContent
     .nodes[0].geometricBounds;
   expect(b.width).toBeCloseTo(3 * 48);
   const image = await rendered(page, request, docId);
@@ -140,7 +140,7 @@ test("a Korean text loads Noto Sans KR alone and draws its glyphs inside the bou
   expect(korean).toHaveLength(2);
   expect(chinese).toEqual([]);
 
-  const b = (await call(request, "zibel_node_get", { docId, nodeIds: [id] })).structuredContent
+  const b = (await call(request, "kalamo_node_get", { docId, nodeIds: [id] })).structuredContent
     .nodes[0].geometricBounds;
   expect(b.width).toBeCloseTo(3 * 0.92 * 48);
   const image = await rendered(page, request, docId);
@@ -217,7 +217,7 @@ test("an emoji draws as render's .notdef box inside the bounds, not as a system 
       : "absent: only checks that no fillText or strokeText asks for 😀 and the canvas matches render",
   });
 
-  const b = (await call(request, "zibel_node_get", { docId, nodeIds: [id] })).structuredContent
+  const b = (await call(request, "kalamo_node_get", { docId, nodeIds: [id] })).structuredContent
     .nodes[0].geometricBounds;
   const image = await rendered(page, request, docId);
   const [renderLeft, renderRight] = inkColumns(image, b.y, b.y + b.height);

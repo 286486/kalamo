@@ -13,6 +13,7 @@ import {
 } from "@kalamo/core";
 import { anchorsOf, hasAnchors, localAnchors, nearestSegment } from "./direct.ts";
 import { editable } from "./selection.ts";
+import { getItem } from "./storage.ts";
 import { send, useStore } from "./store.ts";
 import { constrain, near, pathD, sendNewArt } from "./tools.ts";
 
@@ -45,7 +46,7 @@ export const DEFAULT_PENCIL: PencilOptions = {
   editWithin: 12,
 };
 
-const KEY = "zibel:pencil";
+const KEY = "kalamo:pencil" as const;
 /** Set once saved, so a blocked storage still keeps them for the page. */
 let saved: PencilOptions | null = null;
 
@@ -54,7 +55,7 @@ export function pencilOptions(): PencilOptions {
   if (saved) return saved;
   let stored: Record<string, unknown> = {};
   try {
-    const value: unknown = JSON.parse(localStorage.getItem(KEY) ?? "{}");
+    const value: unknown = JSON.parse(getItem(KEY) ?? "{}");
     if (value && typeof value === "object") stored = value as Record<string, unknown>;
   } catch {
     // Storage blocked or garbled: the defaults.
