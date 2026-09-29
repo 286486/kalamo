@@ -308,6 +308,16 @@ export function fontWarnings(nodes: Node[]): Warning[] {
   });
 }
 
+/**
+ * One `FONT_MISSING` warning per missing face, as Open and Place report it (ADR-0017): a file set in
+ * one missing font says so once, on the first text in that face.
+ */
+export function fileFontWarnings(nodes: Node[]): Warning[] {
+  const faces = new Map<string, Warning>();
+  for (const w of fontWarnings(nodes)) if (!faces.has(w.message)) faces.set(w.message, w);
+  return [...faces.values()];
+}
+
 /** The distinct characters of `content` the face a text draws in lacks, in order; `\n` is a hard return. */
 function missingGlyphs(text: Extract<Node, { type: "text" }>): string[] {
   const { advances }: Face = SOURCE_SANS_3.faces[bundledStyle(text.fontStyle)];

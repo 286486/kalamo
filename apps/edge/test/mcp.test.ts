@@ -1694,6 +1694,65 @@ describe("a Place receipt's warnings name the placed Nodes (#161)", () => {
     expect(await texts(docId, [fonts[0]?.nodeId])).toMatchObject([{ content: "Kept" }]);
   });
 
+  it("counts a Zibel copy's per-file text warnings over the Texts it places (#162)", async () => {
+    const { docId, defaultLayerId } = await newDoc();
+    const copyOf = async (clip: object, kept: object) => {
+      const text = { type: "text", parentId: defaultLayerId, x: 0 };
+      const { keyMap } = (
+        await call("zibel_node_create", {
+          docId,
+          nodes: [
+            { ...text, ...clip, clientKey: "clip", y: 20 },
+            { ...text, ...kept, clientKey: "kept", y: 60 },
+            {
+              type: "rect",
+              clientKey: "art",
+              parentId: defaultLayerId,
+              x: 0,
+              y: 0,
+              width: 40,
+              height: 40,
+            },
+          ],
+        })
+      ).structuredContent;
+      await call("zibel_mask_make", { docId, clipNodeId: keyMap.clip, contentIds: [keyMap.art] });
+      const scope = { nodeIds: [keyMap.art, keyMap.kept] };
+      const svg = (await call("zibel_export", { docId, format: "svg", scope })).content[0].text;
+      return call("zibel_svg_import", { docId, svg, parentId: defaultLayerId });
+    };
+    const clip = { fontFamily: "Helvetica", content: "小动" };
+
+    const pasted = await copyOf(clip, { fontFamily: "Arial", content: "物" });
+    const [font] = warned(pasted, "FONT_MISSING");
+    const [glyphs] = warned(pasted, "MISSING_GLYPHS");
+    expect(warned(pasted, "FONT_MISSING")).toHaveLength(1);
+    expect(font?.message).toMatch(/^Arial is/);
+    expect(glyphs?.message).toContain("no glyphs for 物;");
+    expect(glyphs?.nodeId).toBe(font?.nodeId);
+    expect(await texts(docId, [glyphs?.nodeId])).toMatchObject([{ content: "物" }]);
+
+    const plain = await copyOf(clip, { content: "Kept" });
+    expect(plain.structuredContent.warnings).toEqual([]);
+  });
+
+  it("gives a full-file Place doc_open's warnings, in order, on the placed Texts", async () => {
+    const svg =
+      '<svg xmlns="http://www.w3.org/2000/svg"><text y="10" font-family="Helvetica">小动</text><text y="30" font-family="Arial">动物</text><text y="50" font-family="Helvetica">物</text></svg>';
+    const opened = (await call("zibel_doc_open", { content: svg })).structuredContent.warnings;
+    const { docId, defaultLayerId } = await newDoc();
+    const placed = await call("zibel_svg_import", { docId, svg, parentId: defaultLayerId });
+    const { warnings } = placed.structuredContent as { warnings: Warning[] };
+    const bare = (ws: Warning[]) => ws.map(({ code, message }) => ({ code, message }));
+    expect(bare(warnings)).toEqual(bare(opened));
+    expect(warnings.map((w) => w.code)).toEqual(["FONT_MISSING", "FONT_MISSING", "MISSING_GLYPHS"]);
+    const got = await texts(
+      docId,
+      warnings.map((w) => w.nodeId),
+    );
+    expect(got.map((n) => n.content)).toEqual(["小动", "动物", "小动"]);
+  });
+
   it("leaves doc_open's warnings on the file's own ids", async () => {
     const opened = await call("zibel_doc_open", { content: HELVETICA });
     const [font] = warned(opened, "FONT_MISSING");
