@@ -258,23 +258,24 @@ export const spiralExpansion = (decay: number) =>
  * the press, as big as the pointer's distance, its outer end at the pointer, `segments` / 4 turns
  * and `expansion` from `decay`. Shift turns the outer end to a multiple of 45°. Held since the
  * spiral was `hold.radius` big, Ctrl keeps that radius and scales the decay by the pointer's
- * distance over it, within Illustrator's 5…150%; Alt adds a segment each time the pointer moves
- * out by a segment's growth, 1 / decay, and removes one each time it moves in by as much.
+ * distance over it, from Illustrator's 5% up to 100%, past which the spiral is a circle; Alt adds
+ * a segment each time the pointer moves out by a segment's growth, 1 / decay, and removes one each
+ * time it moves in by as much.
  */
 export function dragSpiral(
   press: Point,
   p: Point,
   { shift }: Pick<KeyMods, "shift">,
-  { segments, decay, hold }: SpiralOption,
+  option: SpiralOption,
 ): SpiralArt {
+  const { hold } = option;
   const distance = Math.hypot(p[0] - press[0], p[1] - press[1]);
-  if (hold?.by === "ctrl") decay = clamp((decay * distance) / hold.radius, 5, 150);
-  if (hold?.by === "alt") {
-    // A decay of 95% or more barely grows; its segments are counted as at 95%.
-    const growth = Math.log(100 / Math.min(decay, 95));
-    const added = Math.round(Math.log(distance / hold.radius) / growth);
-    segments = clamp(segments + added, 1, MAX_SEGMENTS);
-  }
+  const decay =
+    hold?.by === "ctrl" ? clamp((option.decay * distance) / hold.radius, 5, 100) : option.decay;
+  // A decay of 95% or more barely grows; its segments are counted as at 95%.
+  const growth = Math.log(100 / Math.min(decay, 95));
+  const added = hold?.by === "alt" ? Math.round(Math.log(distance / hold.radius) / growth) : 0;
+  const segments = clamp(option.segments + added, 1, MAX_SEGMENTS);
   const revolution = segments / 4;
   // The outer end, at 2π·revolution + argument, points at the pointer: upright for a drag straight
   // down is 90° less the turns. They are whole quarter turns, so Shift can snap `argument` itself.
@@ -542,15 +543,14 @@ export const spiralTool = shapeTool<SpiralArt, SpiralOption>(
     art: dragSpiral,
     visible: (spiral) => spiral.radius > 0,
     key(spiral, key) {
-      if (key === "ArrowUp")
-        return { ...spiral, segments: Math.min(MAX_SEGMENTS, spiral.segments + 1) };
-      if (key === "ArrowDown") return { ...spiral, segments: Math.max(1, spiral.segments - 1) };
-      return null;
+      const step = key === "ArrowUp" ? 1 : key === "ArrowDown" ? -1 : 0;
+      return step ? { ...spiral, segments: clamp(spiral.segments + step, 1, MAX_SEGMENTS) } : null;
     },
     // Ctrl, over Alt, holds the radius drawn; either released leaves what it drew.
     mods(spiral, { ctrl, alt }, art) {
       const by = ctrl ? "ctrl" : alt ? "alt" : null;
-      if ((spiral.hold?.by ?? null) === by) return spiral;
+      const held = spiral.hold?.by ?? null;
+      if (held === by) return spiral;
       const free = unholdSpiral(spiral, art);
       return by && art && art.radius > 0 ? { ...free, hold: { by, radius: art.radius } } : free;
     },

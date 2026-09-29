@@ -938,7 +938,7 @@ describe("dragSpiral", () => {
     expect(x).toBeCloseTo(y ?? Number.NaN, 4);
   });
 
-  it("Ctrl keeps the radius it held and scales the decay by the pointer's distance, 5…150%", () => {
+  it("Ctrl keeps the radius it held and scales the decay by the pointer's distance, 5…100%", () => {
     const held = { ...spiral, hold: { by: "ctrl" as const, radius: 20 } };
     expect(dragSpiral([0, 0], [0, 10], NONE, held)).toMatchObject({
       radius: 20,
@@ -966,6 +966,7 @@ describe("dragSpiral", () => {
 });
 
 describe("the Spiral tool", () => {
+  const expansion = () => (created() as { expansion: number }).expansion;
   const key = (k: string, down = true, mods: Partial<typeof NONE> = {}) =>
     spiralTool.keyChange?.({ ...NONE, ...mods, key: k, down }, () => {});
   const created = () => {
@@ -1026,13 +1027,13 @@ describe("the Spiral tool", () => {
     spiralTool.up?.(at([0, 30]));
     // 40%, from 80% at half the held 20.
     expect(created()).toMatchObject({ radius: 30, revolution: 2.5 });
-    expect((created() as { expansion: number }).expansion).toBeCloseTo(spiralExpansion(40), 12);
+    expect(expansion()).toBeCloseTo(spiralExpansion(40), 12);
     dragWith(spiralTool, [0, 0], [[0, 10]]);
-    expect((created() as { expansion: number }).expansion).toBeCloseTo(spiralExpansion(40), 12);
+    expect(expansion()).toBeCloseTo(spiralExpansion(40), 12);
     // Ctrl read from the move alone, held to the release: back to 80%.
     dragWith(spiralTool, [0, 0], [[0, 20]], [[0, 20], ctrl], [[0, 40], ctrl]);
     expect(created()).toMatchObject({ radius: 20 });
-    expect((created() as { expansion: number }).expansion).toBeCloseTo(1, 12);
+    expect(expansion()).toBeCloseTo(1, 12);
   });
 
   it("Shift snaps its outer end to 45°, Space moves it, and back to its centre it sends nothing", () => {
@@ -1056,12 +1057,12 @@ describe("the Spiral tool", () => {
     const both = { ctrl: true, alt: true };
     dragWith(spiralTool, [0, 0], [[0, 20]], [[0, 20], both], [[0, 10], both]);
     expect(created()).toMatchObject({ radius: 20, revolution: 3 });
-    expect((created() as { expansion: number }).expansion).toBeCloseTo(spiralExpansion(40), 12);
+    expect(expansion()).toBeCloseTo(spiralExpansion(40), 12);
     // Back to 10 segments and 80% for the tests after.
     dragWith(spiralTool, [0, 0], [[0, 20]], [[0, 20], { ctrl: true }], [[0, 40], { ctrl: true }]);
     dragWith(spiralTool, [0, 0], [[0, 20]], [[0, 20], alt], [[0, 12.8], alt]);
     dragWith(spiralTool, [0, 0], [[0, 20]]);
     expect(created()).toMatchObject({ revolution: 2.5 });
-    expect((created() as { expansion: number }).expansion).toBeCloseTo(1, 12);
+    expect(expansion()).toBeCloseTo(1, 12);
   });
 });
