@@ -123,10 +123,13 @@ function matrixOn(svg: string, id: string): number[] {
 }
 
 /**
- * Each Area Type's shown lines in `svg` by Node id: the text of each line tspan whose baseline lies
- * in the frame. Inkscape writes its overflow one ascent below the frame, and Zibel's has no `y`.
+ * The shown lines of each `<text>` in `svg` that lays out an Area Type, by the Node id of the frame
+ * its `shape-inside` names, in document order: the original and every paint copy (a stack's,
+ * a container's, a text Clipping Path's), none of which but one has the Node's id. A line is the
+ * text of a line tspan whose baseline lies in the frame. Inkscape writes its overflow one ascent
+ * below the frame, and Zibel's has no `y`.
  */
-function areaLines(svg: string): Map<string, string[]> {
+function areaLines(svg: string): Map<string, string[][]> {
   const attr = (tag: string, name: string) =>
     Number(new RegExp(`\\s${name}="([^"]*)"`).exec(tag)?.[1]);
   const entities: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"' };
@@ -134,10 +137,10 @@ function areaLines(svg: string): Map<string, string[]> {
     t.replace(/&(?:#(\d+)|(\w+));/g, (_, n, e) =>
       n ? String.fromCodePoint(Number(n)) : entities[e],
     );
-  const out = new Map<string, string[]>();
-  const texts =
-    /<text\b[^>]*\sid="z-([^"]+)"[^>]*shape-inside:url\(#area-z-[^>]*>([\s\S]*?)<\/text>/g;
-  for (const [, id, body] of svg.matchAll(texts)) {
+  const out = new Map<string, string[][]>();
+  const texts = /<text\b[^>]*shape-inside:url\(#area-z-([^)]+)\)[^>]*>([\s\S]*?)<\/text>/g;
+  for (const [, key, body] of svg.matchAll(texts)) {
+    const id = key as string;
     const rect = new RegExp(`<rect\\b[^>]*\\sid="area-z-${id}"[^>]*>`).exec(svg)?.[0] ?? "";
     const bottom = attr(rect, "y") + attr(rect, "height");
     const lines: string[] = [];
@@ -153,18 +156,29 @@ function areaLines(svg: string): Map<string, string[]> {
       depth += end ? -1 : empty ? 0 : 1;
       if (depth === 0 && shown) lines.push(line);
     }
-    out.set(id as string, lines);
+    out.set(id, [...(out.get(id) ?? []), lines]);
   }
   return out;
 }
 
-/** The first Area Type whose shown lines Inkscape breaks differently from `exported` (ADR-0064). */
+/**
+ * The first copy of an Area Type whose shown lines Inkscape breaks differently from `exported`
+ * (ADR-0064), pairing each frame's copies in document order.
+ */
 function lineDifference(exported: string, saved: string): string | undefined {
-  const got = areaLines(saved);
-  for (const [id, want] of areaLines(exported)) {
-    const show = JSON.stringify;
-    if (show(got.get(id)) !== show(want))
-      return `lines of ${id}: ${show(got.get(id))}, want ${show(want)}`;
+  const [want, got] = [areaLines(exported), areaLines(saved)];
+  // A pattern that stops matching would compare no copies on either side, and pass.
+  const frames = exported.split("shape-inside:url(#area-z-").length - 1;
+  const copies = [...want.values()].reduce((n, c) => n + c.length, 0);
+  if (copies !== frames) return `Area Type texts read: ${copies}, want ${frames}`;
+  const show = JSON.stringify;
+  for (const [id, copiesWant] of want) {
+    const copiesGot = got.get(id) ?? [];
+    if (copiesGot.length !== copiesWant.length)
+      return `copies of ${id}: ${copiesGot.length} saved, want ${copiesWant.length} exported`;
+    for (const [i, lines] of copiesWant.entries())
+      if (show(copiesGot[i]) !== show(lines))
+        return `lines of ${id} copy ${i + 1} of ${copiesWant.length}: ${show(copiesGot[i])}, want ${show(lines)}`;
   }
 }
 
