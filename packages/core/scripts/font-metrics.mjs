@@ -69,7 +69,7 @@ writeFileSync(
 );
 
 // Noto Sans SC draws in Source Sans 3's vertical metrics (ADR-0063), so only its advances are kept,
-// as runs of consecutive code points sharing one: most of its 30 000 ideographs are 1000 wide.
+// as runs of consecutive code points sharing one: 30,166 of its 30,890 are 1000 wide.
 const noto = {};
 for (const [style, file] of Object.entries(NOTO_FILES)) {
   const { vertical: v, face } = read(`NotoSansSC-${file}.otf`);

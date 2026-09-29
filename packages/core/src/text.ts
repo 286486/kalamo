@@ -95,6 +95,9 @@ export type BundledFamily = keyof typeof FAMILIES;
 /** The one family every family Zibel lacks renders in (ADR-0013). */
 export const BUNDLED_FONT = "Source Sans 3";
 
+/** What picks a text's faces: its family, Source Sans 3 if none, and style. */
+type TextFont = { fontFamily?: string | undefined; fontStyle?: FontStyle | undefined };
+
 const isBundled = (family: string): family is BundledFamily => Object.hasOwn(FAMILIES, family);
 
 /**
@@ -102,16 +105,11 @@ const isBundled = (family: string): family is BundledFamily => Object.hasOwn(FAM
  * else Source Sans 3, then the other bundled families. Each character draws in the first that has
  * its glyph, as a browser's font fallback picks, and else as the first's `.notdef`.
  */
-export function fontFamilies(text: {
-  fontFamily?: string | undefined;
-}): [BundledFamily, ...BundledFamily[]] {
+export function fontFamilies(text: TextFont): [BundledFamily, ...BundledFamily[]] {
   const { fontFamily = BUNDLED_FONT } = text;
   const own = isBundled(fontFamily) ? fontFamily : BUNDLED_FONT;
   return [own, ...(Object.keys(FAMILIES) as BundledFamily[]).filter((f) => f !== own)];
 }
-
-/** What picks a text's faces: its family, Source Sans 3 if none, and style. */
-type TextFont = { fontFamily?: string | undefined; fontStyle?: FontStyle | undefined };
 
 type DrawnFace = { family: BundledFamily; face: Face };
 

@@ -18,6 +18,8 @@ const sourceSans3 = [regular, italic, bold, boldItalic, black, blackItalic].map(
 );
 // Noto Sans SC's 17 MB load on the first render that draws in it, and only such a render copies
 // them into resvg (ADR-0063): a chunk in it names it, as does a text set in it.
+// ponytail: sniffs the SVG, so CJK in an SVG that does not name the family, such as an exported
+// file, draws .notdef; pass the families from renderSvg if svgToPng takes other SVGs.
 let noto: Promise<Uint8Array[]> | undefined;
 const notoSansSC = () =>
   (noto ??= Promise.all([

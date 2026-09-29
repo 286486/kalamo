@@ -726,7 +726,7 @@ function containerPaints(
  * the character's own x wherever the bundled family a character draws in changes, naming a family
  * other than the text's first (ADR-0063); Inkscape and browsers fall back per character themselves.
  */
-function text(n: TextNode, a: Attrs, extra: (string | false)[], chunked = false): string {
+function text(n: TextNode, a: Attrs, extra: (string | false)[], chunked: boolean): string {
   const { lines, overflow } = layoutText(n);
   const area = n.kind === "area";
   const role = area ? {} : { "sodipodi:role": "line" };
@@ -749,32 +749,34 @@ function text(n: TextNode, a: Attrs, extra: (string | false)[], chunked = false)
   let shown = 0;
   /** The characters of `t` from code point `start`, and whether they are laid out, so may chunk. */
   const spans = (start: number, t: string, laidOut: boolean) => {
-    const runs: { key: string; x?: number; text: string }[] = [];
+    /** Runs of characters, each with the attributes that set it apart and the x a chunk starts at. */
+    const runs: { attrs: string; x?: number; text: string }[] = [];
     let family = first;
-    let [c, j] = [start - 1, 0];
-    for (const ch of t) {
-      c++;
-      while ((ranges[j]?.end ?? Infinity) <= c) j++;
-      const r = ranges[j];
-      const x = laidOut ? origins[shown++] : undefined;
-      const f = chunked && laidOut && ch !== "\n" ? drawnFamily(n, ch) : family;
-      const chunk = f !== family && x !== undefined;
-      family = f;
-      const key = attrs({
-        ...(r && r.start <= c && overrides(r)),
+    let [index, range] = [start - 1, 0];
+    for (const char of t) {
+      index++;
+      while ((ranges[range]?.end ?? Infinity) <= index) range++;
+      const r = ranges[range];
+      const origin = laidOut ? origins[shown++] : undefined;
+      const drawn = chunked && laidOut && char !== "\n" ? drawnFamily(n, char) : family;
+      const chunk = drawn !== family && origin !== undefined;
+      family = drawn;
+      const own = attrs({
+        ...(r && r.start <= index && overrides(r)),
         "font-family": family === first ? undefined : family,
       });
       const last = runs.at(-1);
-      if (!chunk && last?.key === key) last.text += ch;
-      else runs.push({ key, x: chunk ? x : undefined, text: ch });
+      if (!chunk && last?.attrs === own) last.text += char;
+      else runs.push({ attrs: own, x: chunk ? origin : undefined, text: char });
     }
     return runs
-      .map(({ key, x, text }) => {
+      .map(({ attrs: own, x, text }) => {
         const at = x === undefined ? "" : attrs({ x: formatNumber(x) });
-        return key || at ? `<tspan${at}${key}>${esc(text)}</tspan>` : esc(text);
+        return own || at ? `<tspan${at}${own}>${esc(text)}</tspan>` : esc(text);
       })
       .join("");
   };
+
   const tspans = lines.map(
     (l) =>
       `<tspan${attrs({ ...role, ...num({ x: l.x, y: l.y }) })}>${spans(l.start, l.text, true)}</tspan>`,
@@ -782,7 +784,11 @@ function text(n: TextNode, a: Attrs, extra: (string | false)[], chunked = false)
   const last = lines.at(-1);
   const hidden = last ? last.start + [...last.text].length : 0;
   if (overflow) {
-    tspans.push(`<tspan style="visibility:hidden">${spans(hidden, overflow, false)}</tspan>`);
+    // Its own chunk for resvg, so its characters do not pick the last shown line's face.
+    const at = chunked && last ? num({ x: last.x }) : {};
+    tspans.push(
+      `<tspan${attrs({ ...at, style: "visibility:hidden" })}>${spans(hidden, overflow, false)}</tspan>`,
+    );
   }
   // Auto leading is CSS's unitless 1.2, which also follows the font size.
   const leading = n.leading === undefined ? "1.2" : `${formatNumber(n.leading)}px`;

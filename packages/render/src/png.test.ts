@@ -262,6 +262,34 @@ it("draws a character Source Sans 3 lacks in Noto Sans SC, the rest of its line 
   expect(await cjk("Bold")).not.toBe(await cjk("Regular"));
 });
 
+it("keeps an Area Type's last line in Source Sans 3 when CJK overflows after it", async () => {
+  const drawn = async (content: string) => {
+    const { doc, defaultLayerId: parentId } = createDocument({
+      id: "d",
+      name: "Doc",
+      artboards: [{ width: 200, height: 100, background: "#FFFFFF" }],
+    });
+    createNodes(doc, [
+      {
+        type: "text",
+        parentId,
+        kind: "area",
+        x: 0,
+        y: 0,
+        width: 200,
+        height: 60,
+        content,
+        fontSize: 40,
+        fontStyle: "Bold",
+      },
+      // Visible CJK elsewhere, so the render loads Noto Sans SC.
+      { type: "text", parentId, x: 0, y: 95, content: "小", fontSize: 20 },
+    ] as never);
+    return ink(renderSvg(doc));
+  };
+  expect(await drawn("Hi 小动物小动物")).toEqual(await drawn("Hi 한국어한국어"));
+});
+
 it("draws a text in Noto Sans SC in it, and what it lacks in Source Sans 3", async () => {
   const noto = await drawnText("Hi", "Regular", "Noto Sans SC");
   expect(noto.columns(0, 400)).not.toBe((await drawnText("Hi")).columns(0, 400));
