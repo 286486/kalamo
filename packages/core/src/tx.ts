@@ -16,13 +16,6 @@ export interface TxRow {
 
 const ROLL_BACK = "Roll back with kalamo_tx_rollback and redo the work in a new Transaction.";
 
-/** A top-level Layer the rows remove when no other is left (ADR-0073). */
-const NO_LAYER = new KalamoError({
-  code: "TREE_CONFLICT",
-  message: "no top-level Layer would remain.",
-  hint: ROLL_BACK,
-});
-
 /**
  * The committed Document as the Transaction sees it. Leaves `doc` untouched. Throws TREE_CONFLICT
  * when moves committed meanwhile close a cycle with the Transaction's (ADR-0072), since nothing
@@ -76,13 +69,15 @@ export function commitTransaction(doc: Document, rows: TxRow[]): Change {
   const next = { ...doc, nodes: new Map(doc.nodes) };
   const change = apply(next, rows);
   const broken = conflicts(next, change);
-  for (const id of lostLastLayer(doc, next)) broken.set(id, NO_LAYER);
-  if (broken.size > 0) {
+  const rules = [...broken].map(([id, e]) => `${id}: ${e.data.message}`);
+  const lost = lostLastLayer(doc, next);
+  if (lost.length > 0) rules.push(`${lost.join(", ")}: No top-level Layer would remain.`);
+  if (rules.length > 0) {
     throw new KalamoError({
       code: "TREE_CONFLICT",
-      message: `This Transaction breaks a rule of the Document as committed now: ${[...broken].map(([id, e]) => `${id}: ${e.data.message}`).join(" ")}`,
+      message: `This Transaction breaks a rule of the Document as committed now: ${rules.join(" ")}`,
       hint: ROLL_BACK,
-      nodeIds: [...broken.keys()],
+      nodeIds: [...new Set([...broken.keys(), ...lost])],
     });
   }
   return settle(doc, change);
@@ -228,13 +223,13 @@ export function applyRows(doc: Document, rows: TxRow[]): Change & { skipped: str
     kept = kept.filter((r) => !gone.has(r.id));
     const next = { ...doc, nodes: new Map(doc.nodes) };
     const change = apply(next, kept);
-    const broken = conflicts(next, change);
+    const broken = new Set(conflicts(next, change).keys());
     if (broken.size === 0) {
       const lost = lostLastLayer(doc, next);
       const last = kept.findLast((r) => lost.includes(r.id));
-      if (last) broken.set(last.id, NO_LAYER);
+      if (last) broken.add(last.id);
     }
-    skipped.push(...gone, ...broken.keys());
+    skipped.push(...gone, ...broken);
     if (broken.size === 0) return { ...settle(doc, change), skipped };
     kept = kept.filter((r) => !broken.has(r.id));
   }

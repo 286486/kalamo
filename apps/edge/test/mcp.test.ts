@@ -2176,7 +2176,7 @@ describe("the last top-level Layer (ADR-0073)", () => {
     expect(errorOf(await call("kalamo_tx_commit", { docId, txId }))).toMatchObject({
       code: "TREE_CONFLICT",
       nodeIds: [l1],
-      message: expect.stringContaining("no top-level Layer would remain"),
+      message: expect.stringContaining(`${l1}: No top-level Layer would remain.`),
       hint: expect.stringContaining("kalamo_tx_rollback"),
     });
     expect((await call("kalamo_doc_get_info", { docId })).structuredContent.rev).toBe(rev);

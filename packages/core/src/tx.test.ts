@@ -551,10 +551,23 @@ describe("tree rules at commit, undo and redo (ADR-0072)", () => {
     expect(nodeGone(() => commitTransaction(doc, rows))).toMatchObject({
       code: "TREE_CONFLICT",
       nodeIds: [l],
-      message: expect.stringContaining("no top-level Layer would remain"),
+      message: expect.stringMatching(new RegExp(`: ${l}: No top-level Layer would remain\\.$`)),
       hint: expect.stringContaining("kalamo_tx_rollback"),
     });
     expect(doc.nodes).toEqual(before.nodes);
+    reopens(doc);
+  });
+
+  it("names every Layer a commit removes in one entry of the last-Layer conflict", () => {
+    const { doc, l, m } = tree();
+    const n = createNodes(doc, [{ type: "layer" }]).nodes[0]?.id as string;
+    const rows: TxRow[] = [];
+    stage(doc, rows, (v) => deleteNodes(v, [l, m]));
+    deleteNodes(doc, [n]);
+    const e = nodeGone(() => commitTransaction(doc, rows));
+    expect(e).toMatchObject({ code: "TREE_CONFLICT", nodeIds: [l, m] });
+    expect(e.message.split("No top-level Layer would remain.")).toHaveLength(2);
+    expect(e.message).toContain(`${l}, ${m}: No top-level Layer would remain.`);
     reopens(doc);
   });
 
@@ -654,7 +667,7 @@ describe("tree rules at commit, undo and redo (ADR-0072)", () => {
       (d) => createNodes(d, [{ type: "layer" }]),
     ];
     /** How often each path ADR-0072 adds ran, so the test fails if the edits stop reaching one. */
-    const seen = { refused: 0, skipped: 0, rekeyed: 0, lastLayer: 0 };
+    const seen = { refused: 0, skipped: 0, rekeyed: 0, lastLayerRefused: 0, lastLayerSkipped: 0 };
     /** Nodes stored with another key than the row set; a row that left `index` alone merges none. */
     const rekeyed = (change: { created: Node[]; updated: Node[] }, rows: TxRow[]) =>
       [...change.created, ...change.updated].filter((n) => {
@@ -690,11 +703,10 @@ describe("tree rules at commit, undo and redo (ADR-0072)", () => {
             const layers = [...doc.nodes.values()].filter(isTopLayer).length;
             const change = revert(doc, delta);
             seen.skipped += rows.filter((r) => change.skipped.includes(r.id) && there(r)).length;
-            if (
-              layers > 0 &&
-              rows.some((r) => change.skipped.includes(r.id) && r.base && isTopLayer(r.base))
-            )
-              seen.lastLayer++;
+            // Only the last-Layer rule skips a row that deletes a top-level Layer (ADR-0073).
+            const deletesLayer = (r: TxRow) => !r.working && !!r.base && isTopLayer(r.base);
+            if (layers > 0 && rows.some((r) => deletesLayer(r) && change.skipped.includes(r.id)))
+              seen.lastLayerSkipped++;
             seen.rekeyed += rekeyed(change, rows);
           } else if (roll < 0.18) {
             const rows = pick(txs);
@@ -704,8 +716,8 @@ describe("tree rules at commit, undo and redo (ADR-0072)", () => {
               deltas.push(diff(before, doc));
             } catch (e) {
               if (e instanceof KalamoError && e.data.code === "TREE_CONFLICT") seen.refused++;
-              if (e instanceof KalamoError && e.data.message.includes("no top-level Layer"))
-                seen.lastLayer++;
+              if (e instanceof KalamoError && e.data.message.includes("No top-level Layer"))
+                seen.lastLayerRefused++;
               throw e;
             } finally {
               rows.length = 0;
@@ -721,6 +733,7 @@ describe("tree rules at commit, undo and redo (ADR-0072)", () => {
     expect(seen.refused).toBeGreaterThan(0);
     expect(seen.skipped).toBeGreaterThan(0);
     expect(seen.rekeyed).toBeGreaterThan(0);
-    expect(seen.lastLayer).toBeGreaterThan(0);
+    expect(seen.lastLayerRefused).toBeGreaterThan(0);
+    expect(seen.lastLayerSkipped).toBeGreaterThan(0);
   });
 });

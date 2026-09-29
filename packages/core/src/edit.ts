@@ -454,7 +454,8 @@ export function reparentNodes(
 /**
  * Deletes the Nodes and everything beneath them. Refuses, with LAST_LAYER, the delete that would
  * remove the last top-level Layer (ADR-0073): the whole call, or with `partial` the first such
- * target in order, so its Layer stays and the targets before it go.
+ * target in order, so its Layer stays and the targets before it go. It counts the top-level Layers
+ * left per target rather than calling `lostLastLayer`, which only sees the whole delete.
  */
 export function deleteNodes(
   doc: Document,

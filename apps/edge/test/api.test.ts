@@ -403,6 +403,7 @@ it("rejects a delete command naming the last top-level Layer with LAST_LAYER, ch
   const { docId, defaultLayerId } = await newDoc();
   const [id] = (await call("kalamo_node_create", { docId, nodes: [rect(defaultLayerId)] }))
     .structuredContent.createdIds;
+  const { rev } = (await call("kalamo_doc_get_info", { docId })).structuredContent;
   const { ws, received } = await subscribe(docId);
   await received(1);
   ws.send(command("d1", { type: "delete", nodeIds: [id, defaultLayerId] }));
@@ -414,6 +415,14 @@ it("rejects a delete command naming the last top-level Layer with LAST_LAYER, ch
   });
   const { nodes } = (await call("kalamo_node_get", { docId, nodeIds: [id] })).structuredContent;
   expect(nodes).toHaveLength(1);
+  expect((await call("kalamo_doc_get_info", { docId })).structuredContent.rev).toBe(rev);
+  // The next write's tx is the next message and takes the next rev: the rejection broadcast none.
+  await call("kalamo_node_create", { docId, nodes: [rect(defaultLayerId)] });
+  const messages = await received(3);
+  expect(messages).toHaveLength(3);
+  expect(messages[2]).toMatchObject({ type: "tx", rev: rev + 1 });
+  const text = (await call("kalamo_export", { docId, format: "kalamo_json" })).content[0].text;
+  expect(errorOf(await call("kalamo_doc_open", { content: text }))).toBeNull();
 });
 
 it("skips an undo that would remove the last top-level Layer, in the broadcast and doc_changes (ADR-0073)", async () => {
