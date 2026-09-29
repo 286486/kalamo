@@ -7,6 +7,7 @@ import {
   NodeInput,
   PathEditInput,
   PathOpInput,
+  ReorderOp,
   TransformInput,
   Writable,
 } from "@kalamo/core";
@@ -85,6 +86,8 @@ export const ClientMessage = z.object({
     }),
     // Object > Embed: the linked Images with pixels, embedded in one Transaction (ADR-0042).
     z.object({ type: z.literal("embed"), nodeIds: z.array(z.string()).min(1) }),
+    // Object > Arrange (ADR-0074).
+    z.object({ type: z.literal("reorder"), nodeIds: z.array(z.string()).min(1), op: ReorderOp }),
     // Object > Clipping Mask > Make and Release (ADR-0021).
     z.object({ type: z.literal("mask_make"), input: MaskInput }),
     z.object({ type: z.literal("mask_release"), nodeIds: z.array(z.string()).min(1) }),

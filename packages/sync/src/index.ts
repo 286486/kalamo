@@ -16,6 +16,7 @@ import type {
   Rect,
   RenderOverlay,
   RenderScope,
+  ReorderOp,
   ReparentInput,
   TransformNodesInput,
   UpdateInput,
@@ -150,6 +151,13 @@ export interface DocumentService {
   ): Promise<WriteReceipt>;
   /** Moves Nodes to another Layer or Group, or restacks them in theirs (ADR-0071). */
   reparentNodes(docId: string, moves: ReparentInput[], opts?: WriteOptions): Promise<WriteReceipt>;
+  /** Illustrator's Object > Arrange: restacks each Node in its own parent (ADR-0074). */
+  reorderNodes(
+    docId: string,
+    nodeIds: string[],
+    op: ReorderOp,
+    opts?: WriteOptions,
+  ): Promise<WriteReceipt>;
   /** Illustrator's Clipping Mask > Make and Release (ADR-0021). */
   makeMask(docId: string, input: MaskInput, opts?: WriteOptions): Promise<WriteReceipt>;
   releaseMask(docId: string, nodeIds: string[], opts?: WriteOptions): Promise<WriteReceipt>;

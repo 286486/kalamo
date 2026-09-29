@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import {
+  ARRANGE,
   type Artboard,
   type ArtboardInput,
   bounds,
@@ -40,9 +41,11 @@ import {
   placeNodes,
   queryNodes,
   type Rect,
+  type ReorderOp,
   type ReparentInput,
   readImage,
   releaseMask,
+  reorderNodes,
   reparentNodes,
   revert,
   serializeDocument,
@@ -482,6 +485,10 @@ export class DocumentObject extends DurableObject<Env> {
           return { updated: updateNodes(doc, updates).nodes, failed: [] };
         }),
     },
+    reorder: {
+      nodeIds: (c) => c.nodeIds,
+      run: (c, actor, commandId) => this.reorderNodes(c.nodeIds, c.op, actor, { commandId }),
+    },
     mask_make: {
       nodeIds: (c) =>
         "layerId" in c.input ? [c.input.layerId] : [c.input.clipNodeId, ...c.input.contentIds],
@@ -858,6 +865,18 @@ export class DocumentObject extends DurableObject<Env> {
     return this.write(actor, opts, "Reparent", (doc) => {
       const { nodes, failed } = reparentNodes(doc, moves, opts);
       return { updated: nodes, failed };
+    });
+  }
+
+  reorderNodes(
+    nodeIds: string[],
+    op: ReorderOp,
+    actor: string,
+    opts: Options = {},
+  ): Result<WriteReceipt> {
+    return this.write(actor, opts, ARRANGE[op], (doc) => {
+      const { nodes, failed } = reorderNodes(doc, nodeIds, op, opts);
+      return { updated: nodes, failed, summary: ARRANGE[op] };
     });
   }
 

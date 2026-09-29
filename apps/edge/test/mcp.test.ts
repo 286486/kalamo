@@ -58,6 +58,7 @@ it("lists the tools over HTTP (their schemas and annotations: packages/mcp serve
     "kalamo_node_delete",
     "kalamo_node_get",
     "kalamo_node_query",
+    "kalamo_node_reorder",
     "kalamo_node_reparent",
     "kalamo_node_transform",
     "kalamo_node_update",
@@ -2121,6 +2122,91 @@ describe("kalamo_node_reparent (ADR-0071)", () => {
       path: `updates[0].patch.${key}`,
       hint: expect.stringMatching(hint),
     });
+  });
+});
+
+describe("kalamo_node_reorder (ADR-0074)", () => {
+  it("sends a Clipping Path to the back of its Clip Group, still clipping, in one receipt", async () => {
+    const { docId, defaultLayerId } = await newDoc();
+    const box = (clientKey: string, x: number) => ({
+      type: "rect",
+      parentId: defaultLayerId,
+      clientKey,
+      x,
+      y: 0,
+      width: 50,
+      height: 50,
+      appearance: { fills: [{ type: "solid", color: "#FF0000" }] },
+    });
+    const { keyMap } = (
+      await call("kalamo_node_create", {
+        docId,
+        nodes: [box("art", 0), box("clip", 10), box("loose", 100)],
+      })
+    ).structuredContent;
+    const made = await call("kalamo_mask_make", {
+      docId,
+      clipNodeId: keyMap.clip,
+      contentIds: [keyMap.art],
+    });
+    const group = made.structuredContent.createdIds[0];
+    const kids = async () => {
+      const { nodes } = (await call("kalamo_doc_outline", { docId, depth: 3 })).structuredContent;
+      type Row = { id: string; children?: Row[] };
+      const layer = nodes[0] as Row;
+      const inner = layer.children?.find((n) => n.id === group)?.children ?? [];
+      return [layer.children?.map((n) => n.id), inner.map((n) => n.id)];
+    };
+    const { rev } = (await call("kalamo_doc_get_info", { docId })).structuredContent;
+    const clipFirst = await kids();
+    const render = async () =>
+      (
+        await call("kalamo_render", {
+          docId,
+          scope: { rect: { x: 0, y: 0, width: 60, height: 50 } },
+        })
+      ).content[0].data;
+    const clipped = await render();
+    const moved = await call("kalamo_node_reorder", {
+      docId,
+      nodeIds: [keyMap.clip, keyMap.loose],
+      op: "back",
+    });
+    expect(moved.isError).toBeFalsy();
+    expect(moved.structuredContent).toMatchObject({
+      rev: rev + 1,
+      updatedIds: [keyMap.clip, keyMap.loose],
+    });
+    expect(clipFirst).toEqual([
+      [group, keyMap.loose],
+      [keyMap.art, keyMap.clip],
+    ]);
+    expect(await kids()).toEqual([
+      [keyMap.loose, group],
+      [keyMap.clip, keyMap.art],
+    ]);
+    const [clip] = (
+      await call("kalamo_node_get", { docId, nodeIds: [keyMap.clip], detail: "full" })
+    ).structuredContent.nodes;
+    expect(clip).toMatchObject({ clipping: true, parentId: group });
+    // Its place does not matter (ADR-0021): the Clip Group draws the same.
+    expect(await render()).toBe(clipped);
+  });
+
+  it("names the unknown id's place, and node_update's index hint names node_reorder", async () => {
+    const { docId, defaultLayerId } = await newDoc();
+    const result = await call("kalamo_node_reorder", {
+      docId,
+      nodeIds: [defaultLayerId, "nope"],
+      op: "forward",
+    });
+    expect(errorOf(result)).toMatchObject({ code: "NODE_NOT_FOUND", path: "nodeIds[1]" });
+    const patched = await call("kalamo_node_update", {
+      docId,
+      updates: [{ nodeId: defaultLayerId, patch: { index: "a0" } }],
+    });
+    expect(errorOf(patched).hint).toContain("node_reorder");
+    expect(errorOf(patched).hint).not.toContain("not available yet");
   });
 });
 

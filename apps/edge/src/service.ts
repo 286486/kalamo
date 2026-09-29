@@ -135,6 +135,8 @@ export function documentService(env: Env, principal: Principal): DocumentService
       write(docId, (d) => d.transformNodes(input, actor, opts)),
     reparentNodes: async (docId, moves, opts) =>
       write(docId, (d) => d.reparentNodes(moves, actor, opts)),
+    reorderNodes: async (docId, nodeIds, op, opts) =>
+      write(docId, (d) => d.reorderNodes(nodeIds, op, actor, opts)),
     makeMask: async (docId, input, opts) => write(docId, (d) => d.makeMask(input, actor, opts)),
     releaseMask: async (docId, nodeIds, opts) =>
       write(docId, (d) => d.releaseMask(nodeIds, actor, opts)),

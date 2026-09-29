@@ -76,7 +76,7 @@ test("menu commands run from the menu bar, by their shortcuts, and with the keyb
   await page.keyboard.press("i");
   await expect(item("Inverse")).toBeFocused();
   await page.keyboard.press("ArrowLeft");
-  await expect(item("Path")).toBeFocused();
+  await expect(item("Arrange")).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(item("Object")).toBeFocused();
   await page.keyboard.press("ArrowRight");
@@ -258,4 +258,86 @@ test("the Layers panel's button clips the Layer by its topmost object, and relea
   await expect(row("<Clipping Path>")).toBeHidden();
   await expect(row("Make Clipping Mask")).toBeEnabled();
   await expect.poll(redAt).toEqual([true, true]);
+});
+
+test("Object > Arrange restacks the Selection by Illustrator's shortcuts, and Ctrl+Z undoes each (ADR-0074)", async ({
+  page,
+  request,
+}) => {
+  const { docId, defaultLayerId: parentId } = (
+    await call(request, "kalamo_doc_create", {
+      name: "Arrange",
+      artboards: [{ width: 200, height: 100 }],
+    })
+  ).structuredContent;
+  // Red, Green and Blue, bottom to top, each 60 wide and 20 right of the one below.
+  const rect = (name: string, x: number, color: string) => ({
+    type: "rect",
+    parentId,
+    name,
+    x,
+    y: 0,
+    width: 60,
+    height: 100,
+    appearance: { fills: [{ color }] },
+  });
+  await call(request, "kalamo_node_create", {
+    docId,
+    nodes: [rect("Red", 0, "#FF0000"), rect("Green", 20, "#00FF00"), rect("Blue", 40, "#0000FF")],
+  });
+  await page.goto(`/docs/${docId}`);
+  await expect(page.getByTestId("status-bar")).toContainText(/\d+%/);
+  await page.keyboard.press("Control+1");
+  await expect(page.getByTestId("status-bar")).toContainText("100%");
+  const row = (name: string) => page.getByRole("button", { name, exact: true });
+  // The colour on top at x 30 (Red and Green overlap), 50 (all three) and 70 (Green and Blue);
+  // at 100% the Artboard's centre, (100, 50), is the canvas's.
+  const top = () =>
+    page.getByTestId("canvas").evaluate((el: HTMLCanvasElement) => {
+      const k = el.width / el.getBoundingClientRect().width;
+      const ctx = el.getContext("2d");
+      return [30, 50, 70]
+        .map((x) => {
+          const [px, py] = [(el.width / k / 2 + x - 100) * k, (el.height / k / 2) * k];
+          const [r = 0, g = 0, b = 0] = ctx?.getImageData(px, py, 1, 1).data ?? [];
+          return r > 200 && g < 50 ? "R" : g > 200 && r < 50 ? "G" : b > 200 && r < 50 ? "B" : "?";
+        })
+        .join("");
+    });
+  await expect.poll(top).toBe("GBB");
+
+  await row("Red").click();
+  await expect(row("Red")).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Shift+Control+BracketRight");
+  await expect.poll(top).toBe("RRB");
+  await page.keyboard.press("Control+Z");
+  await expect.poll(top).toBe("GBB");
+  await page.keyboard.press("Control+BracketRight");
+  await expect.poll(top).toBe("RBB");
+  await page.keyboard.press("Control+Z");
+  await expect.poll(top).toBe("GBB");
+
+  await row("Blue").click();
+  await page.keyboard.press("Control+BracketLeft");
+  await expect.poll(top).toBe("GGG");
+  await page.keyboard.press("Shift+Control+BracketRight");
+  await expect.poll(top).toBe("GBB");
+  await page.keyboard.press("Control+Z");
+  await expect.poll(top).toBe("GGG");
+  await page.keyboard.press("Control+Z");
+  await expect.poll(top).toBe("GBB");
+
+  await row("Green").click();
+  await page.keyboard.press("Shift+Control+BracketLeft");
+  await expect.poll(top).toBe("RBB");
+  await page.keyboard.press("Control+Z");
+  await expect.poll(top).toBe("GBB");
+
+  // From the menu, and on two Nodes at once: they keep their order.
+  await row("Red").click();
+  await row("Green").click({ modifiers: ["Shift"] });
+  await choose(page, "Object", "Arrange", "Bring to Front");
+  await expect.poll(top).toBe("GGG");
+  await page.keyboard.press("Control+Z");
+  await expect.poll(top).toBe("GBB");
 });

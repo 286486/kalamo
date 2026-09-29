@@ -8,7 +8,7 @@ import {
   ellipseMatrix,
   outline,
 } from "./document.ts";
-import { deleteNodes, reparentNodes, transformNodes, updateNodes } from "./edit.ts";
+import { deleteNodes, reorderNodes, reparentNodes, transformNodes, updateNodes } from "./edit.ts";
 import { KalamoError } from "./errors.ts";
 import { parseDocument, serializeDocument } from "./file.ts";
 import { makeMask } from "./mask.ts";
@@ -505,7 +505,7 @@ describe("updateNodes", () => {
   it.each([
     [{ transform: [1, 0, 0, 1, 0, 0] }, "transform", /node_transform/],
     [{ parentId: "x" }, "parentId", /^Use node_reparent/],
-    [{ index: "a0" }, "index", /node_reparent with the same parentId.*node_reorder/],
+    [{ index: "a0" }, "index", /^Use node_reorder.*node_reparent with the same parentId/],
     [{ type: "ellipse" }, "type", /type/],
     [{ sides: 5 }, "sides", /x, y, width, height, radius/],
     [{ d: "M 0 0" }, "d", /parameters/],
@@ -1455,5 +1455,128 @@ describe("reparentNodes (ADR-0071)", () => {
       expect(doc.nodes.has(clipGroup)).toBe(true);
       expect(childrenOf(doc, clipGroup)).toEqual([]);
     });
+  });
+});
+
+describe("reorderNodes (ADR-0074)", () => {
+  /** Layer L holds a b c d e bottom first; Layer M holds Group G, which holds x y z. */
+  const scene = () => {
+    const { doc, defaultLayerId: l } = createDocument({
+      id: "d",
+      name: "Doc",
+      artboards: [{ width: 200, height: 100 }],
+    });
+    const box = (clientKey: string) =>
+      ({ type: "rect", x: 0, y: 0, width: 10, height: 10, clientKey }) as const;
+    const { keyMap: top } = createNodes(
+      doc,
+      ["a", "b", "c", "d", "e"].map((k) => ({ ...box(k), parentId: l })),
+    );
+    const [m] = createNodes(doc, [{ type: "layer", name: "M" }]).nodes as [Node];
+    const { keyMap: inner } = createNodes(doc, [
+      { type: "group", parentId: m.id, clientKey: "G", children: ["x", "y", "z"].map(box) },
+    ]);
+    const keyMap: Record<string, string> = { ...top, ...inner, L: l, M: m.id };
+    const id = (k: string) => keyMap[k] as string;
+    const name = Object.fromEntries(Object.entries(keyMap).map(([k, v]) => [v, k]));
+    const kids = (parent: string | null) =>
+      childrenOf(doc, parent === null ? null : id(parent)).map((n) => name[n.id]);
+    const keys = () => new Map([...doc.nodes.values()].map((n) => [n.id, n.index]));
+    const reorder = (ks: string[], op: Parameters<typeof reorderNodes>[2], partial = false) =>
+      reorderNodes(doc, ks.map(id), op, { partial });
+    return { doc, id, kids, keys, reorder };
+  };
+
+  it.each([
+    ["front", ["b"], ["a", "c", "d", "e", "b"]],
+    ["back", ["d"], ["d", "a", "b", "c", "e"]],
+    ["forward", ["b"], ["a", "c", "b", "d", "e"]],
+    ["backward", ["d"], ["a", "b", "d", "c", "e"]],
+  ] as const)("%s moves one Node in its parent", (op, sel, order) => {
+    const { kids, reorder } = scene();
+    reorder([...sel], op);
+    expect(kids("L")).toEqual(order);
+  });
+
+  it.each([
+    // Relative order kept whatever order nodeIds names them in.
+    ["front", ["d", "b"], ["a", "c", "e", "b", "d"]],
+    ["back", ["d", "b"], ["b", "d", "a", "c", "e"]],
+    // Apart, each steps past one sibling.
+    ["forward", ["d", "b"], ["a", "c", "b", "e", "d"]],
+    ["backward", ["d", "b"], ["b", "a", "d", "c", "e"]],
+    // A contiguous run moves as a block, past one sibling.
+    ["forward", ["b", "c"], ["a", "d", "b", "c", "e"]],
+    ["backward", ["c", "d"], ["a", "c", "d", "b", "e"]],
+    // A run at the edge stays; the Node apart from it closes up to it.
+    ["forward", ["b", "d", "e"], ["a", "c", "b", "d", "e"]],
+    ["backward", ["a", "b", "d"], ["a", "b", "d", "c", "e"]],
+  ] as const)("%s on %o in one parent keeps their relative order", (op, sel, order) => {
+    const { kids, reorder } = scene();
+    reorder([...sel], op);
+    expect(kids("L")).toEqual(order);
+  });
+
+  it("restacks Nodes in two parents each in its own, and never changes a parent", () => {
+    const { doc, id, kids, reorder } = scene();
+    const { nodes } = reorder(["x", "b"], "front");
+    expect(kids("L")).toEqual(["a", "c", "d", "e", "b"]);
+    expect(kids("G")).toEqual(["y", "z", "x"]);
+    expect(nodes.map((n) => n.id)).toEqual([id("x"), id("b")]);
+    expect(doc.nodes.get(id("x"))?.parentId).toBe(id("G"));
+  });
+
+  it("changes only the moved Nodes' keys", () => {
+    const { id, keys, reorder } = scene();
+    const before = keys();
+    const { nodes } = reorder(["b", "c"], "forward");
+    const after = keys();
+    const changed = [...before].filter(([k, v]) => after.get(k) !== v).map(([k]) => k);
+    expect(changed.sort()).toEqual([id("b"), id("c")].sort());
+    expect(nodes.map((n) => n.id)).toEqual([id("b"), id("c")]);
+  });
+
+  it.each([
+    ["front", ["d", "e"]],
+    ["forward", ["e"]],
+    ["back", ["a", "b"]],
+    ["backward", ["a"]],
+  ] as const)("%s on %o, already at the edge, moves nothing", (op, sel) => {
+    const { kids, keys, reorder } = scene();
+    const before = keys();
+    const { nodes, failed } = reorder([...sel], op);
+    expect(nodes).toEqual([]);
+    expect(failed).toEqual([]);
+    expect(keys()).toEqual(before);
+    expect(kids("L")).toEqual(["a", "b", "c", "d", "e"]);
+  });
+
+  it("restacks a top-level Layer among the Layers", () => {
+    const { kids, reorder } = scene();
+    expect(kids(null)).toEqual(["L", "M"]);
+    reorder(["M"], "back");
+    expect(kids(null)).toEqual(["M", "L"]);
+  });
+
+  it("keeps clipping on a restacked Clipping Path (ADR-0021)", () => {
+    const { doc, id, kids } = scene();
+    makeMask(doc, { clipNodeId: id("a"), contentIds: [id("b"), id("c")] });
+    const clip = doc.nodes.get(id("a")) as Node;
+    const group = clip.parentId as string;
+    reorderNodes(doc, [id("a")], "front");
+    expect(doc.nodes.get(id("a"))).toMatchObject({ clipping: true, parentId: group });
+    expect(childrenOf(doc, group).map((n) => n.id)).toEqual([id("b"), id("c"), id("a")]);
+  });
+
+  it("refuses an unknown id as NODE_NOT_FOUND at nodeIds[i]; partial skips it", () => {
+    const { doc, id, kids } = scene();
+    expect(errorOf(() => reorderNodes(doc, [id("a"), "nope"], "front"))).toMatchObject({
+      code: "NODE_NOT_FOUND",
+      path: "nodeIds[1]",
+    });
+    expect(kids("L")).toEqual(["a", "b", "c", "d", "e"]);
+    const { nodes, failed } = reorderNodes(doc, [id("a"), "nope"], "front", { partial: true });
+    expect(nodes.map((n) => n.id)).toEqual([id("a")]);
+    expect(failed).toMatchObject([{ index: 1, code: "NODE_NOT_FOUND", path: "nodeIds[1]" }]);
   });
 });

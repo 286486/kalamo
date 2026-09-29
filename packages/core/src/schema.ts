@@ -751,6 +751,22 @@ export const ReparentInput = z.strictObject({
 });
 export type ReparentInput = z.input<typeof ReparentInput>;
 
+/** `node_reorder`'s op and Object > Arrange's entry for it (ADR-0074). */
+export const ReorderOp = z
+  .enum(["front", "forward", "backward", "back"])
+  .describe(
+    "front: to the top of its parent; forward: up past one sibling; backward: down past one sibling; back: to the bottom.",
+  );
+export type ReorderOp = z.infer<typeof ReorderOp>;
+
+/** Illustrator's Object > Arrange names, the menu label and the Transaction summary. */
+export const ARRANGE: Record<ReorderOp, string> = {
+  front: "Bring to Front",
+  forward: "Bring Forward",
+  backward: "Send Backward",
+  back: "Send to Back",
+};
+
 const clipNodeId = z
   .string()
   .describe("The Live Shape, Path or text that clips; it loses its Appearance.");
