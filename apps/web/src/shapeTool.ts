@@ -3,7 +3,7 @@ import { dragged, drawDrawing, type Press, shapePath } from "./canvas.ts";
 import type { ShapeBox } from "./receive.ts";
 import { useStore } from "./store.ts";
 import type { CanvasTool, KeyMods } from "./toolbox.ts";
-import { type NewArt, type StarArt, sendNewArt } from "./tools.ts";
+import { constrain, type LineArt, type NewArt, type StarArt, sendNewArt } from "./tools.ts";
 
 type Point = [number, number];
 
@@ -31,6 +31,21 @@ export function dragBox(
     width: Math.abs(dx),
     height: Math.abs(dy),
   };
+}
+
+/**
+ * The line a drag from `press` to `p` draws (F-DRAW-01), as Illustrator's Line Segment tool does:
+ * from the press to the pointer. Shift turns it to a multiple of 45°, and Alt makes the press its
+ * midpoint.
+ */
+export function dragLine(
+  press: Point,
+  p: Point,
+  { shift, alt }: Pick<KeyMods, "shift" | "alt">,
+): LineArt {
+  const [x2, y2] = shift ? constrain(press, p) : p;
+  const [x1, y1] = alt ? [2 * press[0] - x2, 2 * press[1] - y2] : press;
+  return { type: "line", x1, y1, x2, y2 };
 }
 
 /**
@@ -147,6 +162,8 @@ interface DragShape<A extends NewArt, O> {
   art(origin: Point, p: Point, mods: KeyMods, option: O): A;
   /** False for art dragged back to a line or a point, which would be invisible. */
   visible(art: A): boolean;
+  /** Painted with the current Stroke and no Fill, whatever the Fill box holds. */
+  unfilled?: true;
   /** `option` after `key` while `art` is drawn, or null when the key is not the drag's. */
   key?(option: O, key: string, art: A | null): O | null;
   /** `option` with the modifiers `mods` held, re-read before `art` is redrawn. */
@@ -167,6 +184,10 @@ function shapeTool<A extends NewArt, O>(
   shape: DragShape<A, O>,
 ): CanvasTool {
   let kept = shape.option;
+  const paint = () => {
+    const { fillStroke } = useStore.getState();
+    return shape.unfilled ? { ...fillStroke, fill: null } : fillStroke;
+  };
   /**
    * The drag under way: where it started, moved by Space, the pointer, the option, and the
    * modifiers, re-read on every move and key. `art` is null until the drag passes SLOP.
@@ -216,7 +237,7 @@ function shapeTool<A extends NewArt, O>(
       drag = null;
       const shown = art && shape.visible(art) ? art : null;
       kept = shape.keep ? shape.keep(option, shown, kept) : option;
-      if (shown) sendNewArt([shown]);
+      if (shown) sendNewArt([shown], { fillStroke: paint() });
       e.redraw();
     },
     cancel(redraw) {
@@ -225,7 +246,7 @@ function shapeTool<A extends NewArt, O>(
     },
     draw(ctx, _doc, scale) {
       const path = drag?.art && shapePath(drag.art);
-      if (path) drawDrawing(ctx, path, useStore.getState().fillStroke, scale);
+      if (path) drawDrawing(ctx, path, paint(), scale);
     },
   };
 }
@@ -323,5 +344,20 @@ export const starTool = shapeTool<StarArt, StarOption>(
       return star.inner === null && art ? { ...star, inner: art.innerRadius } : star;
     },
     keep: unhold,
+  },
+);
+
+/**
+ * Illustrator's Line Segment tool with Fill Line off, its default: the line takes the current
+ * Stroke and no Fill. With a None Stroke it is still drawn, unpainted, as the Pen's path is; Adobe
+ * does not document that case, so it is unverified. The line is selected, so its outline shows.
+ */
+export const lineTool = shapeTool(
+  { title: "Line Segment Tool", shortcut: "\\", group: "line", icon: "M2.5 13.5 L13.5 2.5" },
+  {
+    option: null,
+    art: dragLine,
+    visible: ({ x1, y1, x2, y2 }) => x1 !== x2 || y1 !== y2,
+    unfilled: true,
   },
 );

@@ -19,8 +19,8 @@ test("a group's flyout opens by hold, right-click or keyboard, and fronts the ch
   const menu = tools.getByRole("menu");
   const item = (name: string) => menu.getByRole("menuitemradio", { name, exact: true });
 
-  // One button per group: the lone tools, Pen's five in one, Rectangle and Ellipse in one.
-  await expect(tools.getByRole("button", { name: /Tool \(/ })).toHaveCount(6);
+  // One button per group: the lone tools, Pen's five in one, Line Segment's one, Rectangle's five.
+  await expect(tools.getByRole("button", { name: /Tool \(/ })).toHaveCount(7);
   await expect(tool("Curvature Tool (Shift+~)")).toHaveCount(0);
 
   // Holding the Pen opens its flyout, each tool with its title and shortcut; a click picks one.

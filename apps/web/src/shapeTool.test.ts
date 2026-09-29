@@ -3,9 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   countKey,
   dragBox,
+  dragLine,
   dragRadial,
   dragStar,
   ellipseTool,
+  lineTool,
   polygonTool,
   radiusKey,
   rectangleTool,
@@ -612,5 +614,121 @@ describe("the Star tool", () => {
   it("sends nothing dragged back to its centre", () => {
     dragWith(starTool, [0, 0], [[20, 0]], [[0, 0]]);
     expect(send).not.toHaveBeenCalled();
+  });
+});
+
+describe("dragLine", () => {
+  const press: Point = [10, 20];
+  it("runs from the press to the pointer", () => {
+    expect(dragLine(press, [40, -5], NONE)).toEqual({
+      type: "line",
+      x1: 10,
+      y1: 20,
+      x2: 40,
+      y2: -5,
+    });
+  });
+
+  it.each([
+    [
+      [40, 22],
+      [40, 20],
+    ],
+    [
+      [31, -2],
+      [31.5, -1.5],
+    ],
+    [
+      [12, 60],
+      [10, 60],
+    ],
+    [
+      [-20, 49],
+      [-19.5, 49.5],
+    ],
+  ] as const)("Shift turns the line toward %j to a multiple of 45°", (p, end) => {
+    const { x2, y2 } = dragLine(press, [...p], { ...NONE, shift: true });
+    expect([x2, y2]).toEqual(end);
+  });
+
+  it("Alt makes the press its midpoint, with Shift too", () => {
+    expect(dragLine(press, [40, 30], { ...NONE, alt: true })).toEqual({
+      type: "line",
+      x1: -20,
+      y1: 10,
+      x2: 40,
+      y2: 30,
+    });
+    expect(dragLine(press, [40, 22], { ...NONE, shift: true, alt: true })).toEqual({
+      type: "line",
+      x1: -20,
+      y1: 20,
+      x2: 40,
+      y2: 20,
+    });
+  });
+});
+
+describe("the Line Segment tool", () => {
+  const created = () => {
+    const command = sent();
+    return command?.type === "create" ? command.nodes[0] : null;
+  };
+
+  it("draws a line in the current Stroke and no Fill, even with the Fill box set", () => {
+    useStore.setState({ fillStroke: { fill: "#FF0000", stroke: "#0000FF", active: "fill" } });
+    dragWith(lineTool, [30, 40], [[50, 45]], [[70, 60]]);
+    expect(vi.mocked(send)).toHaveBeenCalledTimes(1);
+    expect(created()).toEqual({
+      type: "line",
+      parentId: defaultLayerId,
+      x1: 30,
+      y1: 40,
+      x2: 70,
+      y2: 60,
+      appearance: { fills: [], strokes: [{ color: "#0000FF", width: 1 }] },
+    });
+    expect(useStore.getState().pending).toMatchObject([{ nodes: [{ type: "line" }] }]);
+  });
+
+  it("with a None Stroke is still drawn, unpainted", () => {
+    dragWith(lineTool, [0, 0], [[20, 10]]);
+    expect(created()).toMatchObject({ type: "line", appearance: { fills: [], strokes: [] } });
+  });
+
+  it("Shift gives 45°, Alt centres it on the press, and Space moves it", () => {
+    dragWith(lineTool, [0, 0], [[30, 28], { shift: true }]);
+    expect(created()).toMatchObject({ x1: 0, y1: 0, x2: 29, y2: 29 });
+    dragWith(lineTool, [0, 0], [[30, 10], { alt: true }]);
+    expect(created()).toMatchObject({ x1: -30, y1: -10, x2: 30, y2: 10 });
+    const space = { space: true };
+    dragWith(lineTool, [0, 0], [[10, 10]], [[15, 20], space], [[25, 30], space], [[30, 30]]);
+    expect(created()).toMatchObject({ x1: 15, y1: 20, x2: 30, y2: 30 });
+  });
+
+  it("previews unfilled, Shift without a move, and sends nothing dragged back to zero length", () => {
+    const drawn: string[] = [];
+    vi.stubGlobal(
+      "Path2D",
+      class {
+        constructor(d: string) {
+          drawn.push(d);
+        }
+      },
+    );
+    const ctx = {
+      fill: () => drawn.push("fill"),
+      stroke() {},
+    } as unknown as CanvasRenderingContext2D;
+    lineTool.down(at([0, 0]));
+    lineTool.move?.(at([20, 18]));
+    lineTool.draw?.(ctx, doc, 1);
+    expect(drawn).toEqual(["M 0 0 L 20 18"]);
+    lineTool.keyChange?.({ ...NONE, key: "Shift", down: true, shift: true }, () => {});
+    lineTool.draw?.(ctx, doc, 1);
+    expect(drawn.at(-1)).toBe("M 0 0 L 19 19");
+    lineTool.up?.(at([0, 0]));
+    expect(send).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 });

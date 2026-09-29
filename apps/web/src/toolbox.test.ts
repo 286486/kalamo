@@ -39,13 +39,15 @@ it("shows each group as one button, at its first tool, fronting its last chosen 
     "direct",
     "zoom",
     "pen",
+    "line",
     "rectangle",
     "pencil",
   ]);
   expect(slots[3]?.tools).toEqual(["pen", "addAnchor", "deleteAnchor", "anchorPoint", "curvature"]);
-  expect(slots[4]?.tools).toEqual(["rectangle", "roundedRectangle", "ellipse", "polygon", "star"]);
+  expect(slots[4]?.tools).toEqual(["line"]);
+  expect(slots[5]?.tools).toEqual(["rectangle", "roundedRectangle", "ellipse", "polygon", "star"]);
   expect(toolSlots(all, { pen: "curvature", rectangle: "ellipse" })[3]?.shown).toBe("curvature");
-  expect(toolSlots(all, { pen: "curvature", rectangle: "ellipse" })[4]?.shown).toBe("ellipse");
+  expect(toolSlots(all, { pen: "curvature", rectangle: "ellipse" })[5]?.shown).toBe("ellipse");
   // A viewer's tools show no group; a fronted tool that is not shown is ignored.
   expect(toolSlots(["selection", "zoom"], { pen: "curvature" })).toEqual([
     { tools: ["selection"], shown: "selection" },
@@ -97,9 +99,11 @@ it("a key the pressed tool takes switches no tool; one it does not take still do
     ["C", false, false],
     ["M", true, false],
   ]);
-  // No tool holding the pointer: Shift+C is the Anchor Point tool's key.
+  // No tool holding the pointer: Shift+C is the Anchor Point tool's key, and \\ the Line Segment's.
   route(press("C", "keydown", { shiftKey: true }), null);
   expect(setTool).toHaveBeenLastCalledWith("anchorPoint");
+  route({ ...press("\\"), code: "Backslash" }, null);
+  expect(setTool).toHaveBeenLastCalledWith("line");
 });
 
 it.each(["roundedRectangle", "polygon", "star"] as const)(

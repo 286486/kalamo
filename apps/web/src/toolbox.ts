@@ -8,6 +8,7 @@ import { penTool } from "./penTool.ts";
 import { selectionTool } from "./selectionTool.ts";
 import {
   ellipseTool,
+  lineTool,
   polygonTool,
   rectangleTool,
   roundedRectangleTool,
@@ -80,8 +81,11 @@ export const nextTap = (last: Tap | null, x: number, y: number, t: number): Tap 
   return { x, y, t, count: near ? last.count + 1 : 1 };
 };
 
-/** A Tools panel group, named after its first tool: Illustrator's Pen and Rectangle so far. */
-export type ToolGroup = "pen" | "rectangle";
+/**
+ * A Tools panel group, named after its first tool: Illustrator's Pen, Line Segment and Rectangle
+ * so far.
+ */
+export type ToolGroup = "pen" | "line" | "rectangle";
 
 /**
  * A tool of the Tools panel on the canvas. Viewer keeps what every tool shares (viewport, pan,
@@ -133,6 +137,7 @@ export const TOOLS = {
   deleteAnchor: deleteAnchorTool,
   anchorPoint: anchorPointTool,
   curvature: curvatureTool,
+  line: lineTool,
   rectangle: rectangleTool,
   roundedRectangle: roundedRectangleTool,
   ellipse: ellipseTool,
