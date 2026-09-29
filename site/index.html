@@ -525,12 +525,12 @@
     draw();
   });
 
-  // The o, rightmost anchor: a smooth point, so its handles show off the curve.
+  // The last letter's (the o's) rightmost smooth anchor, so its handles show off the curve.
   const firstSel = () => {
+    const last = letters.length - 1, outer = letters[last][0];
     let best = null;
-    const o = letters.length - 1;
-    letters[o][0].forEach((a, ai) => { if (isSmooth(a) && (best === null || a[0] > letters[o][0][best][0])) best = ai; });
-    return [o, 0, best];
+    outer.forEach((a, ai) => { if (isSmooth(a) && (best === null || a[0] > outer[best][0])) best = ai; });
+    return [last, 0, best];
   };
 
   // Park the agent's cursor at a point in the wordmark, in page pixels.
