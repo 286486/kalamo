@@ -180,7 +180,7 @@ export function arcOf(p: { start: number; end: number; type: string | null; open
 }
 
 /** Radians as degrees at 9 decimals, which absorbs the float error of the round trip (ADR-0024). */
-const degrees = (rad: number) => Math.round(((rad * 180) / Math.PI) * 1e9) / 1e9 || 0;
+export const degrees = (rad: number) => Math.round(((rad * 180) / Math.PI) * 1e9) / 1e9 || 0;
 
 /**
  * The Live Shape a star's parameters hold, the inverse of `starAttrs`: `angle` from arg1, and a

@@ -832,6 +832,31 @@ it("creates a rounded, randomized, twisted star and gets its parameters and deri
   expect(full.d).toBe(formatPath(shapeSegments(full as ShapeNode)));
 });
 
+it("creates a spiral, gets its parameters and derived d, and renders it (ADR-0060)", async () => {
+  const doc = await newDoc();
+  const spiral = {
+    cx: 60,
+    cy: 50,
+    radius: 40,
+    revolution: 2.5,
+    expansion: 1.2,
+    argument: 30,
+    t0: 0.1,
+  };
+  const created = await call("zibel_node_create", {
+    docId: doc.docId,
+    nodes: [{ type: "spiral", parentId: doc.defaultLayerId, ...spiral }],
+  });
+  const [id] = created.structuredContent.createdIds as string[];
+  const [full] = (await call("zibel_node_get", { docId: doc.docId, nodeIds: [id], detail: "full" }))
+    .structuredContent.nodes;
+  expect(full).toMatchObject({ type: "spiral", ...spiral, closed: false });
+  expect(full.d).toBe(formatPath(shapeSegments(full as ShapeNode)));
+  expect(full.d).not.toContain("Z");
+  const rendered = await call("zibel_render", { docId: doc.docId, scope: { nodeIds: [id] } });
+  expect(rendered.content[0]).toMatchObject({ type: "image", mimeType: "image/png" });
+});
+
 it("creates a slice, a chord and an open arc of an ellipse, and renders a quarter pie over its own bounds", async () => {
   const doc = await newDoc();
   const box = { type: "ellipse", parentId: doc.defaultLayerId, x: 0, y: 0, width: 100, height: 60 };

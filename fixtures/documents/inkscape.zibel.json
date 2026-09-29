@@ -87,6 +87,16 @@
       "frame": { "height": 120, "width": 120, "x": 1180, "y": 130 },
       "id": "01M38T29SZZC11PAYERARTB0RD",
       "name": "Layer Clipping"
+    },
+    {
+      "frame": {
+        "height": 120,
+        "width": 120,
+        "x": 1040,
+        "y": 130
+      },
+      "id": "01M38T29T1SP1RA1SARTB0ARD0",
+      "name": "Spirals"
     }
   ],
   "nodes": [
@@ -2427,6 +2437,113 @@
       "tags": [],
       "transform": [0.939693, 0.34202, -0.34202, 0.939693, 139.764977, -412.646576],
       "type": "path",
+      "visible": true
+    },
+    {
+      "appearance": {
+        "fills": [],
+        "strokes": [
+          {
+            "cap": "butt",
+            "color": "#2A4D8F",
+            "dash": [],
+            "join": "miter",
+            "miterLimit": 10,
+            "width": 1.5
+          }
+        ]
+      },
+      "argument": 0,
+      "blendMode": "normal",
+      "cx": 1070,
+      "cy": 160,
+      "expansion": 1,
+      "id": "01M38T29T1SP1RA1000000000A",
+      "index": "ak",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "radius": 25,
+      "revolution": 3,
+      "t0": 0,
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "spiral",
+      "visible": true
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#F4A261",
+            "type": "solid"
+          }
+        ],
+        "strokes": [
+          {
+            "cap": "butt",
+            "color": "#9C4A1A",
+            "dash": [],
+            "join": "miter",
+            "miterLimit": 10,
+            "width": 1
+          }
+        ]
+      },
+      "argument": 30,
+      "blendMode": "normal",
+      "cx": 1130.5,
+      "cy": 165.25,
+      "expansion": 0.6,
+      "id": "01M38T29T1SP1RA1000000000B",
+      "index": "al",
+      "locked": false,
+      "meta": {},
+      "name": "Filled",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "radius": 27,
+      "revolution": 4.5,
+      "t0": 0.2,
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "spiral",
+      "visible": true
+    },
+    {
+      "appearance": {
+        "fills": [],
+        "strokes": [
+          {
+            "cap": "butt",
+            "color": "#2A9D8F",
+            "dash": [],
+            "join": "miter",
+            "miterLimit": 10,
+            "width": 2
+          }
+        ]
+      },
+      "argument": -90,
+      "blendMode": "normal",
+      "cx": 1100,
+      "cy": 220,
+      "expansion": 1.5,
+      "id": "01M38T29T1SP1RA1000000000C",
+      "index": "am",
+      "locked": false,
+      "meta": {},
+      "name": "Counterclockwise",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "radius": 22,
+      "revolution": 2.25,
+      "t0": 0,
+      "tags": [],
+      "transform": [-1, 0, 0, 1, 2200, 0],
+      "type": "spiral",
       "visible": true
     }
   ],

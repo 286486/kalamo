@@ -386,6 +386,25 @@ it("keeps a star's and a polygon's Inkscape parameters, 0 when omitted (ADR-0024
   expect(() => createNodes(doc, [{ ...star, points: 5, rounded: 11 } as never])).toThrow(/rounded/);
 });
 
+it("keeps a spiral's Inkscape parameters, Inkscape's defaults when omitted (ADR-0060)", () => {
+  const { doc, defaultLayerId: layer } = newDoc();
+  const spiral = { type: "spiral" as const, parentId: layer, cx: 10, cy: 20, radius: 30 };
+  const params = { revolution: 4.5, expansion: 0.5, argument: -45, t0: 0.25 };
+  const { nodes } = createNodes(doc, [{ ...spiral, ...params }, spiral]);
+  expect(nodes[0]).toMatchObject(params);
+  expect(nodes[1]).toMatchObject({ revolution: 3, expansion: 1, argument: 0, t0: 0 });
+  for (const [key, value] of [
+    ["revolution", 0.04],
+    ["revolution", 1025],
+    ["expansion", -0.1],
+    ["expansion", 1001],
+    ["t0", 1],
+    ["radius", -1],
+  ] as const) {
+    expect(() => createNodes(doc, [{ ...spiral, [key]: value }])).toThrow(new RegExp(key));
+  }
+});
+
 it("keeps an ellipse's angles and arc type, the whole slice when omitted (ADR-0025)", () => {
   const { doc, defaultLayerId: layer } = newDoc();
   const ellipse = { type: "ellipse" as const, parentId: layer, x: 0, y: 0, width: 20, height: 10 };

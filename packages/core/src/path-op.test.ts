@@ -3,7 +3,7 @@ import type { PathNode } from "./anchor.ts";
 import { toAnchors } from "./anchor.ts";
 import { childrenOf, createDocument, createNodes } from "./document.ts";
 import { ZibelError } from "./errors.ts";
-import { formatPath, parsePath, type Segment } from "./path.ts";
+import { formatPath, parsePath, type Segment, shapeSegments } from "./path.ts";
 import {
   closestEnds,
   convertToPath,
@@ -13,7 +13,7 @@ import {
   pathOp,
   type StrokeStyle,
 } from "./path-op.ts";
-import type { GroupNode, Node } from "./schema.ts";
+import type { GroupNode, Node, ShapeNode } from "./schema.ts";
 
 const errorOf = (fn: () => unknown) => {
   try {
@@ -95,6 +95,17 @@ describe("convertToPath", () => {
       { ...kept, type: "path", d: "M 1 2 L 11 2 L 11 22 L 1 22 Z", fillRule: "nonzero" },
     ]);
     expect(doc.nodes.get(rect.id)).toBe(updated[0]);
+  });
+
+  it("turns a spiral into the open path it draws", () => {
+    const { doc, defaultLayerId: parentId } = setup("M 0 0");
+    const spiral = { type: "spiral", parentId, cx: 5, cy: 5, radius: 20 } as const;
+    const [node] = createNodes(doc, [spiral]).nodes;
+    if (!node) throw new Error("no spiral");
+    const [path] = convertToPath(doc, [node.id]).updated;
+    expect(path).toMatchObject({ type: "path", d: formatPath(shapeSegments(node as ShapeNode)) });
+    expect(path).not.toHaveProperty("revolution");
+    expect((path as { d: string }).d).not.toContain("Z");
   });
 
   it("leaves a path as it is and refuses a Node without Anchors", () => {

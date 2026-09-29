@@ -1,5 +1,6 @@
 import { ZibelError } from "./errors.ts";
 import type { Rect, Shape } from "./schema.ts";
+import { spiralSegments } from "./spiral.ts";
 
 /** One absolute path command with its numbers, e.g. `{cmd: "C", args: [x1, y1, x2, y2, x, y]}`. */
 export interface Segment {
@@ -469,6 +470,8 @@ export function shapeSegments(shape: Shape): Segment[] {
     case "polygon":
     case "star":
       return starSegments(shape);
+    case "spiral":
+      return spiralSegments(shape);
     case "path":
       return parsePath(shape.d, "d");
   }
