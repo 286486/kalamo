@@ -21,11 +21,6 @@ type Entry = {
 
 const ALLOWLIST: Entry[] = [
   {
-    path: /^site\//,
-    reason: "The landing page's copy and wordmark.",
-    until: "#178",
-  },
-  {
     path: /^apps\/edge\/wrangler\.jsonc$/,
     reason: "Cloudflare resource names: Worker, D1 database and R2 bucket.",
     until: "#180",
