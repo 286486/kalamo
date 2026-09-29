@@ -1,7 +1,9 @@
 import { generateKeyBetween, generateNKeysBetween } from "fractional-indexing";
 import { assertParent, bounds, childrenOf, createNodes, newId, union } from "./document.ts";
 import { transformNodes } from "./edit.ts";
-import type { Artboard, Document, Node, Rect, RenderScope } from "./schema.ts";
+import type { Artboard, Document, Node, Rect, RenderScope, WriteReceipt } from "./schema.ts";
+
+type Warning = WriteReceipt["warnings"][number];
 
 const overlap = (a: Rect, b: Rect) =>
   Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x)) *
@@ -27,13 +29,14 @@ function artboardOf(doc: Document, node: Node): Artboard | undefined {
  * A Zibel copy, whose `scope` lists Nodes it holds, pastes without the Group (ADR-0030): its Nodes
  * land directly in the parent, in stacking order, less the Layers and Groups that only lead to a
  * listed Node. `placedIds` are the Nodes put in the parent, the Group or those, and `created`
- * starts with them.
+ * starts with them. `warnings` are the file's, each `nodeId` renamed to its copy's id; one on a Node
+ * that stays behind is dropped.
  */
 export function placeNodes(
   doc: Document,
-  file: { name: string; nodes: Node[]; scope?: RenderScope },
+  file: { name: string; nodes: Node[]; scope?: RenderScope; warnings?: Warning[] },
   opts: { parentId: string; position?: { x: number; y: number }; fit?: boolean; inPlace?: boolean },
-): { placedIds: string[]; created: Node[] } {
+): { placedIds: string[]; created: Node[]; warnings: Warning[] } {
   assertParent(doc, { type: "group" }, opts.parentId, "parentId");
   // Chosen before the file's Nodes move the parent's bounds.
   const artboard = artboardOf(doc, doc.nodes.get(opts.parentId) as Node);
@@ -114,7 +117,16 @@ export function placeNodes(
   }
   const placed = new Set(placedIds);
   const rest = [...ids.values()].filter((id) => !placed.has(id));
-  return { placedIds, created: [...placedIds, ...rest].map((id) => doc.nodes.get(id) as Node) };
+  const warnings = (file.warnings ?? []).flatMap((w) => {
+    if (w.nodeId === undefined) return [w];
+    const id = ids.get(w.nodeId);
+    return id ? [{ ...w, nodeId: id }] : [];
+  });
+  return {
+    placedIds,
+    created: [...placedIds, ...rest].map((id) => doc.nodes.get(id) as Node),
+    warnings,
+  };
 }
 
 /**

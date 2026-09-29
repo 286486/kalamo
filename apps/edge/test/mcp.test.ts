@@ -1612,6 +1612,101 @@ it("opens and places an SVG set in CJK with one MISSING_GLYPHS for the file", as
   expect(placed.structuredContent.warnings).toEqual(glyphs);
 });
 
+describe("a Place receipt's warnings name the placed Nodes (#161)", () => {
+  type Warning = { code: string; nodeId?: string; message: string };
+  const warned = (receipt: { structuredContent: { warnings: Warning[] } }, code: string) =>
+    receipt.structuredContent.warnings.filter((w) => w.code === code);
+  const texts = async (docId: string, ids: (string | undefined)[]) =>
+    (await call("zibel_node_get", { docId, nodeIds: ids, detail: "full" })).structuredContent
+      .nodes as { type: string; content: string }[];
+  const HELVETICA =
+    '<svg xmlns="http://www.w3.org/2000/svg"><text x="0" y="10" font-family="Helvetica">A</text></svg>';
+
+  it("gives FONT_MISSING the placed Text's id, and keeps a warning without a nodeId", async () => {
+    const { docId, defaultLayerId } = await newDoc();
+    const svg = HELVETICA.replace(
+      "</svg>",
+      '<pattern id="p"/><rect width="5" height="5" fill="url(#p)"/></svg>',
+    );
+    const placed = await call("zibel_svg_import", { docId, svg, parentId: defaultLayerId });
+    const [font] = warned(placed, "FONT_MISSING");
+    const outline = JSON.stringify(
+      (await call("zibel_doc_outline", { docId, depth: 5 })).structuredContent,
+    );
+    expect(outline).toContain(`"${font?.nodeId}"`);
+    expect(font?.nodeId).not.toBe(placed.structuredContent.createdIds[0]);
+    expect(await texts(docId, [font?.nodeId])).toMatchObject([{ type: "text", content: "A" }]);
+    expect(warned(placed, "UNSUPPORTED_PAINT")).toEqual([
+      { code: "UNSUPPORTED_PAINT", message: expect.any(String) },
+    ]);
+  });
+
+  it("gives two warned Texts two new ids, each on its own Text", async () => {
+    const { docId, defaultLayerId } = await newDoc();
+    const svg = HELVETICA.replace(
+      "</svg>",
+      '<text x="0" y="30" font-family="Arial">B</text></svg>',
+    );
+    const placed = await call("zibel_svg_import", { docId, svg, parentId: defaultLayerId });
+    const fonts = warned(placed, "FONT_MISSING");
+    expect(new Set(fonts.map((w) => w.nodeId)).size).toBe(2);
+    const got = await texts(
+      docId,
+      fonts.map((w) => w.nodeId),
+    );
+    expect(fonts.map((w, i) => [w.message.split(" ")[0], got[i]?.content])).toEqual([
+      ["Helvetica", "A"],
+      ["Arial", "B"],
+    ]);
+  });
+
+  it("drops a warning on a Clipping Path a Zibel copy leaves behind, keeping a listed Text's", async () => {
+    const { docId, defaultLayerId } = await newDoc();
+    const text = { type: "text", parentId: defaultLayerId, fontFamily: "Helvetica" };
+    const { keyMap } = (
+      await call("zibel_node_create", {
+        docId,
+        nodes: [
+          { ...text, clientKey: "clip", x: 0, y: 20, content: "Clip" },
+          { ...text, clientKey: "kept", x: 0, y: 60, content: "Kept" },
+          {
+            type: "rect",
+            clientKey: "art",
+            parentId: defaultLayerId,
+            x: 0,
+            y: 0,
+            width: 40,
+            height: 40,
+          },
+        ],
+      })
+    ).structuredContent;
+    await call("zibel_mask_make", { docId, clipNodeId: keyMap.clip, contentIds: [keyMap.art] });
+    const svg = (
+      await call("zibel_export", {
+        docId,
+        format: "svg",
+        scope: { nodeIds: [keyMap.art, keyMap.kept] },
+      })
+    ).content[0].text;
+    const pasted = await call("zibel_svg_import", { docId, svg, parentId: defaultLayerId });
+    const fonts = warned(pasted, "FONT_MISSING");
+    expect(fonts).toHaveLength(1);
+    expect(pasted.structuredContent.createdIds).toContain(fonts[0]?.nodeId);
+    expect(await texts(docId, [fonts[0]?.nodeId])).toMatchObject([{ content: "Kept" }]);
+  });
+
+  it("leaves doc_open's warnings on the file's own ids", async () => {
+    const opened = await call("zibel_doc_open", { content: HELVETICA });
+    const [font] = warned(opened, "FONT_MISSING");
+    const outline = JSON.stringify(
+      (await call("zibel_doc_outline", { docId: opened.structuredContent.docId, depth: 5 }))
+        .structuredContent,
+    );
+    expect(outline).toContain(`"${font?.nodeId}"`);
+  });
+});
+
 it("places an SVG as one Group under the parent, and refuses a .zibel.json", async () => {
   const { docId, defaultLayerId } = await newDoc();
   const placed = await call("zibel_svg_import", { docId, svg: exported, parentId: defaultLayerId });

@@ -1191,10 +1191,10 @@ export class DocumentObject extends DurableObject<Env> {
     const receipt = await this.writeFiles(file.images, actor, opts, "Place", (doc) => {
       // A Zibel copy's linked Images keep their pixels only in the Document that holds them.
       const resolved = resolveLinks(file, (id) => doc.images.get(id));
-      const { placedIds, created } = placeNodes(doc, resolved, opts);
+      const { placedIds, created, warnings } = placeNodes(doc, resolved, opts);
       const placed = new Set(placedIds);
       nodes = outline(doc, { rootId: opts.parentId, depth: 2 }).filter((n) => placed.has(n.id));
-      return { created, warnings: resolved.warnings, failed: [] };
+      return { created, warnings, failed: [] };
     });
     return "error" in receipt ? receipt : { ...receipt, nodes };
   }
