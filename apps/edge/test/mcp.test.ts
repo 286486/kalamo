@@ -1063,6 +1063,26 @@ it("warns TEXT_OVERFLOW while an Area Type's content does not fit its frame", as
   expect(updated.structuredContent.warnings).toEqual([]);
 });
 
+it("wraps a CJK Area Type between characters, so one that fits warns no TEXT_OVERFLOW", async () => {
+  const doc = await newDoc();
+  const created = await call("zibel_node_create", {
+    docId: doc.docId,
+    nodes: [
+      {
+        type: "text",
+        kind: "area",
+        parentId: doc.defaultLayerId,
+        x: 10,
+        y: 10,
+        width: 60,
+        height: 70,
+        content: "我们在同一张画布上编辑矢量图形。",
+      },
+    ],
+  });
+  expect(created.structuredContent.warnings).toEqual([]);
+});
+
 it("creates a rect in the default Layer and reads it back from doc_outline", async () => {
   const doc = await newDoc();
   expect(doc).toMatchObject({

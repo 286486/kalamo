@@ -1,4 +1,5 @@
 import { expect, it } from "vitest";
+import { lineBreakUnits } from "./line-break.ts";
 import { NOTO_SANS_SC } from "./noto-sans-sc.ts";
 import { SOURCE_SANS_3 } from "./source-sans-3.ts";
 import {
@@ -15,7 +16,7 @@ import {
 } from "./text.ts";
 
 // Read straight from SourceSans3-Regular.ttf, not from the generated table: unitsPerEm 1000,
-// hhea ascender 1000 and descender -326; advances H 652, i 246, space 200, .notdef 653.
+// typographic ascender 1000 and descender -326; advances H 652, i 246, space 200, .notdef 653.
 const at12 = (units: number) => (units * 12) / 1000;
 
 it("measures a line by its advance widths, from the ascender to the descender", () => {
@@ -274,6 +275,76 @@ it("shows a line while 90% of its leading fits the frame, and holds the rest as 
 it("overflows a word wider than the frame and everything after it, as Inkscape does", () => {
   const text = "Supercalifragilistic word  two   spaces";
   expect(area(text, { width: 50, height: 100 })).toEqual({ lines: [], overflow: text });
+});
+
+// Break opportunities as Pango 1.50.12's pango_get_log_attrs gives them, which Inkscape 1.2.2 wraps at.
+it("breaks CJK between characters, never before closing or small kana, never after opening (ADR-0064)", () => {
+  expect(lineBreakUnits("他说：「你好。」（中文、日文）").join("|")).toBe(
+    "他|说：|「你|好。」|（中|文、|日|文）",
+  );
+  expect(lineBreakUnits("ちょっとコーヒーを々々飲みましょう。").join("|")).toBe(
+    "ちょっ|と|コー|ヒー|を々々|飲|み|ま|しょ|う。",
+  );
+  expect(lineBreakUnits("使用SVG格式").join("|")).toBe("使|用|SVG|格|式");
+  expect(lineBreakUnits("한국어문장입니다").join("|")).toBe("한|국|어|문|장|입|니|다");
+  expect(lineBreakUnits("价格是$5，涨了20%。").join("|")).toBe("价|格|是|$5，|涨|了|20%。");
+  expect(lineBreakUnits("  one two\n").join("|")).toBe("  |one |two\n");
+});
+
+// Noto Sans SC draws each ideograph and CJK punctuation mark 1000 units wide, 12pt at fontSize 12.
+it("wraps a CJK paragraph between characters, each line within the frame", () => {
+  const content = "我们在同一张画布上编辑矢量图形。智能体和人一起工作，";
+  const { lines, overflow } = area(content, { width: 60, height: 95 });
+  expect(lines.map((l) => l.text)).toEqual([
+    "我们在同一",
+    "张画布上编",
+    "辑矢量图",
+    "形。智能体",
+    "和人一起工",
+    "作，",
+  ]);
+  expect(lines.every((l) => [...l.text].length * 12 <= 60)).toBe(true);
+  expect(lines.map((l) => l.start)).toEqual([0, 5, 10, 14, 19, 24]);
+  expect(overflow).toBe("");
+  expect(area(content, { width: 60, height: 93.9 }).lines).toHaveLength(5);
+});
+
+// Inkscape 1.2.2 measured headless: Noto's typographic box, 880 above and 120 below, with half the
+// leading, rises 1.76 above Source Sans 3's at 12 pt, so a line holding CJK is 1.76 taller, and a
+// later line then shows only while all of its leading, not 90%, lies in the frame.
+it("stacks Area Type lines by the em boxes of the families they draw in, as Inkscape (ADR-0064)", () => {
+  const { lines } = area("Hi\n中文\nHi\n\n中文", { width: 100, height: 100 });
+  expect(lines.map((l) => l.y - 20)).toEqual(
+    [10.249774, 26.16, 40.56, 54.96, 70.870226].map((y) => expect.closeTo(y, 5)),
+  );
+  expect(area("中文", { width: 100, height: 14.319 }).lines).toHaveLength(0);
+  expect(area("中文", { width: 100, height: 14.32 }).lines).toHaveLength(1);
+  expect(area("Hi\n中文", { width: 100, height: 28.799 }).lines).toHaveLength(1);
+  expect(area("Hi\n中文", { width: 100, height: 28.8 }).lines).toHaveLength(2);
+  expect(area("中文\nHi", { width: 100, height: 28.87 }).lines).toHaveLength(1);
+  expect(area("中文\nHi", { width: 100, height: 28.871 }).lines).toHaveLength(2);
+});
+
+it("never starts an Area Type line with closing punctuation, small kana or ー, nor ends one with opening", () => {
+  const lines = (content: string, width: number) =>
+    area(content, { width, height: 100 }).lines.map((l) => l.text);
+  expect(lines("你好。世界、再见", 24)).toEqual(["你", "好。", "世", "界、", "再见"]);
+  expect(lines("你（好）吗", 36)).toEqual(["你", "（好）", "吗"]);
+  expect(lines("ちょっとコーヒー", 36)).toEqual(["ちょっ", "とコー", "ヒー"]);
+  // Hangul measures at Source Sans 3's .notdef advance, 653 units, until #164.
+  expect(lines("한국어문장", 24)).toEqual(["한국어", "문장"]);
+});
+
+it("keeps a punctuation-bound cluster together, overflowing only when it alone is wider", () => {
+  expect(area("字「字」字", { width: 36, height: 100 }).lines.map((l) => l.text)).toEqual([
+    "字",
+    "「字」",
+    "字",
+  ]);
+  expect(area("字「字」字", { width: 30, height: 100 })).toEqual({
+    lines: [expect.objectContaining({ text: "字" })],
+    overflow: "「字」字",
+  });
 });
 
 it("measures Area Type as its frame", () => {

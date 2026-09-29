@@ -287,7 +287,7 @@ it("keeps an Area Type's last line in Source Sans 3 when CJK overflows after it"
     ] as never);
     return ink(renderSvg(doc));
   };
-  expect(await drawn("Hi 小动物小动物")).toEqual(await drawn("Hi 한국어한국어"));
+  expect(await drawn("Hi\n小动物小动物")).toEqual(await drawn("Hi\n한국어한국어"));
 });
 
 it("draws a text in Noto Sans SC in it, and what it lacks in Source Sans 3", async () => {
@@ -407,10 +407,11 @@ it("draws the fixture Document with known pixels", async () => {
   // fill clipped by turned Point Type with a turned, shifted character; by #51, a twelfth holding a
   // Layer clipped by a turned, stroked Path over a gradient, with a sublayer clipped by a text; by
   // #148, a thirteenth holding a plain, a filled and a mirrored spiral; by #159, a fourteenth
-  // holding Chinese mixed with Latin in Regular and Bold (bundling Noto Sans SC moved no pixel). This
-  // export SVG names no Noto chunk, so its Chinese draws as .notdef boxes; render's does not.
+  // holding Chinese mixed with Latin in Regular and Bold (bundling Noto Sans SC moved no pixel); by
+  // #160, a fifteenth holding a CJK Area Type wrapped between characters. This export SVG names no
+  // Noto chunk, so its Chinese draws as .notdef boxes; render's does not.
   expect(await hash(toSvg(doc, docRect(doc), { images }))).toBe(
-    "7f9bd30b4c860958ef364d97749a9bd313d3e0f3fcf11c20fbe79bff606680f0",
+    "91b1180983904b6f618dfc013b000ebddae78c8763520de829022a0d1653eb3a",
   );
   expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned, images }))).toBe(
     "24c1e7ad8db33f59933a1b355c879cb19bfdfd67d70b11427b196aa646ea4b60",
@@ -434,7 +435,7 @@ it("draws each fixture Artboard by its scope as the whole Document draws it ther
   const { doc, images } = fixtureDoc();
   const all = fit(docRect(doc), 2);
   const whole = await svgToPixels(renderSvg(doc, all.rect, { scale: 2, images }), 2);
-  expect(doc.artboards).toHaveLength(14);
+  expect(doc.artboards).toHaveLength(15);
   for (const a of doc.artboards) {
     const scope = { artboardId: a.id };
     const { rect, pixelSize } = fit(scopeRect(doc, scope), 2);
