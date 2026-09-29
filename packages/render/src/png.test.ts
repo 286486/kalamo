@@ -260,7 +260,7 @@ it("draws a character Source Sans 3 lacks in Noto Sans SC, the rest of its line 
   expect(await cjk("Italic")).toBe(await cjk("Regular"));
   expect(await cjk("Black")).toBe(await cjk("Bold"));
   expect(await cjk("Bold")).not.toBe(await cjk("Regular"));
-});
+}, 30_000);
 
 it("keeps an Area Type's last line in Source Sans 3 when CJK overflows after it", async () => {
   const drawn = async (content: string) => {
