@@ -16,6 +16,29 @@ export function parseArgs<T extends z.ZodType>(tool: string, schema: T, raw: unk
   throw new KalamoError({ code: "INVALID_INPUT", message, hint, ...(path && { path }) });
 }
 
+/**
+ * Refuses arguments that mix two forms of a tool: the first defined key of `others` beside a
+ * defined `key` is INVALID_INPUT at that key (ADR-0050). Undefined values count as absent; a key
+ * the advertised schema defaults must not be listed in `others`.
+ */
+export function exclusive(
+  tool: string,
+  args: Record<string, unknown>,
+  key: string,
+  others: readonly string[],
+  hint: (other: string) => string,
+): void {
+  if (args[key] === undefined) return;
+  const other = others.find((k) => args[k] !== undefined);
+  if (!other) return;
+  throw new KalamoError({
+    code: "INVALID_INPUT",
+    message: `${tool} takes ${key} or ${other}, not both.`,
+    hint: hint(other),
+    path: other,
+  });
+}
+
 const dotted = (path: PropertyKey[]) => zodPath(path).replace(/^\./, "");
 const an = (word: string) => `${/^[aeiou]/.test(word) ? "an" : "a"} ${word}`;
 

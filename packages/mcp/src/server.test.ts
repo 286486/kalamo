@@ -240,6 +240,12 @@ describe("write tools pass the write and its options apart", () => {
     },
   );
 
+  it("mask_make: layerId alone reaches the service, kind defaulted", async () => {
+    const { service, call } = await harness({ makeMask: async () => receipt });
+    await call("kalamo_mask_make", { docId: "d", layerId: "l" });
+    expect(service.makeMask.mock.calls[0]).toStrictEqual(["d", { layerId: "l", kind: "clip" }, {}]);
+  });
+
   it.each(writeOptions)(
     "path_edit: the ops with their defaults, with %s write options as given",
     async (_, write) => {
@@ -528,46 +534,105 @@ describe("reads pass their filters and txId, and bad arguments never reach the s
   const entry = { nodeIds: ["a"], rotate: 1 };
   it.each([
     [
-      { transforms: [entry], rotate: 5 },
+      "kalamo_node_transform",
+      { partial: true, transforms: [entry], rotate: 5 },
       "rotate",
       "kalamo_node_transform takes transforms or rotate, not both.",
       "Put rotate inside each entry of transforms that needs it.",
     ],
     [
-      { transforms: [entry], nodeIds: ["a"] },
+      "kalamo_node_transform",
+      { partial: true, transforms: [entry], nodeIds: ["a"] },
       "nodeIds",
       "kalamo_node_transform takes transforms or nodeIds, not both.",
       "Put nodeIds inside each entry of transforms that needs it.",
     ],
-    [{ transforms: [] }, "transforms", expect.any(String), "transforms must be at least 1 item."],
     [
-      { transforms: [entry, { nodeIds: ["b"], rotat: 1 }] },
+      "kalamo_node_transform",
+      { partial: true, transforms: [entry], pivot: "top" },
+      "pivot",
+      "kalamo_node_transform takes transforms or pivot, not both.",
+      "Put pivot inside each entry of transforms that needs it.",
+    ],
+    [
+      "kalamo_node_transform",
+      { partial: true, transforms: [] },
+      "transforms",
+      expect.any(String),
+      "transforms must be at least 1 item.",
+    ],
+    [
+      "kalamo_node_transform",
+      { partial: true, transforms: [entry, { nodeIds: ["b"], rotat: 1 }] },
       "transforms[1].rotat",
       "kalamo_node_transform has no argument transforms[1].rotat.",
       expect.stringMatching(/^Did you mean rotate\? transforms\[1\] takes: nodeIds, /),
     ],
     [
-      { transforms: [entry, { nodeIds: ["b"], matrix: [1, 0, 0, 1, 0, 0], rotate: 9 }] },
+      "kalamo_node_transform",
+      {
+        partial: true,
+        transforms: [entry, { nodeIds: ["b"], matrix: [1, 0, 0, 1, 0, 0], rotate: 9 }],
+      },
       "transforms[1]",
       expect.stringContaining("matrix replaces rotate"),
       expect.any(String),
     ],
     [
-      { transforms: [entry, entry, { nodeIds: ["b"], matrix: [1, 0] }] },
+      "kalamo_node_transform",
+      { partial: true, transforms: [entry, entry, { nodeIds: ["b"], matrix: [1, 0] }] },
       "transforms[2].matrix",
       expect.any(String),
       expect.any(String),
     ],
-    [{}, "nodeIds", "kalamo_node_transform needs nodeIds.", "nodeIds is required."],
-  ])(
-    "node_transform refuses %j as INVALID_INPUT at its path",
-    async (args, path, message, hint) => {
-      const { call, called } = await harness();
-      const result = await call("kalamo_node_transform", { docId: "d", ...args, partial: true });
-      expect(errorOf(result)).toEqual({ code: "INVALID_INPUT", path, message, hint });
-      expect(called()).toEqual([]);
-    },
-  );
+    [
+      "kalamo_node_transform",
+      { partial: true },
+      "nodeIds",
+      "kalamo_node_transform needs nodeIds.",
+      "nodeIds is required.",
+    ],
+    [
+      "kalamo_mask_make",
+      { clipNodeId: "c", contentIds: ["a"], layerId: "l" },
+      "clipNodeId",
+      "kalamo_mask_make takes layerId or clipNodeId, not both.",
+      "Send layerId alone, or clipNodeId and contentIds without it.",
+    ],
+    [
+      "kalamo_mask_make",
+      { contentIds: ["a"], layerId: "l" },
+      "contentIds",
+      "kalamo_mask_make takes layerId or contentIds, not both.",
+      "Send layerId alone, or clipNodeId and contentIds without it.",
+    ],
+    [
+      "kalamo_mask_make",
+      { clipNodeId: "c", layerId: "l" },
+      "clipNodeId",
+      "kalamo_mask_make takes layerId or clipNodeId, not both.",
+      "Send layerId alone, or clipNodeId and contentIds without it.",
+    ],
+    [
+      "kalamo_mask_make",
+      { clipNodeId: "c" },
+      undefined,
+      "kalamo_mask_make: Invalid input",
+      "The arguments matches none of the forms kalamo_mask_make takes; see its description.",
+    ],
+    [
+      "kalamo_mask_make",
+      {},
+      undefined,
+      "kalamo_mask_make: Invalid input",
+      "The arguments matches none of the forms kalamo_mask_make takes; see its description.",
+    ],
+  ])("%s refuses %j as INVALID_INPUT at its path", async (name, args, path, message, hint) => {
+    const { call, called } = await harness();
+    const result = await call(name, { docId: "d", ...args });
+    expect(errorOf(result)).toEqual({ code: "INVALID_INPUT", path, message, hint });
+    expect(called()).toEqual([]);
+  });
 
   it("names nameRegex when it does not compile", async () => {
     const { call } = await harness();
