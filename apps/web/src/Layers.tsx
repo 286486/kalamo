@@ -170,9 +170,9 @@ export const Layers = memo(function Layers() {
                   : objects(doc, node.id).map((n) => n.id);
             // A Layer's row is also selected itself, for Duplicate (ADR-0076): a click selects it
             // alone, Shift+click toggles it and Alt+Shift+click removes it, keeping the others, and
-            // its objects follow it as a group, so the row and its art never disagree. Other rows
-            // go through combine and keep the Layer rows on Shift. The arrays are always new, so the
-            // store sees the rows set with this Selection and keeps them.
+            // its objects follow it as a group, so toggling the row never leaves its art partially
+            // selected. Other rows go through combine and keep the Layer rows on Shift. The arrays
+            // are always new, so the store sees the rows set with this Selection and keeps them.
             const current = useStore.getState().layerRows;
             const others = current.filter((id) => id !== node.id);
             let next: string[];
