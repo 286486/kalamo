@@ -1,7 +1,10 @@
 import { createDocument, createNodes, Shape, shapeSegments } from "@zibel/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  arcKey,
+  arcTool,
   countKey,
+  dragArc,
   dragBox,
   dragLine,
   dragRadial,
@@ -730,5 +733,153 @@ describe("the Line Segment tool", () => {
     lineTool.up?.(at([0, 0]));
     expect(send).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
+  });
+});
+
+describe("dragArc", () => {
+  const press: Point = [10, 20];
+  const arc = (slope: number, axis: "x" | "y", closed = false) =>
+    dragArc(press, [50, 80], NONE, { slope, axis, closed }).d;
+
+  // X Axis bends around (50, 20) toward (10, 80); Y Axis around (10, 80) toward (50, 20).
+  it.each([
+    [-100, "x", "C 50 20 50 20", "50 20"],
+    [0, "x", "C 10 20 50 80", "50 20"],
+    [50, "x", "C 10 50 30 80", "50 20"],
+    [100, "x", "C 10 80 10 80", "50 20"],
+    [-100, "y", "C 10 80 10 80", "10 80"],
+    [0, "y", "C 10 20 50 80", "10 80"],
+    [50, "y", "C 30 20 50 50", "10 80"],
+    [100, "y", "C 50 20 50 20", "10 80"],
+  ] as const)(
+    "slope %i on the %s axis runs from the press to the pointer",
+    (slope, axis, c, corner) => {
+      expect(arc(slope, axis)).toBe(`M 10 20 ${c} 50 80`);
+      // Closed, it runs back to the press through the corner.
+      expect(arc(slope, axis, true)).toBe(`M 10 20 ${c} 50 80 L ${corner} Z`);
+    },
+  );
+
+  it("Shift makes Length X equal Length Y, and Alt centres it on the press", () => {
+    const option = { slope: 100, axis: "x", closed: false } as const;
+    expect(dragArc(press, [50, 30], { ...NONE, shift: true }, option).d).toBe(
+      "M 10 20 C 10 60 10 60 50 60",
+    );
+    expect(dragArc(press, [50, 80], { ...NONE, alt: true }, option).d).toBe(
+      "M -30 -40 C -30 80 -30 80 50 80",
+    );
+  });
+
+  it("is a straight line for a drag with no width or no height", () => {
+    const option = { slope: 50, axis: "x", closed: true } as const;
+    expect(dragArc(press, [10, 60], NONE, option).d).toBe("M 10 20 C 10 40 10 60 10 60 L 10 20 Z");
+    expect(dragArc(press, [40, 20], NONE, option).d).toBe("M 10 20 C 10 20 25 20 40 20 L 40 20 Z");
+  });
+});
+
+describe("arcKey", () => {
+  const arc = { slope: 50, axis: "x", closed: false } as const;
+  it("steps the slope within ±100, opens or closes, flips the axis, and switches concave", () => {
+    expect(arcKey(arc, "ArrowUp")).toEqual({ ...arc, slope: 51 });
+    expect(arcKey(arc, "ArrowDown")).toEqual({ ...arc, slope: 49 });
+    expect(arcKey({ ...arc, slope: 100 }, "ArrowUp")).toEqual({ ...arc, slope: 100 });
+    expect(arcKey({ ...arc, slope: -100 }, "ArrowDown")).toEqual({ ...arc, slope: -100 });
+    expect(arcKey(arc, "C")).toEqual({ ...arc, closed: true });
+    expect(arcKey(arc, "F")).toEqual({ ...arc, axis: "y" });
+    expect(arcKey(arc, "X")).toEqual({ ...arc, slope: -50 });
+    expect([arcKey(arc, "M"), arcKey(arc, "ArrowLeft"), arcKey(arc, "Shift")]).toEqual([
+      null,
+      null,
+      null,
+    ]);
+  });
+});
+
+describe("the Arc tool", () => {
+  const created = () => {
+    const command = sent();
+    return command?.type === "create" ? command.nodes[0] : null;
+  };
+  const key = (k: string, down = true) => arcTool.keyChange?.({ ...NONE, key: k, down }, () => {});
+
+  it("draws an open arc Path in the current Stroke and no Fill, at slope 50 on the X Axis", () => {
+    useStore.setState({ fillStroke: { fill: "#FF0000", stroke: "#0000FF", active: "fill" } });
+    dragWith(arcTool, [10, 20], [[30, 40]], [[50, 80]]);
+    expect(vi.mocked(send)).toHaveBeenCalledTimes(1);
+    expect(created()).toEqual({
+      type: "path",
+      parentId: defaultLayerId,
+      d: "M 10 20 C 10 50 30 80 50 80",
+      appearance: { fills: [], strokes: [{ color: "#0000FF", width: 1 }] },
+    });
+    expect(useStore.getState().pending).toMatchObject([{ nodes: [{ type: "path" }] }]);
+  });
+
+  it("its keys change the preview, switch no tool, and carry over to the next drag", () => {
+    const drawn: string[] = [];
+    vi.stubGlobal(
+      "Path2D",
+      class {
+        constructor(d: string) {
+          drawn.push(d);
+        }
+      },
+    );
+    const ctx = {
+      fill: () => drawn.push("fill"),
+      stroke() {},
+    } as unknown as CanvasRenderingContext2D;
+    const preview = () => {
+      arcTool.draw?.(ctx, doc, 1);
+      return drawn.at(-1);
+    };
+    useStore.setState({ fillStroke: { fill: "#FF0000", stroke: "#0000FF", active: "fill" } });
+    arcTool.down(at([10, 20]));
+    arcTool.move?.(at([50, 80]));
+    expect(preview()).toBe("M 10 20 C 10 50 30 80 50 80");
+    expect([key("ArrowUp"), key("ArrowUp", false)]).toEqual([true, true]);
+    expect(preview()).toBe("M 10 20 C 10 50.6 29.6 80 50 80");
+    expect(key("X")).toBe(true);
+    expect(preview()).toBe("M 10 20 C 30.4 20 50 49.4 50 80");
+    expect(key("F")).toBe(true);
+    expect(preview()).toBe("M 10 20 C 10 50.6 29.6 80 50 80");
+    // Closed, it is filled.
+    expect(key("C")).toBe(true);
+    arcTool.draw?.(ctx, doc, 1);
+    expect(drawn.slice(-2)).toEqual(["M 10 20 C 10 50.6 29.6 80 50 80 L 10 80 Z", "fill"]);
+    expect([key("M"), key("Shift")]).toEqual([false, false]);
+    arcTool.up?.(at([50, 80]));
+    vi.unstubAllGlobals();
+    expect(created()).toMatchObject({
+      d: "M 10 20 C 10 50.6 29.6 80 50 80 L 10 80 Z",
+      appearance: { fills: [{ color: "#FF0000" }], strokes: [{ color: "#0000FF", width: 1 }] },
+    });
+    // Closed, Y Axis, slope −51 carry over.
+    dragWith(arcTool, [0, 0], [[10, 10]]);
+    expect(created()).toMatchObject({ d: "M 0 0 C 0 5.1 4.9 10 10 10 L 0 10 Z" });
+    // Put the session's arc back as it started.
+    arcTool.down(at([0, 0]));
+    for (const k of ["C", "F", "X", "ArrowDown"]) key(k);
+    arcTool.up?.(at([0, 0]));
+    dragWith(arcTool, [0, 0], [[10, 10]]);
+    expect(created()).toMatchObject({ d: "M 0 0 C 0 5 5 10 10 10" });
+  });
+
+  it("Shift, Alt and Space size and move it", () => {
+    dragWith(arcTool, [0, 0], [[40, 10], { shift: true }]);
+    expect(created()).toMatchObject({ d: "M 0 0 C 0 20 20 40 40 40" });
+    dragWith(arcTool, [0, 0], [[20, 10], { alt: true }]);
+    expect(created()).toMatchObject({ d: "M -20 -10 C -20 0 0 10 20 10" });
+    const space = { space: true };
+    dragWith(arcTool, [0, 0], [[10, 10]], [[15, 20], space], [[25, 30], space], [[35, 30]]);
+    expect(created()).toMatchObject({ d: "M 15 20 C 15 25 25 30 35 30" });
+  });
+
+  it("draws a flat drag as a straight line, and nothing dragged back to its press", () => {
+    dragWith(arcTool, [0, 0], [[0, 30]]);
+    expect(created()).toMatchObject({ d: "M 0 0 C 0 15 0 30 0 30" });
+    vi.mocked(send).mockClear();
+    dragWith(arcTool, [0, 0], [[20, 10]], [[0, 0]]);
+    expect(send).not.toHaveBeenCalled();
   });
 });

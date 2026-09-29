@@ -7,6 +7,7 @@ import { pencilTool } from "./pencilTool.ts";
 import { penTool } from "./penTool.ts";
 import { selectionTool } from "./selectionTool.ts";
 import {
+  arcTool,
   ellipseTool,
   lineTool,
   polygonTool,
@@ -138,6 +139,7 @@ export const TOOLS = {
   anchorPoint: anchorPointTool,
   curvature: curvatureTool,
   line: lineTool,
+  arc: arcTool,
   rectangle: rectangleTool,
   roundedRectangle: roundedRectangleTool,
   ellipse: ellipseTool,

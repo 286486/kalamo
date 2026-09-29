@@ -241,3 +241,39 @@ test("the Line Segment tool drags a Live Line with Shift and Alt, stroked and un
   await page.waitForTimeout(300);
   expect(await lines()).toHaveLength(3);
 });
+
+// #147: the Arc tool draws a plain Path (ADR-0059), open and unfilled or closed and filled.
+test("the Arc tool drags an arc Path whose keys change it without switching tools", async ({
+  page,
+  request,
+}) => {
+  const { nodes, drag } = await openShapes(page, request, "Arcs");
+  type Arc = { d: string; appearance: { fills: object[]; strokes: object[] } };
+  const arcs = () => nodes<Arc>("path");
+
+  // It has no shortcut: the Line Segment group's flyout picks it.
+  await page.keyboard.press("\\");
+  await page
+    .getByRole("button", { name: "Line Segment Tool (\\)", exact: true })
+    .click({ button: "right" });
+  await page.getByRole("menuitemradio", { name: "Arc Tool", exact: true }).click();
+  const button = page.getByRole("button", { name: "Arc Tool", exact: true });
+  await expect(button).toHaveAttribute("aria-pressed", "true");
+
+  // Open, X Axis, slope 50: the current Stroke and no Fill.
+  await drag([20, 20], [60, 80]);
+  await expect
+    .poll(arcs)
+    .toMatchObject([
+      { d: "M 20 20 C 20 50 40 80 60 80", appearance: { fills: [], strokes: [{ width: 1 }] } },
+    ]);
+
+  // Up, X, F and C change it and switch no tool; closed, it takes the Fill too.
+  await drag([100, 20], [140, 80], "ArrowUp", "X", "F", "C", [140, 80]);
+  await expect.poll(async () => (await arcs()).length).toBe(2);
+  await expect(button).toHaveAttribute("aria-pressed", "true");
+  expect((await arcs()).find((a) => a.d.startsWith("M 100 20"))).toMatchObject({
+    d: "M 100 20 C 100 50.6 119.6 80 140 80 L 100 80 Z",
+    appearance: { fills: [{}], strokes: [{ width: 1 }] },
+  });
+});

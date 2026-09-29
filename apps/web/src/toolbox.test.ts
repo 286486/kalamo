@@ -44,7 +44,7 @@ it("shows each group as one button, at its first tool, fronting its last chosen 
     "pencil",
   ]);
   expect(slots[3]?.tools).toEqual(["pen", "addAnchor", "deleteAnchor", "anchorPoint", "curvature"]);
-  expect(slots[4]?.tools).toEqual(["line"]);
+  expect(slots[4]?.tools).toEqual(["line", "arc"]);
   expect(slots[5]?.tools).toEqual(["rectangle", "roundedRectangle", "ellipse", "polygon", "star"]);
   expect(toolSlots(all, { pen: "curvature", rectangle: "ellipse" })[3]?.shown).toBe("curvature");
   expect(toolSlots(all, { pen: "curvature", rectangle: "ellipse" })[5]?.shown).toBe("ellipse");
@@ -106,7 +106,7 @@ it("a key the pressed tool takes switches no tool; one it does not take still do
   expect(setTool).toHaveBeenLastCalledWith("line");
 });
 
-it.each(["roundedRectangle", "polygon", "star"] as const)(
+it.each(["roundedRectangle", "polygon", "star", "arc"] as const)(
   "the %s tool takes the arrow keys while dragging",
   (name) => {
     const tool = TOOLS[name];
@@ -119,8 +119,18 @@ it.each(["roundedRectangle", "polygon", "star"] as const)(
   },
 );
 
-it("gives the Rounded Rectangle, Polygon and Star tools no shortcut, as Illustrator does", () => {
+it("the Arc tool takes C, F and X while dragging, which then switch no tool or Fill and Stroke", () => {
+  const tool = TOOLS.arc;
+  tool.down({ x: 0, y: 0, capture() {} } as never);
+  for (const k of ["c", "f", "x", "X"])
+    expect(pressedKey(press(k), tool, false, () => {})).toBe(true);
+  tool.cancel?.(() => {});
+  expect(pressedKey(press("c"), tool, false, () => {})).toBe(false);
+});
+
+it("gives the Arc, Rounded Rectangle, Polygon and Star tools no shortcut, as Illustrator does", () => {
   expect(Object.values(TOOLS).filter((t) => !t.shortcut)).toEqual([
+    TOOLS.arc,
     TOOLS.roundedRectangle,
     TOOLS.polygon,
     TOOLS.star,
