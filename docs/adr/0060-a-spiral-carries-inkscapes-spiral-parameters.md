@@ -41,7 +41,7 @@ The fit is Schneider's published algorithm, with its thresholds, split limit and
 
 ## MCP
 
-`node_create` and `node_update` take `{type: "spiral", cx, cy, radius, revolution?, expansion?, argument?, t0?}`, parsed strictly (ADR-0050): an unknown key, or a value outside its range, is `INVALID_INPUT` naming the field and the bound it broke, as for every Live Shape. `node_get` returns the parameters and the derived `d`. `node_transform` composes into `transform` (ADR-0007) and leaves the parameters alone. Anchor-level editing converts a spiral to a Path, as every Live Shape.
+`node_create` and `node_update` take `{type: "spiral", cx, cy, radius, revolution?, expansion?, argument?, t0?}`, parsed strictly (ADR-0050), as for every Live Shape: a value outside its range is `INVALID_INPUT` naming the field and the bound it broke, and an unknown key is `INVALID_INPUT` on create and `INVALID_PATCH` on update. `node_get` returns the parameters and the derived `d`. `node_transform` composes into `transform` (ADR-0007) and leaves the parameters alone. Anchor-level editing converts a spiral to a Path, as every Live Shape.
 
 ## SVG
 

@@ -405,13 +405,21 @@ function shape(n: ShapeNode): string {
         d: formatPath(shapeSegments(n)),
       })}`;
     }
-    case "spiral":
+    case "spiral": {
       // Inkscape's spiral tool rebuilds the outline from these on load, at full precision (ADR-0060).
+      const { cx, cy, radius, revolution, expansion, argument, t0 } = spiralAttrs(n);
       return `path${attrs({
         "sodipodi:type": "spiral",
-        ...Object.fromEntries(Object.entries(spiralAttrs(n)).map(([k, v]) => [`sodipodi:${k}`, v])),
+        "sodipodi:cx": cx,
+        "sodipodi:cy": cy,
+        "sodipodi:radius": radius,
+        "sodipodi:revolution": revolution,
+        "sodipodi:expansion": expansion,
+        "sodipodi:argument": argument,
+        "sodipodi:t0": t0,
         d: formatPath(shapeSegments(n)),
       })}`;
+    }
     default:
       // The same outline node_get reports as d.
       return `path${attrs({
