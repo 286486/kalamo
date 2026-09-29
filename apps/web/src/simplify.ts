@@ -142,7 +142,7 @@ export function startSimplify() {
     font: "12px system-ui, sans-serif",
     zIndex: "10",
   });
-  // Enter is OK and Esc is Cancel, before the tools see them; Enter on a button presses it.
+  // Enter is OK and Esc is Cancel, before the tools' shortcuts see them; Enter on a button presses it.
   const onKey = (e: KeyboardEvent) => {
     if (e.key !== "Enter" && e.key !== "Escape") return;
     if (e.key === "Enter" && e.target instanceof HTMLButtonElement) return;

@@ -215,7 +215,7 @@ it("draws nothing into a locked Layer from an isolated leaf, leaving the Isolati
 describe("the Rounded Rectangle tool", () => {
   const key = (k: string, down = true) =>
     roundedRectangleTool.keyChange?.({ ...NONE, key: k, down }, () => {});
-  const radius = () => {
+  const created = () => {
     const command = sent();
     return command?.type === "create" ? command.nodes[0] : null;
   };
@@ -223,7 +223,7 @@ describe("the Rounded Rectangle tool", () => {
   // In order: the radius each drag leaves is the next one's.
   it("starts at 12 pt, the arrow keys change it, and the last one carries over", () => {
     dragWith(roundedRectangleTool, [0, 0], [[40, 30]]);
-    expect(radius()).toMatchObject({ type: "rect", width: 40, height: 30, radius: 12 });
+    expect(created()).toMatchObject({ type: "rect", width: 40, height: 30, radius: 12 });
 
     roundedRectangleTool.down(at([0, 0]));
     roundedRectangleTool.move?.(at([40, 30]));
@@ -234,12 +234,12 @@ describe("the Rounded Rectangle tool", () => {
       true,
     ]);
     roundedRectangleTool.up?.(at([40, 30]));
-    expect(radius()).toMatchObject({ radius: 13 });
+    expect(created()).toMatchObject({ radius: 13 });
 
     dragWith(roundedRectangleTool, [0, 0], [[20, 20]]);
-    expect(radius()).toMatchObject({ radius: 10 });
+    expect(created()).toMatchObject({ radius: 10 });
     dragWith(roundedRectangleTool, [0, 0], [[40, 40]]);
-    expect(radius()).toMatchObject({ radius: 13 });
+    expect(created()).toMatchObject({ radius: 13 });
   });
 
   it("Right rounds fully as the box grows, and keeps the radius it drew; Left squares", () => {
@@ -247,14 +247,23 @@ describe("the Rounded Rectangle tool", () => {
     roundedRectangleTool.move?.(at([10, 10]));
     key("ArrowRight");
     roundedRectangleTool.up?.(at([60, 50]));
-    expect(radius()).toMatchObject({ width: 60, height: 50, radius: 25 });
+    expect(created()).toMatchObject({ width: 60, height: 50, radius: 25 });
     dragWith(roundedRectangleTool, [0, 0], [[80, 80]]);
-    expect(radius()).toMatchObject({ radius: 25 });
+    expect(created()).toMatchObject({ radius: 25 });
 
     roundedRectangleTool.down(at([0, 0]));
     key("ArrowLeft");
     roundedRectangleTool.up?.(at([30, 30]));
-    expect(radius()).toMatchObject({ radius: 0 });
+    expect(created()).toMatchObject({ radius: 0 });
+    // A press that draws nothing keeps its radius too, but not Right's, which drew none.
+    roundedRectangleTool.down(at([0, 0]));
+    key("ArrowUp");
+    roundedRectangleTool.up?.(at([1, 1]));
+    roundedRectangleTool.down(at([0, 0]));
+    key("ArrowRight");
+    roundedRectangleTool.up?.(at([1, 1]));
+    dragWith(roundedRectangleTool, [0, 0], [[30, 30]]);
+    expect(created()).toMatchObject({ radius: 1 });
   });
 
   it("previews the radius drawn, and takes no key but the arrows", () => {
@@ -270,6 +279,7 @@ describe("the Rounded Rectangle tool", () => {
     const ctx = { fill() {}, stroke() {} } as unknown as CanvasRenderingContext2D;
     roundedRectangleTool.down(at([0, 0]));
     roundedRectangleTool.move?.(at([20, 10]));
+    key("ArrowLeft");
     roundedRectangleTool.draw?.(ctx, doc, 1);
     expect(paths.at(-1)).toBe("M 0 0 L 20 0 L 20 10 L 0 10 Z");
     key("ArrowUp");

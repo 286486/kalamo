@@ -278,8 +278,9 @@ export function Viewer({ docId }: { docId: string }) {
     // A menu, or the menu bar with focus, takes the keys it handles.
     const menus = (e: KeyboardEvent) =>
       e.type === "keydown" && (keysTaken() || !!(e.target as Element).closest?.("[role=menubar]"));
-    // The tool holding the pointer hears a key first, before the menu bar, a flyout or a dialog
-    // bar; a key it took stops here.
+    // The tool holding the pointer hears a key before the menu bar and the Tools panel, and before
+    // Simplify's bar, whose listener comes later; a key it took stops here. Space is counted here,
+    // for it, even when a focused Tools panel button then takes it.
     const toPressed = (e: KeyboardEvent) => {
       if (menus(e)) return;
       if (e.code === "Space") spaceHeld.current = e.type === "keydown";

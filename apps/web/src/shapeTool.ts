@@ -35,14 +35,14 @@ export function dragBox(
 /**
  * The Rounded Rectangle tool's corner radius, kept for the next drag in the session as
  * Illustrator's Preferences > General > Corner Radius is. Its 12 pt default is Illustrator's, not
- * checked against a live Illustrator [?].
+ * checked in a live Illustrator (research 06, open question 7).
  */
 let cornerRadius = 12;
 
 /**
  * The corner radius after `key` while dragging `box`, as in Illustrator, or null for another key.
- * Up and Down step 1 pt from the radius drawn, down to 0; Left squares the corners and Right rounds
- * them fully, as big as the box grows.
+ * Up and Down step 1 pt from the radius drawn, down to 0, so each press shows; Left squares the
+ * corners and Right rounds them fully, as big as the box grows.
  */
 export function radiusKey(
   radius: number,
@@ -129,10 +129,11 @@ const shapeTool = (
       update([e.x, e.y], e, !!dragged(drag.gesture, e));
       const { box, radius } = drag;
       drag = null;
+      if (rounded && Number.isFinite(radius)) cornerRadius = radius;
       // One dragged back to a line or a point would be invisible.
       if (!box || box.width === 0 || box.height === 0) return e.redraw();
       // Right's fully rounded corners are kept as the radius they drew.
-      if (rounded) cornerRadius = Number.isFinite(radius) ? radius : (box.radius ?? 0);
+      if (rounded && !Number.isFinite(radius)) cornerRadius = box.radius ?? 0;
       sendNewArt([box]);
       e.redraw();
     },

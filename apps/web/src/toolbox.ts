@@ -161,7 +161,7 @@ export function pressedKey(
   redraw: () => void,
 ): boolean {
   const keys = keysOf(e);
-  const key = keys.split("+").at(-1) ?? keys;
+  const key = keys.slice(keys.lastIndexOf("+") + 1);
   const down = e.type === "keydown";
   return !!pressed?.keyChange?.({ key, down, shift: e.shiftKey, alt: e.altKey, space }, redraw);
 }
