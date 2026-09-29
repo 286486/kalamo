@@ -194,7 +194,7 @@ _Avoid_: Style preset、Theme
 _Avoid_: Clip、Crop（那是位图操作）、Clip group 作为类型名
 
 **Clipping Path（剪切路径）**：
-Clipping Mask 中做裁切的那个子 Node：一个 `clipping: true` 的 Live Shape、Path 或文字。文字按其排好的字形裁切，且仍可编辑（ADR-0052）。每个 Group 或 Layer 至多一个；它裁切同一容器中的其他 Node（ADR-0053）。建立时其 Appearance 清空（文字的 Character Range fill 与 stroke 一并清空）；重新赋予后，Fill 画在被裁切内容之下，Stroke 画在其上且不被自身裁切（ADR-0051）。Illustrator SVG 把它写成 `<clipPath><use>`，导入时按所指形状复制到原处读出，名称与 id 取自该 `<use>`（ADR-0056）。
+Clipping Mask 中做裁切的那个子 Node：一个 `clipping: true` 的 Live Shape、Path 或文字。文字按其排好的字形裁切，且仍可编辑（ADR-0052）。每个 Group 或 Layer 至多一个；它裁切同一容器中的其他 Node（ADR-0053）。建立时其 Appearance 清空（文字的 Character Range fill 与 stroke 一并清空）；重新赋予后，Fill 画在被裁切内容之下，Stroke 画在其上且不被自身裁切（ADR-0051）。移到别的父级即不再裁切，保留其 Appearance；在原父级内重排则照旧裁切（`node_reparent`，ADR-0071）。Illustrator SVG 把它写成 `<clipPath><use>`，导入时按所指形状复制到原处读出，名称与 id 取自该 `<use>`（ADR-0056）。
 _Avoid_: Mask path、Clip shape
 
 **Opacity Mask（不透明度蒙版）**：

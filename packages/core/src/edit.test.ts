@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { bounds, createDocument, createNodes, ellipseMatrix, outline } from "./document.ts";
-import { deleteNodes, transformNodes, updateNodes } from "./edit.ts";
+import {
+  bounds,
+  childrenOf,
+  clippingPath,
+  createDocument,
+  createNodes,
+  ellipseMatrix,
+  outline,
+} from "./document.ts";
+import { deleteNodes, reparentNodes, transformNodes, updateNodes } from "./edit.ts";
 import { KalamoError } from "./errors.ts";
+import { makeMask } from "./mask.ts";
 import { applyTo, compose, IDENTITY, invert } from "./matrix.ts";
 import type { Gradient, Node, ShapeNode } from "./schema.ts";
 
@@ -494,7 +503,8 @@ describe("updateNodes", () => {
 
   it.each([
     [{ transform: [1, 0, 0, 1, 0, 0] }, "transform", /node_transform/],
-    [{ parentId: "x" }, "parentId", /reparent/i],
+    [{ parentId: "x" }, "parentId", /^Use node_reparent/],
+    [{ index: "a0" }, "index", /node_reparent with the same parentId.*node_reorder/],
     [{ type: "ellipse" }, "type", /type/],
     [{ sides: 5 }, "sides", /x, y, width, height, radius/],
     [{ d: "M 0 0" }, "d", /parameters/],
@@ -1083,5 +1093,304 @@ describe("container gradients (#107)", () => {
         ]),
       ),
     ).toMatchObject({ code: "INVALID_PATCH" });
+  });
+});
+
+describe("reparentNodes (ADR-0071)", () => {
+  /** Layer A holds a path and a rect; Layer B holds Group G, which holds g1 below g2. */
+  const scene = () => {
+    const { doc, defaultLayerId: a } = createDocument({
+      id: "d",
+      name: "Doc",
+      artboards: [{ width: 200, height: 100 }],
+    });
+    const [path, rect] = createNodes(doc, [
+      { type: "path", parentId: a, d: "M0 0 L10 20 L30 5 Z", clientKey: "p" },
+      { type: "rect", parentId: a, x: 50, y: 0, width: 10, height: 10 },
+    ]).nodes as [Node, Node];
+    transformNodes(doc, { nodeIds: [path.id], rotate: 30 });
+    const [layer] = createNodes(doc, [{ type: "layer", name: "B" }]).nodes as [Node];
+    const { nodes, keyMap: made } = createNodes(doc, [
+      {
+        type: "group",
+        parentId: layer.id,
+        clientKey: "G",
+        children: [
+          { type: "rect", x: 0, y: 50, width: 10, height: 10, clientKey: "g1" },
+          { type: "ellipse", x: 20, y: 50, width: 10, height: 10, clientKey: "g2" },
+        ],
+      },
+    ]);
+    const keyMap: Record<string, string> = { ...made, B: layer.id };
+    const id = (k: string) => keyMap[k] as string;
+    const kids = (parentId: string | null) => childrenOf(doc, parentId).map((n) => n.id);
+    return { doc, a, path: doc.nodes.get(path.id) as Node, rect, nodes, id, kids };
+  };
+  type Scene = ReturnType<typeof scene>;
+
+  it("moves a path from Layer A into Group G in Layer B, on top by default, geometry unchanged", () => {
+    const { doc, path, id, kids } = scene();
+    const before = { transform: shape(doc, path.id).transform, bounds: bounds(doc, path) };
+    const { nodes, failed } = reparentNodes(doc, [{ nodeId: path.id, parentId: id("G") }]);
+    expect(failed).toEqual([]);
+    expect(nodes.map((n) => n.id)).toEqual([path.id]);
+    expect(kids(id("G"))).toEqual([id("g1"), id("g2"), path.id]);
+    const after = doc.nodes.get(path.id) as ShapeNode;
+    expect(after.transform).toEqual(before.transform);
+    expect(bounds(doc, after)).toEqual(before.bounds);
+  });
+
+  it.each([
+    [{ index: 0 }, ["P", "g1", "g2"]],
+    [{ index: 1 }, ["g1", "P", "g2"]],
+    [{ index: 2 }, ["g1", "g2", "P"]],
+    [{ before: "g1" }, ["P", "g1", "g2"]],
+    [{ before: "g2" }, ["g1", "P", "g2"]],
+    [{ after: "g1" }, ["g1", "P", "g2"]],
+    [{ after: "g2" }, ["g1", "g2", "P"]],
+  ])("lands exactly where %o asks", (position, order) => {
+    const { doc, path, id, kids } = scene();
+    const ref = (k: string) => (k === "P" ? path.id : id(k));
+    const at = Object.fromEntries(
+      Object.entries(position).map(([k, v]) => [k, typeof v === "string" ? ref(v) : v]),
+    );
+    reparentNodes(doc, [{ nodeId: path.id, parentId: id("G"), ...at }]);
+    expect(kids(id("G"))).toEqual(order.map(ref));
+  });
+
+  it("restacks within the parent: index 0 puts the top Node at the bottom, other keys unchanged", () => {
+    const { doc, a, path, rect, kids } = scene();
+    const pathKey = (doc.nodes.get(path.id) as Node).index;
+    expect(kids(a)).toEqual([path.id, rect.id]);
+    const { nodes } = reparentNodes(doc, [{ nodeId: rect.id, parentId: a, index: 0 }]);
+    expect(kids(a)).toEqual([rect.id, path.id]);
+    expect((doc.nodes.get(path.id) as Node).index).toBe(pathKey);
+    expect(nodes.map((n) => n.id)).toEqual([rect.id]);
+  });
+
+  it("keeps a key already in the slot, and gives a new one only when it is not", () => {
+    const { doc, a, path, rect } = scene();
+    const key = rect.index;
+    reparentNodes(doc, [{ nodeId: rect.id, parentId: a }]);
+    expect((doc.nodes.get(rect.id) as Node).index).toBe(key);
+    reparentNodes(doc, [{ nodeId: rect.id, parentId: a, before: path.id }]);
+    expect((doc.nodes.get(rect.id) as Node).index < path.index).toBe(true);
+  });
+
+  it("applies two moves of one Node in order, listing it once with its final place", () => {
+    const { doc, a, path, id, kids } = scene();
+    const { nodes } = reparentNodes(doc, [
+      { nodeId: path.id, parentId: id("G") },
+      { nodeId: id("g1"), parentId: a },
+      { nodeId: path.id, parentId: id("B"), index: 0 },
+    ]);
+    expect(nodes.map((n) => n.id)).toEqual([path.id, id("g1")]);
+    expect(nodes[0]).toMatchObject({ parentId: id("B") });
+    expect(kids(id("B"))).toEqual([path.id, id("G")]);
+    expect(kids(id("G"))).toEqual([id("g2")]);
+  });
+
+  it("moves a sub-Layer to the root, and a top-level Layer into another Layer", () => {
+    const { doc, a, id, kids } = scene();
+    reparentNodes(doc, [{ nodeId: id("B"), parentId: a }]);
+    expect(kids(null)).toEqual([a]);
+    expect(kids(a).at(-1)).toBe(id("B"));
+    reparentNodes(doc, [{ nodeId: id("B"), parentId: null, index: 0 }]);
+    expect(kids(null)).toEqual([id("B"), a]);
+    expect(doc.nodes.get(id("B"))).toMatchObject({ parentId: null });
+  });
+
+  it("does not check locks: a locked Node in a locked Layer moves (ADR-0027)", () => {
+    const { doc, a, path, id } = scene();
+    updateNodes(doc, [
+      { nodeId: a, patch: { locked: true } },
+      { nodeId: path.id, patch: { locked: true } },
+      { nodeId: id("G"), patch: { locked: true } },
+    ]);
+    reparentNodes(doc, [{ nodeId: path.id, parentId: id("G") }]);
+    expect(doc.nodes.get(path.id)).toMatchObject({ parentId: id("G"), locked: true });
+  });
+
+  it.each([
+    [
+      "a Group into its own child",
+      (s: Scene) => ({ nodeId: s.id("G"), parentId: s.id("g1") }),
+      "INVALID_PARENT",
+      "moves[0].parentId",
+    ],
+    [
+      "a Group into itself",
+      (s: Scene) => ({ nodeId: s.id("G"), parentId: s.id("G") }),
+      "INVALID_PARENT",
+      "moves[0].parentId",
+    ],
+    [
+      "a Layer into its own sub-Layer",
+      (s: Scene) => ({ nodeId: s.a, parentId: s.a }),
+      "INVALID_PARENT",
+      "moves[0].parentId",
+    ],
+    [
+      "into a Rect",
+      (s: Scene) => ({ nodeId: s.path.id, parentId: s.rect.id }),
+      "INVALID_PARENT",
+      "moves[0].parentId",
+    ],
+    [
+      "a Layer into a Group",
+      (s: Scene) => ({ nodeId: s.id("B"), parentId: s.id("G") }),
+      "INVALID_PARENT",
+      "moves[0].parentId",
+    ],
+    [
+      "a Rect to the root",
+      (s: Scene) => ({ nodeId: s.rect.id, parentId: null }),
+      "INVALID_PARENT",
+      "moves[0].parentId",
+    ],
+    [
+      "into an Artboard",
+      (s: Scene) => ({ nodeId: s.rect.id, parentId: s.doc.artboards[0]?.id ?? "" }),
+      "INVALID_PARENT",
+      "moves[0].parentId",
+    ],
+    [
+      "before a Node in another parent",
+      (s: Scene) => ({ nodeId: s.path.id, parentId: s.id("G"), before: s.rect.id }),
+      "INVALID_INPUT",
+      "moves[0].before",
+    ],
+    [
+      "after the Node itself",
+      (s: Scene) => ({ nodeId: s.rect.id, parentId: s.a, after: s.rect.id }),
+      "INVALID_INPUT",
+      "moves[0].after",
+    ],
+    [
+      "index past the end",
+      (s: Scene) => ({ nodeId: s.path.id, parentId: s.id("G"), index: 3 }),
+      "INVALID_INPUT",
+      "moves[0].index",
+    ],
+    [
+      "index plus after",
+      (s: Scene) => ({ nodeId: s.path.id, parentId: s.id("G"), index: 0, after: s.id("g1") }),
+      "INVALID_INPUT",
+      "moves[0].after",
+    ],
+    [
+      "an unknown nodeId",
+      () => ({ nodeId: "nope", parentId: null }),
+      "NODE_NOT_FOUND",
+      "moves[0].nodeId",
+    ],
+    [
+      "an unknown parentId",
+      (s: Scene) => ({ nodeId: s.rect.id, parentId: "nope" }),
+      "NODE_NOT_FOUND",
+      "moves[0].parentId",
+    ],
+    [
+      "an unknown before",
+      (s: Scene) => ({ nodeId: s.rect.id, parentId: s.a, before: "nope" }),
+      "NODE_NOT_FOUND",
+      "moves[0].before",
+    ],
+  ] as const)("refuses %s", (_, move, code, path) => {
+    const s = scene();
+    const before = new Map(s.doc.nodes);
+    const error = errorOf(() => reparentNodes(s.doc, [move(s)]));
+    expect(error).toMatchObject({ code, path, hint: expect.any(String) });
+    expect(s.doc.nodes).toEqual(before);
+  });
+
+  it("names the failing move, changes nothing without partial, and skips it with partial", () => {
+    const { doc, a, path, rect, id, kids } = scene();
+    const moves = [
+      { nodeId: path.id, parentId: id("G") },
+      { nodeId: rect.id, parentId: null },
+      { nodeId: id("g1"), parentId: a },
+    ];
+    const before = new Map(doc.nodes);
+    expect(errorOf(() => reparentNodes(doc, moves))).toMatchObject({
+      code: "INVALID_PARENT",
+      path: "moves[1].parentId",
+    });
+    expect(doc.nodes).toEqual(before);
+    const { nodes, failed } = reparentNodes(doc, moves, { partial: true });
+    expect(nodes.map((n) => n.id)).toEqual([path.id, id("g1")]);
+    expect(failed).toMatchObject([{ index: 1, code: "INVALID_PARENT", path: "moves[1].parentId" }]);
+    expect(kids(a)).toEqual([rect.id, id("g1")]);
+  });
+
+  describe("Clipping Paths (ADR-0021, ADR-0053)", () => {
+    const clipped = () => {
+      const s = scene();
+      const { group } = makeMask(s.doc, { clipNodeId: s.id("g2"), contentIds: [s.id("g1")] });
+      return { ...s, clipGroup: group.id };
+    };
+
+    it("one moved to a Layer loses clipping and keeps its Appearance; the Group is ordinary", () => {
+      const { doc, a, id, clipGroup, kids } = clipped();
+      const clip = doc.nodes.get(id("g2")) as ShapeNode;
+      reparentNodes(doc, [{ nodeId: clip.id, parentId: a }]);
+      const moved = doc.nodes.get(clip.id) as ShapeNode;
+      expect(moved).not.toHaveProperty("clipping");
+      expect(moved.appearance).toEqual(clip.appearance);
+      const group = doc.nodes.get(clipGroup) as Node;
+      expect(clippingPath(doc, group)).toBeUndefined();
+      expect(kids(clipGroup)).toEqual([id("g1")]);
+    });
+
+    it("one restacked within its Clip Group keeps clipping", () => {
+      const { doc, id, clipGroup, kids } = clipped();
+      reparentNodes(doc, [{ nodeId: id("g2"), parentId: clipGroup, index: 0 }]);
+      expect(kids(clipGroup)).toEqual([id("g2"), id("g1")]);
+      expect(doc.nodes.get(id("g2"))).toMatchObject({ clipping: true });
+    });
+
+    it("one moved into a Group that has one leaves exactly one there", () => {
+      const s = clipped();
+      const [other] = createNodes(s.doc, [
+        {
+          type: "group",
+          parentId: s.a,
+          children: [
+            { type: "rect", x: 0, y: 0, width: 5, height: 5, clientKey: "c" },
+            { type: "rect", x: 1, y: 0, width: 5, height: 5, clientKey: "k" },
+          ],
+        },
+      ]).nodes as [Node];
+      const [c, k] = childrenOf(s.doc, other.id);
+      const into = makeMask(s.doc, { clipNodeId: (c as Node).id, contentIds: [(k as Node).id] })
+        .group.id;
+      reparentNodes(s.doc, [{ nodeId: s.id("g2"), parentId: into }]);
+      const clips = childrenOf(s.doc, into).filter((n) => "clipping" in n && n.clipping);
+      expect(clips.map((n) => n.id)).toEqual([(c as Node).id]);
+    });
+
+    it("a whole Clip Group moves with its Clipping Path intact", () => {
+      const { doc, a, id, clipGroup } = clipped();
+      reparentNodes(doc, [{ nodeId: clipGroup, parentId: a, index: 0 }]);
+      expect(clippingPath(doc, doc.nodes.get(clipGroup) as Node)?.id).toBe(id("g2"));
+    });
+
+    it("a Node moved into a clipped Layer is clipped wherever it lands; nothing reorders", () => {
+      const { doc, a, path, rect, id, kids } = scene();
+      makeMask(doc, { layerId: a });
+      reparentNodes(doc, [{ nodeId: id("g1"), parentId: a, after: rect.id }]);
+      expect(kids(a)).toEqual([path.id, rect.id, id("g1")]);
+      expect(clippingPath(doc, doc.nodes.get(a) as Node)?.id).toBe(rect.id);
+    });
+
+    it("a Clip Group left holding only its Clipping Path, and an emptied Group, stay", () => {
+      const { doc, a, id, clipGroup } = clipped();
+      reparentNodes(doc, [{ nodeId: id("g1"), parentId: a }]);
+      expect(doc.nodes.has(clipGroup)).toBe(true);
+      expect(clippingPath(doc, doc.nodes.get(clipGroup) as Node)?.id).toBe(id("g2"));
+      reparentNodes(doc, [{ nodeId: id("g2"), parentId: a }]);
+      expect(doc.nodes.has(clipGroup)).toBe(true);
+      expect(childrenOf(doc, clipGroup)).toEqual([]);
+    });
   });
 });

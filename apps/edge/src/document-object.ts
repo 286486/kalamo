@@ -40,8 +40,10 @@ import {
   placeNodes,
   queryNodes,
   type Rect,
+  type ReparentInput,
   readImage,
   releaseMask,
+  reparentNodes,
   revert,
   serializeDocument,
   type TransformNodesInput,
@@ -850,6 +852,13 @@ export class DocumentObject extends DurableObject<Env> {
 
   deleteNodes(nodeIds: string[], actor: string, opts: Options = {}): Result<WriteReceipt> {
     return this.write(actor, opts, "Delete", (doc) => deleteNodes(doc, nodeIds, opts));
+  }
+
+  reparentNodes(moves: ReparentInput[], actor: string, opts: Options = {}): Result<WriteReceipt> {
+    return this.write(actor, opts, "Reparent", (doc) => {
+      const { nodes, failed } = reparentNodes(doc, moves, opts);
+      return { updated: nodes, failed };
+    });
   }
 
   makeMask(input: MaskInput, actor: string, opts: Options = {}): Result<WriteReceipt> {

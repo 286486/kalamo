@@ -712,3 +712,98 @@ it("stages a batch in an open Transaction, and guards it whole with ifRev", asyn
   expect(ok(await s.commitTx(txId, "agent-a"))).toMatchObject({ rev: 3, updatedIds: ids });
   expect((await current())[0]).not.toEqual([1, 0, 0, 1, 0, 0]);
 });
+
+/** Layer A holds rects r0, r1, r2; Layer B holds an empty Group G; committed at rev 3. */
+async function withTwoLayers(docId: string) {
+  const s = stub(docId);
+  const { defaultLayerId: a } = ok(await s.create({ docId, name: "Doc", artboards, actor: "a" }));
+  const rects = [0, 1, 2].map((i) => ({ ...rect, x: i * 20, parentId: a }));
+  const { createdIds: ids } = ok(
+    await s.createNodes([...rects, { type: "layer", name: "B", clientKey: "B" }], "agent-a"),
+  );
+  const b = ids[3] as string;
+  const {
+    createdIds: [g],
+  } = ok(await s.createNodes([{ type: "group", parentId: b }], "agent-a"));
+  /** Each rect's parent and its position among the parent's children, from the outline. */
+  const places = async () => {
+    const at = new Map<string, [string | null, number]>();
+    type Row = { id: string; children?: Row[] };
+    const walk = (rows: Row[], parentId: string | null) =>
+      rows.forEach((r, i) => {
+        at.set(r.id, [parentId, i]);
+        walk(r.children ?? [], r.id);
+      });
+    walk(ok(await s.outline({ depth: 4 }, "user")).nodes as Row[], null);
+    return ids.slice(0, 3).map((id) => at.get(id));
+  };
+  return { s, a, b, g: g as string, ids: ids.slice(0, 3), places };
+}
+
+it("applies three moves as one Transaction and one undo step (ADR-0071)", async () => {
+  const { s, a, b, g, ids, places } = await withTwoLayers("reparent1");
+  const before = await places();
+  const moves = [
+    { nodeId: ids[0] as string, parentId: g },
+    { nodeId: ids[1] as string, parentId: b, index: 0 },
+    { nodeId: ids[2] as string, parentId: a, index: 0 },
+  ];
+  const receipt = ok(await s.reparentNodes(moves, "agent-a", { intent: "sort" }));
+  expect(receipt).toMatchObject({
+    rev: 4,
+    updatedIds: ids,
+    bounds: { x: 0, y: 0, width: 50, height: 10 },
+  });
+  expect(ok(await s.changes(3)).changes).toMatchObject([
+    { rev: 4, txId: receipt.txId, summary: "Reparent 3 Nodes", intent: "sort", updatedIds: ids },
+  ]);
+  expect(await places()).toEqual([
+    [g, 0],
+    [b, 0],
+    [a, 0],
+  ]);
+  const undone = ok(await s.undo("user"));
+  expect(undone.rev).toBe(5);
+  expect(await places()).toEqual(before);
+});
+
+it("refuses a batch with one bad move changing nothing, or skips that move with partial", async () => {
+  const { s, g, ids, places } = await withTwoLayers("reparent2");
+  const before = await places();
+  const moves = [
+    { nodeId: ids[0] as string, parentId: g },
+    { nodeId: ids[1] as string, parentId: null },
+    { nodeId: ids[2] as string, parentId: g, before: ids[0] as string },
+  ];
+  expect(await s.reparentNodes(moves, "agent-a")).toMatchObject({
+    error: { code: "INVALID_PARENT", path: "moves[1].parentId" },
+  });
+  expect(await s.info()).toMatchObject({ rev: 3 });
+  expect(await places()).toEqual(before);
+  const receipt = ok(await s.reparentNodes(moves, "agent-a", { partial: true }));
+  expect(receipt).toMatchObject({
+    rev: 4,
+    updatedIds: [ids[0], ids[2]],
+    failed: [{ index: 1, code: "INVALID_PARENT", path: "moves[1].parentId" }],
+  });
+  const kids = ok(await s.outline({ depth: 3 }, "agent-a")).nodes[1]?.children?.[0]?.children;
+  expect(kids?.map((n) => n.id)).toEqual([ids[2], ids[0]]);
+});
+
+it("stages moves in an open Transaction, and guards them with ifRev", async () => {
+  const { s, g, ids, places } = await withTwoLayers("reparent3");
+  const before = await places();
+  const moves = [{ nodeId: ids[0] as string, parentId: g }];
+  expect(await s.reparentNodes(moves, "agent-a", { ifRev: 2 })).toMatchObject({
+    error: { code: "REV_CONFLICT" },
+  });
+  const { txId } = ok(await s.begin("agent-a", "Sort"));
+  expect(ok(await s.reparentNodes(moves, "agent-a", { txId, ifRev: 3 }))).toMatchObject({
+    txId,
+    rev: 3,
+    updatedIds: [ids[0]],
+  });
+  expect(await places()).toEqual(before);
+  expect(ok(await s.commitTx(txId, "agent-a"))).toMatchObject({ rev: 4, updatedIds: [ids[0]] });
+  expect((await places())[0]?.[0]).toBe(g);
+});

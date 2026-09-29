@@ -204,6 +204,21 @@ describe("write tools pass the write and its options apart", () => {
     ]);
   });
 
+  it("node_reparent: the moves as sent, apart from the write options", async () => {
+    const { service, call } = await harness({ reparentNodes: async () => receipt });
+    const moves = [
+      { nodeId: "a", parentId: "g" },
+      { nodeId: "b", parentId: null, index: 0 },
+      { nodeId: "c", parentId: "g", after: "a" },
+    ];
+    await call("kalamo_node_reparent", { docId: "d", moves, ...opts });
+    expect(service.reparentNodes.mock.calls[0]).toStrictEqual([
+      "d",
+      moves,
+      { ...opts, partial: false },
+    ]);
+  });
+
   it.each(writeOptions)(
     "mask_make: kind defaults to clip, with %s write options as given",
     async (_, write) => {
@@ -651,6 +666,18 @@ describe("arguments are parsed strictly: a bad one is INVALID_INPUT and nothing 
       "scope",
       "scope matches none of the forms kalamo_render takes; see its description.",
     ],
+    [
+      "kalamo_node_reparent",
+      { docId: "d", moves: [{ nodeId: "a" }] },
+      "moves[0].parentId",
+      "moves[0].parentId is required.",
+    ],
+    [
+      "kalamo_node_reparent",
+      { docId: "d", moves: [{ nodeId: "a", parentId: "g", index: -1 }] },
+      "moves[0].index",
+      "moves[0].index must be at least 0.",
+    ],
   ])("%s %j: %s, with a hint on what to send", async (name, args, path, hint) => {
     const { call, called } = await harness();
     expect(errorOf(await call(name, args))).toMatchObject({ code: "INVALID_INPUT", path, hint });
@@ -814,6 +841,7 @@ describe("partial (F-MCP-16)", () => {
     ["kalamo_node_delete", "deleteNodes", { nodeIds: ["a"] }],
     ["kalamo_node_transform", "transformNodes", { nodeIds: ["a"], rotate: 1 }],
     ["kalamo_node_transform", "transformNodes", { transforms: [{ nodeIds: ["a"], rotate: 1 }] }],
+    ["kalamo_node_reparent", "reparentNodes", { moves: [{ nodeId: "a", parentId: null }] }],
   ] as const)("%s passes partial and returns failed intact", async (name, method, args) => {
     const { service, call } = await harness({ [method]: async () => ({ ...receipt, failed }) });
     const result = await call(name, { docId: "d", ...args, partial: true });
@@ -926,6 +954,7 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
     "kalamo_node_delete",
     "kalamo_node_get",
     "kalamo_node_query",
+    "kalamo_node_reparent",
     "kalamo_node_transform",
     "kalamo_node_update",
     "kalamo_path_edit",
@@ -946,6 +975,7 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
     ["kalamo_node_update", true],
     ["kalamo_node_delete", true],
     ["kalamo_node_transform", false],
+    ["kalamo_node_reparent", false],
   ] as const) {
     expect(byName[name]?.annotations).toMatchObject({ destructiveHint: destructive });
     expect(inputKeys(name)).toEqual(
@@ -999,6 +1029,10 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
   }
   expect(described("kalamo_node_create")).not.toContain("origin top-left");
   expect(described("kalamo_node_transform")).toContain("transforms: [{nodeIds, rotate, ...}, ...]");
+  expect(described("kalamo_node_reparent")).toContain("stops clipping");
+  expect(described("kalamo_node_reparent")).toContain("one Transaction");
+  expect(described("kalamo_node_update")).toContain("kalamo_node_reparent");
+  expect(byName.kalamo_node_reparent?.annotations).toMatchObject({ idempotentHint: true });
   expect(described("kalamo_node_create")).toContain("text {");
   expect(described("kalamo_node_create")).toContain("TEXT_OVERFLOW");
   expect(described("kalamo_node_create")).toContain("MISSING_GLYPHS");
@@ -1153,7 +1187,7 @@ it("logs one line per call: Actor, tool, duration, node count, error code and re
 it("names every tool kalamo_ and knows the former name's tools and format as nothing (ADR-0069)", async () => {
   const { client, call } = await harness();
   const names = (await client.listTools()).tools.map((t) => t.name);
-  expect(names).toHaveLength(25);
+  expect(names).toHaveLength(26);
   expect(names.filter((n) => !n.startsWith("kalamo_") || n.includes(LEGACY_NAME))).toEqual([]);
 
   const failure = async (name: string) =>

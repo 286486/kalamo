@@ -1,5 +1,7 @@
+import { generateKeyBetween } from "fractional-indexing";
 import type { z } from "zod";
 import {
+  assertParent,
   bounds,
   checkFile,
   childrenOf,
@@ -24,6 +26,7 @@ import {
   type Node,
   PIVOTS,
   type Rect,
+  type ReparentInput,
   SHAPES,
   TextShape,
   type TransformInput,
@@ -187,8 +190,9 @@ function transformOnce(
 const READ_ONLY: Record<string, string> = {
   id: "Ids never change.",
   type: "A Node's type never changes; create a new Node and delete this one.",
-  parentId: "Moving a Node to another parent needs node_reparent, which is not available yet.",
-  index: "Stacking order needs node_reorder, which is not available yet.",
+  parentId: "Use node_reparent to move a Node to another Layer or Group.",
+  index:
+    "Use node_reparent with the same parentId and index, before or after to restack a Node; node_reorder (front / forward / backward / back) is not available yet.",
   transform: "Use node_transform to move, rotate, scale or skew.",
   childCount: "Derived from the tree; read-only.",
   geometricBounds: "Derived; move or resize the Node to change it.",
@@ -363,6 +367,87 @@ export function updateNodes(
   const unique = [...new Map(nodes.map((n) => [n.id, n])).values()];
   for (const n of unique) doc.nodes.set(n.id, n);
   return { nodes: unique, failed };
+}
+
+/** One move: the Node at its new parent and fractional-index key, not yet stored. */
+function moved(doc: Document, move: ReparentInput, i: number): Node {
+  const at = `moves[${i}]`;
+  const invalid = (key: string, message: string, hint: string) =>
+    new KalamoError({ code: "INVALID_INPUT", message, hint, path: `${at}.${key}` });
+  const node = lookup(doc, move.nodeId, `${at}.nodeId`);
+  assertParent(doc, node, move.parentId, `${at}.parentId`);
+  const given = (["index", "before", "after"] as const).filter((k) => move[k] !== undefined);
+  if (given.length > 1) {
+    throw invalid(
+      given[1] as string,
+      `A move takes one of index, before and after, not ${given.join(" and ")}.`,
+      "Keep one of them; with none the Node goes on top of the parent's children.",
+    );
+  }
+  // The parent's children without the Node, bottom first; it lands between siblings[slot - 1] and
+  // siblings[slot].
+  const siblings = childrenOf(doc, move.parentId).filter((n) => n.id !== node.id);
+  let slot = siblings.length;
+  if (move.index !== undefined) {
+    if (move.index > siblings.length) {
+      throw invalid(
+        "index",
+        `index ${move.index} is past the top: the parent has ${siblings.length} other ${siblings.length === 1 ? "child" : "children"}.`,
+        `Use 0 (bottom) to ${siblings.length} (top), or omit index to put the Node on top.`,
+      );
+    }
+    slot = move.index;
+  }
+  const key = move.before !== undefined ? "before" : move.after !== undefined ? "after" : undefined;
+  if (key) {
+    const ref = lookup(doc, move[key] as string, `${at}.${key}`);
+    const j = siblings.indexOf(ref);
+    if (j < 0) {
+      throw invalid(
+        key,
+        ref === node
+          ? `${key} names the Node being moved.`
+          : `${ref.id} is not a child of ${move.parentId ?? "the Document root"}.`,
+        `${key} names another child of parentId; doc_outline lists them.`,
+      );
+    }
+    slot = key === "before" ? j : j + 1;
+  }
+  const below = siblings[slot - 1]?.index ?? null;
+  const above = siblings[slot]?.index ?? null;
+  // A key already in the slot is kept, as makeMask keeps keys.
+  const fits = (below === null || below < node.index) && (above === null || node.index < above);
+  const next = {
+    ...node,
+    parentId: move.parentId,
+    index: fits ? node.index : generateKeyBetween(below, above),
+  };
+  // A Clipping Path leaving its parent loses clipping, as a pasted one does (ADR-0053); restacked
+  // in place it keeps it, since its position does not matter (ADR-0021).
+  if (!("clipping" in next) || move.parentId === node.parentId) return next as Node;
+  const { clipping: _, ...unclipped } = next;
+  return unclipped as Node;
+}
+
+/**
+ * Moves each Node, with everything beneath it, to its parent and position (ADR-0071), in order,
+ * each on the Document the moves before it left. Validates every move before storing any. A Node
+ * moved twice is returned once, with its final value, where it first appeared.
+ */
+export function reparentNodes(
+  doc: Document,
+  moves: ReparentInput[],
+  { partial = false } = {},
+): { nodes: Node[]; failed: Failed[] } {
+  const staged = { ...doc, nodes: new Map(doc.nodes) };
+  const { ok, failed } = collect(moves, partial, (m, i) => {
+    const next = moved(staged, m, i);
+    staged.nodes.set(next.id, next);
+    return next;
+  });
+  const nodes = [...new Map(ok.map((n) => [n.id, n])).values()];
+  for (const n of nodes) doc.nodes.set(n.id, n);
+  return { nodes, failed };
 }
 
 /** Deletes the Nodes and everything beneath them. */

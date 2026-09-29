@@ -17,6 +17,7 @@ import {
   parseColor,
   RenderOverlay,
   RenderScope,
+  ReparentInput,
   TransformBatchInput,
   TransformFields,
   TransformInput,
@@ -367,7 +368,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         "Change Nodes with one JSON Merge Patch (RFC 7396) each: objects merge, null deletes a key, arrays and everything else replace.",
         "Writable on every Node: name, visible, locked, opacity (0-1), blendMode, tags, meta. A layer or group takes appearance {fills, strokes, contents} (see kalamo_node_create), merged like a leaf's, and appearance: null removes it; contents must stay within its fills and strokes after the merge. A Live Shape or path also takes its parameters (see kalamo_node_create) and appearance, without contents; a path takes d; a text takes content, fontFamily, fontStyle, fontSize, leading (null for Auto), tracking, ranges, x, y and appearance, and an Area Type also width and height; a text's kind is fixed. Writing content without ranges clears them, ranges: null clears them, and ranges replaces the whole list. An image takes x, y, width, height and preserveAspectRatio, and src and file (ADR-0042): src Relinks it with a data: URL or an image id already in the Document, replacing only the pixels, so the frame and preserveAspectRatio stay unless the patch sets them; file links an embedded image or relinks a linked one; file: null Embeds a linked image, which fails INVALID_IMAGE when it has no src, so set src in the same patch or first; src: null is refused.",
         "fills and strokes replace as a whole list, so send every Fill or Stroke you want to keep; a gradient's geometry left out is taken from the Node's bounds after the patch.",
-        "Move, rotate or scale with kalamo_node_transform; transform, type, parentId and derived bounds are read-only.",
+        "Move, rotate or scale with kalamo_node_transform, and move to another parent or restack with kalamo_node_reparent; transform, type, parentId, index and derived bounds are read-only.",
         coordinates,
       ].join(" "),
       inputSchema: {
@@ -435,6 +436,33 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       const transform = parseArgs("kalamo_node_transform", schema, input);
       return json(await service.transformNodes(docId, transform, { intent, partial, txId, ifRev }));
     },
+  );
+
+  tool(
+    "kalamo_node_reparent",
+    {
+      title: "Reparent Nodes",
+      description: [
+        "Move Nodes, with everything inside them, to another Layer or Group, or restack them within their own: each move is {nodeId, parentId, index?, before?, after?}. parentId is a Layer or Group id, or null to make a Layer top-level; a Layer's parent is the root or a Layer, and every other Node's a Layer or Group.",
+        "Position, at most one of: index, a 0-based position among the parent's other children, bottom first as kalamo_doc_outline lists them (0 is the bottom, their count the top); before: a sibling id, to land directly below it; after: a sibling id, to land directly above it. With none the Node goes on top. The same parentId with a new position restacks the Node.",
+        "Nothing moves on the canvas: Layers and Groups have no transform, so geometry and geometricBounds stay.",
+        "A Clipping Path moved to another parent stops clipping and keeps its appearance, so a Group or Layer never holds two; restacked in its own parent it keeps clipping. A Node moved into a Clipping Mask is clipped wherever it lands. A Group left empty, or holding only its Clipping Path, stays.",
+        "Moves apply in order, each to the Document the ones before it left, in one Transaction: one receipt, one undo step. updatedIds lists each moved Node once, with its final place; bounds covers them. With partial, a failing move is skipped and listed in failed by its index.",
+      ].join(" "),
+      inputSchema: {
+        docId,
+        moves: z.array(ReparentInput).min(1).max(1000),
+        ...writeFields,
+      },
+      outputSchema: WriteReceipt.shape,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ docId, moves, ...opts }) => json(await service.reparentNodes(docId, moves, opts)),
   );
 
   /** The write options of a tool without partial. */

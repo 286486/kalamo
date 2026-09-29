@@ -58,6 +58,7 @@ it("lists the tools over HTTP (their schemas and annotations: packages/mcp serve
     "kalamo_node_delete",
     "kalamo_node_get",
     "kalamo_node_query",
+    "kalamo_node_reparent",
     "kalamo_node_transform",
     "kalamo_node_update",
     "kalamo_path_edit",
@@ -1970,4 +1971,146 @@ describe("request body capped before the SDK reads it (ADR-0049)", () => {
     expect(opened.isError).toBeFalsy();
     expect(opened.structuredContent).toMatchObject({ docId: expect.any(String) });
   }, 60_000);
+});
+
+describe("kalamo_node_reparent (ADR-0071)", () => {
+  const red = { fills: [{ type: "solid", color: "#FF0000" }] };
+  /** The default Layer holds a Clip Group (clip over art) and a loose rect; Layer B is empty. */
+  const scene = async () => {
+    const { docId, defaultLayerId } = await newDoc();
+    const [B] = (await call("kalamo_node_create", { docId, nodes: [{ type: "layer", name: "B" }] }))
+      .structuredContent.createdIds;
+    const { keyMap } = (
+      await call("kalamo_node_create", {
+        docId,
+        nodes: [
+          {
+            type: "rect",
+            parentId: defaultLayerId,
+            clientKey: "art",
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 100,
+            appearance: red,
+          },
+          {
+            type: "ellipse",
+            parentId: defaultLayerId,
+            clientKey: "clip",
+            x: 10,
+            y: 10,
+            width: 40,
+            height: 40,
+          },
+          {
+            type: "rect",
+            parentId: defaultLayerId,
+            clientKey: "loose",
+            x: 150,
+            y: 0,
+            width: 50,
+            height: 100,
+            appearance: red,
+          },
+        ],
+      })
+    ).structuredContent;
+    keyMap.B = B;
+    await call("kalamo_node_update", {
+      docId,
+      updates: [{ nodeId: keyMap.loose, patch: { locked: true } }],
+    });
+    const made = await call("kalamo_mask_make", {
+      docId,
+      clipNodeId: keyMap.clip,
+      contentIds: [keyMap.art],
+    });
+    return { docId, defaultLayerId, keyMap, group: made.structuredContent.createdIds[0] };
+  };
+
+  it("moves three Nodes in one receipt, and the moved Document exports and re-opens", async () => {
+    const { docId, defaultLayerId, keyMap, group } = await scene();
+    const { rev } = (await call("kalamo_doc_get_info", { docId })).structuredContent;
+    const moved = await call("kalamo_node_reparent", {
+      docId,
+      moves: [
+        { nodeId: keyMap.clip, parentId: keyMap.B },
+        { nodeId: keyMap.loose, parentId: group, index: 0 },
+        { nodeId: keyMap.B, parentId: defaultLayerId, index: 0 },
+      ],
+    });
+    expect(moved.isError).toBeFalsy();
+    expect(moved.structuredContent).toMatchObject({
+      rev: rev + 1,
+      txId: expect.any(String),
+      updatedIds: [keyMap.clip, keyMap.loose, keyMap.B],
+    });
+    const [clip] = (
+      await call("kalamo_node_get", { docId, nodeIds: [keyMap.clip], detail: "full" })
+    ).structuredContent.nodes;
+    expect(clip).toMatchObject({ parentId: keyMap.B });
+    expect(clip.clipping).toBeUndefined();
+    const file = (await call("kalamo_export", { docId, format: "kalamo_json" })).content[0].text;
+    const opened = await call("kalamo_doc_open", { content: file });
+    expect(opened.isError).toBeFalsy();
+    const { nodes } = (
+      await call("kalamo_doc_outline", { docId: opened.structuredContent.docId, depth: 3 })
+    ).structuredContent;
+    expect(nodes[0].children.map((n: { id: string }) => n.id)).toEqual([keyMap.B, group]);
+    expect(nodes[0].children[0].children.map((n: { id: string }) => n.id)).toEqual([keyMap.clip]);
+  });
+
+  it("clips a locked Node moved into a clipped Layer, in render and in the SVG export", async () => {
+    const { docId, defaultLayerId, keyMap } = await scene();
+    await call("kalamo_node_update", {
+      docId,
+      updates: [{ nodeId: defaultLayerId, patch: { locked: true } }],
+    });
+    const window = {
+      type: "rect",
+      parentId: keyMap.B,
+      clientKey: "window",
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+    };
+    const { keyMap: made } = (await call("kalamo_node_create", { docId, nodes: [window] }))
+      .structuredContent;
+    expect((await call("kalamo_mask_make", { docId, layerId: keyMap.B })).isError).toBeFalsy();
+    const at = async (x: number, y: number, id = docId) =>
+      (await call("kalamo_render", { docId: id, scope: { rect: { x, y, width: 1, height: 1 } } }))
+        .content[0].data;
+    const empty = await at(175, 50, (await newDoc()).docId);
+    expect(await at(175, 50)).not.toBe(empty);
+    const moved = await call("kalamo_node_reparent", {
+      docId,
+      moves: [{ nodeId: keyMap.loose, parentId: keyMap.B, before: made.window }],
+    });
+    expect(moved.isError).toBeFalsy();
+    expect(await at(175, 50)).toBe(empty);
+    const svg: string = (await call("kalamo_export", { docId, format: "svg" })).content[0].text;
+    // Layer B's <g> clips, and the moved rect is its child, drawn before the clipPath.
+    const layer = new RegExp(
+      `<g id="z-${keyMap.B}"[^>]*clip-path="url\\(#clip-z-${keyMap.B}\\)"><rect [^>]*id="z-${keyMap.loose}"`,
+    );
+    expect(svg).toMatch(layer);
+  });
+
+  it.each([
+    [{ parentId: "x" }, "parentId", /node_reparent/],
+    [{ index: "a0" }, "index", /node_reparent with the same parentId/],
+  ])("node_update still refuses %j, pointing at node_reparent", async (patch, key, hint) => {
+    const { docId, keyMap } = await scene();
+    const result = await call("kalamo_node_update", {
+      docId,
+      updates: [{ nodeId: keyMap.loose, patch }],
+    });
+    expect(errorOf(result)).toMatchObject({
+      code: "INVALID_PATCH",
+      path: `updates[0].patch.${key}`,
+      hint: expect.stringMatching(hint),
+    });
+  });
 });

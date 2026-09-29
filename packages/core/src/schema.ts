@@ -731,6 +731,26 @@ export const NodePatch = z
 export const UpdateInput = z.strictObject({ nodeId: z.string(), patch: NodePatch });
 export type UpdateInput = z.input<typeof UpdateInput>;
 
+/** One move of `node_reparent` (ADR-0071): at most one of index, before and after. */
+export const ReparentInput = z.strictObject({
+  nodeId: z.string(),
+  parentId: z
+    .string()
+    .nullable()
+    .describe("A Layer or Group id, or null to make a Layer top-level."),
+  index: z
+    .number()
+    .int()
+    .min(0)
+    .optional()
+    .describe(
+      "0-based position among the parent's other children, bottom first as kalamo_doc_outline lists them: 0 is the bottom, their count the top.",
+    ),
+  before: z.string().optional().describe("A child of parentId: land directly below it."),
+  after: z.string().optional().describe("A child of parentId: land directly above it."),
+});
+export type ReparentInput = z.input<typeof ReparentInput>;
+
 const clipNodeId = z
   .string()
   .describe("The Live Shape, Path or text that clips; it loses its Appearance.");

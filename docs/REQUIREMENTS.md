@@ -211,7 +211,7 @@ Kalamo 要填的空位是：**Agent 能生成、人能精修、二者共享同�
 **F-DOC-03 节点类型**（P0 除标注外）
 | type | 说明 | 对应 Illustrator |
 |---|---|---|
-| `layer` | 图层容器；有 `color`（选中高亮色）、`isTemplate`。**父级只能是文档根或另一个 `layer`**；`doc_outline` 顶层永远是 Layer 列表 | Layer / Sublayer |
+| `layer` | 图层容器；有 `color`（选中高亮色）、`isTemplate`。**父级只能是文档根或另一个 `layer`**；`doc_outline` 顶层永远是 Layer 列表。换父级与重排用 `node_reparent`（ADR-0071） | Layer / Sublayer |
 | `group` | 编组；可出现在 `layer` 或 `group` 内，**不能包含 `layer`**。含一个 `clipping: true` 子节点（Clipping Path）即 Clipping Mask，不另设 `clip_group` 类型（ADR-0021） | GroupItem（`clipped`） |
 | `path` | 贝塞尔路径，`d`（SVG 语法）、`closed`、`fillRule`（nonzero / evenodd）。`d` 含多个子路径即 Compound Path（挖洞），不另设 `compound_path` 类型（ADR-0018） | PathItem / CompoundPathItem |
 | `rect` / `ellipse` / `polygon` / `star` / `line` / `arc` / `spiral` | **Live Shape**：保留参数（圆角半径、边数、内外半径、起止角等），随时可"转为路径" | Live Shapes |
@@ -595,7 +595,7 @@ flowchart LR
 | `node_update` | `docId`, `updates[]`：`{nodeId, patch}`，patch 为 JSON Merge Patch（RFC 7396）作用于节点可写属性（name、visible、locked、opacity、blendMode、appearance、几何参数、text 属性、meta）；image 另可写 `src`（data URL 或已有图像 id，只换像素，即 Relink）与 `file`（字符串链接或重新链接，`null` 即 Embed，无 `src` 时 `INVALID_IMAGE`；`src: null` 为 `INVALID_PATCH`，ADR-0042） | 回执 | D（覆盖属性） |
 | `node_delete` | `docId`, `nodeIds[]` | 回执 | D |
 | `node_duplicate` | `docId`, `nodeIds[]`, `offset?`, `count?`, `targetParentId?` | 新 id 映射 | |
-| `node_reparent` | `docId`, `moves[]`：`{nodeId, parentId, index | before | after}` | 回执 | |
+| `node_reparent` | `docId`, `moves[]`：`{nodeId, parentId, index | before | after}`；`index` 自下而上数父级的其余子节点，`before` 落在该兄弟之下，`after` 之上，缺省置顶；同一 `parentId` 即重排；按序施加，一个事务；Clipping Path 移出原父级即失去 `clipping`（ADR-0071） | 回执 | |
 | `node_reorder` | `docId`, `nodeIds[]`, `op`: front / forward / backward / back | 回执 | |
 | `node_transform` | `docId`, `nodeIds[]`, `translate?`, `rotate?`（角度）, `scale?`, `skew?`, `matrix?`, `pivot`（center / 9 点 / 坐标）, `each`（逐个 vs 整体）, `scaleStrokes`；或 `transforms[]?`（每项即上述单个变换，按序施加，一个事务，ADR-0070） | 回执 + 新 bounds | |
 | `node_resize` | `docId`, `nodeIds[]`, `width?`, `height?`, `anchor`, `keepAspect` | 回执 | |
@@ -991,6 +991,7 @@ kalamo/
 | 51 | 更名 Kalamo（2026-09-29） | 前一个名字在阿拉伯语、希伯来语中意为"粪、垃圾"，更名为 **Kalamo**（卡拉莫），产品域名 `kalamo.cc`，SVG 命名空间 `https://kalamo.cc/ns/svg`；旧 SVG 命名空间、旧存盘文件与旧浏览器存储键永久可读，MCP 名称不留别名；Cloudflare 资源迁移到 Kalamo 名下并逐字段核对后才删除旧部署；工作树内不留旧名的任何痕迹 | §1.1.1、ADR-0069、#172 |
 | 52 | 逐字符属性（2026-09-29） | Character Range 在 `fill`、`baselineShift`、`rotation` 之外还可覆盖 `stroke`（替换每个 Stroke 的颜色）、`tracking`（按字符自身字号）、`fontStyle`、`fontFamily` 与 `fontSize`（Auto 行距为该行最大字号的 120%，同 Illustrator；Inkscape 按 CSS 行框排，往返中混合字号的多行文字另有 25% 像素预算）；等于 Node 自身值的覆盖即无覆盖，存储时丢弃；Inkscape 在行内 tspan 上写的这些属性导入为 Character Range，不再警告 | ADR-0068、#67 |
 | 53 | 批量变换（2026-09-30） | `node_transform` 另收 `transforms[]`：每项是单个变换的全部字段，按序施加，每项的 pivot 取自前面各项之后的 bounds；整次调用一个事务、一个回执、一次撤销；`partial` 按项跳过；不新增工具，也不在 `node_create` 上加 `transform` | ADR-0070、#21 |
+| 54 | 换父级（2026-09-30） | `node_reparent` 把 Node 连同其后代移到另一 Layer 或 Group，或在原父级内重排：`index` 为父级其余子节点中自下而上的位置，`before` / `after` 落在该兄弟之下 / 之上，缺省置顶，至多给一个；按序施加，一个事务、一个回执、一次撤销，`partial` 按项跳过；Clipping Path 移到别的父级即失去 `clipping`、保留 Appearance，原父级内重排则保留；移空的 Group 保留；不检查锁定；`node_reorder` 仍暂缺 | ADR-0071、#54 |
 
 **剩余开放问题**
 

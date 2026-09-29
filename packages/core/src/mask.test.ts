@@ -163,6 +163,16 @@ describe("makeMask", () => {
     expect([...s.doc.nodes.values()]).toEqual(before);
   });
 
+  it("points content under another parent at node_reparent", () => {
+    const s = scene();
+    const inner = childrenOf(s.doc, s.group.id)[0]?.id as string;
+    expect(
+      errorOf(() => makeMask(s.doc, { clipNodeId: s.clip.id, contentIds: [inner] })),
+    ).toMatchObject({
+      hint: expect.stringContaining("with node_reparent first"),
+    });
+  });
+
   it("refuses a Clipping Path as content, which would give a Group two", () => {
     const s = scene();
     const { group } = makeMask(s.doc, { clipNodeId: s.clip.id, contentIds: [s.a.id] });

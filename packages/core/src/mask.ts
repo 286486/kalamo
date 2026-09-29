@@ -86,7 +86,7 @@ export function makeMask(
       throw invalid(
         at,
         "The clip Node and the content do not share one parent.",
-        "List siblings of the clip Node only; Nodes in other Layers or Groups cannot be moved in yet.",
+        "List siblings of the clip Node only; move a Node from another Layer or Group next to the clip Node with node_reparent first.",
       );
     }
     return n;

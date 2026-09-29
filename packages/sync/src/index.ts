@@ -16,6 +16,7 @@ import type {
   Rect,
   RenderOverlay,
   RenderScope,
+  ReparentInput,
   TransformNodesInput,
   UpdateInput,
   WriteReceipt,
@@ -147,6 +148,8 @@ export interface DocumentService {
     input: TransformNodesInput,
     opts?: WriteOptions,
   ): Promise<WriteReceipt>;
+  /** Moves Nodes to another Layer or Group, or restacks them in theirs (ADR-0071). */
+  reparentNodes(docId: string, moves: ReparentInput[], opts?: WriteOptions): Promise<WriteReceipt>;
   /** Illustrator's Clipping Mask > Make and Release (ADR-0021). */
   makeMask(docId: string, input: MaskInput, opts?: WriteOptions): Promise<WriteReceipt>;
   releaseMask(docId: string, nodeIds: string[], opts?: WriteOptions): Promise<WriteReceipt>;
