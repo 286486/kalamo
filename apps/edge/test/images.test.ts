@@ -7,6 +7,7 @@ import { BLUE_1x1_PNG, RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images
 import { imageKey } from "../src/document-object.ts";
 
 const stub = (docId: string) => env.DOCUMENT.get(env.DOCUMENT.idFromName(docId));
+type Stub = ReturnType<typeof stub>;
 
 const ok = <T extends object>(result: T): Exclude<T, { error: unknown }> => {
   if ("error" in result) throw new Error(JSON.stringify(result.error));
@@ -293,7 +294,7 @@ describe("image files in R2, swept once nothing names them (ADR-0046)", () => {
   afterEach(() => vi.useRealTimers());
 
   /** Ends a Transaction that staged a rect, which has the alarm sweep, and runs the alarm. */
-  async function sweep(s: ReturnType<typeof stub>, parentId: string) {
+  async function sweep(s: Stub, parentId: string) {
     const { txId } = ok(await s.begin("agent"));
     const rect = { type: "rect", parentId, x: 0, y: 0, width: 1, height: 1 } as const;
     ok(await s.createNodes([rect], "agent", { txId }));
@@ -503,8 +504,8 @@ describe("image files in R2, swept once nothing names them (ADR-0046)", () => {
   });
 
   describe("the legacy image upgrade (ADR-0023 to ADR-0046)", () => {
-    /** Rewrites the DO's file tables in the legacy shape: `images` without `size`, `bytes` in 2 chunks. */
-    const seedLegacy = (s: ReturnType<typeof stub>, id: string, bytes: Uint8Array) =>
+    /** Rewrites the Durable Object's file tables in the legacy shape: `images` without `size`, `bytes` in 2 chunks. */
+    const seedLegacy = (s: Stub, id: string, bytes: Uint8Array) =>
       runInDurableObject(s, (_, state) => {
         const sql = state.storage.sql;
         sql.exec("DROP TABLE images");
@@ -518,7 +519,7 @@ describe("image files in R2, swept once nothing names them (ADR-0046)", () => {
       });
 
     /** The rows of `image_chunks`, bytes as base64, or null once the table is gone. */
-    const chunks = (s: ReturnType<typeof stub>) =>
+    const chunks = (s: Stub) =>
       runInDurableObject(s, (_, state) => {
         const sql = state.storage.sql;
         if (
@@ -534,7 +535,7 @@ describe("image files in R2, swept once nothing names them (ADR-0046)", () => {
       });
 
     /** Every row of the tables the upgrade must leave alone. */
-    const untouched = (s: ReturnType<typeof stub>) =>
+    const untouched = (s: Stub) =>
       runInDurableObject(s, (_, state) =>
         ["doc", "nodes", "tx_log", "tx", "tx_nodes", "tx_delta", "history"].map((t) =>
           state.storage.sql.exec(`SELECT * FROM ${t} ORDER BY 1`).toArray(),
@@ -578,8 +579,12 @@ describe("image files in R2, swept once nothing names them (ADR-0046)", () => {
         "UPDATE documents SET stored_bytes = 0 WHERE id = 'r2-legacy-live'",
       ).run();
       await runInDurableObject(s, (_, state) => {
-        state.storage.sql.exec("INSERT INTO tx VALUES ('tx-open', 'agent', 'Open', 0, NULL)");
-        state.storage.sql.exec("INSERT INTO tx_nodes VALUES ('tx-open', 'n1', NULL, '{}')");
+        state.storage.sql.exec(
+          "INSERT INTO tx (id, actor, label, deadline) VALUES ('tx-open', 'agent', 'Open', 0)",
+        );
+        state.storage.sql.exec(
+          "INSERT INTO tx_nodes (tx_id, node_id, working) VALUES ('tx-open', 'n1', '{}')",
+        );
       });
       await seedLegacy(s, id, bytes);
       const before = await untouched(s);
@@ -590,6 +595,21 @@ describe("image files in R2, swept once nothing names them (ADR-0046)", () => {
       expect(await objectOf("r2-legacy-live", id)).toBe(bytes.toBase64());
       expect(await untouched(s)).toEqual(before);
       expect(await chunks(s)).toBeNull();
+    });
+
+    it("keeps chunks that no images row names, and the table with them", async () => {
+      const { s } = await setup("r2-legacy-stray");
+      const id = await redId();
+      const bytes = readImage(RED_2x2_PNG, "src").bytes;
+      await seedLegacy(s, id, bytes);
+      await runInDurableObject(s, (_, state) => {
+        state.storage.sql.exec("INSERT INTO image_chunks VALUES ('stray', 0, ?)", bytes.buffer);
+      });
+      await evictDurableObject(s);
+
+      ok(await s.info());
+      expect(await objectOf("r2-legacy-stray", id)).toBe(bytes.toBase64());
+      expect(await chunks(s)).toEqual([{ id: "stray", n: 0, bytes: bytes.toBase64() }]);
     });
 
     it("counts a file that only undo history holds", async () => {
@@ -606,7 +626,7 @@ describe("image files in R2, swept once nothing names them (ADR-0046)", () => {
       expect(await objectOf("r2-legacy-held", id)).toBe(bytes.toBase64());
     });
 
-    it("keeps the chunks of a DO with no doc row, and finishes once the Document exists", async () => {
+    it("keeps the chunks of a Durable Object with no doc row, and finishes once the Document exists", async () => {
       const s = stub("r2-legacy-docless");
       const id = await redId();
       const bytes = readImage(RED_2x2_PNG, "src").bytes;
