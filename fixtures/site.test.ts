@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { experimental_readRawConfig } from "wrangler";
-import { startServer } from "./wrangler";
+import { startServer } from "./wrangler.ts";
 
 const page = readFileSync("site/public/index.html");
 let port = 0;
