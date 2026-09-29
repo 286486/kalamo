@@ -579,6 +579,38 @@ it("draws a tracked text per character, a turned one about its origin in its ran
   ]);
 });
 
+it("draws each character of a range in its own face, then goes back to the text's (ADR-0068)", () => {
+  const { doc, defaultLayerId: parentId } = newDoc();
+  createNodes(doc, [
+    {
+      type: "text",
+      parentId,
+      x: 10,
+      y: 50,
+      content: "Hi!",
+      ranges: [{ start: 1, end: 2, fontStyle: "Black Italic" }],
+      appearance: { fills: [{ color: "#000000" }], strokes: [{ color: "#0000FF", width: 1 }] },
+    },
+  ]);
+  const { ctx, log, layer } = recorder();
+  drawDocument(ctx, doc, layer);
+  const plain = 'font=12px "Source Sans 3", "Noto Sans SC", "Noto Sans KR"';
+  const black = 'font=italic 900 12px "Source Sans 3", "Noto Sans SC", "Noto Sans KR"';
+  expect(log.filter((l) => /^(font=|fillText|strokeText)/.test(l))).toEqual([
+    plain,
+    "fillText H 10 50",
+    black,
+    expect.stringMatching(/^fillText i /),
+    plain,
+    expect.stringMatching(/^fillText ! /),
+    "strokeText H 10 50",
+    black,
+    expect.stringMatching(/^strokeText i /),
+    plain,
+    expect.stringMatching(/^strokeText ! /),
+  ]);
+});
+
 it("draws each line of Point Type, one leading apart", () => {
   const { doc, defaultLayerId: parentId } = newDoc();
   createNodes(doc, [

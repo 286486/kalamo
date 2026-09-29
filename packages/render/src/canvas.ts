@@ -1,6 +1,7 @@
 import {
   applyTo,
   bundledStyle,
+  characterFont,
   childrenOf,
   clippingPath,
   containerAppearance,
@@ -27,6 +28,7 @@ import {
   type Segment,
   scaleOf,
   shapeSegments,
+  type TextFont,
   type TextNode,
   transformSegments,
   unscaledStroke,
@@ -489,15 +491,22 @@ export function drawClipGlyphs(ctx: Canvas2D, t: TextNode, m: Matrix): void {
 
 /** Sets `ctx` to draw the text's glyphs. */
 function font(ctx: Canvas2D, n: TextNode) {
-  // Every font renders in the bundled faces its bounds are measured in, each character in the first
-  // family that has it (ADR-0017, ADR-0028, ADR-0063).
-  const { weight, italic } = fontFace(bundledStyle(n.fontStyle));
-  const families = fontFamilies(n).map((f) => `"${f}"`);
-  ctx.font = [italic && "italic", weight !== 400 && weight, `${n.fontSize}px`, families.join(", ")]
-    .filter(Boolean)
-    .join(" ");
+  ctx.font = cssFont(n);
   // Unkerned, like the SVG, so the drawn width is the advance sum (ADR-0013).
   ctx.fontKerning = "none";
+}
+
+/**
+ * The CSS font of a text or of one of its characters: every font renders in the bundled faces its
+ * bounds are measured in, each character in the first family that has it (ADR-0017, ADR-0028,
+ * ADR-0063).
+ */
+function cssFont(text: TextFont & { fontSize: number }) {
+  const { weight, italic } = fontFace(bundledStyle(text.fontStyle));
+  const families = fontFamilies(text).map((f) => `"${f}"`);
+  return [italic && "italic", weight !== 400 && weight, `${text.fontSize}px`, families.join(", ")]
+    .filter(Boolean)
+    .join(" ");
 }
 
 /** Sets `ctx` to draw the Stroke `s`. */
@@ -514,15 +523,15 @@ function pen(ctx: Canvas2D, s: Stroke) {
  * Fills or strokes a text's shown lines, so overflowing Area Type is not drawn (ADR-0022). With
  * tracking or ranges each character paints on its own at its origin, raised by its baseline shift
  * and turned about the origin by its rotation, in its range's fill or stroke when `paint` is the
- * Fill's or the Stroke's style (ADR-0029, ADR-0068). A character no bundled face has paints as the first face's `.notdef` box at its
+ * Fill's or the Stroke's style, and in its own face (ADR-0029, ADR-0068). A character no bundled face has paints as the first face's `.notdef` box at its
  * origin, traced, since `fillText` would draw it in a system font (ADR-0065); a line holding one
  * paints the characters around it in runs from their first character's origin.
  */
 function text(ctx: Canvas2D, n: TextNode, how: "fill" | "stroke", paint?: unknown) {
   const draw = (t: string, x: number, y: number) =>
     how === "fill" ? ctx.fillText(t, x, y) : ctx.strokeText(t, x, y);
-  const box = (x: number, y: number) => {
-    trace(ctx, notdefBox(n, x, y));
+  const box = (x: number, y: number, font: TextFont = n) => {
+    trace(ctx, notdefBox({ ...font, fontSize: n.fontSize }, x, y));
     if (how === "fill") ctx.fill();
     else ctx.stroke();
   };
@@ -553,8 +562,16 @@ function text(ctx: Canvas2D, n: TextNode, how: "fill" | "stroke", paint?: unknow
     return;
   }
   let style = paint;
+  const own = cssFont(n);
+  let face = own;
   for (const g of glyphs(n)) {
     if (g.char === "\n") continue;
+    const font = characterFont(n, g);
+    const css = cssFont({ ...font, fontSize: n.fontSize });
+    if (css !== face) {
+      face = css;
+      ctx.font = css;
+    }
     const own = (how === "fill" ? g.fill : g.stroke) ?? paint;
     if (paint !== undefined && own !== style) {
       style = own;
@@ -570,9 +587,10 @@ function text(ctx: Canvas2D, n: TextNode, how: "fill" | "stroke", paint?: unknow
       ctx.transform(cos, sin, -sin, cos, g.x - cos * g.x + sin * g.y, y - sin * g.x - cos * g.y);
     }
     if (hasGlyph(n, g.char)) draw(g.char, g.x, g.y);
-    else box(g.x, g.y);
+    else box(g.x, g.y, font);
     if (turned) ctx.restore();
   }
+  if (face !== own) ctx.font = own;
 }
 
 function trace(ctx: Canvas2D, segments: Segment[]) {

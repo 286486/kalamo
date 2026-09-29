@@ -200,6 +200,28 @@ it("warns once for each text in a font Kalamo does not bundle", () => {
   ]);
 });
 
+it("warns once for each missing face a text's ranges name (ADR-0068)", () => {
+  const text = {
+    id: "a",
+    type: "text",
+    fontFamily: "Source Sans 3",
+    fontStyle: "Bold",
+    ranges: [
+      { start: 0, end: 1, fontStyle: "Semibold" },
+      { start: 1, end: 2, fontStyle: "Regular" },
+      { start: 2, end: 3, fontStyle: "Semibold", rotation: 5 },
+    ],
+  } as unknown as Parameters<typeof fontWarnings>[0][number];
+  expect(fontWarnings([text])).toEqual([
+    {
+      code: "FONT_MISSING",
+      nodeId: "a",
+      message:
+        "Source Sans 3 Semibold is not bundled, so it renders in Source Sans 3 Bold; the name is kept.",
+    },
+  ]);
+});
+
 const typed = (id: string, content: string, fontStyle?: FontStyle) =>
   ({ id, type: "text", fontFamily: "Source Sans 3", content, fontStyle }) as Parameters<
     typeof glyphWarnings
@@ -556,6 +578,29 @@ it("tracks each character by its range's tracking, the last one's not counted (A
   expect(hh(53, [{ start: 0, end: 1, tracking: 500 }])).toEqual([]);
   expect(hh(75, [{ start: 3, end: 4, tracking: 500 }])).toEqual(["HH ", "HH"]);
   expect(hh(70, [{ start: 3, end: 4, tracking: 500 }])).toEqual(["HH "]);
+});
+
+it("measures a range's characters in its style's face, its style dropped if the Node's (ADR-0068)", () => {
+  const { Regular, Bold } = SOURCE_SANS_3.faces;
+  const H = "H".codePointAt(0) as unknown as keyof typeof Bold.advances;
+  const hh = { x: 0, y: 0, content: "HH", fontSize: 12 };
+  const bold = { ...hh, ranges: [{ start: 1, end: 2, fontStyle: "Bold" as const }] };
+  expect(textBox(bold).width).toBeCloseTo(at12(Regular.advances[H] + Bold.advances[H]));
+  expect(glyphs(bold).map((g) => g.width)).toEqual([
+    expect.closeTo(at12(Regular.advances[H]), 9),
+    expect.closeTo(at12(Bold.advances[H]), 9),
+  ]);
+  const ranges = [
+    { start: 0, end: 2, fontStyle: "Bold" as const },
+    { start: 1, end: 2, fontStyle: "Italic" as const },
+  ];
+  expect(canonicalRanges(ranges, "ranges", { fontStyle: "Bold" })).toEqual([
+    { start: 1, end: 2, fontStyle: "Italic" },
+  ]);
+  expect(canonicalRanges(ranges, "ranges", {})).toEqual([
+    { start: 0, end: 1, fontStyle: "Bold" },
+    { start: 1, end: 2, fontStyle: "Italic" },
+  ]);
 });
 
 it("grows Point Type's box to hold a shifted or rotated character", () => {

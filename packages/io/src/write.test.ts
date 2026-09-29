@@ -440,6 +440,20 @@ describe("tracking and Character Ranges (ADR-0029)", () => {
     );
   });
 
+  it("writes a range's style as the weight and italic that differ from the text's (ADR-0068)", () => {
+    const svg = svgOf({
+      fontStyle: "Bold",
+      ranges: [
+        { start: 0, end: 1, fontStyle: "Regular" },
+        { start: 1, end: 2, fontStyle: "Bold Italic" },
+        { start: 2, end: 3, fontStyle: "Light Italic" },
+      ],
+    });
+    expect(svg).toContain(
+      '<tspan font-weight="400">H</tspan><tspan font-style="italic">e</tspan><tspan font-weight="300" font-style="italic">l</tspan>lo',
+    );
+  });
+
   it("writes no range fill into an element that paints no Fill", () => {
     const svg = svgOf({
       appearance: { fills: [], strokes: [{ color: "#000000", width: 1 }] },

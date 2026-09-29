@@ -354,6 +354,10 @@ export const CharacterRange = z.strictObject({
     .max(10_000)
     .optional()
     .describe("Space after each character in 1/1000 of its own em, -1000 to 10000."),
+  fontStyle: z
+    .enum(FONT_STYLES)
+    .optional()
+    .describe("The style name these characters draw in, as the text's fontStyle."),
 });
 /** A stored Character Range, its fill and stroke parsed to `#RRGGBB` or `#RRGGBBAA`. */
 export type CharacterRange = Omit<z.output<typeof CharacterRange>, "fill" | "stroke"> & {

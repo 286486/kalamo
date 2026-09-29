@@ -2839,6 +2839,33 @@
       "width": 130,
       "x": 150,
       "y": 270
+    },
+    {
+      "appearance": { "fills": [{ "color": "#000000", "type": "solid" }], "strokes": [] },
+      "blendMode": "normal",
+      "content": "Mix Bold, Italic and Black",
+      "fontFamily": "Source Sans 3",
+      "fontSize": 14,
+      "fontStyle": "Regular",
+      "id": "01M38T29T2RANGES00000000D0",
+      "index": "aw",
+      "kind": "point",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "ranges": [
+        { "end": 8, "start": 4, "fontStyle": "Bold" },
+        { "end": 16, "start": 10, "fontStyle": "Italic" },
+        { "end": 26, "start": 21, "fontStyle": "Black Italic" }
+      ],
+      "tags": [],
+      "transform": [0.99863, -0.052336, 0.052336, 0.99863, -18.094536, 0.997541],
+      "type": "text",
+      "visible": true,
+      "x": 10,
+      "y": 346
     }
   ],
   "images": {

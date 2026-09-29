@@ -149,7 +149,7 @@ export const BUNDLED_FAMILIES_NOTE = `${list(
 )} are bundled; each character draws in the text's own family if bundled and it has the glyph, else in the first of them that has it`;
 
 /** What picks a text's faces: its family, Source Sans 3 if none, and style. */
-type TextFont = { fontFamily?: string | undefined; fontStyle?: FontStyle | undefined };
+export type TextFont = { fontFamily?: string | undefined; fontStyle?: FontStyle | undefined };
 
 const isBundled = (family: string): family is BundledFamily => Object.hasOwn(FAMILIES, family);
 
@@ -215,9 +215,9 @@ type Overrides = Omit<CharacterRange, "start" | "end">;
 /** A Character Range as written, its colours not parsed yet. */
 type RangeInput = Omit<CharacterRange, "fill" | "stroke"> & { fill?: unknown; stroke?: unknown };
 /** The overrides a range can hold, which runs must all share to merge. */
-const OVERRIDES = ["fill", "stroke", "baselineShift", "rotation", "tracking"] as const;
+const OVERRIDES = ["fill", "stroke", "baselineShift", "rotation", "tracking", "fontStyle"] as const;
 /** A text's own character attributes, the values a range override is none at (ADR-0068). */
-export type OwnAttributes = { tracking?: number | undefined };
+export type OwnAttributes = { tracking?: number | undefined; fontStyle?: FontStyle | undefined };
 
 /**
  * Character Ranges in canonical form (ADR-0029, ADR-0068): colours parsed, a later range winning
@@ -230,7 +230,7 @@ export function canonicalRanges(
   path: string,
   text: OwnAttributes,
 ): CharacterRange[] | undefined {
-  const own = { tracking: text.tracking ?? 0 };
+  const own = { tracking: text.tracking ?? 0, fontStyle: text.fontStyle ?? "Regular" };
   // ponytail: per-character expansion, O(Σ range lengths); sweep the boundaries if it shows in a
   // profile.
   const chars: Overrides[] = [];
@@ -246,9 +246,9 @@ export function canonicalRanges(
         if (r[k] === 0) delete o[k];
         else if (r[k] !== undefined) o[k] = r[k];
       }
-      for (const k of ["tracking"] as const) {
+      for (const k of ["tracking", "fontStyle"] as const) {
         if (r[k] === own[k]) delete o[k];
-        else if (r[k] !== undefined) o[k] = r[k];
+        else if (r[k] !== undefined) Object.assign(o, { [k]: r[k] });
       }
       chars[c] = o;
     }
@@ -307,9 +307,25 @@ interface Metric {
   overrides: Overrides | undefined;
 }
 
+/**
+ * The font a character of a text draws in: the text's, with the overrides of the Character Range
+ * that holds it (ADR-0068).
+ */
+export const characterFont = (text: TextFont, overrides: Overrides | undefined): TextFont => ({
+  fontFamily: text.fontFamily,
+  fontStyle: overrides?.fontStyle ?? text.fontStyle,
+});
+
 /** Each character of a text's content, with the overrides of the Character Range that holds it. */
 function metrics(text: TextLayout): Metric[] {
-  const advance = advancer(text);
+  // One advance lookup per font the text's characters draw in.
+  const advancers = new Map<string, (char: string) => number>();
+  const advance = (font: TextFont, char: string) => {
+    const key = `${font.fontFamily}\n${font.fontStyle}`;
+    const a = advancers.get(key) ?? advancer(font);
+    advancers.set(key, a);
+    return a(char);
+  };
   const s = text.fontSize / SOURCE_SANS_3.unitsPerEm;
   const ranges = text.ranges ?? [];
   const overrides = ranges.map(({ start: _, end: __, ...o }) => o);
@@ -319,7 +335,7 @@ function metrics(text: TextLayout): Metric[] {
     const o = (ranges[j]?.start ?? Infinity) <= c ? overrides[j] : undefined;
     // A character's tracking is in its own em (ADR-0068).
     const tracking = ((o?.tracking ?? text.tracking ?? 0) * text.fontSize) / 1000;
-    return { char, advance: advance(char) * s, tracking, overrides: o };
+    return { char, advance: advance(characterFont(text, o), char) * s, tracking, overrides: o };
   });
 }
 
@@ -492,24 +508,25 @@ const faceName = (family: string, style: FontStyle) =>
   style === "Regular" ? family : `${family} ${style}`;
 
 /**
- * A `FONT_MISSING` warning for each text whose family or style is not bundled (ADR-0017, ADR-0028).
- * The family and style decide, not the faces other characters fall back to (ADR-0063).
+ * A `FONT_MISSING` warning for each face a text or one of its Character Ranges names whose family or
+ * style is not bundled, one per distinct face (ADR-0017, ADR-0028, ADR-0068). The family and style
+ * decide, not the faces other characters fall back to (ADR-0063).
  */
 export function fontWarnings(nodes: Node[]): Warning[] {
   return nodes.flatMap((n) => {
     if (n.type !== "text") return [];
-    const style = n.fontStyle ?? "Regular";
-    const [family] = fontFamilies(n);
-    const drawn = FAMILIES[family].face(style);
-    return n.fontFamily !== family || drawn !== style
-      ? [
-          {
-            code: "FONT_MISSING",
-            nodeId: n.id,
-            message: `${faceName(n.fontFamily, style)} is not bundled, so it renders in ${faceName(family, drawn)}; the name is kept.`,
-          },
-        ]
-      : [];
+    const missing = new Set<string>();
+    for (const font of [n, ...(n.ranges ?? []).map((r) => characterFont(n, r))]) {
+      const { fontFamily = BUNDLED_FONT, fontStyle: style = "Regular" } = font;
+      const [family] = fontFamilies(font);
+      const drawn = FAMILIES[family].face(style);
+      if (fontFamily !== family || drawn !== style) {
+        missing.add(
+          `${faceName(fontFamily, style)} is not bundled, so it renders in ${faceName(family, drawn)}; the name is kept.`,
+        );
+      }
+    }
+    return [...missing].map((message) => ({ code: "FONT_MISSING", nodeId: n.id, message }));
   });
 }
 

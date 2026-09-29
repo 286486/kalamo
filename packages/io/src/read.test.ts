@@ -942,15 +942,14 @@ it("reads <text> as one Point Type, its Inkscape lines joined by returns, keepin
     fontFamily: "DejaVu Sans",
     fontSize: 11.906,
     appearance: { fills: [{ color: "#FF0000" }] },
+    ranges: [{ start: 3, end: 4, fontStyle: "Bold" }],
   });
   // Half of "Hi"'s advances at 10 pt: (652 + 246) × 10 / 1000 / 2.
   expect(centred).toMatchObject({ x: 95.51, content: "Hi" });
+  // The bold tspan's face is missing too (ADR-0068).
   expect(file.warnings).toEqual([
-    expect.objectContaining({
-      code: "UNSUPPORTED_ATTRIBUTE",
-      message: expect.stringMatching(/font-weight/),
-    }),
     expect.objectContaining({ code: "FONT_MISSING", nodeId: abc?.id }),
+    expect.objectContaining({ code: "FONT_MISSING", message: expect.stringMatching(/Sans Bold/) }),
   ]);
 });
 
@@ -1074,6 +1073,23 @@ describe("tracking and Character Ranges (ADR-0029)", () => {
     });
   });
 
+  it("reads a tspan's weight and italic as its characters' style (ADR-0068)", () => {
+    const file = read(
+      '<text font-weight="bold">a<tspan font-weight="normal">b</tspan><tspan font-style="italic">c</tspan><tspan font-weight="300" font-style="oblique">d</tspan><tspan font-weight="700">e</tspan></text>',
+    );
+    expect(file.warnings.map((w) => w.message)).toEqual([
+      "Source Sans 3 Light Italic is not bundled, so it renders in Source Sans 3 Italic; the name is kept.",
+    ]);
+    expect(leaves(file)[0]).toMatchObject({
+      fontStyle: "Bold",
+      ranges: [
+        { start: 1, end: 2, fontStyle: "Regular" },
+        { start: 2, end: 3, fontStyle: "Bold Italic" },
+        { start: 3, end: 4, fontStyle: "Light Italic" },
+      ],
+    });
+  });
+
   it("scales baseline shift with a baked scale, and tracking not at all", () => {
     expect(
       text(
@@ -1175,7 +1191,7 @@ describe("tracking and Character Ranges (ADR-0029)", () => {
           { start: 0, end: 1, fill: "#FF000080" },
           { start: 1, end: 2, stroke: "#00FF00", tracking: -50 },
           { start: 2, end: 4, baselineShift: 3, rotation: -15, stroke: "#FF000080" },
-          { start: 4, end: 5, tracking: 0 },
+          { start: 4, end: 5, tracking: 0, fontStyle: "Black Italic" },
         ],
       },
     ]).nodes;

@@ -717,6 +717,12 @@ function containerPaints(
   ];
 }
 
+/** The `font-weight` and `font-style` of a run's face that differ from its text's. */
+const runFace = (run: ReturnType<typeof fontFace>, own: ReturnType<typeof fontFace>): Attrs => ({
+  "font-weight": run.weight === own.weight ? undefined : run.weight,
+  "font-style": run.italic === own.italic ? undefined : run.italic ? "italic" : "normal",
+});
+
 /**
  * One paint of a text, laid out as `layoutText` draws it (ADR-0022): Point Type as Inkscape's line
  * tspans; Area Type as positioned tspans in its frame, each keeping its trailing spaces and return,
@@ -737,6 +743,7 @@ function text(n: TextNode, a: Attrs, extra: (string | false)[], chunked: boolean
   // opaque where the element's opacity would inherit. A container paint's copy has no paint of its
   // own and takes none: its paint covers every glyph.
   const ranges = n.ranges ?? [];
+  const face = fontFace(n.fontStyle);
   const paint = (list: "fill" | "stroke", color: string | undefined): Attrs => {
     if (!color || a[list] === undefined || a[list] === "none") return {};
     const opaque = color.length === 7 && a[`${list}-opacity`] !== undefined;
@@ -750,6 +757,8 @@ function text(n: TextNode, a: Attrs, extra: (string | false)[], chunked: boolean
     // In user units, as on the <text> (ADR-0029, ADR-0068).
     "letter-spacing":
       r.tracking === undefined ? undefined : formatNumber((r.tracking * n.fontSize) / 1000),
+    // What sets the range's style apart from the text's (ADR-0028, ADR-0068).
+    ...(r.fontStyle && runFace(fontFace(r.fontStyle), face)),
   });
   // For resvg, each shown character's origin, so a chunk can start at it.
   const [first] = fontFamilies(n);
@@ -812,7 +821,7 @@ function text(n: TextNode, a: Attrs, extra: (string | false)[], chunked: boolean
   // Auto leading is CSS's unitless 1.2, which also follows the font size.
   const leading = n.leading === undefined ? "1.2" : `${formatNumber(n.leading)}px`;
   // The stored style, which Inkscape and resvg each match to a face as Kalamo does (ADR-0028).
-  const { weight, italic } = fontFace(n.fontStyle);
+  const { weight, italic } = face;
   return `<text${attrs({
     ...(!area && num({ x: n.x, y: n.y })),
     "font-family": n.fontFamily,

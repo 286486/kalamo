@@ -201,8 +201,6 @@ function rotate(chars: Char[]) {
 /** What a nested tspan cannot set on part of a text yet (ADR-0029, ADR-0068). */
 const PER_TEXT = [
   "font-family",
-  "font-weight",
-  "font-style",
   "font-size",
   "stroke-width",
   "stroke-dasharray",
@@ -223,6 +221,13 @@ function fontWeight(value = "normal") {
   const n = named[value.trim().toLowerCase()] ?? Number.parseFloat(value);
   return Number.isFinite(n) ? Math.min(900, Math.max(100, Math.round(n / 100) * 100)) : 400;
 }
+
+/** A style's `font-weight` and `font-style` as a style name (ADR-0028). */
+const fontStyleOf = (style: Style) =>
+  fontStyleName(
+    fontWeight(style["font-weight"]),
+    /^(italic|oblique)\b/i.test(style["font-style"] ?? ""),
+  );
 
 /**
  * `line-height` as leading in pt (ADR-0022): unitless 1.2, `normal` or none is Auto; another number
@@ -1092,6 +1097,7 @@ class Reader {
           ...(c.shift && { baselineShift: n3(c.shift * k) }),
           ...(c.rotate && { rotation: n3(c.rotate % 360) }),
           tracking: trackingOf(c.style, length(own["font-size"]) ?? 12),
+          fontStyle: fontStyleOf(c.style),
         },
       ];
     });
@@ -1116,10 +1122,7 @@ class Reader {
       ?.trim()
       .replace(/^['"]|['"]$/g, "");
     const leading = lineHeight(own["line-height"], fontSize, k);
-    const fontStyle = fontStyleName(
-      fontWeight(own["font-weight"]),
-      /^(italic|oblique)\b/i.test(own["font-style"] ?? ""),
-    );
+    const fontStyle = fontStyleOf(own);
     const tracking = trackingOf(own, length(own["font-size"]) ?? 12);
     const text = {
       type: "text",
