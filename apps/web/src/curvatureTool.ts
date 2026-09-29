@@ -1,4 +1,4 @@
-import { formatPath, fromAnchors } from "@zibel/core";
+import { formatPath, fromAnchors } from "@kalamo/core";
 import { cancelDrag, commitDrag, drawDrawing, SELECTION, SLOP } from "./canvas.ts";
 import {
   curvatureCancel,

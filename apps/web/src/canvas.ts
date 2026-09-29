@@ -1,4 +1,4 @@
-import { formatPath, type Rect, Shape, shapeSegments } from "@zibel/core";
+import { formatPath, type Rect, Shape, shapeSegments } from "@kalamo/core";
 import type { PendingCreate } from "./receive.ts";
 import { send, useStore } from "./store.ts";
 import type { ToolEvent } from "./toolbox.ts";

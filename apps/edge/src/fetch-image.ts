@@ -1,4 +1,4 @@
-import { checkImage, type ImageFile, readImage, ZibelError } from "@zibel/core";
+import { checkImage, type ImageFile, KalamoError, readImage } from "@kalamo/core";
 import { readCapped } from "./body.ts";
 
 /** §7.5's cap on what is read; the stored file stays capped at 5 MB (ADR-0027). */
@@ -7,21 +7,21 @@ const TIMEOUT_MS = 10_000;
 const MAX_REDIRECTS = 5;
 
 const notAUrl = () =>
-  new ZibelError({
+  new KalamoError({
     code: "INVALID_IMAGE",
     message: "src is not an http or https URL, or a data: URL.",
     hint: "The server cannot read your disk: read the file and send it as a data: URL, or give a public http(s) URL.",
     path: "src",
   });
 const tooLarge = () =>
-  new ZibelError({
+  new KalamoError({
     code: "LIMIT_EXCEEDED",
     message: "The file is over 20 MB, the most the server reads.",
     hint: "Place an image of at most 5 MB: scale it down or compress it first.",
     path: "src",
   });
 const failed = (message: string) =>
-  new ZibelError({
+  new KalamoError({
     code: "FETCH_FAILED",
     message,
     hint: "Give a public http(s) URL that answers with the file itself, or send the file as a data: URL.",
@@ -62,7 +62,7 @@ export async function fetchImage(src: string): Promise<ImageFile & { name: strin
       return { ...checkImage(bytes, "src"), name: fileName(url) };
     }
   } catch (e) {
-    if (e instanceof ZibelError) throw e;
+    if (e instanceof KalamoError) throw e;
     if (e instanceof DOMException && (e.name === "TimeoutError" || e.name === "AbortError")) {
       throw failed(`Fetching the file took longer than ${TIMEOUT_MS / 1000} s.`);
     }

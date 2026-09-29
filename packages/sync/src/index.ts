@@ -19,7 +19,7 @@ import type {
   TransformInput,
   UpdateInput,
   WriteReceipt,
-} from "@zibel/core";
+} from "@kalamo/core";
 
 /** Accepted by every write. `intent` is stored with the Transaction (F-COLLAB-04). */
 export interface WriteOptions {
@@ -92,7 +92,7 @@ export interface OpenedDocument {
 
 /**
  * What the MCP tools (and later the browser) need from a Document, for one Actor.
- * Failures reject with a `ZibelError`.
+ * Failures reject with a `KalamoError`.
  */
 export interface DocumentService {
   create(input: {
@@ -106,7 +106,7 @@ export interface DocumentService {
   /**
    * Place (ADR-0017): an SVG as one new Group under `parentId`, every id new, centred on
    * `position` (default the parent's Artboard) after `fit` scales it to that Artboard, or where it
-   * is with `inPlace`. A Zibel copy's Nodes go into `parentId` without the Group (ADR-0030).
+   * is with `inPlace`. A Kalamo copy's Nodes go into `parentId` without the Group (ADR-0030).
    * `name` is the file's name. `nodes` is the outline of what went into `parentId`, to depth 2.
    */
   place(

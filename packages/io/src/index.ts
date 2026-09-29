@@ -1,4 +1,4 @@
-import { fileTextWarnings, parseDocument, ZibelError } from "@zibel/core";
+import { fileTextWarnings, KalamoError, parseDocument } from "@kalamo/core";
 import { type OpenedFile, parseSvg } from "./read.ts";
 
 export { MAX_DEPTH, parseSvg, resolveLinks } from "./read.ts";
@@ -7,7 +7,7 @@ export { docRect, type SvgOptions, scopeRect, svgRect, toSvg } from "./write.ts"
 export type { OpenedFile };
 
 /**
- * The largest SVG Zibel reads, in UTF-16 code units outside embedded images' data URLs, which
+ * The largest SVG Kalamo reads, in UTF-16 code units outside embedded images' data URLs, which
  * `readImage` caps one by one (REQUIREMENTS §6.7, ADR-0023).
  */
 export const SVG_LIMIT = 5 * 1024 * 1024;
@@ -75,7 +75,7 @@ function expandEntities(text: string): string {
     if (value === undefined) return m;
     growth += value.length - m.length;
     if (growth > SVG_LIMIT) {
-      throw new ZibelError({
+      throw new KalamoError({
         code: "LIMIT_EXCEEDED",
         message: `The file's entities expand past ${SVG_LIMIT} characters, at &${name};.`,
         hint: "Save the SVG without entity references (in Illustrator, CSS Properties other than Entity References), or re-save it from Inkscape.",
@@ -101,7 +101,7 @@ export function parseFile(
   else if (text.startsWith("<")) {
     const size = outsideImages(text);
     if (size > SVG_LIMIT) {
-      throw new ZibelError({
+      throw new KalamoError({
         code: "LIMIT_EXCEEDED",
         message: `The SVG is ${size} characters outside its embedded images; Zibel reads at most ${SVG_LIMIT}.`,
         hint: "Split the drawing into several files, or remove embedded images and unused defs.",
@@ -110,7 +110,7 @@ export function parseFile(
     }
     file = parseSvg(expandEntities(text), name);
   } else {
-    throw new ZibelError({
+    throw new KalamoError({
       code: "INVALID_DOCUMENT",
       message: "The content is not an SVG or .zibel.json file.",
       hint: "Pass the text of an .svg file, or of a .zibel.json file as zibel_export returns it.",

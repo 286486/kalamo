@@ -1,5 +1,5 @@
-import type { Document } from "@zibel/core";
-import type { DecodedImage } from "@zibel/render/canvas";
+import type { Document } from "@kalamo/core";
+import type { DecodedImage } from "@kalamo/render/canvas";
 
 /** A decoded file and its data URL, which the downloads embed. */
 export interface CachedImage extends DecodedImage {

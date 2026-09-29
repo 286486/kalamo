@@ -5,8 +5,8 @@ import {
   makeMask,
   type Node,
   type RenderScope,
-} from "@zibel/core";
-import { scopeRect, toSvg } from "@zibel/io";
+} from "@kalamo/core";
+import { scopeRect, toSvg } from "@kalamo/io";
 import { describe, expect, it } from "vitest";
 import { RED_2x2_PNG } from "../../../fixtures/images.ts";
 import { svgToPixels } from "./png.ts";

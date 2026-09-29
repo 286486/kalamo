@@ -22,6 +22,7 @@ import {
   IDENTITY,
   type ImageSource,
   invert,
+  KalamoError,
   type LayerNode,
   type LeafNode,
   layoutText,
@@ -46,13 +47,13 @@ import {
   unscaledStroke,
   visibleBounds,
   worldTransform,
-  ZibelError,
-} from "@zibel/core";
+} from "@kalamo/core";
 import {
   arcAttrs,
   areaId,
   clipId,
   gradientId,
+  kalamo,
   paintAttrs,
   SVG_STROKE,
   scopeAttr,
@@ -60,7 +61,6 @@ import {
   starAttrs,
   XMLNS,
   xmlId,
-  zibel,
 } from "./dialect.ts";
 
 // Whitespace as references too: an XML parser turns a raw newline in an attribute into a space.
@@ -95,7 +95,7 @@ export function scopeRect(doc: Document, scope?: RenderScope): Rect {
   if ("artboardId" in scope) {
     const artboard = doc.artboards.find((a) => a.id === scope.artboardId);
     if (artboard) return artboard.frame;
-    throw new ZibelError({
+    throw new KalamoError({
       code: "ARTBOARD_NOT_FOUND",
       message: `No Artboard with id ${scope.artboardId}.`,
       hint: "zibel_doc_get_info lists the Artboards with their ids.",
@@ -106,7 +106,7 @@ export function scopeRect(doc: Document, scope?: RenderScope): Rect {
     scope.nodeIds.map((id, i) => visibleBounds(doc, lookup(doc, id, `scope.nodeIds[${i}]`))),
   );
   if (rect) return rect;
-  throw new ZibelError({
+  throw new KalamoError({
     code: "NOTHING_TO_RENDER",
     message: "The listed Nodes are empty Layers or Groups: there is nothing to draw.",
     hint: "List Nodes that contain artwork, or pass scope {rect} instead.",
@@ -260,13 +260,13 @@ export function toSvg(doc: Document, rect?: Rect, opts: SvgOptions = {}): string
   const background = [
     // Marked, so importing the file does not make it a Node.
     opts.background
-      ? `<rect${attrs({ x, y, width, height, ...paintAttrs("fill", opts.background), [zibel("background")]: "true" })}/>`
+      ? `<rect${attrs({ x, y, width, height, ...paintAttrs("fill", opts.background), [kalamo("background")]: "true" })}/>`
       : "",
     ...(nodeIds ? [] : doc.artboards)
       .filter((a): a is Artboard & { background: string } => !!a.background)
       .map(
         (a) =>
-          `<rect${attrs({ ...num(a.frame), ...paintAttrs("fill", a.background), [zibel("artboard")]: a.id, "sodipodi:insensitive": "true" })}/>`,
+          `<rect${attrs({ ...num(a.frame), ...paintAttrs("fill", a.background), [kalamo("artboard")]: a.id, "sodipodi:insensitive": "true" })}/>`,
       ),
   ].join("");
   const drawn: Node[] = [];
@@ -309,7 +309,7 @@ export function toSvg(doc: Document, rect?: Rect, opts: SvgOptions = {}): string
     width: `${width}pt`,
     height: `${height}pt`,
     viewBox: `${x} ${y} ${width} ${height}`,
-    [zibel("scope")]: scopeAttr(scope),
+    [kalamo("scope")]: scopeAttr(scope),
     // Inkscape shows it as the file name, and import reads the Document name back from it.
     "sodipodi:docname": `${doc.name}.svg`,
   });
@@ -458,8 +458,8 @@ function node(doc: Document, n: Node, walk: Walk): string {
     id: xmlId(n.id),
     "inkscape:label": n.name || undefined,
     "sodipodi:insensitive": n.locked ? "true" : undefined,
-    [zibel("tags")]: n.tags.length > 0 ? JSON.stringify(n.tags) : undefined,
-    [zibel("meta")]: Object.keys(n.meta).length > 0 ? JSON.stringify(n.meta) : undefined,
+    [kalamo("tags")]: n.tags.length > 0 ? JSON.stringify(n.tags) : undefined,
+    [kalamo("meta")]: Object.keys(n.meta).length > 0 ? JSON.stringify(n.meta) : undefined,
     transform: transformAttr(n.transform),
   };
   const looks = [
@@ -514,7 +514,7 @@ function node(doc: Document, n: Node, walk: Walk): string {
     // A Clipping Path's Strokes draw unclipped, so what it clips is wrapped instead (ADR-0051).
     const inner = filterFor(!!fills);
     const wrap = (content: string) =>
-      `<g${attrs({ [zibel("clipped")]: "true", "clip-path": clipPath, filter: inner })}>${content}</g>`;
+      `<g${attrs({ [kalamo("clipped")]: "true", "clip-path": clipPath, filter: inner })}>${content}</g>`;
     const filter = composited ? filterFor(true) : undefined;
     return `<g${attrs({ ...looked, filter })}>${wrap(below)}${strokes}${above && wrap(above)}</g>`;
   }
@@ -537,7 +537,7 @@ function node(doc: Document, n: Node, walk: Walk): string {
     }
     const href = link ? file : src === undefined ? undefined : walk.images?.(src);
     if (href === undefined) {
-      throw new ZibelError({
+      throw new KalamoError({
         code: "INVALID_IMAGE",
         message: `The file of image ${src} was not given to the SVG writer.`,
         hint: "Pass every Image's file through toSvg's images option.",
@@ -546,11 +546,11 @@ function node(doc: Document, n: Node, walk: Walk): string {
     }
     return `<image${attrs({
       ...num({ x, y, width, height }),
-      // Always written: Zibel's default, none, is not SVG's.
+      // Always written: Kalamo's default, none, is not SVG's.
       preserveAspectRatio,
       "xlink:href": href,
       // So a paste into the same Document finds the pixels it holds (ADR-0042).
-      [zibel("src")]: link ? src : undefined,
+      [kalamo("src")]: link ? src : undefined,
       ...own,
       style: style(...looks),
     })}/>`;
@@ -606,7 +606,7 @@ function leaf(
       ...fills.map((f, i) => element(paint("fill", f, i))),
       ...strokes.map((s, i) => element({ fill: "none", ...stroke(s, i) })),
     ].join("");
-    body = `<g${attrs({ ...own, [zibel("stack")]: "true", style: style(...looks) })}>${paints}</g>`;
+    body = `<g${attrs({ ...own, [kalamo("stack")]: "true", style: style(...looks) })}>${paints}</g>`;
   }
   // Area Type flows in a frame Inkscape keeps in <defs>, one for all its paints (ADR-0022).
   const frame = withFrame && n.type === "text" && n.kind === "area" ? areaFrame(n) : "";
@@ -629,7 +629,7 @@ function clipPaint(clip: LeafNode, list: "fills" | "strokes", chunked: boolean):
   const { defs, body } = leaf(clip, appearance, own, [], chunked, false);
   const fill = list === "fills";
   return `${defs}<g${attrs({
-    [zibel("paint")]: fill ? "clip-fill" : "clip-stroke",
+    [kalamo("paint")]: fill ? "clip-fill" : "clip-stroke",
     "sodipodi:insensitive": "true",
     "inkscape:label": fill ? "Clipping Path Fill" : "Clipping Path Stroke",
     style: style(
@@ -703,7 +703,7 @@ function containerPaints(
     }
     const defs = gradients.length > 0 ? `<defs>${gradients.join("")}</defs>` : "";
     return `${defs}<g${attrs({
-      [zibel("paint")]: "true",
+      [kalamo("paint")]: "true",
       "sodipodi:insensitive": "true",
       "inkscape:label": stroke ? "Stroke" : "Fill",
       ...(stroke && { fill: "none" }),
@@ -726,7 +726,7 @@ function containerPaints(
  * the character's own x wherever the bundled family a character draws in changes, naming a family
  * other than the text's first (ADR-0063); Inkscape and browsers fall back per character themselves.
  * Otherwise a run of spaces after a character another bundled family draws is a tspan of its own,
- * which Pango draws in the text's family as Zibel does, not in that character's (ADR-0067).
+ * which Pango draws in the text's family as Kalamo does, not in that character's (ADR-0067).
  */
 function text(n: TextNode, a: Attrs, extra: (string | false)[], chunked: boolean): string {
   const { lines, overflow } = layoutText(n);
@@ -805,7 +805,7 @@ function text(n: TextNode, a: Attrs, extra: (string | false)[], chunked: boolean
   }
   // Auto leading is CSS's unitless 1.2, which also follows the font size.
   const leading = n.leading === undefined ? "1.2" : `${formatNumber(n.leading)}px`;
-  // The stored style, which Inkscape and resvg each match to a face as Zibel does (ADR-0028).
+  // The stored style, which Inkscape and resvg each match to a face as Kalamo does (ADR-0028).
   const { weight, italic } = fontFace(n.fontStyle);
   return `<text${attrs({
     ...(!area && num({ x: n.x, y: n.y })),

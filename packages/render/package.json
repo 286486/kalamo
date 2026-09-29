@@ -1,5 +1,5 @@
 {
-  "name": "@zibel/render",
+  "name": "@kalamo/render",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@resvg/resvg-wasm": "2.6.2",
-    "@zibel/core": "workspace:*",
-    "@zibel/io": "workspace:*"
+    "@kalamo/core": "workspace:*",
+    "@kalamo/io": "workspace:*"
   }
 }

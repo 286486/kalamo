@@ -1,4 +1,4 @@
-import { createDocument, createNodes, type Node } from "@zibel/core";
+import { createDocument, createNodes, type Node } from "@kalamo/core";
 import { expect, it } from "vitest";
 import { applyBroadcast } from "./protocol.ts";
 

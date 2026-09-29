@@ -1,4 +1,4 @@
-import { createDocument, createNodes, makeMask, type Node } from "@zibel/core";
+import { createDocument, createNodes, makeMask, type Node } from "@kalamo/core";
 import { expect, it } from "vitest";
 import { documentMenus, findByKeys, type Item, keysOf, type Menu, shortcut } from "./menu.ts";
 import { useStore } from "./store.ts";

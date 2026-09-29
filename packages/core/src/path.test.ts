@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { ZibelError } from "./errors.ts";
+import { KalamoError } from "./errors.ts";
 import { formatPath, normalizePath, parsePath, pathBounds, shapeSegments } from "./path.ts";
 import type { Rect, Shape } from "./schema.ts";
 
@@ -10,10 +10,10 @@ const errorOf = (fn: () => unknown) => {
   try {
     fn();
   } catch (e) {
-    if (e instanceof ZibelError) return e.data;
+    if (e instanceof KalamoError) return e.data;
     throw e;
   }
-  throw new Error("expected a ZibelError");
+  throw new Error("expected a KalamoError");
 };
 
 it("parses absolute M, L, C, Q and Z", () => {

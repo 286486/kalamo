@@ -1,5 +1,5 @@
 import { subtree } from "./edit.ts";
-import { ZibelError } from "./errors.ts";
+import { KalamoError } from "./errors.ts";
 import { type Document, type Node, SHAPES } from "./schema.ts";
 
 /**
@@ -38,7 +38,7 @@ export function commitTransaction(
     if (parent && !createdIds.has(parent) && !doc.nodes.has(parent)) gone.add(parent);
   }
   if (gone.size > 0) {
-    throw new ZibelError({
+    throw new KalamoError({
       code: "NODE_GONE",
       message: `Someone deleted ${[...gone].join(", ")} after this Transaction used them.`,
       hint: "Roll back with zibel_tx_rollback and redo the work in a new Transaction.",

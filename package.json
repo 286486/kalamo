@@ -1,5 +1,5 @@
 {
-  "name": "zibel",
+  "name": "kalamo",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@12.5.1",
@@ -8,12 +8,12 @@
   },
   "scripts": {
     "check": "tsc --noEmit && tsc --noEmit -p apps/web && biome check . && vitest run && pnpm check:bundle",
-    "check:bundle": "pnpm --filter @zibel/web build && ls apps/web/dist/assets/*.js > /dev/null && ! grep -l xmldom apps/web/dist/assets/*.js && ! grep -l PathKit apps/web/dist/assets/index-*.js && ls apps/web/dist/assets/pathkit-*.wasm > /dev/null",
-    "bench": "pnpm --filter @zibel/web build && wrangler d1 migrations apply zibel --local -c apps/edge/wrangler.jsonc --persist-to .wrangler/bench && node fixtures/agent-benchmarks/run.ts",
-    "roundtrip": "pnpm --filter @zibel/web build && wrangler d1 migrations apply zibel --local -c apps/edge/wrangler.jsonc --persist-to .wrangler/roundtrip && node fixtures/roundtrip.ts",
-    "dev": "pnpm --filter @zibel/web build && wrangler d1 migrations apply zibel --local -c apps/edge/wrangler.jsonc && wrangler dev -c apps/edge/wrangler.jsonc",
-    "deploy:check": "pnpm --filter @zibel/web build && wrangler deploy --dry-run -c apps/edge/wrangler.jsonc",
-    "deploy": "pnpm --filter @zibel/web build && wrangler d1 migrations apply DB --remote -c apps/edge/wrangler.jsonc && wrangler deploy -c apps/edge/wrangler.jsonc --secrets-file apps/edge/.deploy.vars",
+    "check:bundle": "pnpm --filter @kalamo/web build && ls apps/web/dist/assets/*.js > /dev/null && ! grep -l xmldom apps/web/dist/assets/*.js && ! grep -l PathKit apps/web/dist/assets/index-*.js && ls apps/web/dist/assets/pathkit-*.wasm > /dev/null",
+    "bench": "pnpm --filter @kalamo/web build && wrangler d1 migrations apply zibel --local -c apps/edge/wrangler.jsonc --persist-to .wrangler/bench && node fixtures/agent-benchmarks/run.ts",
+    "roundtrip": "pnpm --filter @kalamo/web build && wrangler d1 migrations apply zibel --local -c apps/edge/wrangler.jsonc --persist-to .wrangler/roundtrip && node fixtures/roundtrip.ts",
+    "dev": "pnpm --filter @kalamo/web build && wrangler d1 migrations apply zibel --local -c apps/edge/wrangler.jsonc && wrangler dev -c apps/edge/wrangler.jsonc",
+    "deploy:check": "pnpm --filter @kalamo/web build && wrangler deploy --dry-run -c apps/edge/wrangler.jsonc",
+    "deploy": "pnpm --filter @kalamo/web build && wrangler d1 migrations apply DB --remote -c apps/edge/wrangler.jsonc && wrangler deploy -c apps/edge/wrangler.jsonc --secrets-file apps/edge/.deploy.vars",
     "test": "vitest run",
     "test:e2e": "playwright test"
   },

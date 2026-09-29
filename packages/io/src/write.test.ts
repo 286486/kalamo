@@ -8,7 +8,7 @@ import {
   shapeSegments,
   type TextNode,
   updateNodes,
-} from "@zibel/core";
+} from "@kalamo/core";
 import { describe, expect, it } from "vitest";
 import { parseSvg } from "./read.ts";
 import { scopeRect, svgRect, toSvg } from "./write.ts";
@@ -1265,19 +1265,19 @@ describe("a space after a character in another bundled family (ADR-0067)", () =>
     ].map((m) => m[1]);
 
   it("writes each run of spaces after Hangul as its own tspan, and not one after Latin", () => {
-    expect(lines(exported("Hi 한국 어  Zibel").svg)).toEqual([
-      "Hi 한국<tspan> </tspan>어<tspan>  </tspan>Zibel",
+    expect(lines(exported("Hi 한국 어  Kalamo").svg)).toEqual([
+      "Hi 한국<tspan> </tspan>어<tspan>  </tspan>Kalamo",
     ]);
   });
 
   it("does the same in Area Type, and for a no-break space after Han", () => {
-    const { svg } = exported("Hi 한국 어 Zibel 小 x", {
+    const { svg } = exported("Hi 한국 어 Kalamo 小 x", {
       kind: "area",
       width: 200,
       height: 80,
     });
     expect(lines(svg)).toEqual([
-      "Hi 한국<tspan> </tspan>어<tspan> </tspan>Zibel 小<tspan> </tspan>x",
+      "Hi 한국<tspan> </tspan>어<tspan> </tspan>Kalamo 小<tspan> </tspan>x",
     ]);
   });
 
@@ -1298,7 +1298,7 @@ describe("a space after a character in another bundled family (ADR-0067)", () =>
   });
 
   it.each(["Point", "Area"])("Opens the export of %s Type as the same Node", (kind) => {
-    const { node, svg } = exported("Hi 한국 어 Zibel", {
+    const { node, svg } = exported("Hi 한국 어 Kalamo", {
       ...(kind === "Area" && { kind: "area", width: 200, height: 80 }),
       ranges: [{ start: 5, end: 7, fill: "#FF0000" }],
     });

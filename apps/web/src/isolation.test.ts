@@ -6,8 +6,8 @@ import {
   makeMask,
   type Node,
   releaseMask,
-} from "@zibel/core";
-import type { TxMessage } from "@zibel/sync";
+} from "@kalamo/core";
+import type { TxMessage } from "@kalamo/sync";
 import { describe, expect, it } from "vitest";
 import { boxContext } from "./boxContext.ts";
 import { editableShapes, marqueeAnchors, parseKey, pick } from "./direct.ts";

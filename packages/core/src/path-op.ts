@@ -22,7 +22,7 @@ import {
   newId,
   worldTransform,
 } from "./document.ts";
-import { ZibelError } from "./errors.ts";
+import { KalamoError } from "./errors.ts";
 import { simplifySubpath } from "./fit.ts";
 import { applyTo, IDENTITY, invert, multiply, scaleOf, transformSegments } from "./matrix.ts";
 import { formatPath, parsePath, pathBounds, type Segment } from "./path.ts";
@@ -185,7 +185,7 @@ export type OffsetStyle = Pick<Stroke, "join" | "miterLimit"> &
 export type Filled = { segments: Segment[]; fillRule: PathNode["fillRule"] };
 
 /**
- * The path geometry core needs but does not compute: Skia's, which `@zibel/geometry` loads
+ * The path geometry core needs but does not compute: Skia's, which `@kalamo/geometry` loads
  * (ADR-0034).
  */
 export interface Geometry {
@@ -201,7 +201,7 @@ export interface Geometry {
 }
 
 const invalid = (path: string, message: string, hint: string) =>
-  new ZibelError({ code: "INVALID_PATH", message, hint, path });
+  new KalamoError({ code: "INVALID_PATH", message, hint, path });
 
 /** The paths and Live Shapes `nodeIds` names, each once. */
 function allWithAnchors(doc: Document, nodeIds: string[]): (PathNode | LiveShape)[] {

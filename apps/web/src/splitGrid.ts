@@ -1,4 +1,4 @@
-import type { PathOpInput } from "@zibel/core";
+import type { PathOpInput } from "@kalamo/core";
 import { pathTargets } from "./selection.ts";
 import { send, useStore } from "./store.ts";
 

@@ -1,4 +1,4 @@
-import type { Document, PathEditInput } from "@zibel/core";
+import type { Document, PathEditInput } from "@kalamo/core";
 import { cancelDrag, commitDrag, dragged, type Press } from "./canvas.ts";
 import {
   anchorKey,

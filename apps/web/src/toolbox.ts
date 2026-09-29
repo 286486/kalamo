@@ -1,4 +1,4 @@
-import type { Document, Node } from "@zibel/core";
+import type { Document, Node } from "@kalamo/core";
 import { addAnchorTool, anchorPointTool, deleteAnchorTool } from "./anchorTools.ts";
 import { curvatureTool } from "./curvatureTool.ts";
 import { directTool } from "./directTool.ts";

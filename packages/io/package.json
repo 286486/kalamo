@@ -1,5 +1,5 @@
 {
-  "name": "@zibel/io",
+  "name": "@kalamo/io",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "@xmldom/xmldom": "0.9.12",
-    "@zibel/core": "workspace:*",
+    "@kalamo/core": "workspace:*",
     "fractional-indexing": "^4.0.0"
   }
 }

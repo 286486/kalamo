@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { readImage } from "@zibel/core";
+import { readImage } from "@kalamo/core";
 import { expect } from "vitest";
 import { RED_2x2_PNG } from "../../../fixtures/images.ts";
 
@@ -22,7 +22,7 @@ export function counted(count: number, size = MiB) {
 }
 
 /** The `.zibel.json` of a Document whose images fill the 20 MB cap (ADR-0046), over 26 MiB. */
-export async function fullZibelFile(docId: string, layerId: string) {
+export async function fullKalamoFile(docId: string, layerId: string) {
   const s = env.DOCUMENT.get(env.DOCUMENT.idFromName(docId));
   const red = readImage(RED_2x2_PNG, "src").bytes;
   for (let n = 0; n < 4; n++) {

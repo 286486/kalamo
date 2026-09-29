@@ -1,4 +1,4 @@
-import { createDocument, createNodes } from "@zibel/core";
+import { createDocument, createNodes } from "@kalamo/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { place, relink } from "./place.ts";
 import { useStore } from "./store.ts";

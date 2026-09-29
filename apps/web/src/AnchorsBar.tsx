@@ -1,4 +1,4 @@
-import type { Anchor } from "@zibel/core";
+import type { Anchor } from "@kalamo/core";
 import { convertInputs, convertTargets } from "./direct.ts";
 import { send, useStore } from "./store.ts";
 

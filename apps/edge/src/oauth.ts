@@ -7,12 +7,12 @@ import {
   OAuthProvider,
   type OAuthResourceContext,
 } from "@cloudflare/workers-oauth-provider";
-import { newId } from "@zibel/core";
+import { newId } from "@kalamo/core";
 import { type Principal, sessionUser, signInRequired, type User } from "./auth.ts";
 
 /**
- * MCP OAuth 2.1 (ADR-0047): Zibel is its own authorization server in front of GitHub sign-in. The
- * library serves discovery, registration, the token endpoint and revocation; Zibel owns
+ * MCP OAuth 2.1 (ADR-0047): Kalamo is its own authorization server in front of GitHub sign-in. The
+ * library serves discovery, registration, the token endpoint and revocation; Kalamo owns
  * `/authorize`, the consent page, and the Agent Actor each approved client becomes.
  */
 

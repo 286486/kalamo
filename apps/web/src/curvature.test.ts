@@ -5,7 +5,7 @@ import {
   type Node,
   parsePath,
   toAnchors,
-} from "@zibel/core";
+} from "@kalamo/core";
 import { beforeEach, expect, it, vi } from "vitest";
 import {
   curvatureClearInputs,

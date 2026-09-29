@@ -1,14 +1,14 @@
 import {
   formatNumber,
   formatPath,
+  KalamoError,
   type OffsetStyle,
   parsePath,
   pathBounds,
   type Segment,
   type StrokeStyle,
-  ZibelError,
-} from "@zibel/core";
-import { svgToPixels } from "@zibel/render";
+} from "@kalamo/core";
+import { svgToPixels } from "@kalamo/render";
 import { describe, expect, it } from "vitest";
 import { loadGeometry } from "./index.ts";
 
@@ -95,7 +95,7 @@ describe("offsetPath in workerd (ADR-0034)", () => {
 
   it("fails with BOOLEAN_FAILED instead of bad geometry", async () => {
     const bad: Segment[] = [...square.slice(0, 2), { cmd: "L", args: [Number.NaN, 1] }];
-    await expect(offsetPath(bad, { distance: 5, join: "miter" })).rejects.toThrow(ZibelError);
+    await expect(offsetPath(bad, { distance: 5, join: "miter" })).rejects.toThrow(KalamoError);
   });
 });
 

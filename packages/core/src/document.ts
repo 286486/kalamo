@@ -2,7 +2,7 @@ import { generateKeyBetween } from "fractional-indexing";
 import { ulid } from "ulid";
 import type { z } from "zod";
 import { parseColor } from "./color.ts";
-import { collect, type Failed, ZibelError } from "./errors.ts";
+import { collect, type Failed, KalamoError } from "./errors.ts";
 import { fileProblem, MAX_FILE_LENGTH, preserveAspectRatio } from "./image.ts";
 import { applyTo, IDENTITY, multiply, scaleOf, transformSegments } from "./matrix.ts";
 import { formatPath, parsePath, pathBounds, type Segment, shapeSegments } from "./path.ts";
@@ -179,7 +179,7 @@ export function createNodes(
     if (input.type === "group") {
       input.children.forEach((child, k) => {
         if (child.type === "layer") {
-          throw new ZibelError({
+          throw new KalamoError({
             code: "INVALID_PARENT",
             message: "A Group never contains a Layer.",
             hint: "Create the Layer on its own with a Layer id as parentId (or none for the root), then put Groups in it.",
@@ -192,7 +192,7 @@ export function createNodes(
   };
   const count = countNodes(inputs as { children?: unknown[] }[]);
   if (count > MAX_NODES_PER_CREATE) {
-    throw new ZibelError({
+    throw new KalamoError({
       code: "LIMIT_EXCEEDED",
       message: `${count} Nodes counting inline children; one node_create adds at most ${MAX_NODES_PER_CREATE}.`,
       hint: `Split into several node_create calls of at most ${MAX_NODES_PER_CREATE} Nodes each, e.g. one per Layer or Group: create the Group first, then its children with its id as parentId.`,
@@ -235,7 +235,7 @@ export function assertParent(
   path: string,
 ): void {
   const invalid = (message: string, hint: string) =>
-    new ZibelError({ code: "INVALID_PARENT", message, hint, path });
+    new KalamoError({ code: "INVALID_PARENT", message, hint, path });
   if (parentId === null) {
     if (child.type === "layer") return;
     throw invalid(
@@ -251,7 +251,7 @@ export function assertParent(
         "Use a Layer id as parentId; position the Node inside the Artboard's frame instead.",
       );
     }
-    throw new ZibelError({
+    throw new KalamoError({
       code: "NODE_NOT_FOUND",
       message: `No Node with id ${parentId}.`,
       hint: "Use doc_outline to list Layer ids; doc_create returns the default Layer id.",
@@ -297,7 +297,7 @@ export function assertParent(
 export function checkFile(file: string, path: string) {
   const problem = fileProblem(file);
   if (!problem) return;
-  throw new ZibelError({
+  throw new KalamoError({
     code: "INVALID_IMAGE",
     message: problem,
     hint: `file is the linked file's path or URL, at most ${MAX_FILE_LENGTH} characters; pass a data: URL as src.`,
@@ -309,7 +309,7 @@ export function checkFile(file: string, path: string) {
 export function imageInfo(doc: Document, src: string, path: string) {
   const info = doc.images.get(src);
   if (info) return info;
-  throw new ZibelError({
+  throw new KalamoError({
     code: "INVALID_IMAGE",
     message: src.startsWith("data:")
       ? "The image's data: URL was not read into the Document."
@@ -374,7 +374,7 @@ function placed(
   const own = () => {
     measured ??= box() ?? undefined;
     if (measured) return measured;
-    throw new ZibelError({
+    throw new KalamoError({
       code: "INVALID_INPUT",
       message:
         "The gradient leaves out its geometry, and the Layer or Group has no bounds to span.",
@@ -456,7 +456,7 @@ export function mapGradient(g: Gradient, m: Matrix): Gradient {
   let major: number;
   let minor: number;
   if (Math.abs(a * c + b * d) < 1e-5 * (a * a + b * b + c * c + d * d)) {
-    // Columns at right angles, as a move, turn and scale make, and Zibel's own export: the ellipse's
+    // Columns at right angles, as a move, turn and scale make, and Kalamo's own export: the ellipse's
     // axes are the images of the circle's, so the radius stays along the first.
     angle = Math.atan2(b, a);
     major = Math.hypot(a, b);
@@ -517,7 +517,7 @@ export function paintContainer(
 ): ContainerAppearance {
   const count = a.fills.length + a.strokes.length;
   if (!Number.isInteger(a.contents) || a.contents < 0 || a.contents > count) {
-    throw new ZibelError({
+    throw new KalamoError({
       code: "INVALID_INPUT",
       message: `contents is ${a.contents}, outside 0 to ${count}, the number of fills and strokes.`,
       hint: "contents counts the paints drawn below the children, from the first Fill up through the Strokes: 0 puts every paint above them.",
@@ -795,7 +795,7 @@ export function outline(
   { rootId, depth = 2, types, includeBounds = true }: OutlineOptions = {},
 ): OutlineNode[] {
   if (rootId !== undefined && !doc.nodes.has(rootId)) {
-    throw new ZibelError({
+    throw new KalamoError({
       code: "NODE_NOT_FOUND",
       message: `No Node with id ${rootId}.`,
       hint: "Use an id from doc_outline without rootId, or from a WriteReceipt.",

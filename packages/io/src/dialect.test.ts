@@ -9,7 +9,7 @@ import {
   readImage,
   resolveImages,
   serializeDocument,
-} from "@zibel/core";
+} from "@kalamo/core";
 import { expect, it } from "vitest";
 import { RED_2x2_PNG } from "../../../fixtures/images.ts";
 import {

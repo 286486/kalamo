@@ -1,5 +1,5 @@
-import { Rect, WriteReceipt } from "@zibel/core";
-import { ROLES } from "@zibel/sync";
+import { Rect, WriteReceipt } from "@kalamo/core";
+import { ROLES } from "@kalamo/sync";
 import { z } from "zod";
 
 const Artboards = z.array(

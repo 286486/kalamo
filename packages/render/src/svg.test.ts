@@ -1,4 +1,4 @@
-import { createDocument, createNodes } from "@zibel/core";
+import { createDocument, createNodes } from "@kalamo/core";
 import { expect, it } from "vitest";
 import { fit, renderSvg } from "./svg.ts";
 

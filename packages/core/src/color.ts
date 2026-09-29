@@ -1,4 +1,4 @@
-import { ZibelError } from "./errors.ts";
+import { KalamoError } from "./errors.ts";
 
 export const COLOR_PATTERN = "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$";
 const HEX = new RegExp(COLOR_PATTERN);
@@ -50,7 +50,7 @@ const NAMED: Record<string, string> = Object.fromEntries(
 export function parseColor(value: unknown, path: string): string {
   if (typeof value === "string" && HEX.test(value)) return value;
   const hex = suggest(value);
-  throw new ZibelError({
+  throw new KalamoError({
     code: "INVALID_COLOR",
     message: `${JSON.stringify(value) ?? "undefined"} is not a color.`,
     hint: hex

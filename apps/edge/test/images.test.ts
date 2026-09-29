@@ -1,7 +1,7 @@
 import { evictDurableObject, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
-import { imageId, readImage } from "@zibel/core";
-import { parseFile } from "@zibel/io";
+import { imageId, readImage } from "@kalamo/core";
+import { parseFile } from "@kalamo/io";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BLUE_1x1_PNG, RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
 import { imageKey } from "../src/document-object.ts";
@@ -357,7 +357,7 @@ describe("image files in R2, swept once nothing names them (ADR-0046)", () => {
     ok(await s.createNodes([rect], "agent"));
     expect(await runDurableObjectAlarm(s)).toBe(true);
     expect(await stored("r2-history")).toEqual({ rows: [], objects: [] });
-    const served = await exports.default.fetch(`http://zibel/api/docs/r2-history/images/${id}`);
+    const served = await exports.default.fetch(`http://kalamo/api/docs/r2-history/images/${id}`);
     expect(served.status).toBe(404);
     await served.body?.cancel();
     expect(await s.createNodes([image(id)], "agent")).toMatchObject({

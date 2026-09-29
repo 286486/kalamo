@@ -1,7 +1,7 @@
-// SVG gradients folded into Zibel's (ADR-0026): SVG's reflect and repeat are unrolled into stops, so
+// SVG gradients folded into Kalamo's (ADR-0026): SVG's reflect and repeat are unrolled into stops, so
 // what is stored draws the same pixels. Core's mapGradient then applies whatever maps the gradient's
 // own space into the Node's coordinates (gradientTransform, objectBoundingBox, a leaf's bake).
-import type { ColorStop, Gradient, Point } from "@zibel/core";
+import type { ColorStop, Gradient, Point } from "@kalamo/core";
 
 const n3 = (n: number) => Math.round(n * 1000) / 1000 || 0;
 
@@ -10,7 +10,7 @@ export type Geometry =
   | { type: "linear"; p1: Point; p2: Point }
   | { type: "radial"; c: Point; r: number; f: Point };
 
-/** The geometry as a Zibel gradient with `stops`: SVG's circle is a radial of aspectRatio 1. */
+/** The geometry as a Kalamo gradient with `stops`: SVG's circle is a radial of aspectRatio 1. */
 export const asGradient = (g: Geometry, stops: ColorStop[]): Gradient =>
   g.type === "linear"
     ? { type: "linear", stops, start: g.p1, end: g.p2 }

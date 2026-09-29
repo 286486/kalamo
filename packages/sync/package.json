@@ -1,5 +1,5 @@
 {
-  "name": "@zibel/sync",
+  "name": "@kalamo/sync",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -7,7 +7,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@zibel/core": "workspace:*",
+    "@kalamo/core": "workspace:*",
     "zod": "^4.4.3"
   }
 }

@@ -1,7 +1,7 @@
-import { type ErrorData, newId, resolveImages, ZibelError } from "@zibel/core";
-import { parseFile, resolveLinks } from "@zibel/io";
-import { svgToPng } from "@zibel/render";
-import type { DocumentService, PathEditReceipt, RasterRequest } from "@zibel/sync";
+import { type ErrorData, KalamoError, newId, resolveImages } from "@kalamo/core";
+import { parseFile, resolveLinks } from "@kalamo/io";
+import { svgToPng } from "@kalamo/render";
+import type { DocumentService, PathEditReceipt, RasterRequest } from "@kalamo/sync";
 import type { Principal } from "./auth.ts";
 import { fetchImage } from "./fetch-image.ts";
 import { checkDocuments, countCall, ownerStorage } from "./quotas.ts";
@@ -83,7 +83,7 @@ export function documentService(env: Env, principal: Principal): DocumentService
       const target = await doc(docId, "write");
       // Refused here, not by parseFile, whose hint is for Open.
       if (!/^\uFEFF?\s*</.test(svg)) {
-        throw new ZibelError({
+        throw new KalamoError({
           code: "INVALID_DOCUMENT",
           message: "Place takes SVG; this is not an SVG file.",
           hint: "Pass the text of an .svg file. zibel_doc_open reads a Zibel file as a new Document.",
@@ -95,8 +95,8 @@ export function documentService(env: Env, principal: Principal): DocumentService
         file = await parse(svg, { name });
       } catch (e) {
         // The file is Place's `svg`, not Open's `content`.
-        if (e instanceof ZibelError && e.data.path === "content") {
-          throw new ZibelError({ ...e.data, path: "svg" });
+        if (e instanceof KalamoError && e.data.path === "content") {
+          throw new KalamoError({ ...e.data, path: "svg" });
         }
         throw e;
       }
@@ -162,6 +162,6 @@ export function documentService(env: Env, principal: Principal): DocumentService
 }
 
 export function unwrap<T extends object>(result: T): Exclude<T, { error: ErrorData }> {
-  if ("error" in result) throw new ZibelError(result.error as ErrorData);
+  if ("error" in result) throw new KalamoError(result.error as ErrorData);
   return result as Exclude<T, { error: ErrorData }>;
 }

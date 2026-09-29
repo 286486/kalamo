@@ -9,7 +9,7 @@ import {
   paintContainer,
   union,
 } from "./document.ts";
-import { collect, type Failed, ZibelError } from "./errors.ts";
+import { collect, type Failed, KalamoError } from "./errors.ts";
 import { preserveAspectRatio } from "./image.ts";
 import { compose, multiply, round, scaleOf } from "./matrix.ts";
 import { formatPath, parsePath } from "./path.ts";
@@ -45,7 +45,7 @@ export function subtree(doc: Document, node: Node): Node[] {
 export function lookup(doc: Document, id: string, path: string): Node {
   const node = doc.nodes.get(id);
   if (node) return node;
-  throw new ZibelError({
+  throw new KalamoError({
     code: "NODE_NOT_FOUND",
     message: `No Node with id ${id}.`,
     hint: "Use doc_outline or the ids from a WriteReceipt; deleted Nodes do not come back.",
@@ -218,7 +218,7 @@ function patched(doc: Document, raw: UpdateInput, i: number): Node {
   const node = lookup(doc, nodeId, `updates[${i}].nodeId`);
   const at = `updates[${i}].patch`;
   const invalid = (key: string, message: string, hint: string) =>
-    new ZibelError({ code: "INVALID_PATCH", message, hint, path: `${at}${key}` });
+    new KalamoError({ code: "INVALID_PATCH", message, hint, path: `${at}${key}` });
   const schema = writableSchema(node);
   for (const key of Object.keys(patch)) {
     const readOnly =
@@ -284,7 +284,7 @@ function patched(doc: Document, raw: UpdateInput, i: number): Node {
     if (typeof patch.file === "string") checkFile(patch.file, `${at}.file`);
     if (typeof patch.src === "string") imageInfo(doc, patch.src, `${at}.src`);
     if (next.src === undefined && next.file === undefined) {
-      throw new ZibelError({
+      throw new KalamoError({
         code: "INVALID_IMAGE",
         message: "A missing link has no pixels to Embed.",
         hint: "Set src to a data: URL or an image id in the same patch, or Relink it first.",

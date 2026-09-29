@@ -448,7 +448,7 @@ describe("placeNodes' warnings", () => {
     expect(warnings.map((w) => w.nodeId)).not.toContain(placedIds[0]);
   });
 
-  it("drop those on Nodes a Zibel copy leaves behind, and keep a listed Clipping Path's", () => {
+  it("drop those on Nodes a Kalamo copy leaves behind, and keep a listed Clipping Path's", () => {
     const { doc, defaultLayerId } = setup();
     const f = createDocument({ id: "f", name: "F", artboards: [] });
     const [group] = createNodes(f.doc, [
@@ -524,7 +524,7 @@ describe("placeNodes' per-file text warnings (#162)", () => {
   };
 
   for (const order of ["clip first", "kept first"] as const) {
-    it(`count the texts a Zibel copy places, not the Clipping Path it leaves behind (${order})`, () => {
+    it(`count the texts a Kalamo copy places, not the Clipping Path it leaves behind (${order})`, () => {
       const f = copy(clip, { fontFamily: "Helvetica", content: "ค" }, order);
       const placed = paste(f, [f.artId, f.keptId]);
       const kept = placed.created.find((n) => n.name === "kept")?.id;

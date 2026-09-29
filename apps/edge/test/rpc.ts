@@ -4,7 +4,7 @@ let nextId = 1;
 
 /** One stateless JSON-RPC request to `/mcp`, the way an MCP client sends it. */
 export async function rpc(method: string, params: unknown = {}, token = "dev-token-a") {
-  const res = await exports.default.fetch("http://zibel/mcp", {
+  const res = await exports.default.fetch("http://kalamo/mcp", {
     method: "POST",
     headers: {
       "content-type": "application/json",

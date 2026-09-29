@@ -1,6 +1,6 @@
+import { checkImage, type ErrorData, IMAGE_ID, KalamoError, MAX_IMAGE_BYTES } from "@kalamo/core";
+import { createMcpServer } from "@kalamo/mcp";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { checkImage, type ErrorData, IMAGE_ID, MAX_IMAGE_BYTES, ZibelError } from "@zibel/core";
-import { createMcpServer } from "@zibel/mcp";
 import {
   ACTOR_HEADER,
   authenticate,
@@ -100,7 +100,7 @@ async function mcp(request: Request, env: Env, principal: Principal | null): Pro
   try {
     body = await readCapped(request, MAX_REQUEST_BYTES, requestTooLarge);
   } catch (e) {
-    if (!(e instanceof ZibelError)) throw e;
+    if (!(e instanceof KalamoError)) throw e;
     const { code, message, hint } = e.data;
     // No request id is known without the body (ADR-0049).
     return Response.json(
@@ -228,7 +228,7 @@ const sizeOf = (cap: number, declared?: number) =>
 
 /** The refusal of a body over 32 MiB, from Open, Place and `/mcp` alike (ADR-0049). */
 const requestTooLarge = (declared?: number, path?: string) =>
-  new ZibelError({
+  new KalamoError({
     code: "LIMIT_EXCEEDED",
     message: `The file is ${sizeOf(MAX_REQUEST_BYTES, declared)}; the server reads at most ${MAX_REQUEST_BYTES} (32 MiB).`,
     hint: "Split the drawing into several files, or remove embedded images.",
@@ -248,7 +248,7 @@ const bitmap = async (request: Request) =>
       request,
       MAX_IMAGE_BYTES,
       (declared) =>
-        new ZibelError({
+        new KalamoError({
           code: "LIMIT_EXCEEDED",
           message: `The image is ${sizeOf(MAX_IMAGE_BYTES, declared)}; the limit is ${MAX_IMAGE_BYTES} (5 MB).`,
           hint: "Scale the image down or compress it before placing it.",
@@ -306,7 +306,7 @@ async function image(env: Env, principal: Principal, docId: string, src: string)
   });
 }
 
-/** `fn`'s result as JSON, or its ZibelError as `failure` answers it. */
+/** `fn`'s result as JSON, or its KalamoError as `failure` answers it. */
 async function answer(fn: () => Promise<object>): Promise<Response> {
   try {
     return Response.json(await fn());
@@ -320,8 +320,8 @@ const STATUS: Partial<Record<ErrorData["code"], number>> = {
   DOC_NOT_FOUND: 404,
 };
 
-/** A ZibelError as JSON: 403 for PERMISSION_DENIED, 404 for DOC_NOT_FOUND, else 400. */
+/** A KalamoError as JSON: 403 for PERMISSION_DENIED, 404 for DOC_NOT_FOUND, else 400. */
 function failure(e: unknown): Response {
-  if (!(e instanceof ZibelError)) throw e;
+  if (!(e instanceof KalamoError)) throw e;
   return Response.json(e.data, { status: STATUS[e.data.code] ?? 400 });
 }

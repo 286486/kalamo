@@ -1,4 +1,4 @@
-import { createDocument, createNodes, makeMask, type Node } from "@zibel/core";
+import { createDocument, createNodes, makeMask, type Node } from "@kalamo/core";
 import { describe, expect, it } from "vitest";
 import { autoName, layerMask, rows } from "./layers.ts";
 

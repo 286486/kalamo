@@ -3,7 +3,7 @@ import { env } from "cloudflare:workers";
 import { vi } from "vitest";
 import worker from "../src/index.ts";
 
-export const APP_ORIGIN = "https://zibel.test";
+export const APP_ORIGIN = "https://kalamo.test";
 
 /** The test env in GitHub mode (ADR-0047); the pool's own env stays in dev mode. */
 export const githubEnv: Env = {

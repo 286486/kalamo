@@ -1,4 +1,4 @@
-import { type Document, isLiveShape, type Node } from "@zibel/core";
+import { type Document, isLiveShape, type Node } from "@kalamo/core";
 import { editable } from "./selection.ts";
 
 /**

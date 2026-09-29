@@ -1,4 +1,4 @@
-import { createDocument, createNodes } from "@zibel/core";
+import { createDocument, createNodes } from "@kalamo/core";
 import { expect, it, vi } from "vitest";
 import { imageCache } from "./images.ts";
 

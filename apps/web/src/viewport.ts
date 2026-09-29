@@ -1,4 +1,4 @@
-import { type Document, type Rect, union } from "@zibel/core";
+import { type Document, type Rect, union } from "@kalamo/core";
 
 /** Maps document points to screen (CSS px): screen = doc * scale + (x, y). */
 export interface Viewport {

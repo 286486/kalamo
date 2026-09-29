@@ -17,7 +17,7 @@ import {
   shapeSegments,
   toAnchors,
   worldTransform,
-} from "@zibel/core";
+} from "@kalamo/core";
 import { editable, pathTargets } from "./selection.ts";
 
 /** Direct Selection (research §4): Anchors, Handles and segments of paths and Live Shapes. */

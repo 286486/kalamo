@@ -1,4 +1,4 @@
-import type { PathOpInput } from "@zibel/core";
+import type { PathOpInput } from "@kalamo/core";
 import { pathTargets } from "./selection.ts";
 import { send, useStore } from "./store.ts";
 
@@ -8,7 +8,7 @@ type Join = NonNullable<PathOpInput["join"]>;
 const settings = { distance: 10, join: "miter" as Join, miterLimit: 4, preview: false };
 
 /** PathKit for the preview, fetched the first time Preview is checked (ADR-0034). */
-const loadGeometry = async () => (await import("@zibel/geometry/browser")).loadGeometry();
+const loadGeometry = async () => (await import("@kalamo/geometry/browser")).loadGeometry();
 
 /**
  * Object > Path > Offset Path… (research 06 §5): Offset, Joins and Miter limit, with a Preview

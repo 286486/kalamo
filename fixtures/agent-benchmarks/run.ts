@@ -23,7 +23,7 @@ interface Run {
   error?: string;
 }
 
-/** One `claude -p` session that sees only the zibel MCP server and its resources. */
+/** One `claude -p` session that sees only the Kalamo MCP server and its resources. */
 async function agent(task: string, prompt: string): Promise<Run> {
   const mcpConfig = {
     mcpServers: {
@@ -75,8 +75,8 @@ async function agent(task: string, prompt: string): Promise<Run> {
     const event = JSON.parse(line);
     if (event.type === "system" && event.subtype === "init") {
       run.model = event.model;
-      const zibel = event.mcp_servers.find((s: { name: string }) => s.name === "zibel");
-      if (zibel?.status !== "connected") run.error = `zibel MCP server ${zibel?.status}`;
+      const server = event.mcp_servers.find((s: { name: string }) => s.name === "zibel");
+      if (server?.status !== "connected") run.error = `zibel MCP server ${server?.status}`;
     }
     if (event.type === "assistant")
       for (const block of event.message.content)

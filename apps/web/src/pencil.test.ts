@@ -6,7 +6,7 @@ import {
   type PathEditInput,
   parsePath,
   toAnchors,
-} from "@zibel/core";
+} from "@kalamo/core";
 import { beforeEach, expect, it, vi } from "vitest";
 import { DEFAULT_PENCIL, pencilDown, pencilMove, pencilUp, savePencilOptions } from "./pencil.ts";
 import { DEFAULT_FILL_STROKE, send, useStore } from "./store.ts";

@@ -1,9 +1,9 @@
 import { env, exports } from "cloudflare:workers";
-import { imageId, readImage } from "@zibel/core";
-import type { ServerMessage } from "@zibel/sync";
+import { imageId, readImage } from "@kalamo/core";
+import type { ServerMessage } from "@kalamo/sync";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BLUE_1x1_PNG, RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
-import { counted, fullZibelFile, MiB } from "./bodies.ts";
+import { counted, fullKalamoFile, MiB } from "./bodies.ts";
 import { call, errorOf } from "./rpc.ts";
 
 const open: WebSocket[] = [];
@@ -13,7 +13,7 @@ afterEach(() => {
 });
 
 const upgrade = (docId: string) =>
-  exports.default.fetch(`http://zibel/api/docs/${docId}/ws`, {
+  exports.default.fetch(`http://kalamo/api/docs/${docId}/ws`, {
     headers: { upgrade: "websocket" },
   });
 
@@ -121,7 +121,7 @@ it("lists Documents newest first at GET /api/docs", async () => {
     name: "Second",
     artboards: [{ width: 10, height: 10 }],
   });
-  const res = await exports.default.fetch("http://zibel/api/docs");
+  const res = await exports.default.fetch("http://kalamo/api/docs");
   expect(res.status).toBe(200);
   const { documents } = (await res.json()) as { documents: { docId: string; name: string }[] };
   expect(documents.slice(0, 2)).toMatchObject([
@@ -500,21 +500,21 @@ it("clears the redo stack when a new Transaction commits", async () => {
 it("opens a file POSTed to /api/docs as the user, named after the file", async () => {
   const svg =
     '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="5" height="5"/></svg>';
-  const res = await exports.default.fetch("http://zibel/api/docs?name=Drawing.svg", {
+  const res = await exports.default.fetch("http://kalamo/api/docs?name=Drawing.svg", {
     method: "POST",
     body: svg,
   });
   expect(res.status).toBe(200);
   const { docId, warnings } = (await res.json()) as { docId: string; warnings: unknown[] };
   expect(warnings).toEqual([]);
-  const listed = (await (await exports.default.fetch("http://zibel/api/docs")).json()) as {
+  const listed = (await (await exports.default.fetch("http://kalamo/api/docs")).json()) as {
     documents: { docId: string; name: string }[];
   };
   expect(listed.documents[0]).toMatchObject({ docId, name: "Drawing" });
   const { changes } = (await call("zibel_doc_changes", { docId, sinceRev: 0 })).structuredContent;
   expect(changes[0]).toMatchObject({ actor: "user" });
 
-  const bad = await exports.default.fetch("http://zibel/api/docs?name=x.svg", {
+  const bad = await exports.default.fetch("http://kalamo/api/docs?name=x.svg", {
     method: "POST",
     body: "nope",
   });
@@ -526,7 +526,7 @@ it("places an SVG POSTed to /api/docs/:docId/place at the given centre, as the u
   const { docId, defaultLayerId } = await newDoc();
   const { received } = await subscribe(docId);
   const post = (query: string, body: string) =>
-    exports.default.fetch(`http://zibel/api/docs/${docId}/place?${query}`, {
+    exports.default.fetch(`http://kalamo/api/docs/${docId}/place?${query}`, {
       method: "POST",
       body,
     });
@@ -573,7 +573,7 @@ describe("images through the Worker", () => {
     const src = await imageId(readImage(RED_2x2_PNG, "src").bytes);
     return { docId, defaultLayerId, id, src };
   }
-  const get = (path: string) => exports.default.fetch(`http://zibel${path}`);
+  const get = (path: string) => exports.default.fetch(`http://kalamo${path}`);
 
   it("serves an Image's file by its id, cached for good, and 404 for any other", async () => {
     const { docId, src } = await withImage();
@@ -607,7 +607,7 @@ describe("images through the Worker", () => {
   it("stores a file the designer relinked in the editor when Open brings the SVG back", async () => {
     const { docId, id } = await withImage();
     const svg = (await call("zibel_export", { docId, format: "svg" })).content[0].text as string;
-    const res = await exports.default.fetch("http://zibel/api/docs", {
+    const res = await exports.default.fetch("http://kalamo/api/docs", {
       method: "POST",
       body: svg.replace(RED_2x2_PNG, BLUE_1x1_PNG),
     });
@@ -627,7 +627,7 @@ describe("images through the Worker", () => {
     const { docId, defaultLayerId } = await newDoc();
     const { received } = await subscribe(docId);
     const post = (query: string, body: BodyInit) =>
-      exports.default.fetch(`http://zibel/api/docs/${docId}/place-image?${query}`, {
+      exports.default.fetch(`http://kalamo/api/docs/${docId}/place-image?${query}`, {
         method: "POST",
         body,
       });
@@ -671,7 +671,7 @@ describe("images through the Worker", () => {
     const { docId } = await newDoc();
     const blue = readImage(BLUE_1x1_PNG, "src").bytes;
     const refused = await exports.default.fetch(
-      `http://zibel/api/docs/${docId}/place-image?parentId=nope`,
+      `http://kalamo/api/docs/${docId}/place-image?parentId=nope`,
       { method: "POST", body: blue },
     );
     expect(await refused.json()).toMatchObject({ code: "NODE_NOT_FOUND" });
@@ -682,7 +682,7 @@ describe("images through the Worker", () => {
 
   describe("Relink from a file POSTed to /api/docs/:docId/relink-image (ADR-0042)", () => {
     const relink = (docId: string, query: string, body: BodyInit) =>
-      exports.default.fetch(`http://zibel/api/docs/${docId}/relink-image?${query}`, {
+      exports.default.fetch(`http://kalamo/api/docs/${docId}/relink-image?${query}`, {
         method: "POST",
         body,
       });
@@ -793,7 +793,7 @@ describe("images through the Worker", () => {
     const { docId, defaultLayerId } = await newDoc();
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><image width="4" height="4" xlink:href="${RED_2x2_PNG}"/></svg>`;
     const res = await exports.default.fetch(
-      `http://zibel/api/docs/${docId}/place?parentId=${defaultLayerId}`,
+      `http://kalamo/api/docs/${docId}/place?parentId=${defaultLayerId}`,
       { method: "POST", body: svg },
     );
     const receipt = (await res.json()) as { createdIds: string[] };
@@ -812,7 +812,7 @@ describe("images through the Worker", () => {
 
 describe("request bodies capped before they are read (ADR-0049)", () => {
   const post = (path: string, body: ReadableStream, length?: number) =>
-    exports.default.fetch(`http://zibel${path}`, {
+    exports.default.fetch(`http://kalamo${path}`, {
       method: "POST",
       body,
       ...(length !== undefined && { headers: { "content-length": String(length) } }),
@@ -864,8 +864,8 @@ describe("request bodies capped before they are read (ADR-0049)", () => {
 
   it("reopens a .zibel.json whose images fill the 20 MB Document cap", async () => {
     const { docId, defaultLayerId } = await newDoc();
-    const text = await fullZibelFile(docId, defaultLayerId);
-    const res = await exports.default.fetch("http://zibel/api/docs", {
+    const text = await fullKalamoFile(docId, defaultLayerId);
+    const res = await exports.default.fetch("http://kalamo/api/docs", {
       method: "POST",
       body: text,
     });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { bounds, childrenOf, createDocument, createNodes } from "./document.ts";
-import { ZibelError } from "./errors.ts";
+import { KalamoError } from "./errors.ts";
 import { makeMask, releaseMask } from "./mask.ts";
 import type { Node, TextNode } from "./schema.ts";
 
@@ -8,10 +8,10 @@ const errorOf = (fn: () => unknown) => {
   try {
     fn();
   } catch (e) {
-    if (e instanceof ZibelError) return e.data;
+    if (e instanceof KalamoError) return e.data;
     throw e;
   }
-  throw new Error("expected a ZibelError");
+  throw new Error("expected a KalamoError");
 };
 
 /** Under the Layer, bottom to top: below, a, clip (an ellipse), b, above; a text; a Group. */

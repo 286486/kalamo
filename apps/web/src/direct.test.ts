@@ -6,7 +6,7 @@ import {
   type PathEditInput,
   parsePath,
   toAnchors,
-} from "@zibel/core";
+} from "@kalamo/core";
 import { expect, it } from "vitest";
 import {
   anchorKey,

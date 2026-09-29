@@ -1,9 +1,3 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import {
-  type CallToolResult,
-  isJSONRPCRequest,
-  type ToolAnnotations,
-} from "@modelcontextprotocol/sdk/types.js";
 import {
   ArtboardInput,
   BUNDLED_FAMILIES_NOTE,
@@ -12,6 +6,7 @@ import {
   FreehandStrokeInput,
   freehandPath,
   imageFrame,
+  KalamoError,
   MaskFields,
   MaskInput,
   NodeInput,
@@ -25,9 +20,14 @@ import {
   TransformInput,
   UpdateInput,
   WriteReceipt,
-  ZibelError,
-} from "@zibel/core";
-import type { DocumentService, Viewport } from "@zibel/sync";
+} from "@kalamo/core";
+import type { DocumentService, Viewport } from "@kalamo/sync";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import {
+  type CallToolResult,
+  isJSONRPCRequest,
+  type ToolAnnotations,
+} from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { parseArgs } from "./args.ts";
 import conventions from "./drawing-conventions.md";
@@ -138,7 +138,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
     (uri) => ({ contents: [{ uri: uri.href, mimeType: "text/markdown", text: conventions }] }),
   );
 
-  /** Runs a tool handler, maps ZibelError to an error result and logs one line per call (§7.7). */
+  /** Runs a tool handler, maps KalamoError to an error result and logs one line per call (§7.7). */
   const run = async (tool: string, fn: () => Promise<CallToolResult>): Promise<CallToolResult> => {
     const start = Date.now();
     let result: CallToolResult;
@@ -146,7 +146,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
     try {
       result = await fn();
     } catch (e) {
-      if (!(e instanceof ZibelError)) throw e;
+      if (!(e instanceof KalamoError)) throw e;
       code = e.data.code;
       result = { isError: true, content: [{ type: "text", text: JSON.stringify(e.data) }] };
     }
@@ -166,7 +166,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
   };
 
   /**
-   * Registers a tool whose arguments Zibel parses, strictly: the SDK advertises the real schema
+   * Registers a tool whose arguments Kalamo parses, strictly: the SDK advertises the real schema
    * through `.meta()` but validates only that the arguments are an object, so a bad argument is
    * INVALID_INPUT like any other error and is logged by `run` (ADR-0050).
    */
@@ -535,8 +535,8 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       try {
         return json(await service.createNodes(docId, [item], write));
       } catch (e) {
-        if (!(e instanceof ZibelError)) throw e;
-        throw new ZibelError({ ...e.data, path: e.data.path?.replace(/^nodes\[0\]\./, "") });
+        if (!(e instanceof KalamoError)) throw e;
+        throw new KalamoError({ ...e.data, path: e.data.path?.replace(/^nodes\[0\]\./, "") });
       }
     },
   );
@@ -803,7 +803,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
     async ({ docId, txId }) => json(await service.rollback(docId, txId)),
   );
 
-  // MCP lets tools/call omit arguments, but the SDK validates before any Zibel code and rejects
+  // MCP lets tools/call omit arguments, but the SDK validates before any Kalamo code and rejects
   // undefined as text. Fill in {} on each incoming message, after connect installs the SDK's
   // handler, so parseArgs answers as for any other call (ADR-0050).
   const connect = server.connect.bind(server);

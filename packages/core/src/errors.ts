@@ -44,10 +44,10 @@ export interface QuotaLimit {
   resetsAt?: string;
 }
 
-export class ZibelError extends Error {
+export class KalamoError extends Error {
   constructor(readonly data: ErrorData) {
     super(data.message);
-    this.name = "ZibelError";
+    this.name = "KalamoError";
   }
 }
 
@@ -57,7 +57,7 @@ export interface Failed extends ErrorData {
 }
 
 /**
- * Runs `prepare` on every item. Atomic (default): the first ZibelError propagates. With `partial`,
+ * Runs `prepare` on every item. Atomic (default): the first KalamoError propagates. With `partial`,
  * failures are collected by index; if nothing succeeded, the first failure is thrown instead.
  */
 export function collect<T, R>(
@@ -71,14 +71,14 @@ export function collect<T, R>(
     try {
       ok.push(prepare(item, index));
     } catch (e) {
-      if (!partial || !(e instanceof ZibelError)) throw e;
+      if (!partial || !(e instanceof KalamoError)) throw e;
       failed.push({ index, ...e.data });
     }
   });
   const first = failed[0];
   if (ok.length === 0 && first) {
     const { index: _, ...data } = first;
-    throw new ZibelError(data);
+    throw new KalamoError(data);
   }
   return { ok, failed };
 }

@@ -7,7 +7,7 @@ import {
   parsePath,
   pathOp,
   toAnchors,
-} from "@zibel/core";
+} from "@kalamo/core";
 import { beforeEach, expect, it, vi } from "vitest";
 import { DEFAULT_FILL_STROKE, send, useStore } from "./store.ts";
 import { TOOL_KEYS } from "./toolbox.ts";

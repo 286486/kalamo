@@ -1,4 +1,4 @@
-import { type Anchor, formatPath, fromAnchors, type Rect } from "@zibel/core";
+import { type Anchor, formatPath, fromAnchors, type Rect } from "@kalamo/core";
 import {
   ARROW,
   cancelDrag,

@@ -4,17 +4,17 @@ import {
   type BundledFamily,
   type Document,
   drawnFamily,
-} from "@zibel/core";
-import krBoldUrl from "@zibel/render/fonts/NotoSansKR-Bold.otf?url";
-import krRegularUrl from "@zibel/render/fonts/NotoSansKR-Regular.otf?url";
-import scBoldUrl from "@zibel/render/fonts/NotoSansSC-Bold.otf?url";
-import scRegularUrl from "@zibel/render/fonts/NotoSansSC-Regular.otf?url";
-import blackUrl from "@zibel/render/fonts/SourceSans3-Black.ttf?url";
-import blackItalicUrl from "@zibel/render/fonts/SourceSans3-BlackIt.ttf?url";
-import boldUrl from "@zibel/render/fonts/SourceSans3-Bold.ttf?url";
-import boldItalicUrl from "@zibel/render/fonts/SourceSans3-BoldIt.ttf?url";
-import italicUrl from "@zibel/render/fonts/SourceSans3-It.ttf?url";
-import regularUrl from "@zibel/render/fonts/SourceSans3-Regular.ttf?url";
+} from "@kalamo/core";
+import krBoldUrl from "@kalamo/render/fonts/NotoSansKR-Bold.otf?url";
+import krRegularUrl from "@kalamo/render/fonts/NotoSansKR-Regular.otf?url";
+import scBoldUrl from "@kalamo/render/fonts/NotoSansSC-Bold.otf?url";
+import scRegularUrl from "@kalamo/render/fonts/NotoSansSC-Regular.otf?url";
+import blackUrl from "@kalamo/render/fonts/SourceSans3-Black.ttf?url";
+import blackItalicUrl from "@kalamo/render/fonts/SourceSans3-BlackIt.ttf?url";
+import boldUrl from "@kalamo/render/fonts/SourceSans3-Bold.ttf?url";
+import boldItalicUrl from "@kalamo/render/fonts/SourceSans3-BoldIt.ttf?url";
+import italicUrl from "@kalamo/render/fonts/SourceSans3-It.ttf?url";
+import regularUrl from "@kalamo/render/fonts/SourceSans3-Regular.ttf?url";
 
 /**
  * The files the Worker renders each bundled family with (ADR-0013, ADR-0028, ADR-0063, ADR-0066), as

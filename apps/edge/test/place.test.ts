@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { parseFile } from "@zibel/io";
+import { parseFile } from "@kalamo/io";
 import { expect, it } from "vitest";
 
 const stub = (docId: string) => env.DOCUMENT.get(env.DOCUMENT.idFromName(docId));
@@ -80,7 +80,7 @@ it("places the same file twice, and a file exported from the same Document, with
   expect(ok(await s.get(a.createdIds, "concise", "user")).nodes).toHaveLength(5);
 });
 
-it("pastes a Zibel copy's Nodes ungrouped, in place or centred, and undoes it", async () => {
+it("pastes a Kalamo copy's Nodes ungrouped, in place or centred, and undoes it", async () => {
   const { s, layer } = await setup("place-copy");
   const [rect] = ok(await s.outline({ rootId: layer }, "user")).nodes;
   const text = {

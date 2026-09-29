@@ -350,7 +350,7 @@ describe("dev mode", () => {
     await env.DB.prepare("UPDATE documents SET owner_id = 'someone' WHERE id = ?")
       .bind(docId)
       .run();
-    const res = await exports.default.fetch("http://zibel/api/docs");
+    const res = await exports.default.fetch("http://kalamo/api/docs");
     const { documents } = (await res.json()) as { documents: { docId: string; role: string }[] };
     expect(documents.find((d) => d.docId === docId)?.role).toBe("owner");
     const created = await call("zibel_node_create", {

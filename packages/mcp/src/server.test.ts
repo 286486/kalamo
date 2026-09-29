@@ -1,4 +1,4 @@
-import { COLOR_PATTERN, PathOpInput, ZibelError } from "@zibel/core";
+import { COLOR_PATTERN, KalamoError, PathOpInput } from "@kalamo/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { harness } from "./harness.ts";
 
@@ -262,7 +262,7 @@ describe("write tools pass the write and its options apart", () => {
   it("freehand_stroke names its own parentId in an error", async () => {
     const { call } = await harness({
       createNodes: async () => {
-        throw new ZibelError({
+        throw new KalamoError({
           code: "NODE_NOT_FOUND",
           message: "No Node with id p.",
           hint: "List ids.",
@@ -670,7 +670,7 @@ it("advertises each tool's real input schema, refusing unknown keys but in meta 
   expect(loose).toContain("zibel_node_create.properties.nodes.items.oneOf.0.properties.meta");
 });
 
-describe("a ZibelError becomes the error result (F-MCP-15)", () => {
+describe("a KalamoError becomes the error result (F-MCP-15)", () => {
   it("carries every field of the error, and no structuredContent", async () => {
     const data = {
       code: "REV_CONFLICT" as const,
@@ -682,7 +682,7 @@ describe("a ZibelError becomes the error result (F-MCP-15)", () => {
     };
     const { call } = await harness({
       createNodes: async () => {
-        throw new ZibelError(data);
+        throw new KalamoError(data);
       },
     });
     const result = await call("zibel_node_create", {
@@ -1046,7 +1046,7 @@ it("logs one line per call: Actor, tool, duration, node count, error code and re
     {
       createNodes: async () => ({ ...receipt, createdIds: ["n"] }),
       outline: async () => {
-        throw new ZibelError({ code: "DOC_NOT_FOUND", message: "No Document.", hint: "List." });
+        throw new KalamoError({ code: "DOC_NOT_FOUND", message: "No Document.", hint: "List." });
       },
     },
     "agent-b",

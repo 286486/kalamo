@@ -1,4 +1,4 @@
-import { BUNDLED_FAMILIES } from "@zibel/core";
+import { BUNDLED_FAMILIES } from "@kalamo/core";
 import { expect, it } from "vitest";
 import { FONT_FILES } from "./fonts.ts";
 

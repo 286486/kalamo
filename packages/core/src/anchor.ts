@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { lookup } from "./edit.ts";
-import { ZibelError } from "./errors.ts";
+import { KalamoError } from "./errors.ts";
 import { formatPath, parsePath, type Segment, shapeSegments } from "./path.ts";
 import { type Document, type Node, SHAPES, type ShapeNode, type WriteReceipt } from "./schema.ts";
 
@@ -212,7 +212,7 @@ export type PathEditInput = z.input<typeof PathEditInput>;
 export const AnchorRef = z.strictObject({ nodeId: z.string(), subpath, index });
 
 const invalid = (path: string, message: string, hint: string) =>
-  new ZibelError({ code: "INVALID_PATH", message, hint, path });
+  new KalamoError({ code: "INVALID_PATH", message, hint, path });
 
 const isEndpoint = (s: Subpath, i: number) => !s.closed && (i === 0 || i === s.anchors.length - 1);
 

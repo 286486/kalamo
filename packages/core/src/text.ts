@@ -137,7 +137,7 @@ export type BundledFamily = keyof typeof FAMILIES;
 /** The bundled families, the one list of them (ADR-0066). */
 export const BUNDLED_FAMILIES = Object.keys(FAMILIES) as [BundledFamily, ...BundledFamily[]];
 
-/** The one family every family Zibel lacks renders in (ADR-0013). */
+/** The one family every family Kalamo lacks renders in (ADR-0013). */
 export const BUNDLED_FONT = "Source Sans 3";
 
 const list = (items: string[], type: "conjunction" | "disjunction") =>

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createDocument, createNodes } from "./document.ts";
 import { deleteNodes, transformNodes, updateNodes } from "./edit.ts";
-import { ZibelError } from "./errors.ts";
+import { KalamoError } from "./errors.ts";
 import { convertToPath } from "./path-op.ts";
 import type { Document, Node, ShapeNode } from "./schema.ts";
 import { commitTransaction, type DeltaRow, overlay, revert, type TxRow } from "./tx.ts";
@@ -30,10 +30,10 @@ const nodeGone = (fn: () => unknown) => {
   try {
     fn();
   } catch (e) {
-    if (e instanceof ZibelError) return e.data;
+    if (e instanceof KalamoError) return e.data;
     throw e;
   }
-  throw new Error("expected a ZibelError");
+  throw new Error("expected a KalamoError");
 };
 
 describe("overlay", () => {
