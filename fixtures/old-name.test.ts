@@ -31,11 +31,6 @@ const ALLOWLIST: Entry[] = [
     until: "#177",
   },
   {
-    token: new RegExp(`286486/${OLD}`, "g"),
-    reason: "Links to the GitHub repository, which moves to 286486/kalamo.",
-    until: "#176",
-  },
-  {
     path: /^(docs\/|README\.md$|CONTEXT\.md$|CLAUDE\.md$|NOTICE$|apps\/edge\/\.deploy\.vars\.example$)/,
     reason: "Docs, ADRs, research notes, README and the deploy example.",
     until: "#177",

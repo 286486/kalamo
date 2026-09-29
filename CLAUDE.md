@@ -6,7 +6,7 @@ Browser-based vector drawing tool with an MCP-native document model: AI agents a
 
 ### Issue tracker
 
-Issues live in GitHub Issues for `286486/zibel`, driven through the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues live in GitHub Issues for `286486/kalamo`, driven through the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
