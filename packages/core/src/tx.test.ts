@@ -317,9 +317,19 @@ describe("tree rules at commit, undo and redo (ADR-0072)", () => {
     return { doc, l, g1, g2, r, m };
   };
 
+  /** Throws a plain Error if a parent chain loops, before an edit would walk it forever. */
+  const acyclic = (doc: Document) => {
+    for (const n of doc.nodes.values()) {
+      let p = n.parentId;
+      for (let i = 0; p && i <= doc.nodes.size; i++) p = doc.nodes.get(p)?.parentId ?? null;
+      if (p) throw new Error(`overlay returned a cyclic view through ${n.id}`);
+    }
+  };
+
   /** Runs `edit` on a Transaction's overlay of `doc`, adding what it changed to `rows` (ADR-0008). */
   const stage = (doc: Document, rows: TxRow[], edit: (view: Document) => unknown) => {
     const view = overlay(doc, rows);
+    acyclic(view);
     const before = new Map(view.nodes);
     edit(view);
     for (const id of new Set([...before.keys(), ...view.nodes.keys()])) {
@@ -362,7 +372,8 @@ describe("tree rules at commit, undo and redo (ADR-0072)", () => {
     const rows: TxRow[] = [];
     stage(doc, rows, (v) => reparentNodes(v, [{ nodeId: g1, parentId: g2 }]));
     reparentNodes(doc, [{ nodeId: g2, parentId: g1 }]);
-    expect(nodeGone(() => stage(doc, rows, (v) => deleteNodes(v, [g1])))).toMatchObject({
+    // overlay alone, not an edit on its view: without the refusal the edit would walk the cycle forever.
+    expect(nodeGone(() => overlay(doc, rows))).toMatchObject({
       code: "TREE_CONFLICT",
       nodeIds: [g1],
       hint: expect.stringContaining("kalamo_tx_rollback"),
@@ -508,6 +519,22 @@ describe("tree rules at commit, undo and redo (ADR-0072)", () => {
     expect(skipped).toEqual([]);
     expect(doc.nodes.get(z.id)?.index).toBe(index);
     expect((created[0] as Node).index > index).toBe(true);
+    reopens(doc);
+  });
+
+  it("gives a Node an undo brings back into a middle slot taken meanwhile a key just above it", () => {
+    const { doc, l, g1, g2, r, m } = tree();
+    const gone = write(doc, (d) => deleteNodes(d, [g2]));
+    const [z] = createNodes(doc, [{ type: "rect", parentId: m, x: 0, y: 0, width: 1, height: 1 }])
+      .nodes as [Node];
+    reparentNodes(doc, [{ nodeId: z.id, parentId: l, before: r }]);
+    const key = (id: string) => doc.nodes.get(id)?.index as string;
+    const keys = new Map([g1, z.id, r].map((id) => [id, key(id)]));
+    expect(key(z.id)).toBe(gone[0]?.before?.index);
+    const { skipped } = revert(doc, gone);
+    expect(skipped).toEqual([]);
+    expect(key(z.id) < key(g2) && key(g2) < key(r)).toBe(true);
+    expect(new Map([g1, z.id, r].map((id) => [id, key(id)]))).toEqual(keys);
     reopens(doc);
   });
 
