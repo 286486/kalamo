@@ -365,6 +365,15 @@ export function fileGlyphWarnings(nodes: Node[]): Warning[] {
   return first ? [missingGlyphsWarning(first, [...chars])] : [];
 }
 
+/** The codes `fileTextWarnings` keeps once per file or face, so one stands for several texts. */
+export const FILE_TEXT_WARNING_CODES = new Set(["FONT_MISSING", "MISSING_GLYPHS"]);
+
+/** The text warnings Open and Place report once per file (`FONT_MISSING` once per face), in order. */
+export const fileTextWarnings = (nodes: Node[]): Warning[] => [
+  ...fileFontWarnings(nodes),
+  ...fileGlyphWarnings(nodes),
+];
+
 /** A `TEXT_OVERFLOW` warning for each Area Type whose content does not all fit (ADR-0022). */
 export function overflowWarnings(nodes: Node[]): Warning[] {
   return nodes.flatMap((n) => {

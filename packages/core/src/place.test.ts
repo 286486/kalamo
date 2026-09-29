@@ -10,7 +10,7 @@ import {
 import { makeMask } from "./mask.ts";
 import { placeImage, placeNodes } from "./place.ts";
 import type { Node, ShapeNode, Stroke, WriteReceipt } from "./schema.ts";
-import { fileFontWarnings, fileGlyphWarnings } from "./text.ts";
+import { fileTextWarnings } from "./text.ts";
 
 /** The Nodes of a file with two Layers, a rect in each and a sub-Layer in the first, as Open reads it. */
 function file() {
@@ -487,31 +487,33 @@ describe("placeNodes' warnings", () => {
 
 describe("placeNodes' per-file text warnings (#162)", () => {
   /** A file whose text Clipping Path masks `art`, with a `kept` text, in `order`, as Open warns it. */
-  function copy(clip: string, kept: string, order: "clip first" | "kept first") {
+  type Face = { fontFamily: string; content: string };
+  function copy(clip: Face, kept: Face, order: "clip first" | "kept first") {
     const f = createDocument({ id: "f", name: "F", artboards: [] });
-    const text = (name: string, [fontFamily, content]: string[]) => ({
+    const text = (name: string, face: Face) => ({
       type: "text" as const,
       parentId: f.defaultLayerId,
       name,
       x: 0,
       y: 20,
-      fontFamily: fontFamily as string,
-      content: content as string,
+      ...face,
     });
     const [c, k, art] = createNodes(f.doc, [
-      text("clip", clip.split(":")),
-      text("kept", kept.split(":")),
+      text("clip", clip),
+      text("kept", kept),
       { type: "rect", parentId: f.defaultLayerId, x: 0, y: 0, width: 40, height: 40 },
     ]).nodes as [Node, Node, Node];
     makeMask(f.doc, { clipNodeId: c.id, contentIds: [art.id] });
-    const [clipNode, keptNode] = [c.id, k.id].map((id) => f.doc.nodes.get(id) as Node);
-    const rest = [...f.doc.nodes.values()].filter((n) => n.id !== c.id && n.id !== k.id);
-    const nodes = [clipNode, keptNode, ...rest] as Node[];
-    if (order === "kept first") nodes.reverse();
+    const texts = (order === "clip first" ? [c, k] : [k, c]).map(
+      (n) => f.doc.nodes.get(n.id) as Node,
+    );
+    const rest = [...f.doc.nodes.values()].filter((n) => n.type !== "text");
+    const nodes = [...texts, ...rest];
     const reader: WriteReceipt["warnings"][number] = { code: "UNSUPPORTED_PAINT", message: "p" };
-    const warnings = [reader, ...fileFontWarnings(nodes), ...fileGlyphWarnings(nodes)];
+    const warnings = [reader, ...fileTextWarnings(nodes)];
     return { nodes, warnings, reader, clipId: c.id, keptId: k.id, artId: art.id };
   }
+  const clip = { fontFamily: "Helvetica", content: "小动" };
   const paste = (f: ReturnType<typeof copy>, nodeIds?: string[]) => {
     const { doc, defaultLayerId } = setup();
     return placeNodes(
@@ -523,12 +525,12 @@ describe("placeNodes' per-file text warnings (#162)", () => {
 
   for (const order of ["clip first", "kept first"] as const) {
     it(`count the texts a Zibel copy places, not the Clipping Path it leaves behind (${order})`, () => {
-      const f = copy("Helvetica:小动", "Arial:物", order);
+      const f = copy(clip, { fontFamily: "Helvetica", content: "物" }, order);
       const placed = paste(f, [f.artId, f.keptId]);
       const kept = placed.created.find((n) => n.name === "kept")?.id;
       expect(placed.warnings).toEqual([
         f.reader,
-        { code: "FONT_MISSING", nodeId: kept, message: expect.stringMatching(/^Arial is/) },
+        { code: "FONT_MISSING", nodeId: kept, message: expect.stringMatching(/^Helvetica is/) },
         {
           code: "MISSING_GLYPHS",
           nodeId: kept,
@@ -538,13 +540,13 @@ describe("placeNodes' per-file text warnings (#162)", () => {
     });
 
     it(`warn nothing for a face or characters only the left-behind text has (${order})`, () => {
-      const f = copy("Helvetica:小动", "Source Sans 3:Kept", order);
+      const f = copy(clip, { fontFamily: "Source Sans 3", content: "Kept" }, order);
       expect(paste(f, [f.artId, f.keptId]).warnings).toEqual([f.reader]);
     });
   }
 
   it("give a full-file Place Open's warnings, renamed to the copies", () => {
-    const f = copy("Helvetica:小动", "Arial:物", "clip first");
+    const f = copy(clip, { fontFamily: "Arial", content: "物" }, "clip first");
     const placed = paste(f);
     const copyOf = (name: string) => placed.created.find((n) => n.name === name)?.id;
     const renamed = { [f.clipId]: copyOf("clip"), [f.keptId]: copyOf("kept") };

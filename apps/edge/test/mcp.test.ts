@@ -1723,20 +1723,20 @@ describe("a Place receipt's warnings name the placed Nodes (#161)", () => {
     };
     const clip = { fontFamily: "Helvetica", content: "小动" };
 
-    const pasted = await copyOf(clip, { fontFamily: "Arial", content: "物" });
-    const [font] = warned(pasted, "FONT_MISSING");
+    const pasted = await copyOf(clip, { fontFamily: "Helvetica", content: "物" });
+    const fonts = warned(pasted, "FONT_MISSING");
     const [glyphs] = warned(pasted, "MISSING_GLYPHS");
-    expect(warned(pasted, "FONT_MISSING")).toHaveLength(1);
-    expect(font?.message).toMatch(/^Arial is/);
+    expect(fonts).toHaveLength(1);
+    expect(fonts[0]?.message).toMatch(/^Helvetica is/);
     expect(glyphs?.message).toContain("no glyphs for 物;");
-    expect(glyphs?.nodeId).toBe(font?.nodeId);
+    expect(glyphs?.nodeId).toBe(fonts[0]?.nodeId);
     expect(await texts(docId, [glyphs?.nodeId])).toMatchObject([{ content: "物" }]);
 
     const plain = await copyOf(clip, { content: "Kept" });
     expect(plain.structuredContent.warnings).toEqual([]);
   });
 
-  it("gives a full-file Place doc_open's warnings, in order, on the placed Texts", async () => {
+  it("gives doc_open's warnings, in order, to a full-file Place, on the placed Texts", async () => {
     const svg =
       '<svg xmlns="http://www.w3.org/2000/svg"><text y="10" font-family="Helvetica">小动</text><text y="30" font-family="Arial">动物</text><text y="50" font-family="Helvetica">物</text></svg>';
     const opened = (await call("zibel_doc_open", { content: svg })).structuredContent.warnings;

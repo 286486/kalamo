@@ -2,15 +2,9 @@ import { generateKeyBetween, generateNKeysBetween } from "fractional-indexing";
 import { assertParent, bounds, childrenOf, createNodes, newId, union } from "./document.ts";
 import { transformNodes } from "./edit.ts";
 import type { Artboard, Document, Node, Rect, RenderScope, WriteReceipt } from "./schema.ts";
-import { fileFontWarnings, fileGlyphWarnings } from "./text.ts";
+import { FILE_TEXT_WARNING_CODES, fileTextWarnings } from "./text.ts";
 
 type Warning = WriteReceipt["warnings"][number];
-
-/**
- * Warnings Open keeps once per file or face, so one stands for several Nodes; Place counts them
- * again over what it copies. A reader warning aggregated that way with a `nodeId` belongs here too.
- */
-const PER_FILE = new Set(["FONT_MISSING", "MISSING_GLYPHS"]);
 
 const overlap = (a: Rect, b: Rect) =>
   Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x)) *
@@ -38,7 +32,7 @@ function artboardOf(doc: Document, node: Node): Artboard | undefined {
  * listed Node. `placedIds` are the Nodes put in the parent, the Group or those, and `created`
  * starts with them. `warnings` are the file's, each `nodeId` renamed to its copy's id; one on a Node
  * that stays behind is dropped. The per-file `FONT_MISSING` and `MISSING_GLYPHS` are counted again
- * over the texts Place copies, in file order as Open counts them (ADR-0062).
+ * over the texts Place copies, in file order as Open counts them (ADR-0017, ADR-0062).
  */
 export function placeNodes(
   doc: Document,
@@ -127,9 +121,8 @@ export function placeNodes(
   const rest = [...ids.values()].filter((id) => !placed.has(id));
   const originals = file.nodes.filter((n) => ids.has(n.id));
   const warnings = [
-    ...(file.warnings ?? []).filter((w) => !PER_FILE.has(w.code)),
-    ...fileFontWarnings(originals),
-    ...fileGlyphWarnings(originals),
+    ...(file.warnings ?? []).filter((w) => !FILE_TEXT_WARNING_CODES.has(w.code)),
+    ...fileTextWarnings(originals),
   ].flatMap((w) => {
     if (w.nodeId === undefined) return [w];
     const id = ids.get(w.nodeId);

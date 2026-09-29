@@ -1,4 +1,4 @@
-import { fileFontWarnings, fileGlyphWarnings, parseDocument, ZibelError } from "@zibel/core";
+import { fileTextWarnings, parseDocument, ZibelError } from "@zibel/core";
 import { type OpenedFile, parseSvg, type Warning } from "./read.ts";
 
 export { MAX_DEPTH, parseSvg, resolveLinks } from "./read.ts";
@@ -117,13 +117,7 @@ export function parseFile(
       path: "content",
     });
   }
-  // One per font, not per text, and one for the file's missing glyphs, so a CJK poster warns once
-  // (ADR-0062).
   const format = text.startsWith("<") ? "svg" : "zibel_json";
-  const warnings = [
-    ...file.warnings,
-    ...fileFontWarnings(file.nodes),
-    ...fileGlyphWarnings(file.nodes),
-  ];
+  const warnings = [...file.warnings, ...fileTextWarnings(file.nodes)];
   return { ...file, format, warnings };
 }
