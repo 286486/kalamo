@@ -299,21 +299,20 @@ export function assertParent(
  * a parent that exists and may hold the Node (`assertParent`, cycles included), a valid
  * fractional-index key no earlier sibling in `nodes` holds, and at most one Clipping Path per Layer
  * or Group, visible. The first rule each Node breaks goes to `report` with the Node's position in
- * `nodes`; its `path` starts with `at` of that position. File validation throws the first; a commit
- * reports the Nodes it touched.
+ * `nodes`; its `path` starts with `nodes[i]`. File validation throws the first; a commit reports
+ * the Nodes it touched.
  */
 export function checkTree(
   doc: Document,
   nodes: Node[],
   report: (error: KalamoError, i: number) => void,
-  at = (i: number) => `nodes[${i}]`,
 ): void {
   const invalid = (path: string, message: string, hint: string) =>
     new KalamoError({ code: "INVALID_DOCUMENT", message, hint, path });
   const siblings = new Set<string>();
   const clipped = new Set<string | null>();
   nodes.forEach((n, i) => {
-    const path = at(i);
+    const path = `nodes[${i}]`;
     try {
       // An Artboard id falls through to assertParent, whose hint explains Artboards are not parents.
       const { parentId } = n;

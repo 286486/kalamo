@@ -979,7 +979,7 @@ export class DocumentObject extends DurableObject<Env> {
   private receipt(
     before: Document,
     after: Document,
-    change: { created: Node[]; updated: Node[]; deletedIds: string[] },
+    change: Required<Change>,
     meta: {
       txId: string;
       rev: number;

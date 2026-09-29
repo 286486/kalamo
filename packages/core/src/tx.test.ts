@@ -357,6 +357,18 @@ describe("tree rules at commit, undo and redo (ADR-0072)", () => {
     reopens(doc);
   });
 
+  it("refuses to show a staged Transaction a view that moves committed meanwhile made cyclic", () => {
+    const { doc, g1, g2 } = tree();
+    const rows: TxRow[] = [];
+    stage(doc, rows, (v) => reparentNodes(v, [{ nodeId: g1, parentId: g2 }]));
+    reparentNodes(doc, [{ nodeId: g2, parentId: g1 }]);
+    expect(nodeGone(() => stage(doc, rows, (v) => deleteNodes(v, [g1])))).toMatchObject({
+      code: "TREE_CONFLICT",
+      nodeIds: [g1],
+      hint: expect.stringContaining("kalamo_tx_rollback"),
+    });
+  });
+
   it("refuses with NODE_GONE a staged move into a Group deleted meanwhile", () => {
     const { doc, g1, r } = tree();
     const rows: TxRow[] = [];
@@ -376,6 +388,42 @@ describe("tree rules at commit, undo and redo (ADR-0072)", () => {
     const { skipped, updated } = revert(doc, out);
     expect(skipped).toEqual([g1]);
     expect(updated).toEqual([]);
+    expect(doc.nodes.get(g1)?.parentId).toBe(l);
+    reopens(doc);
+  });
+
+  it("refuses a staged move that closes a cycle through a Group it deletes, changing nothing", () => {
+    const { doc, l, g1, g2 } = tree();
+    const [d] = createNodes(doc, [{ type: "group", parentId: l }]).nodes as [Node];
+    const rows: TxRow[] = [];
+    stage(doc, rows, (v) => reparentNodes(v, [{ nodeId: g1, parentId: g2 }]));
+    stage(doc, rows, (v) => deleteNodes(v, [d.id]));
+    reparentNodes(doc, [{ nodeId: d.id, parentId: g1 }]);
+    reparentNodes(doc, [{ nodeId: g2, parentId: d.id }]);
+    const before = copy(doc);
+    expect(nodeGone(() => commitTransaction(doc, rows))).toMatchObject({
+      code: "TREE_CONFLICT",
+      nodeIds: [g1],
+      message: expect.stringContaining("cycle"),
+    });
+    expect(doc.nodes).toEqual(before.nodes);
+    reopens(doc);
+  });
+
+  it("skips an undone move that closes a cycle through a Group the undo deletes", () => {
+    const { doc, l, g1, g2 } = tree();
+    reparentNodes(doc, [{ nodeId: g1, parentId: g2 }]);
+    let d = "";
+    const out = write(doc, (x) => {
+      d = (createNodes(x, [{ type: "group", parentId: l }]).nodes[0] as Node).id;
+      reparentNodes(x, [{ nodeId: g1, parentId: d }]);
+    });
+    reparentNodes(doc, [{ nodeId: g1, parentId: l }]);
+    reparentNodes(doc, [{ nodeId: d, parentId: g1 }]);
+    reparentNodes(doc, [{ nodeId: g2, parentId: d }]);
+    const { skipped, deletedIds } = revert(doc, out);
+    expect(skipped).toEqual([g1]);
+    expect(deletedIds.sort()).toEqual([d, g2].sort());
     expect(doc.nodes.get(g1)?.parentId).toBe(l);
     reopens(doc);
   });
@@ -470,40 +518,90 @@ describe("tree rules at commit, undo and redo (ADR-0072)", () => {
       return seed / 2 ** 31;
     };
     const pick = <T>(list: T[]): T => list[Math.floor(random() * list.length)] as T;
-    /** Any Node's id, or one no Node has; core refuses what does not fit. */
-    const any = (d: Document, keep = (_: Node) => true) =>
-      pick([...[...d.nodes.values()].filter(keep).map((n) => n.id), "nope"]);
+    /** Any Node's id, or now and then one no Node has; core refuses what does not fit. */
+    const any = (d: Document, keep = (_: Node) => true) => {
+      const ids = [...d.nodes.values()].filter(keep).map((n) => n.id);
+      return random() < 0.05 || ids.length === 0 ? "nope" : pick(ids);
+    };
+    /** Mostly a Layer or Group, so most edits land and meet each other. */
+    const parent = (d: Document) =>
+      any(d, (n) => random() < 0.1 || n.type === "layer" || n.type === "group");
+    /** Mostly Groups, whose moves close cycles and meet other moves. */
+    const move = (d: Document) => {
+      const at = pick([{}, {}, { index: 0 }, { before: any(d) }]);
+      const nodeId = any(d, (n) => random() < 0.2 || n.type === "group");
+      return reparentNodes(d, [{ nodeId, parentId: random() < 0.05 ? null : parent(d), ...at }]);
+    };
     const edits: ((d: Document) => unknown)[] = [
       (d) =>
         createNodes(d, [
           pick([
-            { type: "rect", parentId: any(d), x: 0, y: 0, width: 1, height: 1 },
-            { type: "group", parentId: any(d) },
+            { type: "rect", parentId: parent(d), x: 0, y: 0, width: 1, height: 1 },
+            { type: "group", parentId: parent(d) },
           ] as const),
         ]),
-      (d) => {
-        const at = pick([{}, { index: 0 }, { before: any(d) }]);
-        return reparentNodes(d, [{ nodeId: any(d), parentId: pick([any(d), null]), ...at }]);
-      },
-      (d) => makeMask(d, { layerId: any(d) }),
+      move,
+      move,
+      move,
+      (d) => makeMask(d, { layerId: parent(d) }),
       (d) =>
-        placeNodes(d, { name: "f", nodes: [...tree().doc.nodes.values()] }, { parentId: any(d) }),
-      (d) => deleteNodes(d, [any(d, (n) => n.type !== "layer")]),
+        placeNodes(
+          d,
+          { name: "f", nodes: [...tree().doc.nodes.values()] },
+          { parentId: parent(d) },
+        ),
+      // Mostly leaves, so a staged Transaction is seldom refused as NODE_GONE before its tree check.
+      (d) =>
+        deleteNodes(d, [
+          any(d, (n) => n.type !== "layer" && (n.type !== "group" || random() < 0.2)),
+        ]),
     ];
-    for (let run = 0; run < 20; run++) {
-      const { doc } = tree();
-      const txs: TxRow[][] = [[], []];
+    /** How often each path ADR-0072 adds ran, so the test fails if the edits stop reaching one. */
+    const seen = { refused: 0, skipped: 0, rekeyed: 0 };
+    /** Nodes stored with another key than the row set; a row that left `index` alone merges none. */
+    const rekeyed = (change: { created: Node[]; updated: Node[] }, rows: TxRow[]) =>
+      [...change.created, ...change.updated].filter((n) => {
+        const row = rows.find((r) => r.id === n.id);
+        return row?.working?.index !== row?.base?.index && n.index !== row?.working?.index;
+      }).length;
+    for (let run = 0; run < 100; run++) {
+      const { doc, g1 } = tree();
+      // Nest a few Groups, so moves can close cycles several levels deep.
+      createNodes(doc, [
+        {
+          type: "group",
+          parentId: g1,
+          children: [{ type: "group", children: [{ type: "group" }] }],
+        },
+      ]);
+      const txs: TxRow[][] = Array.from({ length: 3 }, () => []);
       const deltas: DeltaRow[][] = [];
-      for (let step = 0; step < 60; step++) {
+      for (let step = 0; step < 80; step++) {
         const roll = random();
         try {
-          if (roll < 0.1 && deltas.length > 0) revert(doc, pick(deltas));
-          else if (roll < 0.25) {
+          if (roll < 0.1 && deltas.length > 0) {
+            const delta = pick(deltas);
+            const rows = delta.map(({ id, before, after }) => ({
+              id,
+              base: after,
+              working: before,
+            }));
+            // A row whose Node and parent are still there is skipped only for a tree rule.
+            const there = (r: TxRow) =>
+              (!r.base || doc.nodes.has(r.id)) &&
+              (!r.working?.parentId || doc.nodes.has(r.working.parentId));
+            const change = revert(doc, delta);
+            seen.skipped += rows.filter((r) => change.skipped.includes(r.id) && there(r)).length;
+            seen.rekeyed += rekeyed(change, rows);
+          } else if (roll < 0.18) {
             const rows = pick(txs);
             const before = copy(doc);
             try {
-              commitTransaction(doc, rows);
+              seen.rekeyed += rekeyed(commitTransaction(doc, rows), rows);
               deltas.push(diff(before, doc));
+            } catch (e) {
+              if (e instanceof KalamoError && e.data.code === "TREE_CONFLICT") seen.refused++;
+              throw e;
             } finally {
               rows.length = 0;
             }
@@ -515,5 +613,8 @@ describe("tree rules at commit, undo and redo (ADR-0072)", () => {
         reopens(doc);
       }
     }
+    expect(seen.refused).toBeGreaterThan(0);
+    expect(seen.skipped).toBeGreaterThan(0);
+    expect(seen.rekeyed).toBeGreaterThan(0);
   });
 });

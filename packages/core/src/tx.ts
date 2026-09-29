@@ -14,14 +14,30 @@ export interface TxRow {
   working: Node | null;
 }
 
-/** The committed Document as the Transaction sees it. Leaves `doc` untouched. */
+const ROLL_BACK = "Roll back with kalamo_tx_rollback and redo the work in a new Transaction.";
+
+/**
+ * The committed Document as the Transaction sees it. Leaves `doc` untouched. Throws TREE_CONFLICT
+ * when moves committed meanwhile close a cycle with the Transaction's (ADR-0072), since nothing
+ * could walk that view and the commit would be refused anyway.
+ */
 export function overlay(doc: Document, rows: TxRow[]): Document {
   const nodes = new Map(doc.nodes);
   for (const { id, working } of rows) {
     if (working) nodes.set(id, working);
     else nodes.delete(id);
   }
-  return { ...doc, nodes };
+  const view = { ...doc, nodes };
+  const looped = rows.filter((r) => r.working && cyclic(view, r.id)).map((r) => r.id);
+  if (looped.length > 0) {
+    throw new KalamoError({
+      code: "TREE_CONFLICT",
+      message: `Moves committed meanwhile put ${looped.join(", ")} inside itself: a cycle.`,
+      hint: ROLL_BACK,
+      nodeIds: looped,
+    });
+  }
+  return view;
 }
 
 type Change = { created: Node[]; updated: Node[]; deletedIds: string[] };
@@ -45,7 +61,7 @@ export function commitTransaction(doc: Document, rows: TxRow[]): Change {
     throw new KalamoError({
       code: "NODE_GONE",
       message: `Someone deleted ${[...gone].join(", ")} after this Transaction used them.`,
-      hint: "Roll back with kalamo_tx_rollback and redo the work in a new Transaction.",
+      hint: ROLL_BACK,
       nodeIds: [...gone],
     });
   }
@@ -55,15 +71,19 @@ export function commitTransaction(doc: Document, rows: TxRow[]): Change {
   if (broken.size > 0) {
     throw new KalamoError({
       code: "TREE_CONFLICT",
-      message: `Edits committed after this Transaction used them conflict with it: ${[...broken].map(([id, e]) => `${id}: ${e.data.message}`).join(" ")}`,
-      hint: "Roll back with kalamo_tx_rollback and redo the work in a new Transaction.",
+      message: `This Transaction breaks a rule of the Document as committed now: ${[...broken].map(([id, e]) => `${id}: ${e.data.message}`).join(" ")}`,
+      hint: ROLL_BACK,
       nodeIds: [...broken.keys()],
     });
   }
   return settle(doc, change);
 }
 
-/** Merges `rows` into `doc`, then rekeys each created or updated Node whose key a sibling holds. */
+/**
+ * Merges `rows` into `doc`, then rekeys each created or updated Node whose key a sibling holds. If
+ * the merge closes a cycle, nothing lies beneath a deleted Node in it, so only the Nodes whose
+ * parent chain returns to them are reported, for `conflicts` to name, and nothing is deleted.
+ */
 function apply(doc: Document, rows: TxRow[]): Change {
   const touched: string[] = [];
   const deleted = new Set<string>();
@@ -71,6 +91,11 @@ function apply(doc: Document, rows: TxRow[]): Change {
     if (!working) continue;
     doc.nodes.set(id, base ? merge(doc.nodes.get(id) as Node, base, working) : working);
     touched.push(id);
+  }
+  // The committed Document is acyclic, so a cycle runs through a Node the rows moved or created.
+  const looped = touched.filter((id) => cyclic(doc, id));
+  if (looped.length > 0) {
+    return { created: [], updated: looped.map((id) => doc.nodes.get(id) as Node), deletedIds: [] };
   }
   for (const { id, base, working } of rows) {
     const node = doc.nodes.get(id);
@@ -87,6 +112,16 @@ function apply(doc: Document, rows: TxRow[]): Change {
     updated: nodes.filter((n) => byId.get(n.id)?.base),
     deletedIds: [...deleted],
   };
+}
+
+/** Whether `id`'s chain of parents in `doc` comes back to it. */
+function cyclic(doc: Document, id: string): boolean {
+  const seen = new Set<string>();
+  for (let p = doc.nodes.get(id)?.parentId; p && !seen.has(p); p = doc.nodes.get(p)?.parentId) {
+    if (p === id) return true;
+    seen.add(p);
+  }
+  return false;
 }
 
 /**
@@ -117,6 +152,8 @@ function rekey(doc: Document, ids: string[]): void {
  * one container the touched one is named; a rule an untouched Node already broke is not.
  */
 function conflicts(doc: Document, change: Change): Map<string, KalamoError> {
+  // ponytail: checks the whole Document, O(n·depth), so it cannot drift from file validation
+  // (ADR-0072); if commits slow with Document size, check the touched Nodes and their siblings only.
   const touched = [...change.created, ...change.updated];
   const ids = new Set(touched.map((n) => n.id));
   const others = [...doc.nodes.values()].filter((n) => !ids.has(n.id));

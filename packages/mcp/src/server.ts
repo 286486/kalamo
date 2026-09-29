@@ -815,7 +815,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       title: "Commit Transaction",
       description: [
         "Apply every write of the Transaction at once: rev goes up by one and the receipt lists every created, updated and deleted id.",
-        "Properties someone else changed meanwhile are kept unless the Transaction changed the same property. If someone deleted a Node the Transaction edited, or a Layer or Group it created Nodes in, the commit fails with NODE_GONE listing them and the Transaction stays open for kalamo_tx_rollback. If a move someone committed meanwhile makes the Transaction's moves form a cycle or give a Layer or Group two Clipping Paths, it fails the same way with TREE_CONFLICT. A Node created on top of a parent someone else also added to meanwhile goes above theirs.",
+        "Properties someone else changed meanwhile are kept unless the Transaction changed the same property. If someone deleted a Node the Transaction edited, or a Layer or Group it created Nodes in, the commit fails with NODE_GONE listing them and the Transaction stays open for kalamo_tx_rollback. If the merge would break a tree rule (a cycle with moves someone committed meanwhile, a Layer in a Group, two Clipping Paths in one Layer or Group), it fails the same way with TREE_CONFLICT. A Node created on top of a parent someone else also added to meanwhile goes above theirs.",
       ].join(" "),
       inputSchema: { docId, txId, ifRev, intent },
       outputSchema: WriteReceipt.shape,

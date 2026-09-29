@@ -838,6 +838,10 @@ it("refuses a commit whose move makes a cycle with one committed meanwhile, keep
   const { txId } = ok(await s.begin("agent-a"));
   ok(await s.reparentNodes([{ nodeId: g1, parentId: g2 }], "agent-a", { txId }));
   ok(await s.reparentNodes([{ nodeId: g2, parentId: g1 }], "agent-b"));
+  // The Transaction's view is a cycle now, so its writes fail the same way instead of walking it.
+  expect(await s.deleteNodes([g1], "agent-a", { txId })).toMatchObject({
+    error: { code: "TREE_CONFLICT", nodeIds: [g1] },
+  });
   expect(await s.commitTx(txId, "agent-a")).toMatchObject({
     error: {
       code: "TREE_CONFLICT",

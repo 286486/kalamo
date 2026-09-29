@@ -26,6 +26,10 @@ A committed Document always passes the checks file validation runs on each Node.
    - **Commit** (`kalamo_tx_commit`) is refused as a whole with the new error `TREE_CONFLICT` and changes nothing. `nodeIds` lists the touched Nodes that break a rule, the message says which rule each breaks, and the hint says to roll back with `kalamo_tx_rollback` and redo the work in a new Transaction. The Transaction stays open, as with `NODE_GONE`.
    - **Undo and redo** skip the offending rows, whole, and report them in `skipped`, as they skip delete-beats-edit rows. Skipping a row can make another unplaceable (a create under a skipped create), so the check repeats on what is left until it applies. Skipped ids reach `doc_changes` in the summary (`skipped, deleted or moved since: …`) and the `tx` broadcast as `skippedIds`.
 
+**A merge that closes a cycle** is caught before anything else runs. The committed Document has no cycle, so one runs through a Node the rows moved or created. Such Nodes are the conflict: nothing lies "beneath" a deleted Node inside a cycle, so deletes in the same rows wait. Without this, a delete row whose Node sits in the cycle walked its subtree forever. The commit is refused, and undo or redo skips those rows and runs again on the rest, where the deletes take their descendants as committed now.
+
+**A staged Transaction's view** (its overlay, ADR-0008) can close a cycle too, once moves committed meanwhile meet its own. Every read or write in that Transaction then fails with `TREE_CONFLICT`, naming those Nodes, with the same hint: the commit would be refused anyway, and nothing could walk that view. `kalamo_tx_commit` and `kalamo_tx_rollback` do not read the view, so the Transaction can still be rolled back.
+
 `NODE_GONE` also covers a Node the Transaction moved into a parent deleted meanwhile, as it covers one created there (ADR-0008). Before, that commit stored a `parentId` naming no Node.
 
 ## Considered Options
@@ -38,7 +42,7 @@ A committed Document always passes the checks file validation runs on each Node.
 
 ## Consequences
 
-- Amends ADR-0008: a commit can also fail with `TREE_CONFLICT`. Amends ADR-0011: undo and redo also skip rows that would break a tree rule or add a second Clipping Path.
+- Amends ADR-0008: a commit, or a read or write in a Transaction whose view became cyclic, can also fail with `TREE_CONFLICT`. Amends ADR-0011: undo and redo also skip rows that would break a tree rule or add a second Clipping Path.
 - Every commit, undo and redo checks the whole Document: linear in its Nodes times their depth, next to the full load each write already does.
 - With one linear undo stack an undo always applies to the state its Transaction left, so its skip rule still cannot fire in the Durable Object (ADR-0011, Consequences). It is tested at the core seam and, in the Durable Object, against a Node row edited off the stack.
 - A committed Transaction's receipt can carry a created Node's `index` that differs from what its overlay showed; the receipt and the `tx` broadcast carry the stored copy.
