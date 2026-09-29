@@ -314,17 +314,37 @@ describe.each(tools)("the %s, then a Rectangle, both in flight from a leaf (#141
   });
 });
 
-it("a path started while an earlier one is in flight is not ended by the earlier tx", () => {
-  isolateLeaf("group");
-  drawPen();
-  penDown([10, 10], 1);
-  penUp();
-  const pen = useStore.getState().pen;
-  expect(pen?.anchors).toHaveLength(1);
-  expect(useStore.getState().pending).toHaveLength(1);
-  accept("c1");
-  expect(useStore.getState()).toMatchObject({ pen, pending: [] });
-});
+it.each([
+  [
+    "Pen",
+    drawPen,
+    () => {
+      penDown([10, 10], 1);
+      penUp();
+    },
+  ],
+  [
+    "Curvature",
+    drawCurve,
+    () => {
+      vi.advanceTimersByTime(1000);
+      curvatureDown([150, 80], 1, false);
+      curvatureUp();
+    },
+  ],
+] as const)(
+  "a %s path started while an earlier one is in flight is not ended by the earlier tx",
+  (_, draw, start) => {
+    isolateLeaf("group");
+    draw();
+    start();
+    const pen = useStore.getState().pen;
+    expect(pen?.anchors).toHaveLength(1);
+    expect(useStore.getState().pending).toHaveLength(1);
+    accept("c1");
+    expect(useStore.getState()).toMatchObject({ pen, pending: [] });
+  },
+);
 
 it("the last drawn object decides the Selection, a Pencil with Keep selected off none", () => {
   isolateLeaf("group");
