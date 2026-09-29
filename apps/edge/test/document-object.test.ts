@@ -895,3 +895,38 @@ it("skips an undone move that would now make a cycle, and names it in doc_change
   ]);
   await reopens(s, "tree3-copy");
 });
+
+it("restacks in two parents as one Transaction, one receipt and one undo step (ADR-0074)", async () => {
+  const { s, a, b, ids, places } = await withTwoLayers("reorder1");
+  const layers = async () => ok(await s.outline({ depth: 1 }, "user")).nodes.map((n) => n.id);
+  const before = { places: await places(), layers: await layers() };
+  expect(before.layers).toEqual([a, b]);
+  const nodeIds = [ids[2] as string, b];
+  const receipt = ok(await s.reorderNodes(nodeIds, "back", "agent-a", { intent: "tidy" }));
+  expect(receipt).toMatchObject({ rev: 4, updatedIds: nodeIds });
+  expect(ok(await s.changes(3)).changes).toMatchObject([
+    { rev: 4, txId: receipt.txId, summary: "Send to Back", intent: "tidy", updatedIds: nodeIds },
+  ]);
+  expect(await places()).toEqual([
+    [a, 1],
+    [a, 2],
+    [a, 0],
+  ]);
+  expect(await layers()).toEqual([b, a]);
+  expect(ok(await s.undo("user")).rev).toBe(5);
+  expect({ places: await places(), layers: await layers() }).toEqual(before);
+});
+
+it("refuses an unknown id at nodeIds[i] changing nothing, and lists no Node that stays put", async () => {
+  const { s, ids, places } = await withTwoLayers("reorder2");
+  const before = await places();
+  expect(await s.reorderNodes([ids[0] as string, "nope"], "front", "agent-a")).toMatchObject({
+    error: { code: "NODE_NOT_FOUND", path: "nodeIds[1]" },
+  });
+  expect(await s.info()).toMatchObject({ rev: 3 });
+  expect(await places()).toEqual(before);
+  const receipt = ok(await s.reorderNodes([ids[2] as string], "forward", "agent-a"));
+  // Committed, as a write that changes nothing is elsewhere (ADR-0074).
+  expect(receipt).toMatchObject({ rev: 4, updatedIds: [], createdIds: [], deletedIds: [] });
+  expect(await places()).toEqual(before);
+});

@@ -23,6 +23,11 @@ it("names a key press in Illustrator's Windows notation, Cmd as Ctrl", () => {
   expect(keysOf(press("Backspace"))).toBe("Delete");
   expect(keysOf(press("F7"))).toBe("F7");
   expect(keysOf(press("\\", {}, "Backslash"))).toBe("\\");
+  expect(keysOf(press("]", { ctrlKey: true }, "BracketRight"))).toBe("Ctrl+]");
+  expect(keysOf(press("}", { ctrlKey: true, shiftKey: true }, "BracketRight"))).toBe(
+    "Shift+Ctrl+]",
+  );
+  expect(keysOf(press("{", { metaKey: true, shiftKey: true }, "BracketLeft"))).toBe("Shift+Ctrl+[");
 });
 
 it("shows a shortcut as the platform's menus do", () => {
@@ -55,6 +60,10 @@ it("finds the Menu Item a shortcut runs", () => {
   expect(findByKeys(menus, "Shift+Ctrl+A")?.label).toBe("Deselect");
   expect(findByKeys(menus, "Ctrl+7")?.label).toBe("Make");
   expect(findByKeys(menus, "Alt+Ctrl+7")?.label).toBe("Release");
+  expect(findByKeys(menus, "Shift+Ctrl+]")?.label).toBe("Bring to Front");
+  expect(findByKeys(menus, "Ctrl+]")?.label).toBe("Bring Forward");
+  expect(findByKeys(menus, "Ctrl+[")?.label).toBe("Send Backward");
+  expect(findByKeys(menus, "Shift+Ctrl+[")?.label).toBe("Send to Back");
   expect(findByKeys(menus, "Ctrl+Q")).toBeUndefined();
 });
 

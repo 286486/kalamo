@@ -1,8 +1,11 @@
 import {
+  ARRANGE,
   type Document,
   type Node,
   PATH_OP_TEXT,
   type PathOpInput,
+  type ReorderOp,
+  reorderNodes,
   serializeDocument,
 } from "@kalamo/core";
 import { toSvg } from "@kalamo/io/write";
@@ -117,6 +120,24 @@ const pathOp = (
     const { doc, selection } = useStore.getState();
     const nodeIds = doc ? pathTargets(doc, selection) : [];
     if (nodeIds.length > 0) send({ type: "path_op", input: { nodeIds, op } });
+  },
+});
+
+/** The Selection's Nodes Object > Arrange restacks: those not hidden or locked. */
+const arrangeable = ({ doc, selection }: Pick<State, "doc" | "selection">) =>
+  doc ? selection.filter((id) => editable(doc, doc.nodes.get(id))) : [];
+
+/** An Object > Arrange item: restacks each selected Node in its own parent (ADR-0074). */
+const arrange = (op: ReorderOp, keys: string): MenuItem => ({
+  label: ARRANGE[op],
+  keys,
+  enabled: (s) => arrangeable(s).length > 0,
+  run: () => {
+    const { doc, selection } = useStore.getState();
+    const nodeIds = arrangeable({ doc, selection });
+    // Nothing is sent when every Node is already where op puts it, so Undo has no empty step.
+    const moves = doc && reorderNodes({ ...doc, nodes: new Map(doc.nodes) }, nodeIds, op).nodes;
+    if (moves && moves.length > 0) send({ type: "reorder", nodeIds, op });
   },
 });
 
@@ -351,6 +372,15 @@ export function documentMenus(tabs: {
       items: [
         ...edits([
           {
+            label: "Arrange",
+            items: [
+              arrange("front", "Shift+Ctrl+]"),
+              arrange("forward", "Ctrl+]"),
+              arrange("backward", "Ctrl+["),
+              arrange("back", "Shift+Ctrl+["),
+            ],
+          },
+          {
             // Illustrator's order; Smooth takes its place when it arrives.
             label: "Path",
             items: [
@@ -563,6 +593,9 @@ export function keysOf(
   const plus = key === "+";
   if (plus) key = "=";
   else if (key === "Backspace") key = "Delete";
+  // Shift+] types }, and Illustrator names the bracket key.
+  else if (key === "{") key = "[";
+  else if (key === "}") key = "]";
   if (key.length === 1) key = key.toUpperCase();
   return [
     e.altKey && "Alt",

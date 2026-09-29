@@ -219,6 +219,20 @@ describe("write tools pass the write and its options apart", () => {
     ]);
   });
 
+  it.each(["front", "forward", "backward", "back"] as const)(
+    "node_reorder: nodeIds and op %s as sent, apart from the write options",
+    async (op) => {
+      const { service, call } = await harness({ reorderNodes: async () => receipt });
+      await call("kalamo_node_reorder", { docId: "d", nodeIds: ["a", "b"], op, ...opts });
+      expect(service.reorderNodes.mock.calls[0]).toStrictEqual([
+        "d",
+        ["a", "b"],
+        op,
+        { ...opts, partial: false },
+      ]);
+    },
+  );
+
   it.each([1, 1000])("node_reparent: %i moves, the bounds, reach the service", async (n) => {
     const { service, call } = await harness({ reparentNodes: async () => receipt });
     const moves = Array.from({ length: n }, (_, i) => ({ nodeId: `n${i}`, parentId: "g" }));
@@ -751,6 +765,30 @@ describe("arguments are parsed strictly: a bad one is INVALID_INPUT and nothing 
       "moves[0].index",
       "moves[0].index must be at least 0.",
     ],
+    [
+      "kalamo_node_reorder",
+      { docId: "d", nodeIds: ["a"] },
+      "op",
+      "Send one of: front, forward, backward, back.",
+    ],
+    [
+      "kalamo_node_reorder",
+      { docId: "d", nodeIds: ["a"], op: "top" },
+      "op",
+      "Send one of: front, forward, backward, back.",
+    ],
+    [
+      "kalamo_node_reorder",
+      { docId: "d", nodeIds: [], op: "front" },
+      "nodeIds",
+      "nodeIds must be at least 1 item.",
+    ],
+    [
+      "kalamo_node_reorder",
+      { docId: "d", nodeIds: ["a"], op: "front", parentId: "g" },
+      "parentId",
+      expect.any(String),
+    ],
   ])("%s %j: %s, with a hint on what to send", async (name, args, path, hint) => {
     const { call, called } = await harness();
     expect(errorOf(await call(name, args))).toMatchObject({ code: "INVALID_INPUT", path, hint });
@@ -926,6 +964,7 @@ describe("partial (F-MCP-16)", () => {
     ["kalamo_node_transform", "transformNodes", { nodeIds: ["a"], rotate: 1 }],
     ["kalamo_node_transform", "transformNodes", { transforms: [{ nodeIds: ["a"], rotate: 1 }] }],
     ["kalamo_node_reparent", "reparentNodes", { moves: [{ nodeId: "a", parentId: null }] }],
+    ["kalamo_node_reorder", "reorderNodes", { nodeIds: ["a"], op: "front" }],
   ] as const)("%s passes partial and returns failed intact", async (name, method, args) => {
     const { service, call } = await harness({ [method]: async () => ({ ...receipt, failed }) });
     const result = await call(name, { docId: "d", ...args, partial: true });
@@ -1038,6 +1077,7 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
     "kalamo_node_delete",
     "kalamo_node_get",
     "kalamo_node_query",
+    "kalamo_node_reorder",
     "kalamo_node_reparent",
     "kalamo_node_transform",
     "kalamo_node_update",
@@ -1060,6 +1100,7 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
     ["kalamo_node_delete", true],
     ["kalamo_node_transform", false],
     ["kalamo_node_reparent", false],
+    ["kalamo_node_reorder", false],
   ] as const) {
     expect(byName[name]?.annotations).toMatchObject({ destructiveHint: destructive });
     expect(inputKeys(name)).toEqual(
@@ -1118,6 +1159,10 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
   expect(described("kalamo_node_reparent")).toContain("stops clipping");
   expect(described("kalamo_node_reparent")).toContain("one Transaction");
   expect(described("kalamo_node_update")).toContain("kalamo_node_reparent");
+  expect(described("kalamo_node_update")).toContain("kalamo_node_reorder");
+  expect(described("kalamo_node_reorder")).toContain("keeps clipping");
+  expect(described("kalamo_node_reorder")).toContain("one undo step");
+  expect(byName.kalamo_node_reorder?.annotations).toMatchObject({ idempotentHint: false });
   expect(byName.kalamo_node_reparent?.annotations).toMatchObject({ idempotentHint: true });
   expect(described("kalamo_node_create")).toContain("text {");
   expect(described("kalamo_node_create")).toContain("TEXT_OVERFLOW");
@@ -1274,7 +1319,7 @@ it("logs one line per call: Actor, tool, duration, node count, error code and re
 it("names every tool kalamo_ and knows the former name's tools and format as nothing (ADR-0069)", async () => {
   const { client, call } = await harness();
   const names = (await client.listTools()).tools.map((t) => t.name);
-  expect(names).toHaveLength(26);
+  expect(names).toHaveLength(27);
   expect(names.filter((n) => !n.startsWith("kalamo_") || n.includes(LEGACY_NAME))).toEqual([]);
 
   const failure = async (name: string) =>

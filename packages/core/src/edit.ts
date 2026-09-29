@@ -27,6 +27,7 @@ import {
   type Node,
   PIVOTS,
   type Rect,
+  type ReorderOp,
   type ReparentInput,
   SHAPES,
   TextShape,
@@ -193,7 +194,7 @@ const READ_ONLY: Record<string, string> = {
   type: "A Node's type never changes; create a new Node and delete this one.",
   parentId: "Use node_reparent to move a Node to another Layer or Group.",
   index:
-    "Use node_reparent with the same parentId and index, before or after to restack a Node; node_reorder (front / forward / backward / back) is not available yet.",
+    "Use node_reorder (front / forward / backward / back) to restack a Node in its parent, or node_reparent with the same parentId and index, before or after to put it in an exact place.",
   transform: "Use node_transform to move, rotate, scale or skew.",
   childCount: "Derived from the tree; read-only.",
   geometricBounds: "Derived; move or resize the Node to change it.",
@@ -448,6 +449,66 @@ export function reparentNodes(
   });
   const nodes = [...new Map(ok.map((n) => [n.id, n])).values()];
   for (const n of nodes) doc.nodes.set(n.id, n);
+  return { nodes, failed };
+}
+
+/**
+ * The moves that restack `selected`, some of `siblings` (bottom first), as `op` says (ADR-0074):
+ * front and back keep their relative order, and forward and backward step each past one unselected
+ * sibling, so a contiguous run moves as a block and a run at the edge stays. Each move is one
+ * position, applied in order, so a Node already in its slot keeps its key.
+ */
+function restack(siblings: Node[], selected: Set<string>, op: ReorderOp): ReparentInput[] {
+  const order = siblings.map((n) => n.id);
+  const parentId = siblings[0]?.parentId ?? null;
+  const moves: ReparentInput[] = [];
+  const move = (nodeId: string, at: { before: string } | { after: string } | { index: number }) =>
+    moves.push({ nodeId, parentId, ...at });
+  if (op === "front" || op === "back") {
+    // From the edge inward, each lands next to the one placed before it.
+    const picked = order.filter((id) => selected.has(id));
+    const run = op === "front" ? picked.reverse() : picked;
+    run.forEach((id, i) => {
+      const prev = run[i - 1];
+      if (prev === undefined) move(id, { index: op === "front" ? order.length - 1 : 0 });
+      else move(id, op === "front" ? { before: prev } : { after: prev });
+    });
+    return moves;
+  }
+  // From the leading edge back, so a Node steps past the sibling the one ahead of it just left.
+  const up = op === "forward";
+  const step = up ? 1 : -1;
+  for (let i = up ? order.length - 2 : 1; i >= 0 && i < order.length; i -= step) {
+    const id = order[i] as string;
+    const next = order[i + step] as string;
+    if (!selected.has(id) || selected.has(next)) continue;
+    move(id, up ? { after: next } : { before: next });
+    order[i] = next;
+    order[i + step] = id;
+  }
+  return moves;
+}
+
+/**
+ * Object > Arrange (ADR-0074): restacks each Node within its own parent, which never changes.
+ * Returns the Nodes that moved, in the order `nodeIds` names them; one already where `op` puts it
+ * keeps its key and is not returned.
+ */
+export function reorderNodes(
+  doc: Document,
+  nodeIds: string[],
+  op: ReorderOp,
+  { partial = false } = {},
+): { nodes: Node[]; failed: Failed[] } {
+  const { ok, failed } = collect(nodeIds, partial, (id, i) => lookup(doc, id, `nodeIds[${i}]`));
+  const selected = new Set(ok.map((n) => n.id));
+  const parents = new Set(ok.map((n) => n.parentId));
+  const moves = [...parents].flatMap((p) => restack(childrenOf(doc, p), selected, op));
+  reparentNodes(doc, moves);
+  const nodes = [...new Map(ok.map((n) => [n.id, n])).values()].flatMap((n) => {
+    const now = doc.nodes.get(n.id) as Node;
+    return now.index === n.index ? [] : [now];
+  });
   return { nodes, failed };
 }
 
