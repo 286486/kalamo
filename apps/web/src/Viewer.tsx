@@ -1,11 +1,4 @@
-import {
-  BUNDLED_FAMILIES,
-  BUNDLED_FONT,
-  type BundledFamily,
-  bounds,
-  formatPath,
-  fromAnchors,
-} from "@zibel/core";
+import { BUNDLED_FONT, type BundledFamily, bounds, formatPath, fromAnchors } from "@zibel/core";
 import { toSvg } from "@zibel/io/write";
 import { drawDocument } from "@zibel/render/canvas";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
@@ -119,13 +112,11 @@ export function Viewer({ docId }: { docId: string }) {
 
   useEffect(() => {
     if (!doc) return;
-    for (const family of drawnLazyFamilies(
-      doc,
-      BUNDLED_FAMILIES.filter((f) => !lazyReady.has(f)),
-    ))
-      loadFamily(family).then(() =>
-        setLazyReady((ready) => (ready.has(family) ? ready : new Set(ready).add(family))),
-      );
+    for (const family of drawnLazyFamilies(doc))
+      if (!lazyReady.has(family))
+        loadFamily(family).then(() =>
+          setLazyReady((ready) => (ready.has(family) ? ready : new Set(ready).add(family))),
+        );
   }, [doc, lazyReady]);
 
   useEffect(() => {

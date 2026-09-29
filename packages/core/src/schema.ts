@@ -379,7 +379,7 @@ export const TextShape = z.object({
     .min(1)
     .default("Source Sans 3")
     .describe(
-      `Any font name, kept as written; ${BUNDLED_FAMILIES_NOTE}, and others render in ${BUNDLED_FONT}.`,
+      `Any font name, kept as written; ${BUNDLED_FAMILIES_NOTE}; others render in ${BUNDLED_FONT}.`,
     ),
   fontStyle: z
     .enum(FONT_STYLES)

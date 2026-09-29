@@ -96,12 +96,11 @@ test("a CJK text loads Noto Sans SC and draws its glyphs inside the bounds rende
   page,
   request,
 }) => {
-  const requested = noto(page);
+  const [requested, korean] = [noto(page), noto(page, "NotoSansKR")];
   const { docId, id } = await textDoc(page, request, {
     content: "小动物",
     fontStyle: "Bold Italic",
   });
-  const korean = noto(page, "NotoSansKR");
   await expect.poll(() => faces(page, "Noto Sans SC")).toEqual(LOADED);
   expect(requested).toHaveLength(2);
   await page.evaluate(() => document.fonts.ready);

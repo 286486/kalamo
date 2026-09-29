@@ -111,7 +111,7 @@ const emAscent = ({ ascender, descender }: { ascender: number; descender: number
 /**
  * The bundled families in fallback order after a text's own (ADR-0063, ADR-0066), each with the
  * style names of its faces, the face a style draws in by CSS matching (ADR-0028), and the scripts it
- * draws where the families before it lack them. The Noto families have Regular and Bold only, and no
+ * draws. The Noto families have Regular and Bold only, and no
  * italic, so an italic draws upright.
  */
 const FAMILIES = {
@@ -143,11 +143,11 @@ export const BUNDLED_FONT = "Source Sans 3";
 
 const list = (items: string[], type: "conjunction" | "disjunction") =>
   new Intl.ListFormat("en", { style: "long", type }).format(items);
-/** The bundled families and what each draws where Source Sans 3 lacks it, for tool and schema descriptions. */
-export const BUNDLED_FAMILIES_NOTE = `${list(BUNDLED_FAMILIES, "conjunction")} are bundled; ${list(
-  BUNDLED_FAMILIES.slice(1).map((f, i) => `${FAMILIES[f].draws}${i ? "" : " draw"} in ${f}`),
+/** The bundled families and what each draws, for tool and schema descriptions. */
+export const BUNDLED_FAMILIES_NOTE = `${list(
+  BUNDLED_FAMILIES.map((f) => `${f} (${FAMILIES[f].draws})`),
   "conjunction",
-)} wherever ${BUNDLED_FONT} lacks them`;
+)} are bundled, and each character draws in the first of them that has it`;
 
 /** What picks a text's faces: its family, Source Sans 3 if none, and style. */
 type TextFont = { fontFamily?: string | undefined; fontStyle?: FontStyle | undefined };

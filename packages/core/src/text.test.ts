@@ -515,7 +515,8 @@ it("measures Area Type with ranges as its frame", () => {
 it("has a glyph where a face in the fallback order has one, and a hard return always (ADR-0065)", () => {
   const t = { fontFamily: "Source Sans 3" };
   expect(["A", "小", "\n"].map((ch) => hasGlyph(t, ch))).toEqual([true, true, true]);
-  expect(["😀", "ก", "ก"].map((ch) => hasGlyph(t, ch))).toEqual([false, false, false]);
+  expect(["😀", "ก", "ب"].map((ch) => hasGlyph(t, ch))).toEqual([false, false, false]);
+  expect(hasGlyph(t, "한")).toBe(true);
 });
 
 it("places the first face's .notdef outline at an origin, y down, in the text's size (ADR-0065)", () => {

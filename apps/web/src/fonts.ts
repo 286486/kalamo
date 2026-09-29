@@ -1,4 +1,10 @@
-import { BUNDLED_FONT, type BundledFamily, type Document, drawnFamily } from "@zibel/core";
+import {
+  BUNDLED_FAMILIES,
+  BUNDLED_FONT,
+  type BundledFamily,
+  type Document,
+  drawnFamily,
+} from "@zibel/core";
 import krBoldUrl from "@zibel/render/fonts/NotoSansKR-Bold.otf?url";
 import krRegularUrl from "@zibel/render/fonts/NotoSansKR-Regular.otf?url";
 import scBoldUrl from "@zibel/render/fonts/NotoSansSC-Bold.otf?url";
@@ -68,11 +74,11 @@ export function loadFamily(family: BundledFamily) {
 }
 
 /**
- * The lazily loaded families some text in `doc` draws a character in (ADR-0063, ADR-0066), out of
- * `families`. Source Sans 3 loads with the page.
+ * The lazily loaded families some text in `doc` draws a character in (ADR-0063, ADR-0066). Source
+ * Sans 3 loads with the page.
  */
-export const drawnLazyFamilies = (doc: Document, families: BundledFamily[]) =>
-  families.filter(
+export const drawnLazyFamilies = (doc: Document) =>
+  BUNDLED_FAMILIES.filter(
     (family) =>
       family !== BUNDLED_FONT &&
       [...doc.nodes.values()].some(
