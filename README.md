@@ -66,12 +66,22 @@ MCP clients connect to `<MCP_ORIGIN>/mcp` with no token, for example `claude mcp
 pnpm exec wrangler login
 cp apps/edge/.deploy.vars.example apps/edge/.deploy.vars # fill in the secrets above
 pnpm exec wrangler d1 create kalamo --location apac --binding DB --update-config -c apps/edge/wrangler.jsonc
-pnpm exec wrangler kv namespace create OAUTH_KV --binding OAUTH_KV --update-config -c apps/edge/wrangler.jsonc
+pnpm exec wrangler kv namespace create kalamo-oauth --binding OAUTH_KV --update-config -c apps/edge/wrangler.jsonc
 pnpm deploy:check
-pnpm deploy
+pnpm run deploy
 ```
 
-`pnpm deploy` builds the web app, applies remote D1 migrations, uploads `apps/edge/.deploy.vars` as encrypted Worker secrets, and deploys the Worker, Durable Object, and static assets. It never reads `.dev.vars`, whose `AUTH_MODE="dev"` must not reach a deployed Worker. The resulting `workers.dev` URL needs no domain configuration; add a custom domain later in Cloudflare if wanted, and update `APP_ORIGIN` and the OAuth App's callback URL to match.
+`pnpm run deploy` (plain `pnpm deploy` is pnpm's own command) builds the web app, applies remote D1 migrations, uploads `apps/edge/.deploy.vars` as encrypted Worker secrets, and deploys the Worker, Durable Object, and static assets. It never reads `.dev.vars`, so a deployed Worker runs in GitHub mode unless the deploy sets `--var AUTH_MODE:dev` on purpose, as the hosted deployment below does until #173. The resulting `workers.dev` URL needs no domain configuration; add a custom domain later in Cloudflare if wanted, and update `APP_ORIGIN` and the OAuth App's callback URL to match.
+
+### The hosted deployment
+
+Kalamo is hosted at `https://kalamo.woodywang2013.workers.dev`: the app, `/mcp` and the API. Until GitHub sign-in is set up for it (#173), it runs in dev mode, and MCP takes the owner's `DEV_TOKENS`. Agent developers connect with:
+
+```sh
+claude mcp add --transport http kalamo https://kalamo.woodywang2013.workers.dev/mcp -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+The deployment's former workers.dev URL redirects every request here, keeping the path, and a page load there brings the browser's open tabs and Pencil options along. To redeploy in dev mode, put only `DEV_TOKENS` in `apps/edge/.deploy.vars`, then run `pnpm deploy:check` and `pnpm run deploy --var AUTH_MODE:dev`, which overrides the config's `github`.
 
 ## What it is meant to do
 

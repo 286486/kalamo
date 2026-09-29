@@ -98,4 +98,16 @@ test("Documents open in tabs that switch in place, close, and come back on reloa
   await page.reload();
   await expect(tabs(page)).toHaveText(["Tab A", "opened"]);
   expect(await page.evaluate(() => Object.keys(localStorage))).toEqual(["kalamo:tabs"]);
+
+  // The former origin's last page carries its tabs here in the URL fragment (#180).
+  const path = new URL(page.url()).pathname;
+  const carried = {
+    [`${LEGACY_NAME}:tabs`]: await page.evaluate(() => localStorage.getItem("kalamo:tabs")),
+  };
+  await page.evaluate(() => localStorage.clear());
+  await page.goto("about:blank");
+  await page.goto(`${path}#carry=${encodeURIComponent(JSON.stringify(carried))}`);
+  await expect(tabs(page)).toHaveText(["Tab A", "opened"]);
+  expect(new URL(page.url()).hash).toBe("");
+  expect(await page.evaluate(() => Object.keys(localStorage))).toEqual(["kalamo:tabs"]);
 });
