@@ -3119,3 +3119,18 @@ describe("container Appearance (ADR-0043)", () => {
     expect(rect).toMatchObject({ appearance: { fills: [{ color: "#FF0000" }] } });
   });
 });
+
+it("warns MISSING_GLYPHS once for a file, naming the union of its texts' missing characters", () => {
+  const file = parseFile(
+    '<svg xmlns="http://www.w3.org/2000/svg"><text x="0" y="10">小动</text><text x="0" y="30">动物 ok</text></svg>',
+  );
+  const texts = file.nodes.filter((n) => n.type === "text");
+  expect(file.warnings).toEqual([
+    {
+      code: "MISSING_GLYPHS",
+      nodeId: texts[0]?.id,
+      message:
+        "Source Sans 3 has no glyphs for 小, 动, 物; they render as .notdef boxes and measure as its width.",
+    },
+  ]);
+});

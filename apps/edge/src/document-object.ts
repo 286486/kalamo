@@ -14,7 +14,6 @@ import {
   editPath,
   type Failed,
   type FullView,
-  fontWarnings,
   type Geometry,
   type ImageFile,
   type ImageInfo,
@@ -31,7 +30,6 @@ import {
   type OutlineNode,
   type OutlineOptions,
   outline,
-  overflowWarnings,
   overlay,
   PATH_OP_TEXT,
   type PathEditInput,
@@ -47,6 +45,7 @@ import {
   serializeDocument,
   type TransformInput,
   type TxRow,
+  textWarnings,
   transformNodes,
   type UpdateInput,
   union,
@@ -443,7 +442,7 @@ export class DocumentObject extends DurableObject<Env> {
       run: (c, actor, commandId) =>
         this.write(actor, { commandId }, "Create", (doc) => {
           const { nodes, keyMap, failed } = createNodes(doc, c.nodes);
-          const warnings = [...fontWarnings(nodes), ...overflowWarnings(nodes)];
+          const warnings = textWarnings(nodes);
           return { created: nodes, keyMap, warnings, failed };
         }),
     },
@@ -604,7 +603,7 @@ export class DocumentObject extends DurableObject<Env> {
       return {
         created: nodes,
         keyMap,
-        warnings: [...fontWarnings(nodes), ...overflowWarnings(nodes)],
+        warnings: textWarnings(nodes),
         failed: merge(failed),
       };
     });
@@ -819,7 +818,7 @@ export class DocumentObject extends DurableObject<Env> {
       const { nodes, failed } = updateNodes(doc, ready, opts);
       return {
         updated: nodes,
-        warnings: [...fontWarnings(nodes), ...overflowWarnings(nodes)],
+        warnings: textWarnings(nodes),
         failed: merge(failed),
       };
     });

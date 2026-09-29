@@ -2,8 +2,10 @@ import { expect, it } from "vitest";
 import { SOURCE_SANS_3 } from "./source-sans-3.ts";
 import {
   type FontStyle,
+  fileGlyphWarnings,
   fontWarnings,
   glyphs,
+  glyphWarnings,
   layoutText,
   overflowWarnings,
   textBox,
@@ -104,6 +106,56 @@ it("warns once for each text in a font Zibel does not bundle", () => {
       message: "Helvetica is not bundled, so it renders in Source Sans 3; the name is kept.",
     },
   ]);
+});
+
+const typed = (id: string, content: string, fontStyle?: FontStyle) =>
+  ({ id, type: "text", fontFamily: "Source Sans 3", content, fontStyle }) as Parameters<
+    typeof glyphWarnings
+  >[0][number];
+
+it("warns MISSING_GLYPHS once per text, naming each missing character once", () => {
+  expect(
+    glyphWarnings([
+      typed("a", "Hi 小动物小"),
+      typed("b", "Hi\nthere"),
+      { id: "c", type: "rect" } as never,
+    ]),
+  ).toEqual([
+    {
+      code: "MISSING_GLYPHS",
+      nodeId: "a",
+      message:
+        "Source Sans 3 has no glyphs for 小, 动, 物; they render as .notdef boxes and measure as its width.",
+    },
+  ]);
+});
+
+it("names at most 20 missing characters and counts the rest", () => {
+  const content = String.fromCodePoint(...Array.from({ length: 23 }, (_, i) => 0x4e00 + i));
+  const [w] = glyphWarnings([typed("a", content)]);
+  expect(w?.message).toMatch(/^Source Sans 3 has no glyphs for 一, 丁, .*, 专 and 3 more; /);
+  expect(w?.message.split(", ")).toHaveLength(20);
+});
+
+it("gives every bundled face the same code points, so any style warns as Regular does", () => {
+  const faces = Object.values(SOURCE_SANS_3.faces).map((f) => Object.keys(f.advances).join());
+  expect(new Set(faces).size).toBe(1);
+  const styles: FontStyle[] = ["Regular", "Bold", "Black Italic", "Semibold"];
+  const messages = styles.map((s) => glyphWarnings([typed("a", "é 小 ✓", s)])[0]?.message);
+  expect(new Set(messages).size).toBe(1);
+  expect(messages[0]).toContain("小");
+});
+
+it("warns once for a file, naming the union of its texts' missing characters", () => {
+  expect(fileGlyphWarnings([typed("a", "ok"), typed("b", "小动"), typed("c", "动物")])).toEqual([
+    {
+      code: "MISSING_GLYPHS",
+      nodeId: "b",
+      message:
+        "Source Sans 3 has no glyphs for 小, 动, 物; they render as .notdef boxes and measure as its width.",
+    },
+  ]);
+  expect(fileGlyphWarnings([typed("a", "ok")])).toEqual([]);
 });
 
 // Area Type as Inkscape 1.2.2 lays it out in the bundled font, measured headless (ADR-0022): the
