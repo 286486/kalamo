@@ -1,0 +1,14 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  // The static landing page (#185). A separate Worker from the editor's `kalamo`.
+  "name": "kalamo-site",
+  // Not later than apps/edge/wrangler.jsonc's.
+  "compatibility_date": "2026-09-21",
+  // html_handling "none": /index.html and /index 404 instead of 307 to /. _redirects serves / and
+  // hides /index.html; every other path is a bodiless 404.
+  "assets": { "directory": "./public", "html_handling": "none", "not_found_handling": "none" },
+  "workers_dev": false,
+  "preview_urls": false
+  // No routes: kalamo.cc is bound in the dashboard (#186), and wrangler leaves a binding alone
+  // only while this config lists no custom_domain route.
+}

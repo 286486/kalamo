@@ -14,6 +14,8 @@
     "dev": "pnpm --filter @kalamo/web build && wrangler d1 migrations apply DB --local -c apps/edge/wrangler.jsonc && wrangler dev -c apps/edge/wrangler.jsonc",
     "deploy:check": "pnpm --filter @kalamo/web build && wrangler deploy --dry-run -c apps/edge/wrangler.jsonc",
     "deploy": "pnpm --filter @kalamo/web build && wrangler d1 migrations apply DB --remote -c apps/edge/wrangler.jsonc && wrangler deploy -c apps/edge/wrangler.jsonc --secrets-file apps/edge/.deploy.vars",
+    "deploy:site:check": "wrangler deploy --dry-run -c site/wrangler.jsonc",
+    "deploy:site": "wrangler deploy -c site/wrangler.jsonc",
     "test": "vitest run",
     "test:e2e": "playwright test"
   },
