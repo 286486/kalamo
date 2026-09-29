@@ -750,14 +750,20 @@ function text(n: TextNode, a: Attrs, extra: (string | false)[], chunked: boolean
     const opaque = color.length === 7 && a[`${list}-opacity`] !== undefined;
     return { ...paintAttrs(list, color), ...(opaque && { [`${list}-opacity`]: "1" }) };
   };
+  const spacing = ({ tracking, fontSize }: CharacterRange) => {
+    const t = tracking ?? n.tracking ?? 0;
+    if (tracking === undefined && (fontSize === undefined || t === 0)) return undefined;
+    return formatNumber((t * (fontSize ?? n.fontSize)) / 1000);
+  };
   const overrides = (r: CharacterRange): Attrs => ({
     ...paint("fill", r.fill),
     ...paint("stroke", r.stroke),
     "baseline-shift": r.baselineShift ? formatNumber(r.baselineShift) : undefined,
     rotate: r.rotation ? formatNumber(r.rotation) : undefined,
-    // In user units, as on the <text> (ADR-0029, ADR-0068).
-    "letter-spacing":
-      r.tracking === undefined ? undefined : formatNumber((r.tracking * n.fontSize) / 1000),
+    "font-size": r.fontSize,
+    // In user units, as on the <text> (ADR-0029, ADR-0068): a length, so a resized run writes its
+    // own whenever it tracks.
+    "letter-spacing": spacing(r),
     // What sets the range's style apart from the text's (ADR-0028, ADR-0068).
     ...(r.fontStyle && runFace(fontFace(r.fontStyle), face)),
   });

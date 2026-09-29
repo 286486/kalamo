@@ -482,6 +482,24 @@ describe("tracking and Character Ranges (ADR-0029)", () => {
     );
   });
 
+  it("writes a range's size, and a resized run's own letter-spacing when it tracks (ADR-0068)", () => {
+    const tracked = svgOf({
+      fontSize: 10,
+      tracking: 100,
+      ranges: [
+        { start: 0, end: 1, fontSize: 20 },
+        { start: 1, end: 2, fontSize: 20, tracking: 0 },
+        { start: 2, end: 3, fontSize: 30, tracking: 50 },
+      ],
+    });
+    expect(tracked).toContain(
+      '<tspan font-size="20" letter-spacing="2">H</tspan><tspan font-size="20" letter-spacing="0">e</tspan><tspan font-size="30" letter-spacing="1.5">l</tspan>lo',
+    );
+    expect(svgOf({ ranges: [{ start: 0, end: 1, fontSize: 20 }] })).toContain(
+      '<tspan font-size="20">H</tspan>ello',
+    );
+  });
+
   it("writes no range fill into an element that paints no Fill", () => {
     const svg = svgOf({
       appearance: { fills: [], strokes: [{ color: "#000000", width: 1 }] },

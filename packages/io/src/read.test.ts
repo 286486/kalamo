@@ -1073,6 +1073,35 @@ describe("tracking and Character Ranges (ADR-0029)", () => {
     });
   });
 
+  it("reads a tspan's font-size as its characters' size, a percentage or em of its parent's (ADR-0068)", () => {
+    const file = read(
+      '<g transform="scale(2)"><text font-size="10" letter-spacing="1">a<tspan font-size="20">b</tspan><tspan font-size="150%">c<tspan font-size="2em">d</tspan></tspan><tspan style="font-size:10pt" letter-spacing="3">e</tspan></text></g>',
+    );
+    expect(file.warnings).toEqual([]);
+    // Tracking in each character's own em: 1 of 20 and of 15 and of 30; 3 of 10.
+    expect(leaves(file)[0]).toMatchObject({
+      fontSize: 20,
+      tracking: 100,
+      ranges: [
+        { start: 1, end: 2, fontSize: 40, tracking: 50 },
+        { start: 2, end: 3, fontSize: 30, tracking: 66.667 },
+        { start: 3, end: 4, fontSize: 60, tracking: 33.333 },
+        { start: 4, end: 5, tracking: 300 },
+      ],
+    });
+  });
+
+  it("warns for a keyword font-size on part of a text, and imports it in the text's size", () => {
+    const file = read('<text font-size="10">a<tspan font-size="larger">b</tspan></text>');
+    expect(file.warnings).toEqual([
+      expect.objectContaining({
+        code: "UNSUPPORTED_ATTRIBUTE",
+        message: expect.stringMatching(/larger/),
+      }),
+    ]);
+    expect(leaves(file)[0]).not.toHaveProperty("ranges");
+  });
+
   it("reads a tspan's font-family as its characters' family, kept as written (ADR-0068)", () => {
     const file = read(
       `<text font-family="Source Sans 3">a<tspan font-family="'Helvetica Neue', Arial">b</tspan><tspan style="font-family:Noto Sans SC">c</tspan><tspan font-family="Source Sans 3, serif">d</tspan></text>`,
@@ -1196,7 +1225,7 @@ describe("tracking and Character Ranges (ADR-0029)", () => {
         parentId,
         x: 0,
         y: 20,
-        content: "Hello",
+        content: "Hello!",
         fontSize: 20,
         tracking: 100,
         appearance: {
@@ -1208,6 +1237,7 @@ describe("tracking and Character Ranges (ADR-0029)", () => {
           { start: 1, end: 2, stroke: "#00FF00", tracking: -50 },
           { start: 2, end: 4, baselineShift: 3, rotation: -15, stroke: "#FF000080" },
           { start: 4, end: 5, tracking: 0, fontStyle: "Bold", fontFamily: "Noto Sans SC" },
+          { start: 5, end: 6, fontSize: 30 },
         ],
       },
     ]).nodes;

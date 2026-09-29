@@ -214,9 +214,13 @@ const OVERRIDES = [
   "tracking",
   "fontStyle",
   "fontFamily",
+  "fontSize",
 ] as const;
 /** A text's own character attributes, the values a range override is none at (ADR-0068). */
-export type OwnAttributes = TextFont & { tracking?: number | undefined };
+export type OwnAttributes = TextFont & {
+  fontSize?: number | undefined;
+  tracking?: number | undefined;
+};
 
 /**
  * Character Ranges in canonical form (ADR-0029, ADR-0068): colours parsed, a later range winning
@@ -233,6 +237,7 @@ export function canonicalRanges(
     tracking: text.tracking ?? 0,
     fontStyle: text.fontStyle ?? "Regular",
     fontFamily: text.fontFamily ?? BUNDLED_FONT,
+    fontSize: text.fontSize ?? 12,
   };
   // ponytail: per-character expansion, O(Σ range lengths); sweep the boundaries if it shows in a
   // profile.
@@ -249,7 +254,7 @@ export function canonicalRanges(
         if (r[k] === 0) delete o[k];
         else if (r[k] !== undefined) o[k] = r[k];
       }
-      for (const k of ["tracking", "fontStyle", "fontFamily"] as const) {
+      for (const k of ["tracking", "fontStyle", "fontFamily", "fontSize"] as const) {
         if (r[k] === own[k]) delete o[k];
         else if (r[k] !== undefined) Object.assign(o, { [k]: r[k] });
       }
@@ -304,13 +309,14 @@ export interface TextLine {
 
 /**
  * A character of `content` on its own: its advance and the tracking after it in pt, the bundled
- * family it draws in, and its overrides.
+ * family it draws in and its size, and its overrides.
  */
 interface Metric {
   char: string;
   advance: number;
   tracking: number;
   family: BundledFamily;
+  size: number;
   overrides: Overrides | undefined;
 }
 
@@ -334,17 +340,24 @@ function metrics(text: TextLayout): Metric[] {
     const { family, face } = faceFor(faces, char);
     return { family, units: face.advance(char.codePointAt(0) as number) ?? face.notdef };
   };
-  const s = text.fontSize / SOURCE_SANS_3.unitsPerEm;
   const ranges = text.ranges ?? [];
   const overrides = ranges.map(({ start: _, end: __, ...o }) => o);
   let j = 0;
   return [...text.content].map((char, c) => {
     while ((ranges[j]?.end ?? Infinity) <= c) j++;
     const o = (ranges[j]?.start ?? Infinity) <= c ? overrides[j] : undefined;
-    // A character's tracking is in its own em (ADR-0068).
-    const tracking = ((o?.tracking ?? text.tracking ?? 0) * text.fontSize) / 1000;
+    // A character's advance and tracking scale with its own size (ADR-0068).
+    const size = o?.fontSize ?? text.fontSize;
+    const tracking = ((o?.tracking ?? text.tracking ?? 0) * size) / 1000;
     const { family, units } = drawn(characterFont(text, o), char);
-    return { char, advance: units * s, tracking, family, overrides: o };
+    return {
+      char,
+      advance: (units * size) / SOURCE_SANS_3.unitsPerEm,
+      tracking,
+      family,
+      size,
+      overrides: o,
+    };
   });
 }
 
@@ -361,10 +374,11 @@ function span(m: Metric[], from: number, to: number) {
 }
 
 /**
- * A text's lines (ADR-0022). Point Type breaks at hard returns, one leading apart from the baseline
- * origin `x, y`. Area Type wraps in its frame as Inkscape 1.2 draws it, at spaces and between CJK
- * characters (ADR-0064): each line keeps its trailing spaces and hard return, so its lines and
- * `overflow`, the text that does not fit, join back into `content`.
+ * A text's lines (ADR-0022). Point Type breaks at hard returns, from the baseline origin `x, y`, each
+ * later line one of its own leadings below the one before (ADR-0068). Area Type wraps in its frame
+ * as Inkscape 1.2 draws it, at spaces and between CJK characters (ADR-0064): each line keeps its
+ * trailing spaces and hard return, so its lines and `overflow`, the text that does not fit, join
+ * back into `content`.
  */
 export function layoutText(text: TextLayout): { lines: TextLine[]; overflow: string } {
   const { lines, overflow } = layout(text);
@@ -374,8 +388,36 @@ export function layoutText(text: TextLayout): { lines: TextLine[]; overflow: str
 /** `layoutText`, with the metrics of every character of `content`. */
 function layout(text: TextLayout) {
   const { x, y, content, fontSize } = text;
-  const leading = text.leading ?? 1.2 * fontSize;
   const m = metrics(text);
+  // A line's leading, as Illustrator's (ADR-0068): the Node's, or with Auto 120% of the largest
+  // size among its characters, its hard return included; an empty last line's is the Node's size.
+  // CSS inline boxes at that size and leading stack a line holding CJK as Inkscape does (ADR-0064):
+  // half the leading above and below each family's em box, and the line as tall as the union of
+  // the text's first family's box, the strut, and the boxes of the families its characters draw in,
+  // trailing spaces left out. `rise` and `drop` are what the line exceeds the strut by, above and
+  // below; a Latin line has neither.
+  const first = FAMILIES[fontFamilies(text)[0]].ascent;
+  const lineBox = (from: number, to: number) => {
+    let size = 0;
+    for (let i = from; i < to; i++) size = Math.max(size, (m[i] as Metric).size);
+    size ||= m[to]?.size ?? fontSize;
+    const leading = text.leading ?? 1.2 * size;
+    while (to > from && /\s/.test((m[to - 1] as Metric).char)) to--;
+    let [top, bottom] = [first, first];
+    for (let i = from; i < to; i++) {
+      const { ascent } = FAMILIES[(m[i] as Metric).family];
+      [top, bottom] = [Math.max(top, ascent), Math.min(bottom, ascent)];
+    }
+    const half = (leading - size) / 2;
+    const [rise, drop] = [(top - first) * size, (first - bottom) * size];
+    return {
+      leading,
+      ascent: half + first * size + rise,
+      descent: half + (1 - first) * size + drop,
+      rise,
+      drop,
+    };
+  };
   let start = 0;
   const line = (t: string, lineY: number) => {
     const l = { text: t, x, y: lineY, start };
@@ -383,8 +425,13 @@ function layout(text: TextLayout) {
     return l;
   };
   if (text.kind !== "area") {
+    // What the lines' leadings exceed the Node's by, so a text of one size keeps `y + i · leading`.
+    const own = text.leading ?? 1.2 * fontSize;
+    let extra = 0;
     const lines = content.split("\n").map((t, i) => {
-      const l = line(t, y + i * leading);
+      const n = [...t].length;
+      if (i) extra += lineBox(start, Math.min(start + n + 1, m.length)).leading - own;
+      const l = line(t, y + i * own + extra);
       start++;
       return l;
     });
@@ -396,39 +443,23 @@ function layout(text: TextLayout) {
     while (to > from && /\s/.test((m[to - 1] as Metric).char)) to--;
     return span(m, from, to) <= width;
   };
-  // CSS inline boxes, as Inkscape stacks them (ADR-0064): half the leading above and below each
-  // family's em box, and a line as tall as the union of its text's first family's box, the strut,
-  // and the boxes of the families its characters draw in (ADR-0068). Latin alone is one leading tall.
-  const halfLeading = (leading - fontSize) / 2;
-  const box = (family: BundledFamily) => ({
-    ascent: halfLeading + fontSize * FAMILIES[family].ascent,
-    descent: halfLeading + fontSize * (1 - FAMILIES[family].ascent),
-  });
-  const strut = box(fontFamilies(text)[0]);
-  const lineBox = (from: number, to: number) => {
-    const b = { ...strut };
-    while (to > from && /\s/.test((m[to - 1] as Metric).char)) to--;
-    for (let i = from; i < to; i++) {
-      const { ascent, descent } = box((m[i] as Metric).family);
-      b.ascent = Math.max(b.ascent, ascent);
-      b.descent = Math.max(b.descent, descent);
-    }
-    return b;
-  };
   const lines: TextLine[] = [];
-  let top = 0;
   let used = 0;
+  let prev: { baseline: number; drop: number } | undefined;
   // ponytail: Inkscape's thresholds, measured rather than specified: the first line shows while 90%
-  // of its height lies in the frame, a later one while 90% of the leading does, or all of it if the
-  // line is taller than the strut; and a unit wider than the frame overflows with all that follows.
+  // of its height lies in the frame; a later one while 90% of its leading does, measured from its
+  // top, or all of it if the line rises above the strut; and a unit wider than the frame overflows
+  // with all that follows. The first baseline is one line-box ascent below the frame's top; each
+  // later one is the line's leading below the one before, and what CJK adds (ADR-0064, ADR-0068).
   const push = (l: string, from: number, to: number) => {
-    const { ascent, descent } = lineBox(from, to);
-    let shows = 0.9 * leading;
-    if (!lines.length) shows = 0.9 * (ascent + descent);
-    else if (ascent > strut.ascent) shows = leading;
-    if (top + shows > height + 1e-9 * leading) return false;
-    lines.push(line(l, y + top + ascent));
-    top += ascent + descent;
+    const b = lineBox(from, to);
+    const baseline = prev ? prev.baseline + prev.drop + b.leading + b.rise : y + b.ascent;
+    let shows = 0.9 * b.leading;
+    if (!prev) shows = 0.9 * (b.ascent + b.descent);
+    else if (b.rise > 0) shows = b.leading;
+    if (baseline - b.ascent - y + shows > height + 1e-9 * b.leading) return false;
+    lines.push(line(l, baseline));
+    prev = { baseline, drop: b.drop };
     used += l.length;
     return true;
   };
@@ -481,8 +512,8 @@ export function glyphs(text: TextLayout): Glyph[] {
 /**
  * A text's box: Area Type's frame. Point Type's is the union of its lines, each from `x` for its
  * width, at least 0, and from the ascender to the descender (ADR-0013, ADR-0022), and of every
- * character's cell: its advance width from its origin, ascender to descender, raised by its baseline
- * shift and turned clockwise about the origin by its rotation (ADR-0029).
+ * character's cell: its advance width from its origin, ascender to descender at its own size, raised
+ * by its baseline shift and turned clockwise about the origin by its rotation (ADR-0029, ADR-0068).
  */
 export function textBox(text: TextLayout): Rect {
   if (text.kind === "area") {
@@ -504,8 +535,9 @@ export function textBox(text: TextLayout): Rect {
     const a = ((g.rotation ?? 0) * Math.PI) / 180;
     const [cos, sin] = [Math.cos(a), Math.sin(a)];
     const shift = g.baselineShift ?? 0;
+    const k = (g.fontSize ?? text.fontSize) / unitsPerEm;
     for (const dx of [0, g.width]) {
-      for (const dy of [-ascender * s - shift, -descender * s - shift]) {
+      for (const dy of [-ascender * k - shift, -descender * k - shift]) {
         add(g.x + cos * dx - sin * dy, g.y + sin * dx + cos * dy);
       }
     }

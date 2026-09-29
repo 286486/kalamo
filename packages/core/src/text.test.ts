@@ -641,6 +641,135 @@ it("stacks an Area Type line by the families its range characters draw in (ADR-0
   expect(noto[2]).toBeCloseTo((latin[2] as number) + rise);
 });
 
+it("measures a range's characters at its size, its tracking in their em (ADR-0068)", () => {
+  const hi = { x: 0, y: 0, content: "Hi", fontSize: 12, tracking: 100 };
+  const big = { ...hi, ranges: [{ start: 0, end: 1, fontSize: 24 }] };
+  // H at 24 pt, and its tracking of 100 in its own em: 2.4.
+  expect(glyphs(big).map((g) => [g.x, g.width])).toEqual([
+    [0, expect.closeTo((652 * 24) / 1000, 9)],
+    [expect.closeTo((652 * 24) / 1000 + 2.4, 9), expect.closeTo(at12(246), 9)],
+  ]);
+  const ranges = [
+    { start: 0, end: 2, fontSize: 24 },
+    { start: 1, end: 2, fontSize: 12 },
+  ];
+  expect(canonicalRanges(ranges, "ranges", { fontSize: 12 })).toEqual([
+    { start: 0, end: 1, fontSize: 24 },
+  ]);
+});
+
+// 12 pt Source Sans 3 with one 24 pt B, Auto or a 14.4 pt leading (ADR-0068).
+const mixed = (content: string, leading?: number, kind?: "area") =>
+  layoutText({
+    ...(kind ? { kind, width: 300, height: 200 } : {}),
+    x: 10,
+    y: kind ? 40 : 50,
+    content,
+    fontSize: 12,
+    leading,
+    ranges: [{ start: content.indexOf("B"), end: content.indexOf("B") + 1, fontSize: 24 }],
+  }).lines.map((l) => l.y);
+const near = (ys: number[]) => ys.map((y) => expect.closeTo(y, 6));
+/** Source Sans 3's ascent in its em box (ADR-0064). */
+const A = 1000 / 1326;
+
+it("puts a Point Type line holding a larger size 120% of it below the one before (ADR-0068)", () => {
+  // Illustrator's Auto leading is a line's own: 28.8 for the line holding 24 pt, 14.4 for the rest.
+  expect(mixed("HH\nHBH\nHH")).toEqual(near([50, 78.8, 93.2]));
+  expect(mixed("HBH\nHH\nHH")).toEqual(near([50, 64.4, 78.8]));
+  // An explicit leading stays fixed.
+  expect(mixed("HH\nHBH\nHH", 14.4)).toEqual(near([50, 64.4, 78.8]));
+  // A range size on a hard return sets its empty line's leading.
+  const empty = layoutText({
+    x: 0,
+    y: 0,
+    content: "H\n\nH",
+    fontSize: 10,
+    ranges: [{ start: 2, end: 3, fontSize: 20 }],
+  });
+  expect(empty.lines.map((l) => l.y)).toEqual(near([0, 24, 36]));
+  // A text whose ranges set no size lays out as before, CJK one leading apart too.
+  expect(
+    layoutText({ x: 10, y: 50, content: "HH\nH你\nHH", fontSize: 12 }).lines.map((l) => l.y),
+  ).toEqual(near([50, 64.4, 78.8]));
+  // Its box grows to the 24 pt ascender.
+  const box = textBox({
+    x: 10,
+    y: 50,
+    content: "HB",
+    fontSize: 12,
+    ranges: [{ start: 1, end: 2, fontSize: 24 }],
+  });
+  expect(box.y).toBeCloseTo(50 - 24);
+  expect(box.height).toBeCloseTo(24 + (326 * 24) / 1000);
+});
+
+it("stacks Area Type lines by each line's largest size, as Illustrator does (ADR-0068)", () => {
+  // The first baseline is one line-box ascent below the top at that line's size (ADR-0022): half
+  // of 1.2 × 24 − 24 above the ascent.
+  const [a12, a24] = [1.2 + 12 * A, 2.4 + 24 * A];
+  expect(mixed("HH\nHBH\nHH", undefined, "area")).toEqual(
+    near([40 + a12, 40 + a12 + 28.8, 40 + a12 + 43.2]),
+  );
+  expect(mixed("HBH\nHH\nHH", undefined, "area")).toEqual(
+    near([40 + a24, 40 + a24 + 14.4, 40 + a24 + 28.8]),
+  );
+  const a24at14 = -4.8 + 24 * A;
+  expect(mixed("HH\nHBH\nHH", 14.4, "area")).toEqual(near([40 + a12, 54.4 + a12, 68.8 + a12]));
+  expect(mixed("HBH\nHH\nHH", 14.4, "area")).toEqual(
+    near([40 + a24at14, 54.4 + a24at14, 68.8 + a24at14]),
+  );
+  // Wrapping moves a larger word to the next line, and its leading with it: 20 pt × 1.2 = 24.
+  const wrapped = layoutText({
+    kind: "area",
+    x: 0,
+    y: 0,
+    width: 100,
+    height: 200,
+    content: "Area Type with a LARGE word in the middle",
+    fontSize: 11,
+    ranges: [{ start: 17, end: 22, fontSize: 20 }],
+  }).lines.map((l) => [l.text, l.y]);
+  const a11 = 1.1 + 11 * A;
+  expect(wrapped).toEqual([
+    ["Area Type with a ", expect.closeTo(a11, 6)],
+    ["LARGE word in ", expect.closeTo(a11 + 24, 6)],
+    ["the middle", expect.closeTo(a11 + 37.2, 6)],
+  ]);
+});
+
+it("shows an Area Type line holding a larger size while 90% of its own leading fits (ADR-0068)", () => {
+  const shown = (content: string, height: number, size = 24, leading?: number) =>
+    layoutText({
+      kind: "area",
+      x: 0,
+      y: 0,
+      width: 300,
+      height,
+      content,
+      fontSize: 12,
+      leading,
+      ranges: [{ start: content.indexOf("B"), end: content.indexOf("B") + 1, fontSize: size }],
+    }).lines.length;
+  const a12 = 1.2 + 12 * A;
+  // A later line's top is its baseline less its ascent; it shows while 90% of its leading fits.
+  const at = (size: number, leading = 1.2 * size) =>
+    a12 +
+    (leading === 1.2 * size ? leading : 14.4) -
+    ((leading - size) / 2 + size * A) +
+    0.9 * leading;
+  for (const [size, leading] of [[24], [14], [24, 14.4]] as [number, number?][]) {
+    const h = at(size, leading);
+    expect([
+      shown("HH\nHBH", h + 0.01, size, leading),
+      shown("HH\nHBH", h - 0.01, size, leading),
+    ]).toEqual([2, 1]);
+  }
+  // The first line shows while 90% of its line box does: 1.2 × 24, or the 14.4 leading.
+  expect([shown("HBH", 25.93), shown("HBH", 25.91)]).toEqual([1, 0]);
+  expect([shown("HBH", 12.97, 24, 14.4), shown("HBH", 12.95, 24, 14.4)]).toEqual([1, 0]);
+});
+
 it("grows Point Type's box to hold a shifted or rotated character", () => {
   const box = (range: object) =>
     textBox({ x: 0, y: 0, content: "H", fontSize: 10, ranges: [{ start: 0, end: 1, ...range }] });

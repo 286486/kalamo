@@ -523,15 +523,15 @@ function pen(ctx: Canvas2D, s: Stroke) {
  * Fills or strokes a text's shown lines, so overflowing Area Type is not drawn (ADR-0022). With
  * tracking or ranges each character paints on its own at its origin, raised by its baseline shift
  * and turned about the origin by its rotation, in its range's fill or stroke when `paint` is the
- * Fill's or the Stroke's style, and in its own face (ADR-0029, ADR-0068). A character no bundled face has paints as the first face's `.notdef` box at its
+ * Fill's or the Stroke's style, and in its own face and size (ADR-0029, ADR-0068). A character no bundled face has paints as the first face's `.notdef` box at its
  * origin, traced, since `fillText` would draw it in a system font (ADR-0065); a line holding one
  * paints the characters around it in runs from their first character's origin.
  */
 function text(ctx: Canvas2D, n: TextNode, how: "fill" | "stroke", paint?: unknown) {
   const draw = (t: string, x: number, y: number) =>
     how === "fill" ? ctx.fillText(t, x, y) : ctx.strokeText(t, x, y);
-  const box = (x: number, y: number, font: TextFont = n) => {
-    trace(ctx, notdefBox({ ...font, fontSize: n.fontSize }, x, y));
+  const box = (x: number, y: number, font: TextFont & { fontSize: number } = n) => {
+    trace(ctx, notdefBox(font, x, y));
     if (how === "fill") ctx.fill();
     else ctx.stroke();
   };
@@ -566,8 +566,8 @@ function text(ctx: Canvas2D, n: TextNode, how: "fill" | "stroke", paint?: unknow
   let face = own;
   for (const g of glyphs(n)) {
     if (g.char === "\n") continue;
-    const font = characterFont(n, g);
-    const css = cssFont({ ...font, fontSize: n.fontSize });
+    const font = { ...characterFont(n, g), fontSize: g.fontSize ?? n.fontSize };
+    const css = cssFont(font);
     if (css !== face) {
       face = css;
       ctx.font = css;

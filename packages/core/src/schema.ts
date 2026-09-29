@@ -363,6 +363,13 @@ export const CharacterRange = z.strictObject({
     .min(1)
     .optional()
     .describe("Any font name for these characters, kept as written, as the text's fontFamily."),
+  fontSize: z
+    .number()
+    .positive()
+    .optional()
+    .describe(
+      "In pt, as the text's fontSize. With Auto leading a line is 120% of its largest size below the one before.",
+    ),
 });
 /** A stored Character Range, its fill and stroke parsed to `#RRGGBB` or `#RRGGBBAA`. */
 export type CharacterRange = Omit<z.output<typeof CharacterRange>, "fill" | "stroke"> & {
@@ -413,7 +420,9 @@ export const TextShape = z.object({
     .number()
     .positive()
     .optional()
-    .describe("Distance between baselines in pt; omit for Auto, 120% of fontSize."),
+    .describe(
+      "Distance between baselines in pt; omit for Auto, 120% of the largest fontSize on each line.",
+    ),
   tracking: z
     .number()
     .min(-1000)

@@ -112,5 +112,23 @@ export function computeStyle(e: Element, parent: Style, rules: Rule[]): Style {
       if (parent[k] !== undefined) out[k] = parent[k] as string;
     } else out[k] = v;
   }
+  if (own["font-size"] && out["font-size"]) {
+    out["font-size"] = fontSize(out["font-size"], parent["font-size"]);
+  }
   return out;
+}
+
+const NUMBER = /^([-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?)([a-z%]*)$/i;
+
+/**
+ * A percentage or `em` font size as a length in its parent's unit, so its children inherit what it
+ * resolves to (CSS Fonts §2.5); with no parent's, it is of 12, Kalamo's default. Anything else, a
+ * keyword such as `larger` included, is left as written.
+ */
+function fontSize(value: string, parent = "12px") {
+  const [, n, unit = ""] = NUMBER.exec(value) ?? [];
+  const [, p, parentUnit = ""] = NUMBER.exec(parent) ?? [];
+  if (n === undefined || p === undefined || /^(%|em|ex|rem)$/i.test(parentUnit)) return value;
+  const factor = unit === "%" ? Number(n) / 100 : unit.toLowerCase() === "em" ? Number(n) : 0;
+  return factor ? `${Number(p) * factor}${parentUnit}` : value;
 }

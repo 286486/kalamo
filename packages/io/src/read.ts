@@ -200,7 +200,6 @@ function rotate(chars: Char[]) {
 
 /** What a nested tspan cannot set on part of a text yet (ADR-0029, ADR-0068). */
 const PER_TEXT = [
-  "font-size",
   "stroke-width",
   "stroke-dasharray",
   "stroke-linecap",
@@ -1092,6 +1091,14 @@ class Reader {
           );
         }
       }
+      const size = length(c.style["font-size"]);
+      if (size === undefined && c.style["font-size"] !== own["font-size"]) {
+        this.warn(
+          "UNSUPPORTED_ATTRIBUTE",
+          "tspan font-size",
+          `font-size ${c.style["font-size"]} on part of a text is not supported yet, only a length, a percentage or em; those characters import in the text's own size.`,
+        );
+      }
       const fill = this.rangePaint("fill", c.style, own);
       const stroke = this.rangePaint("stroke", c.style, own);
       return [
@@ -1102,7 +1109,8 @@ class Reader {
           ...(stroke && { stroke }),
           ...(c.shift && { baselineShift: n3(c.shift * k) }),
           ...(c.rotate && { rotation: n3(c.rotate % 360) }),
-          tracking: trackingOf(c.style, length(own["font-size"]) ?? 12),
+          ...(size !== undefined && { fontSize: n3(size * k) }),
+          tracking: trackingOf(c.style, size ?? length(own["font-size"]) ?? 12),
           fontStyle: fontStyleOf(c.style),
           fontFamily: fontFamilyOf(c.style),
         },

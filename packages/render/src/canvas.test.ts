@@ -579,7 +579,7 @@ it("draws a tracked text per character, a turned one about its origin in its ran
   ]);
 });
 
-it("draws each character of a range in its own face, then goes back to the text's (ADR-0068)", () => {
+it("draws each character of a range in its own face and size, then goes back to the text's (ADR-0068)", () => {
   const { doc, defaultLayerId: parentId } = newDoc();
   createNodes(doc, [
     {
@@ -590,7 +590,7 @@ it("draws each character of a range in its own face, then goes back to the text'
       content: "Hi!",
       ranges: [
         { start: 1, end: 2, fontStyle: "Black Italic" },
-        { start: 2, end: 3, fontFamily: "Noto Sans SC" },
+        { start: 2, end: 3, fontFamily: "Noto Sans SC", fontSize: 20 },
       ],
       appearance: { fills: [{ color: "#000000" }], strokes: [{ color: "#0000FF", width: 1 }] },
     },
@@ -599,7 +599,7 @@ it("draws each character of a range in its own face, then goes back to the text'
   drawDocument(ctx, doc, layer);
   const plain = 'font=12px "Source Sans 3", "Noto Sans SC", "Noto Sans KR"';
   const black = 'font=italic 900 12px "Source Sans 3", "Noto Sans SC", "Noto Sans KR"';
-  const noto = 'font=12px "Noto Sans SC", "Source Sans 3", "Noto Sans KR"';
+  const noto = 'font=20px "Noto Sans SC", "Source Sans 3", "Noto Sans KR"';
   expect(log.filter((l) => /^(font=|fillText|strokeText)/.test(l))).toEqual([
     plain,
     "fillText H 10 50",
