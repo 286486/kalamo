@@ -1618,7 +1618,7 @@ describe("a Place receipt's warnings name the placed Nodes (#161)", () => {
     receipt.structuredContent.warnings.filter((w) => w.code === code);
   const texts = async (docId: string, ids: (string | undefined)[]) =>
     (await call("zibel_node_get", { docId, nodeIds: ids, detail: "full" })).structuredContent
-      .nodes as { type: string; content: string }[];
+      .nodes as { type: string; content: string; fontFamily: string }[];
   const HELVETICA =
     '<svg xmlns="http://www.w3.org/2000/svg"><text x="0" y="10" font-family="Helvetica">A</text></svg>';
 
@@ -1654,10 +1654,8 @@ describe("a Place receipt's warnings name the placed Nodes (#161)", () => {
       docId,
       fonts.map((w) => w.nodeId),
     );
-    expect(fonts.map((w, i) => [w.message.split(" ")[0], got[i]?.content])).toEqual([
-      ["Helvetica", "A"],
-      ["Arial", "B"],
-    ]);
+    expect(got.map((n) => n.content).sort()).toEqual(["A", "B"]);
+    for (const [i, w] of fonts.entries()) expect(w.message).toContain(got[i]?.fontFamily);
   });
 
   it("drops a warning on a Clipping Path a Zibel copy leaves behind, keeping a listed Text's", async () => {

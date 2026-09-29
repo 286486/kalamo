@@ -1175,7 +1175,7 @@ export class DocumentObject extends DurableObject<Env> {
   /**
    * Place (ADR-0017): an SVG's Nodes as one new Group under `opts.parentId`, or a Zibel copy's Nodes
    * directly there (ADR-0030), all with new ids, in one Transaction. `nodes` is the outline of what
-   * was put in the parent, to depth 2.
+   * was put in the parent, to depth 2; the file's warnings name the new ids.
    */
   async place(
     file: OpenedFile,
