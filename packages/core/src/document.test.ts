@@ -678,8 +678,9 @@ it("gives a rotated text's and a rotated Image's frame corners in document coord
     { type: "image", src: "a".repeat(64), ...frame },
   ]).nodes;
   for (const n of nodes) {
+    if (n.type !== "text" && n.type !== "image") throw new Error(`unexpected ${n.type}`);
     n.transform = compose({ rotate: 90 }, { x: 0, y: 0 });
-    const corners = worldSegments(doc, n as Parameters<typeof worldSegments>[1])
+    const corners = worldSegments(doc, n)
       .filter((s) => s.cmd !== "Z")
       .map((s) => s.args.map((v) => Math.round(v) + 0));
     expect(corners).toEqual([

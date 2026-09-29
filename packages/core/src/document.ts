@@ -550,8 +550,8 @@ export type LeafClip = { maskId: string; segments: Segment[] } & (
 );
 
 /**
- * A leaf's geometry in document coordinates, under its `worldTransform`: a Live Shape's or Path's
- * outline, or an Image's or a text's frame.
+ * A leaf's or an Image's geometry in document coordinates, under its `worldTransform`: a Live
+ * Shape's or Path's outline, a text's frame, or an Image's frame.
  */
 export const worldSegments = (doc: Document, n: LeafNode | ImageNode): Segment[] =>
   transformSegments(
