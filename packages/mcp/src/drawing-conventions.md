@@ -50,7 +50,7 @@ Read this once before your first write. Tool descriptions cover each call; this 
 
 1. Before a round of writes, call `kalamo_doc_changes` with the `rev` you last saw (or `kalamo_doc_get_info` the first time) to learn what a person changed since.
 2. Create the skeleton: Layers and named, empty Groups.
-3. Fill it in batches, one `kalamo_node_create` per part.
+3. Fill it in batches, one `kalamo_node_create` per part. To give Nodes different transforms, such as tilting letters by different angles, send one `kalamo_node_transform` with `transforms: [{nodeIds, rotate}, ...]` instead of one call per Node: the entries apply in order, as one Transaction.
 4. Check with `kalamo_render` and `overlays: ["bounds", "ids"]`, then fix what is off.
 5. Guard key writes with `ifRev` set to the `rev` you last read: if anyone committed since, the write fails with `REV_CONFLICT` and changes nothing. Then call `kalamo_doc_changes`, look at what changed, and retry.
 

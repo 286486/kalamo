@@ -26,7 +26,8 @@ import {
   type Rect,
   SHAPES,
   TextShape,
-  TransformInput,
+  type TransformInput,
+  TransformNodesInput,
   textRanges,
   type UpdateInput,
   type Warning,
@@ -75,17 +76,48 @@ function pivotOf(pivot: z.output<typeof TransformInput>["pivot"], b: Rect | null
   return { x: b.x + b.width * fx, y: b.y + b.height * fy };
 }
 
+type Transformed = { nodes: Node[]; warnings: Warning[]; failed: Failed[] };
+
 /**
  * Composes the transform into every leaf beneath the targets; Layers and Groups stay identity
  * (ADR-0007), whose Strokes scale instead (ADR-0043). Returns the changed containers, then the
  * changed leaves depth first in target order.
+ *
+ * `transforms` apply in order, each to the Document the ones before it left, so its pivot comes
+ * from the bounds they made; `partial` then skips a failing entry whole (ADR-0070). A Node changed
+ * twice is returned once, with its final value, where it first appeared.
  */
 export function transformNodes(
   doc: Document,
-  raw: TransformInput,
+  raw: TransformNodesInput,
   { partial = false } = {},
-): { nodes: Node[]; warnings: Warning[]; failed: Failed[] } {
-  const input = TransformInput.parse(raw);
+): Transformed {
+  const input = TransformNodesInput.parse(raw);
+  if (!("transforms" in input)) return transformOnce(doc, input, partial);
+  const staged = { ...doc, nodes: new Map(doc.nodes) };
+  const warnings: Warning[] = [];
+  const { ok, failed } = collect(input.transforms, partial, (entry, i) => {
+    try {
+      const done = transformOnce(staged, entry, false);
+      warnings.push(...done.warnings);
+      return done.nodes;
+    } catch (e) {
+      if (!(e instanceof KalamoError)) throw e;
+      const at = `transforms[${i}]`;
+      throw new KalamoError({ ...e.data, path: e.data.path ? `${at}.${e.data.path}` : at });
+    }
+  });
+  const ids = new Set(ok.flat().map((n) => n.id));
+  const nodes = [...ids].map((id) => staged.nodes.get(id) as Node);
+  for (const n of nodes) doc.nodes.set(n.id, n);
+  return { nodes, warnings, failed };
+}
+
+function transformOnce(
+  doc: Document,
+  input: z.output<typeof TransformInput>,
+  partial: boolean,
+): Transformed {
   const { ok: targets, failed } = collect(input.nodeIds, partial, (id, i) =>
     lookup(doc, id, `nodeIds[${i}]`),
   );

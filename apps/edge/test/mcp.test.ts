@@ -1291,6 +1291,23 @@ describe("edit tools", () => {
       warnings: [],
     });
   });
+
+  it("gives 13 rects 13 transforms in one call, one Transaction (ADR-0070)", async () => {
+    const { doc, make, rect } = await setup();
+    const { createdIds: ids } = await make(Array.from({ length: 13 }, () => rect));
+    const transforms = ids.map((id: string, i: number) => ({
+      nodeIds: [id],
+      rotate: i % 2 ? 6 : -7,
+    }));
+    const { structuredContent: receipt } = await call("kalamo_node_transform", {
+      docId: doc.docId,
+      transforms,
+    });
+    expect(receipt).toMatchObject({ rev: 3, updatedIds: ids });
+    const { changes } = (await call("kalamo_doc_changes", { docId: doc.docId, sinceRev: 2 }))
+      .structuredContent;
+    expect(changes).toMatchObject([{ rev: 3, txId: receipt.txId, updatedIds: ids }]);
+  });
 });
 
 describe("transactions", () => {

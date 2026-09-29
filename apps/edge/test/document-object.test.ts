@@ -645,3 +645,70 @@ it("warns MISSING_GLYPHS in the receipt of a browser create or update Command", 
     }),
   ]);
 });
+
+/** A Document with 13 committed 10 × 10 rects in a row, 20 pt apart, at rev 2. */
+async function withLetters(docId: string) {
+  const s = stub(docId);
+  const { defaultLayerId } = ok(await s.create({ docId, name: "Doc", artboards, actor: "a" }));
+  const letters = Array.from({ length: 13 }, (_, i) => ({
+    ...rect,
+    x: i * 20,
+    parentId: defaultLayerId,
+  }));
+  const { createdIds: ids } = ok(await s.createNodes(letters, "agent-a"));
+  const transforms = ids.map((id, i) => ({ nodeIds: [id], rotate: i % 2 ? 6 : -7 }));
+  const current = async () =>
+    ok(await s.get(ids, "full", "user")).nodes.map((n) => (n as { transform: number[] }).transform);
+  return { s, ids, transforms, current };
+}
+
+it("applies 13 transforms as one Transaction and one undo step (ADR-0070)", async () => {
+  const { s, ids, transforms, current } = await withLetters("batch1");
+  const receipt = ok(await s.transformNodes({ transforms }, "agent-a", { intent: "tilt" }));
+  expect(receipt).toMatchObject({ rev: 3, updatedIds: ids });
+  expect(receipt).not.toHaveProperty("failed");
+  // Each letter turned about its own centre, so the row's bounds only grow a little.
+  expect(receipt.bounds?.x).toBeCloseTo(-0.6, 1);
+  expect(receipt.bounds?.width).toBeCloseTo(251.1, 1);
+  const turned = await current();
+  expect(turned[0]).not.toEqual(turned[1]);
+  expect(ok(await s.changes(2)).changes).toMatchObject([
+    { rev: 3, txId: receipt.txId, summary: "Transform 13 Nodes", intent: "tilt", updatedIds: ids },
+  ]);
+  const undone = ok(await s.undo("user"));
+  expect(undone.rev).toBe(4);
+  expect(undone.updatedIds.toSorted()).toEqual(ids.toSorted());
+  expect(await current()).toEqual(ids.map(() => [1, 0, 0, 1, 0, 0]));
+});
+
+it("refuses a batch with an unknown id changing nothing, or skips that entry with partial", async () => {
+  const { s, ids, transforms } = await withLetters("batch2");
+  const bad = transforms.with(1, { nodeIds: ["nope"], rotate: 6 });
+  expect(await s.transformNodes({ transforms: bad }, "agent-a")).toMatchObject({
+    error: { code: "NODE_NOT_FOUND", path: "transforms[1].nodeIds[0]" },
+  });
+  expect(await s.info()).toMatchObject({ rev: 2 });
+  const receipt = ok(await s.transformNodes({ transforms: bad }, "agent-a", { partial: true }));
+  expect(receipt).toMatchObject({
+    rev: 3,
+    updatedIds: ids.filter((_, i) => i !== 1),
+    failed: [{ index: 1, code: "NODE_NOT_FOUND", path: "transforms[1].nodeIds[0]" }],
+  });
+});
+
+it("stages a batch in an open Transaction, and guards it whole with ifRev", async () => {
+  const { s, ids, transforms, current } = await withLetters("batch3");
+  expect(await s.transformNodes({ transforms }, "agent-a", { ifRev: 1 })).toMatchObject({
+    error: { code: "REV_CONFLICT" },
+  });
+  expect(await current()).toEqual(ids.map(() => [1, 0, 0, 1, 0, 0]));
+  const { txId } = ok(await s.begin("agent-a", "Tilt"));
+  expect(ok(await s.transformNodes({ transforms }, "agent-a", { txId, ifRev: 2 }))).toMatchObject({
+    txId,
+    rev: 2,
+    updatedIds: ids,
+  });
+  expect(await current()).toEqual(ids.map(() => [1, 0, 0, 1, 0, 0]));
+  expect(ok(await s.commitTx(txId, "agent-a"))).toMatchObject({ rev: 3, updatedIds: ids });
+  expect((await current())[0]).not.toEqual([1, 0, 0, 1, 0, 0]);
+});

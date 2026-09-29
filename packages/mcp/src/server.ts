@@ -17,6 +17,8 @@ import {
   parseColor,
   RenderOverlay,
   RenderScope,
+  TransformBatchInput,
+  TransformFields,
   TransformInput,
   UpdateInput,
   WriteReceipt,
@@ -406,8 +408,9 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         "pivot is center (default), topLeft, top, topRight, left, right, bottomLeft, bottom or bottomRight of the targets' geometricBounds, or {x, y}. With each: true every target turns about its own pivot; otherwise all share one.",
         "Transforming a Layer or Group transforms every Node inside it; updatedIds lists those Nodes. Live Shapes keep their parameters and gain a transform.",
         "scaleStrokes (default true) scales Stroke widths with the shape. The receipt's bounds are the new bounds.",
+        "To give Nodes different transforms in one call, send transforms: [{nodeIds, rotate, ...}, ...] instead of those fields: each entry applies in order, its pivot taken from the bounds the entries before it left, all in one Transaction; with partial, a failing entry is skipped whole and listed in failed by its index.",
       ].join(" "),
-      inputSchema: TransformInput.safeExtend({ docId, ...writeFields }),
+      inputSchema: { docId, ...TransformFields.shape, ...writeFields },
       outputSchema: WriteReceipt.shape,
       annotations: {
         readOnlyHint: false,
@@ -416,8 +419,22 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         openWorldHint: false,
       },
     },
-    async ({ docId, intent, partial, txId, ifRev, ...input }) =>
-      json(await service.transformNodes(docId, input, { intent, partial, txId, ifRev })),
+    async ({ docId, intent, partial, txId, ifRev, ...input }) => {
+      const single = Object.keys(input).find(
+        (k) => k !== "transforms" && input[k as keyof typeof input] !== undefined,
+      );
+      if (input.transforms && single) {
+        throw new KalamoError({
+          code: "INVALID_INPUT",
+          message: `kalamo_node_transform takes transforms or ${single}, not both.`,
+          hint: `Put ${single} inside each entry of transforms that needs it.`,
+          path: single,
+        });
+      }
+      const schema = input.transforms ? TransformBatchInput : TransformInput;
+      const transform = parseArgs("kalamo_node_transform", schema, input);
+      return json(await service.transformNodes(docId, transform, { intent, partial, txId, ifRev }));
+    },
   );
 
   /** The write options of a tool without partial. */

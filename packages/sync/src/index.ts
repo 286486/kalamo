@@ -16,7 +16,7 @@ import type {
   Rect,
   RenderOverlay,
   RenderScope,
-  TransformInput,
+  TransformNodesInput,
   UpdateInput,
   WriteReceipt,
 } from "@kalamo/core";
@@ -142,7 +142,11 @@ export interface DocumentService {
   createNodes(docId: string, nodes: NodeInput[], opts?: WriteOptions): Promise<WriteReceipt>;
   updateNodes(docId: string, updates: UpdateInput[], opts?: WriteOptions): Promise<WriteReceipt>;
   deleteNodes(docId: string, nodeIds: string[], opts?: WriteOptions): Promise<WriteReceipt>;
-  transformNodes(docId: string, input: TransformInput, opts?: WriteOptions): Promise<WriteReceipt>;
+  transformNodes(
+    docId: string,
+    input: TransformNodesInput,
+    opts?: WriteOptions,
+  ): Promise<WriteReceipt>;
   /** Illustrator's Clipping Mask > Make and Release (ADR-0021). */
   makeMask(docId: string, input: MaskInput, opts?: WriteOptions): Promise<WriteReceipt>;
   releaseMask(docId: string, nodeIds: string[], opts?: WriteOptions): Promise<WriteReceipt>;
