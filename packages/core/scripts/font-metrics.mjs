@@ -151,7 +151,7 @@ function cffNotdef(v, cff) {
         operands.push(v.getInt32(o + 1));
         o += 5;
       } else if (b === 30) {
-        // A real, which no offset this reads is.
+        // A real number; no offset read here is one, so it pushes 0.
         for (o++; (v.getUint8(o) & 15) !== 15 && v.getUint8(o) >> 4 !== 15; o++);
         o++;
         operands.push(0);

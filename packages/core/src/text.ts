@@ -155,7 +155,7 @@ function faceFor(faces: [DrawnFace, ...DrawnFace[]], char: string) {
   return faces.find((f) => f.face.advance(c) !== undefined) ?? faces[0];
 }
 
-/** Whether a face a text draws in has a character's glyph; a hard return needs none (ADR-0062). */
+/** Whether a face a text draws in has a character's glyph; a hard return needs none (ADR-0062, ADR-0065). */
 export function hasGlyph(text: TextFont, char: string): boolean {
   const c = char.codePointAt(0) as number;
   return char === "\n" || facesOf(text).some((f) => f.face.advance(c) !== undefined);
