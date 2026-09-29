@@ -406,3 +406,86 @@ test("the Rectangular Grid tool drags a Group whose divider counts and skews car
   expect(await horizontal(third)).toHaveLength(6);
   expectClose(await vertical(third), xs);
 });
+
+// #151: the Polar Grid tool draws a Group of concentric ellipses and radial lines (ADR-0061).
+test("the Polar Grid tool drags a Group whose divider counts and skews carry over", async ({
+  page,
+  request,
+}) => {
+  const { nodes, drag } = await openShapes(page, request, "Grids");
+  type Ellipse = { parentId: string; x: number; y: number; width: number; height: number };
+  type Line = { parentId: string; x1: number; y1: number; x2: number; y2: number };
+  const groups = () => nodes<{ id: string; appearance?: object }>("group");
+  const ellipses = async (group: string) =>
+    (await nodes<Ellipse & { appearance: object }>("ellipse")).filter((e) => e.parentId === group);
+  const lines = async (group: string) =>
+    (await nodes<Line>("line")).filter((l) => l.parentId === group);
+  // node_query sorts by id: the ring widths, sorted, and each line's turn clockwise from 12 o'clock.
+  const widths = async (group: string) =>
+    (await ellipses(group)).map((e) => e.width).sort((a, b) => a - b);
+  const turns = async (group: string) =>
+    (await lines(group))
+      .map((l) => {
+        const t = Math.atan2(l.x2 - l.x1, l.y1 - l.y2) / (2 * Math.PI);
+        return t < -1e-9 ? t + 1 : Math.max(t, 0);
+      })
+      .sort((a, b) => a - b);
+  const expectClose = (actual: number[], expected: number[]) => {
+    expect(actual).toHaveLength(expected.length);
+    for (const [i, v] of actual.entries()) expect(v).toBeCloseTo(expected[i] as number, 6);
+  };
+
+  const button = await pickFromGroup(page, LINE_GROUP, "Polar Grid Tool");
+
+  // 5 concentric and 5 radial dividers, evenly spaced in a 60 pt circle, all in the Stroke alone.
+  await drag([20, 20], [80, 80]);
+  await expect.poll(async () => (await groups()).length).toBe(1);
+  const [first] = await groups();
+  const id = first?.id as string;
+  expect(first?.appearance).toMatchObject({ fills: [], strokes: [] });
+  expect(await widths(id)).toEqual([10, 20, 30, 40, 50, 60]);
+  for (const e of await ellipses(id)) {
+    expect(e.x + e.width / 2).toBeCloseTo(50, 6);
+    expect(e.appearance).toMatchObject({ fills: [], strokes: [{ width: 1 }] });
+  }
+  for (const l of await lines(id)) {
+    expect([l.x1, l.y1]).toEqual([50, 50]);
+    expect(Math.hypot(l.x2 - 50, l.y2 - 50)).toBeCloseTo(30, 6);
+  }
+  expectClose(await turns(id), [0, 0.2, 0.4, 0.6, 0.8]);
+  // The Group is selected, not its children.
+  await expect(
+    page.getByRole("button", { name: "<Group>", exact: true, pressed: true }),
+  ).toHaveCount(1);
+  await expect(
+    page.getByRole("button", { name: "<Ellipse>", exact: true, pressed: true }),
+  ).toHaveCount(0);
+
+  // Down and Right: 4 concentric, 6 radial. C and V skew each 10% outward and clockwise.
+  await drag([100, 10], [170, 80], "ArrowDown", "ArrowRight", "c", "v", "c", "x");
+  await expect(button).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(async () => (await groups()).length).toBe(2);
+  const second = (await groups()).find((g) => g.id !== id)?.id as string;
+  // n dividers at `skew`%: each cell 2^(−skew/100) times the one before (ADR-0061).
+  const at = (n: number, skew: number) => {
+    const q = 2 ** (-skew / 100);
+    return Array.from({ length: n }, (_, i) => (1 - q ** (i + 1)) / (1 - q ** (n + 1)));
+  };
+  const rings = [...at(4, 10).map((f) => f * 70), 70];
+  expectClose(await widths(second), rings);
+  const spokes = [0, ...at(5, 10)];
+  expectClose(await turns(second), spokes);
+
+  // Undo removes the second grid, ellipses and lines, in one step.
+  await page.keyboard.press("Control+z");
+  await expect.poll(async () => (await groups()).map((g) => g.id)).toEqual([id]);
+  expect(await ellipses(second)).toEqual([]);
+  expect(await lines(second)).toEqual([]);
+
+  // The counts and skews carry over to the next drag.
+  await drag([100, 10], [170, 80]);
+  await expect.poll(async () => (await groups()).length).toBe(2);
+  const third = (await groups()).find((g) => g.id !== id)?.id as string;
+  expectClose(await widths(third), rings);
+  expectClose(await turns(third), spokes);
+});

@@ -16,6 +16,7 @@ import {
   arcTool,
   ellipseTool,
   lineTool,
+  polarGridTool,
   polygonTool,
   rectangleTool,
   rectangularGridTool,
@@ -171,6 +172,7 @@ const tools: [string, () => void][] = [
   ["Arc", drawShape(arcTool)],
   ["Spiral", drawShape(spiralTool)],
   ["Rectangular Grid", drawShape(rectangularGridTool)],
+  ["Polar Grid", drawShape(polarGridTool)],
 ];
 
 beforeEach(() => {

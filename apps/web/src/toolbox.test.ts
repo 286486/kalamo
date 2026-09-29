@@ -44,7 +44,7 @@ it("shows each group as one button, at its first tool, fronting its last chosen 
     "pencil",
   ]);
   expect(slots[3]?.tools).toEqual(["pen", "addAnchor", "deleteAnchor", "anchorPoint", "curvature"]);
-  expect(slots[4]?.tools).toEqual(["line", "arc", "spiral", "rectangularGrid"]);
+  expect(slots[4]?.tools).toEqual(["line", "arc", "spiral", "rectangularGrid", "polarGrid"]);
   expect(slots[5]?.tools).toEqual(["rectangle", "roundedRectangle", "ellipse", "polygon", "star"]);
   expect(toolSlots(all, { pen: "curvature", rectangle: "ellipse" })[3]?.shown).toBe("curvature");
   expect(toolSlots(all, { pen: "curvature", rectangle: "ellipse" })[5]?.shown).toBe("ellipse");
@@ -138,11 +138,22 @@ it("the Rectangular Grid tool takes the arrows, F, V, X and C while dragging, wh
   expect(pressedKey(press("v"), tool, false, () => {})).toBe(false);
 });
 
-it("gives the Arc, Spiral, Rectangular Grid, Rounded Rectangle, Polygon and Star tools no shortcut, as Illustrator does", () => {
+it("the Polar Grid tool takes the arrows, X, C, F and V while dragging, which then switch nothing", () => {
+  const tool = TOOLS.polarGrid;
+  tool.down({ x: 0, y: 0, capture() {} } as never);
+  for (const k of ["x", "c", "f", "v", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"])
+    expect(pressedKey(press(k), tool, false, () => {})).toBe(true);
+  expect(pressedKey(press("m"), tool, false, () => {})).toBe(false);
+  tool.cancel?.(() => {});
+  expect(pressedKey(press("c"), tool, false, () => {})).toBe(false);
+});
+
+it("gives the Arc, Spiral, Rectangular Grid, Polar Grid, Rounded Rectangle, Polygon and Star tools no shortcut, as Illustrator does", () => {
   expect(Object.values(TOOLS).filter((t) => !t.shortcut)).toEqual([
     TOOLS.arc,
     TOOLS.spiral,
     TOOLS.rectangularGrid,
+    TOOLS.polarGrid,
     TOOLS.roundedRectangle,
     TOOLS.polygon,
     TOOLS.star,

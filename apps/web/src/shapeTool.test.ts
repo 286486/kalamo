@@ -9,12 +9,15 @@ import {
   dragBox,
   dragGrid,
   dragLine,
+  dragPolarGrid,
   dragRadial,
   dragSpiral,
   dragStar,
   ellipseTool,
   gridKey,
   lineTool,
+  polarGridKey,
+  polarGridTool,
   polygonTool,
   radiusKey,
   rectangleTool,
@@ -1281,5 +1284,177 @@ describe("the Rectangular Grid tool", () => {
     expect(paints.every(([kind]) => kind === "stroke")).toBe(true);
     rectangularGridTool.cancel?.(() => {});
     vi.unstubAllGlobals();
+  });
+});
+
+describe("dragPolarGrid", () => {
+  /** Each line's end, rounded off the float error of sin and cos. */
+  const ends = (children: unknown[]) =>
+    children
+      .filter(
+        (c): c is { type: "line"; x1: number; y1: number; x2: number; y2: number } =>
+          (c as { type: string }).type === "line",
+      )
+      .map((l) => [l.x1, l.y1, +l.x2.toFixed(9), +l.y2.toFixed(9)]);
+  const even = { concentric: { count: 1, skew: 0 }, radial: { count: 4, skew: 0 } };
+
+  it("fills the drag's box with its outer ellipse, and runs each radial line from the centre to it", () => {
+    const grid = dragPolarGrid([0, 0], [60, 40], NONE, even);
+    expect(grid.children.slice(0, 2)).toEqual([
+      { type: "ellipse", x: 0, y: 0, width: 60, height: 40 },
+      { type: "ellipse", x: 15, y: 10, width: 30, height: 20 },
+    ]);
+    // Clockwise from 12 o'clock.
+    expect(ends(grid.children)).toEqual([
+      [30, 20, 30, 0],
+      [30, 20, 60, 20],
+      [30, 20, 30, 40],
+      [30, 20, 0, 20],
+    ]);
+  });
+
+  it("takes dragBox's Shift and Alt, and draws only the outer ellipse at 0 and 0 dividers", () => {
+    const none = { concentric: { count: 0, skew: 30 }, radial: { count: 0, skew: 30 } };
+    expect(dragPolarGrid([20, 20], [30, 25], { shift: true, alt: true }, none).children).toEqual([
+      { type: "ellipse", x: 10, y: 10, width: 20, height: 20 },
+    ]);
+  });
+
+  it.each([-50, 0, 50])("spaces concentric and radial dividers at skew %i", (skew) => {
+    const q = 2 ** (-skew / 100);
+    const option = { concentric: { count: 4, skew }, radial: { count: 5, skew } };
+    const [, ...rest] = dragPolarGrid([0, 0], [200, 100], NONE, option).children;
+    const rings = rest.flatMap((c) => (c.type === "ellipse" ? [c] : []));
+    expect(rings).toHaveLength(4);
+    // Centred, scaled from the outer ellipse, each ring 2^(−skew/100) times as wide as the one inside.
+    for (const r of rings) {
+      expect(r.x + r.width / 2).toBeCloseTo(100, 12);
+      expect(r.y + r.height / 2).toBeCloseTo(50, 12);
+      expect(r.height / 100).toBeCloseTo(r.width / 200, 12);
+    }
+    const radii = [0, ...rings.map((r) => r.width / 200), 1];
+    for (let i = 2; i < radii.length; i++)
+      expect(
+        ((radii[i] as number) - (radii[i - 1] as number)) /
+          ((radii[i - 1] as number) - (radii[i - 2] as number)),
+      ).toBeCloseTo(q, 12);
+    // Sectors, clockwise from 12 o'clock, each 2^(−skew/100) times the one before, on the circle the grid scales.
+    const turns = ends(rest).map(([, , x, y]) => {
+      const t = Math.atan2(((x as number) - 100) / 100, -((y as number) - 50) / 50) / (2 * Math.PI);
+      return t < -1e-9 ? t + 1 : Math.max(t, 0);
+    });
+    expect(turns[0]).toBe(0);
+    const sectors = [...turns, 1].slice(1).map((t, i) => t - (turns[i] as number));
+    for (let i = 1; i < sectors.length; i++)
+      expect((sectors[i] as number) / (sectors[i - 1] as number)).toBeCloseTo(q, 9);
+  });
+});
+
+describe("polarGridKey", () => {
+  const grid = { concentric: { count: 5, skew: 0 }, radial: { count: 5, skew: 0 } };
+  it.each([
+    ["ArrowUp", { concentric: { count: 6, skew: 0 } }],
+    ["ArrowDown", { concentric: { count: 4, skew: 0 } }],
+    ["ArrowRight", { radial: { count: 6, skew: 0 } }],
+    ["ArrowLeft", { radial: { count: 4, skew: 0 } }],
+    ["C", { concentric: { count: 5, skew: 10 } }],
+    ["X", { concentric: { count: 5, skew: -10 } }],
+    ["V", { radial: { count: 5, skew: 10 } }],
+    ["F", { radial: { count: 5, skew: -10 } }],
+  ])("%s changes one kind of divider", (key, change) => {
+    expect(polarGridKey(grid, key)).toEqual({ ...grid, ...change });
+  });
+
+  it("keeps counts within 0…999 and skews within −500…500%, and takes no other key", () => {
+    const low = { concentric: { count: 0, skew: -500 }, radial: { count: 999, skew: 500 } };
+    for (const key of ["ArrowDown", "X", "ArrowRight", "V"])
+      expect(polarGridKey(low, key)).toEqual(low);
+    for (const key of ["Z", "Shift", "constructor", "c"])
+      expect(polarGridKey(grid, key)).toBeNull();
+  });
+});
+
+describe("the Polar Grid tool", () => {
+  const key = (k: string) => polarGridTool.keyChange?.({ ...NONE, key: k, down: true }, () => {});
+  const children = () => {
+    const command = sent();
+    const [group] = command?.type === "create" ? command.nodes : [];
+    if (group?.type !== "group") throw new Error("no Group");
+    return (group.children ?? []) as Record<string, unknown>[];
+  };
+  const count = (type: string) => children().filter((c) => c.type === type).length;
+  const stroke = { fills: [], strokes: [{ color: "#0000FF", width: 1 }] };
+  beforeEach(() => {
+    useStore.setState({ fillStroke: { fill: "#FF0000", stroke: "#0000FF", active: "fill" } });
+  });
+
+  // In order: the counts and skews each drag leaves are the next one's.
+  it("sends one Group of 6 ellipses and 5 radial lines, each in the Stroke alone", () => {
+    dragWith(polarGridTool, [0, 0], [[30, 30]], [[60, 60]]);
+    expect(vi.mocked(send)).toHaveBeenCalledTimes(1);
+    const command = sent();
+    expect(command?.type === "create" && command.nodes).toMatchObject([
+      { type: "group", parentId: defaultLayerId },
+    ]);
+    expect(command?.type === "create" && command.nodes[0]).not.toHaveProperty("appearance");
+    expect(children().map((c) => c.type)).toEqual([
+      ...Array(6).fill("ellipse"),
+      ...Array(5).fill("line"),
+    ]);
+    expect(children()[0]).toEqual({
+      type: "ellipse",
+      x: 0,
+      y: 0,
+      width: 60,
+      height: 60,
+      appearance: stroke,
+    });
+    expect(children()[1]).toEqual({
+      type: "ellipse",
+      x: 25,
+      y: 25,
+      width: 10,
+      height: 10,
+      appearance: stroke,
+    });
+    expect(children()[6]).toEqual({
+      type: "line",
+      x1: 30,
+      y1: 30,
+      x2: 30,
+      y2: 0,
+      appearance: stroke,
+    });
+    expect(useStore.getState().pending).toMatchObject([{ nodes: [{ type: "group" }] }]);
+  });
+
+  it("takes all eight keys during the drag, and the counts and skews carry over", () => {
+    polarGridTool.down(at([0, 0]));
+    polarGridTool.move?.(at([60, 60]));
+    const keys = ["ArrowUp", "ArrowDown", "ArrowDown", "ArrowRight", "C", "X", "C", "V", "F", "V"];
+    expect(keys.map(key)).toEqual(Array(keys.length).fill(true));
+    expect(key("M")).toBe(false);
+    polarGridTool.up?.(at([60, 60]));
+    const expected = dragPolarGrid([0, 0], [60, 60], NONE, {
+      concentric: { count: 4, skew: 10 },
+      radial: { count: 6, skew: 10 },
+    }).children;
+    expect(children()).toMatchObject(expected);
+    dragWith(polarGridTool, [0, 0], [[60, 60]]);
+    expect(children()).toMatchObject(expected);
+    // Back to 5 and 5 at 0% for the tests after.
+    polarGridTool.down(at([0, 0]));
+    for (const k of ["ArrowUp", "ArrowLeft", "X", "F"]) key(k);
+    polarGridTool.up?.(at([1, 1]));
+    dragWith(polarGridTool, [0, 0], [[60, 60]]);
+    expect([count("ellipse"), count("line")]).toEqual([6, 5]);
+    expect(children()[1]).toMatchObject({ width: 10 });
+  });
+
+  it("draws nothing for a drag flat as a line, and moves with Space", () => {
+    dragWith(polarGridTool, [0, 0], [[30, 30]], [[30, 0]]);
+    expect(send).not.toHaveBeenCalled();
+    dragWith(polarGridTool, [0, 0], [[10, 10]], [[15, 20], { space: true }], [[30, 30]]);
+    expect(children()[0]).toMatchObject({ x: 5, y: 10, width: 25, height: 20 });
   });
 });
