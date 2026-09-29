@@ -12,6 +12,7 @@ import { useStore } from "./store.ts";
 import type { CanvasTool, KeyMods } from "./toolbox.ts";
 import {
   constrain,
+  type GroupArt,
   type LineArt,
   type NewArt,
   type PathArt,
@@ -297,6 +298,86 @@ const unholdSpiral = (spiral: SpiralOption, art: SpiralArt | null): SpiralOption
     ? { segments: art.revolution * 4, decay: 100 * 0.8 ** art.expansion, hold: null }
     : { ...spiral, hold: null };
 
+/** One direction's dividers in Illustrator's Rectangular Grid options: how many, and their skew in %. */
+export interface Dividers {
+  count: number;
+  skew: number;
+}
+
+/** The Rectangular Grid tool's option (ADR-0061): its horizontal and vertical dividers. */
+export interface GridOption {
+  horizontal: Dividers;
+  vertical: Dividers;
+}
+
+/** A Rectangular Grid: its frame, then its horizontal and its vertical dividers (ADR-0061). */
+type GridArt = GroupArt & { children: [ShapeBox, ...LineArt[]] };
+
+/**
+ * Where `count` dividers split 0…1 at `skew`% (ADR-0061): evenly at 0, each cell 2^(−skew/100)
+ * times the one before it otherwise, so a positive skew packs them toward 1 and a negative one
+ * toward 0.
+ */
+export function dividerFractions({ count, skew }: Dividers): number[] {
+  const q = 2 ** (-skew / 100);
+  const at = (i: number) => (q === 1 ? i / (count + 1) : (1 - q ** i) / (1 - q ** (count + 1)));
+  return Array.from({ length: count }, (_, i) => at(i + 1));
+}
+
+/**
+ * The grid a drag from `press` to `p` draws (ADR-0061), as Illustrator's Rectangular Grid tool
+ * does: `dragBox`'s box as its frame, its horizontal dividers from the top down, skewed toward the
+ * top, then its vertical ones from the left, skewed toward the right.
+ */
+export function dragGrid(
+  press: Point,
+  p: Point,
+  mods: Pick<KeyMods, "shift" | "alt">,
+  { horizontal, vertical }: GridOption,
+): GridArt {
+  const frame = dragBox(press, p, mods);
+  const { x, y, width, height } = frame;
+  const bottom = y + height;
+  return {
+    type: "group",
+    children: [
+      { type: "rect", ...frame },
+      ...dividerFractions(horizontal)
+        .reverse()
+        .map((f): LineArt => {
+          const at = bottom - f * height;
+          return { type: "line", x1: x, y1: at, x2: x + width, y2: at };
+        }),
+      ...dividerFractions(vertical).map((f): LineArt => {
+        const at = x + f * width;
+        return { type: "line", x1: at, y1: y, x2: at, y2: bottom };
+      }),
+    ],
+  };
+}
+
+/** Each Rectangular Grid key's change (ADR-0061): which dividers, what, and by how much. */
+const GRID_KEYS = new Map<string, [keyof GridOption, keyof Dividers, number]>([
+  ["ArrowUp", ["horizontal", "count", 1]],
+  ["ArrowDown", ["horizontal", "count", -1]],
+  ["ArrowRight", ["vertical", "count", 1]],
+  ["ArrowLeft", ["vertical", "count", -1]],
+  ["V", ["horizontal", "skew", 10]],
+  ["F", ["horizontal", "skew", -10]],
+  ["C", ["vertical", "skew", 10]],
+  ["X", ["vertical", "skew", -10]],
+]);
+const DIVIDER_BOUNDS = { count: [0, 999], skew: [-500, 500] } as const;
+
+/** The Rectangular Grid tool's option after `key` during a drag (ADR-0061), or null for another key. */
+export function gridKey(grid: GridOption, key: string): GridOption | null {
+  const change = GRID_KEYS.get(key);
+  if (!change) return null;
+  const [axis, field, by] = change;
+  const [min, max] = DIVIDER_BOUNDS[field];
+  return { ...grid, [axis]: { ...grid[axis], [field]: clamp(grid[axis][field] + by, min, max) } };
+}
+
 /**
  * What a shape tool's drag draws, and the option (corner radius, side count, a star's radii) its
  * keys and modifiers change.
@@ -321,8 +402,8 @@ interface DragShape<A extends NewArt, O> {
 }
 
 /**
- * A drag draws a Live Shape, or the Arc tool's Path, previewed in its paint until release. The option
- * each drag ends with carries over to the next one in the session.
+ * A drag draws a Live Shape, the Arc tool's Path or a grid's Group, previewed in its paint until
+ * release. The option each drag ends with carries over to the next one in the session.
  */
 function shapeTool<A extends NewArt, O>(
   tool: Pick<CanvasTool, "title" | "shortcut" | "icon" | "group">,
@@ -390,8 +471,12 @@ function shapeTool<A extends NewArt, O>(
       redraw();
     },
     draw(ctx, _doc, scale) {
-      const path = drag?.art && shapePath(drag.art);
-      if (drag && path) drawDrawing(ctx, path, paint(drag.option), scale);
+      if (!drag?.art) return;
+      const fillStroke = paint(drag.option);
+      for (const art of drag.art.type === "group" ? drag.art.children : [drag.art]) {
+        const path = shapePath(art);
+        if (path) drawDrawing(ctx, path, fillStroke, scale);
+      }
     },
   };
 }
@@ -555,5 +640,26 @@ export const spiralTool = shapeTool<SpiralArt, SpiralOption>(
       return by && art && art.radius > 0 ? { ...free, hold: { by, radius: art.radius } } : free;
     },
     keep: unholdSpiral,
+  },
+);
+
+/**
+ * Illustrator's Rectangular Grid tool (ADR-0061) with Fill Grid off, its default: a Group of a
+ * frame and divider lines, each in the current Stroke and no Fill. The arrows add and remove
+ * dividers, and F, V, X and C skew them; the counts and skews carry over, from 5 and 5 at 0%.
+ */
+export const rectangularGridTool = shapeTool<GridArt, GridOption>(
+  {
+    title: "Rectangular Grid Tool",
+    shortcut: "",
+    group: "line",
+    icon: "M2.5 2.5 H13.5 V13.5 H2.5 Z M2.5 6.2 H13.5 M2.5 9.8 H13.5 M6.2 2.5 V13.5 M9.8 2.5 V13.5",
+  },
+  {
+    option: { horizontal: { count: 5, skew: 0 }, vertical: { count: 5, skew: 0 } },
+    art: dragGrid,
+    visible: ({ children: [frame] }) => frame.width > 0 && frame.height > 0,
+    key: gridKey,
+    unfilled: () => true,
   },
 );

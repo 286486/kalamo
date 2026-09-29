@@ -62,14 +62,19 @@ export function constrain(from: Point, p: Point): Point {
 /** The notice when newArtNode refuses. */
 export const NOTHING_DRAWN = "The Layer is hidden or locked; nothing was drawn.";
 
-/** What a drawing tool draws, in document coordinates: a path, or a Live Shape dragged out. */
-export type NewArt =
+/** What a drawing tool draws, in document coordinates: a path, a Live Shape dragged out, or a grid's Group. */
+export type NewArt = LeafArt | GroupArt;
+
+type LeafArt =
   | PathArt
   | ShapeBox
   | Pick<Extract<Shape, { type: "polygon" }>, "type" | "cx" | "cy" | "radius" | "sides" | "angle">
   | StarArt
   | LineArt
   | SpiralArt;
+
+/** A Group of drawn art, created inline with it: a grid's frame and dividers (ADR-0061). */
+export type GroupArt = { type: "group"; children: LeafArt[] };
 
 /** A path: the Pen's, the Pencil's, or an arc, which is not a Live Shape (ADR-0059). */
 export type PathArt = { type: "path"; d: string };
@@ -91,7 +96,8 @@ export type StarArt = Pick<
 
 /**
  * The `create` input for drawn art: the current Fill and Stroke, in placeParent's Layer or
- * isolated Group or sub-Layer; an isolated leaf is left first (`forNewArt`).
+ * isolated Group or sub-Layer; an isolated leaf is left first (`forNewArt`). A Group has no
+ * Appearance of its own; its children take the Fill and Stroke.
  */
 export function newArtNode(
   s: Pick<State, "selection" | "fillStroke" | "isolated"> & { doc: Document },
@@ -101,14 +107,13 @@ export function newArtNode(
   const parentId = placeParent(s.doc, s.selection, s.isolated);
   // Illustrator refuses to draw into a hidden or locked Layer.
   if (!parentId || !editable(s.doc, s.doc.nodes.get(parentId))) return null;
-  return {
-    ...art,
-    parentId,
-    appearance: {
-      fills: fill ? [{ color: fill }] : [],
-      strokes: stroke ? [{ color: stroke, width: 1 }] : [],
-    },
+  const appearance = {
+    fills: fill ? [{ color: fill }] : [],
+    strokes: stroke ? [{ color: stroke, width: 1 }] : [],
   };
+  if (art.type === "group")
+    return { ...art, parentId, children: art.children.map((c) => ({ ...c, appearance })) };
+  return { ...art, parentId, appearance };
 }
 
 /** The path the Pen is drawing, not yet sent. */

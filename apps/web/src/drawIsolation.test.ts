@@ -1,4 +1,11 @@
-import { createDocument, createNodes, type Document, type NodeInput } from "@zibel/core";
+import {
+  clippingPath,
+  createDocument,
+  createNodes,
+  type Document,
+  makeMask,
+  type NodeInput,
+} from "@zibel/core";
 import type { ServerMessage } from "@zibel/sync";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { drawPending } from "./canvas.ts";
@@ -11,6 +18,7 @@ import {
   lineTool,
   polygonTool,
   rectangleTool,
+  rectangularGridTool,
   roundedRectangleTool,
   spiralTool,
   starTool,
@@ -162,6 +170,7 @@ const tools: [string, () => void][] = [
   ["Line Segment", drawShape(lineTool)],
   ["Arc", drawShape(arcTool)],
   ["Spiral", drawShape(spiralTool)],
+  ["Rectangular Grid", drawShape(rectangularGridTool)],
 ];
 
 beforeEach(() => {
@@ -223,6 +232,29 @@ describe.each(tools)("the %s with a leaf isolated (ADR-0058, #137)", (_, draw) =
     const path = accept();
     expect(view()).toEqual({ isolated: before.id("g"), selection: [path] });
   });
+});
+
+it("a Rectangular Grid drawn in an isolated Clip Group is clipped, and selected as one Group", () => {
+  const { doc, defaultLayerId: layer } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 200, height: 100 }],
+  });
+  const rect = (clientKey: string, width: number) =>
+    ({ type: "rect", clientKey, parentId: layer, x: 0, y: 0, width, height: width }) as const;
+  const { keyMap } = createNodes(doc, [rect("content", 10), rect("clip", 60)]);
+  const { group } = makeMask(doc, {
+    clipNodeId: keyMap.clip as string,
+    contentIds: [keyMap.content as string],
+  });
+  useStore.setState({ doc, isolated: group.id, selection: [], pending: [] });
+  drawShape(rectangularGridTool)();
+  const grid = accept();
+  const after = useStore.getState().doc as Document;
+  // Above the Clipping Path, in its Clip Group: clipped by it.
+  expect(after.nodes.get(grid)).toMatchObject({ type: "group", parentId: group.id });
+  expect(clippingPath(after, group)?.id).toBe(keyMap.clip);
+  expect(view()).toEqual({ isolated: group.id, selection: [grid] });
 });
 
 it("the Pencil with Keep selected off goes up and selects nothing", () => {
