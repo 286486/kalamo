@@ -29,7 +29,7 @@ The base axis picks the corner `O` the arc bends around, one of the two other co
 - `t = |s| / 100`, and the target is `Q` when `s > 0` (convex, bulging away from `O`) or `O` when `s < 0` (concave, bulging toward it).
 - `c1 = A + t·(target − A)` and `c2 = B + t·(target − B)`.
 
-So slope 0 is the straight line, with both handles on their anchors, and ±100 pulls both handles to the corner, fully convex or fully concave. Slope 50 comes within about 3% of the box of the quarter ellipse centred on `O`, whose handles would sit at `t ≈ 0.552`.
+So slope 0 is the straight line, with both handles on their anchors, and ±100 pulls both handles to the corner, the furthest one cubic bends that way: Adobe's "fully" convex or concave. Its midpoint still stops a quarter of the way short of the corner. Slope 50 comes within about 3% of the box of the quarter ellipse centred on `O`, whose handles would sit at `t ≈ 0.552`.
 
 A closed arc adds the two straight segments through `O`: `M A C c1 c2 B L O Z`. A convex one is a quarter-pie, a concave one a corner fillet.
 
@@ -46,7 +46,7 @@ Through the tool key routing (#143), none of them switches tools:
 
 ## Defaults, carry-over and paint
 
-The first drag in a session is Open, X Axis, slope 50. Illustrator's research marks these as unconfirmed [?]; they match every tutorial's default dialog. The type, base axis and slope a drag ends with carry over to the next drag in the session, as Illustrator's options do. They are not stored anywhere else.
+The first drag in a session is Open, X Axis, slope 50. Adobe's help does not state them, so they are unconfirmed [?]; they are the defaults tutorials show in the dialog. The type, base axis and slope a drag ends with carry over to the next drag in the session, as Illustrator's options do. They are not stored anywhere else.
 
 Illustrator's Fill Arc is off by default. An open arc takes the current Stroke and no Fill, as the Line Segment tool does. A closed arc takes the current Fill and Stroke.
 
@@ -59,3 +59,9 @@ Adobe does not publish the formula, and no public Illustrator SVG of an arc at k
 - **A Live Arc** with slope, axis and type. Illustrator has none, and no file format would keep it (see above).
 - **An ellipse with `arcType: "open"`.** Cannot hold a slope other than one, or the concave side.
 - **F as a mirror across the chord.** On a box that is not square the mirror of the cubic no longer spans the same box, so the ends would leave the press or the pointer.
+
+## Consequences
+
+- REQUIREMENTS F-DRAW-01 says Arc makes a Path; CONTEXT.md's Live Shape entry says the same.
+- The web app's drawn art gains `PathArt`, the `{ type: "path", d }` the Pen already sent. The shape tools' `unfilled` becomes a predicate of the tool's options, so a closed arc is filled and an open one is not.
+- No change to core, the Document schema, the sync protocol, MCP, `render`, SVG or `.zibel.json`: an arc is an ordinary Path everywhere.

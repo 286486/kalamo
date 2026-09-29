@@ -14,6 +14,14 @@ import {
 
 type Point = [number, number];
 
+/** The drag from `press` to `p`, made as long in x as in y with Shift, by its longer side. */
+function dragSize(press: Point, p: Point, shift: boolean): Point {
+  const [dx, dy] = [p[0] - press[0], p[1] - press[1]];
+  if (!shift) return [dx, dy];
+  const side = Math.max(Math.abs(dx), Math.abs(dy));
+  return [dx < 0 ? -side : side, dy < 0 ? -side : side];
+}
+
 /**
  * The box a drag from `press` to `p` draws (F-DRAW-01): Shift makes it a square, as big as the
  * drag's longer side, and Alt centres it on `press`. A drag in any direction gives a positive size.
@@ -23,11 +31,7 @@ export function dragBox(
   p: Point,
   { shift, alt }: Pick<KeyMods, "shift" | "alt">,
 ): Omit<ShapeBox, "type"> {
-  let [dx, dy] = [p[0] - press[0], p[1] - press[1]];
-  if (shift) {
-    const side = Math.max(Math.abs(dx), Math.abs(dy));
-    [dx, dy] = [dx < 0 ? -side : side, dy < 0 ? -side : side];
-  }
+  const [dx, dy] = dragSize(press, p, shift);
   if (alt) {
     const [w, h] = [Math.abs(dx), Math.abs(dy)];
     return { x: press[0] - w, y: press[1] - h, width: 2 * w, height: 2 * h };
@@ -74,11 +78,7 @@ export function dragArc(
   { shift, alt }: Pick<KeyMods, "shift" | "alt">,
   { closed, axis, slope }: ArcOption,
 ): PathArt {
-  let [dx, dy] = [p[0] - press[0], p[1] - press[1]];
-  if (shift) {
-    const side = Math.max(Math.abs(dx), Math.abs(dy));
-    [dx, dy] = [dx < 0 ? -side : side, dy < 0 ? -side : side];
-  }
+  const [dx, dy] = dragSize(press, p, shift);
   const b: Point = [press[0] + dx, press[1] + dy];
   const a: Point = alt ? [press[0] - dx, press[1] - dy] : press;
   const corner: Point = axis === "x" ? [b[0], a[1]] : [a[0], b[1]];
@@ -251,7 +251,7 @@ interface DragShape<A extends NewArt, O> {
 }
 
 /**
- * A drag draws a Live Shape, previewed in the current Fill and Stroke until release. The option
+ * A drag draws a Live Shape, or the Arc tool's Path, previewed in its paint until release. The option
  * each drag ends with carries over to the next one in the session.
  */
 function shapeTool<A extends NewArt, O>(
