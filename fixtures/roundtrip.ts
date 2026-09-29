@@ -32,8 +32,14 @@ const EDITS = {
   flip: "object-flip-horizontal",
 };
 
-// Inkscape must draw text in the bundled font, as resvg does (ADR-0013), not a system fallback.
+// Inkscape must draw text in the bundled font, as resvg does (ADR-0013), not a system fallback:
+// CJK falls back to the bundled Noto Sans SC even where the system has its own CJK fonts, as CI's
+// Inkscape install pulls in (#167).
 const FONTS_CONF = resolve(STATE, "fonts.conf");
+const cjk = ["zh-cn", "zh-tw", "ja", "ko"].map(
+  (lang) =>
+    `<rejectfont><pattern><patelt name="lang"><string>${lang}</string></patelt></pattern></rejectfont>`,
+);
 mkdirSync(STATE, { recursive: true });
 writeFileSync(
   FONTS_CONF,
@@ -41,6 +47,10 @@ writeFileSync(
 <fontconfig>
   <include ignore_missing="yes">/etc/fonts/fonts.conf</include>
   <dir>${resolve(import.meta.dirname, "../packages/render/fonts")}</dir>
+  <selectfont>
+    <acceptfont><pattern><patelt name="family"><string>Noto Sans SC</string></patelt></pattern></acceptfont>
+    ${cjk.join("\n    ")}
+  </selectfont>
   <cachedir>${resolve(STATE, "fontconfig")}</cachedir>
 </fontconfig>
 `,
