@@ -107,6 +107,11 @@
       "frame": { "height": 120, "width": 140, "x": 820, "y": 130 },
       "id": "01M38T29SCJKAREAARTB0ARD0Z",
       "name": "CJK Area Type"
+    },
+    {
+      "frame": { "height": 120, "width": 220, "x": 360, "y": 130 },
+      "id": "01M38T29SK0REANARTB0ARD00Z",
+      "name": "Korean"
     }
   ],
   "nodes": [
@@ -2644,6 +2649,96 @@
       "visible": true,
       "width": 118,
       "x": 831,
+      "y": 145
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#000000",
+            "type": "solid"
+          }
+        ],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "content": "Hi 直骨한국",
+      "fontFamily": "Source Sans 3",
+      "fontSize": 20,
+      "id": "01M38T29SK0REANTEXT00000R0",
+      "index": "aq",
+      "kind": "point",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "text",
+      "visible": true,
+      "x": 370,
+      "y": 180
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#000000",
+            "type": "solid"
+          }
+        ],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "content": "Bold 한글",
+      "fontFamily": "Source Sans 3",
+      "fontSize": 20,
+      "fontStyle": "Bold",
+      "id": "01M38T29SK0REANTEXT00000B0",
+      "index": "ar",
+      "kind": "point",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "text",
+      "visible": true,
+      "x": 370,
+      "y": 225
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#000000",
+            "type": "solid"
+          }
+        ],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "content": "한국어 문장은 음절 사이에서 줄을 바꿉니다. Zibel로 함께 편집해요!",
+      "fontFamily": "Source Sans 3",
+      "fontSize": 14,
+      "height": 100,
+      "id": "01M38T29SK0REANAREATEXT00A",
+      "index": "as",
+      "kind": "area",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "text",
+      "visible": true,
+      "width": 90,
+      "x": 485,
       "y": 145
     }
   ],

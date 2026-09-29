@@ -5,7 +5,7 @@ date: 2026-09-29
 
 # The canvas traces the first face's `.notdef` outline for a character no bundled face has
 
-A character that neither Source Sans 3 nor Noto Sans SC has, such as an emoji, Thai, Arabic, Devanagari or Hangul (until #164), draws in `render` and PNG export as the `.notdef` of the first family in the text's fallback order, because resvg has no system fonts. Bounds measure it at that `.notdef`'s advance (ADR-0063). The canvas set `ctx.font` to the bundled families only, but Canvas2D still falls back to any system font that has the glyph. So the canvas drew a real or colour glyph where `render` drew a box. A plain line, painted with one `fillText`, also moved every character after that glyph by the difference in advance, so the ink left the selection bounds (#165). This ADR amends the last Consequences bullet of ADR-0063.
+A character that neither Source Sans 3 nor Noto Sans SC has, such as an emoji, Thai, Arabic, Devanagari or, before ADR-0066 bundled Noto Sans KR, Hangul, draws in `render` and PNG export as the `.notdef` of the first family in the text's fallback order, because resvg has no system fonts. Bounds measure it at that `.notdef`'s advance (ADR-0063). The canvas set `ctx.font` to the bundled families only, but Canvas2D still falls back to any system font that has the glyph. So the canvas drew a real or colour glyph where `render` drew a box. A plain line, painted with one `fillText`, also moved every character after that glyph by the difference in advance, so the ink left the selection bounds (#165). This ADR amends the last Consequences bullet of ADR-0063.
 
 ## Decision
 

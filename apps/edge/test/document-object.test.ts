@@ -631,17 +631,17 @@ it("warns MISSING_GLYPHS in the receipt of a browser create or update Command", 
       ),
     ) as Promise<{ createdIds: string[]; warnings: unknown[] }>;
   const text = { type: "text", parentId: defaultLayerId, x: 10, y: 50, content: "Hi" };
-  const created = await edit({ type: "create", nodes: [{ ...text, content: "한" }] }, "c1");
+  const created = await edit({ type: "create", nodes: [{ ...text, content: "ก" }] }, "c1");
   const [id] = created.createdIds;
   expect(created.warnings).toEqual([
     expect.objectContaining({ code: "MISSING_GLYPHS", nodeId: id }),
   ]);
-  const updated = await edit({ type: "update", nodeId: id, patch: { content: "국어" } }, "c2");
+  const updated = await edit({ type: "update", nodeId: id, patch: { content: "ขค" } }, "c2");
   expect(updated.warnings).toEqual([
     expect.objectContaining({
       code: "MISSING_GLYPHS",
       nodeId: id,
-      message: expect.stringContaining("국, 어;"),
+      message: expect.stringContaining("ข, ค;"),
     }),
   ]);
 });

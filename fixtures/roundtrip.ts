@@ -2,7 +2,7 @@
 // `wrangler dev` and must come back equal (ADR-0017, REQUIREMENTS §7.2); a painted Group transformed
 // in Inkscape must come back as zibel_node_transform leaves it (ADR-0043). Needs `inkscape` ≥ 1.2.
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { crc32, deflateSync } from "node:zlib";
 import { httpCall } from "./agent-benchmarks/mcp.ts";
@@ -32,19 +32,32 @@ const EDITS = {
   flip: "object-flip-horizontal",
 };
 
-// Inkscape must draw text in the bundled font, as resvg does (ADR-0013, ADR-0063), not a system
-// fallback: CJK falls back to the bundled Noto Sans SC even where the system has its own CJK fonts,
-// as CI's Inkscape install pulls in (#167).
+// Inkscape must draw text in the bundled font, as resvg does (ADR-0013, ADR-0063, ADR-0066), not a
+// system fallback: CJK falls back to the bundled Noto files even where the system has its own CJK
+// fonts, as CI's Inkscape install pulls in (#167). Each file is accepted by its path, since an
+// accept by family would pass a system copy, and must exist.
 const FONTS_CONF = resolve(STATE, "fonts.conf");
 const FONTS = resolve(import.meta.dirname, "../packages/render/fonts");
+/** The Noto families in core's fallback order after Source Sans 3, by file prefix. */
+const NOTO = ["Noto Sans SC", "Noto Sans KR"];
 const pattern = (name: string, value: string) =>
   `<pattern><patelt name="${name}"><string>${value}</string></patelt></pattern>`;
-const ACCEPT_NOTO = readdirSync(FONTS)
-  .filter((f) => f.startsWith("NotoSansSC-"))
-  .map((f) => `<acceptfont>${pattern("file", join(FONTS, f))}</acceptfont>`);
+const ACCEPT_NOTO = NOTO.flatMap((family) =>
+  ["Regular", "Bold"].map((face) => {
+    const file = join(FONTS, `${family.replaceAll(" ", "")}-${face}.otf`);
+    if (!existsSync(file)) throw new Error(`${file} is missing.`);
+    return `<acceptfont>${pattern("file", file)}</acceptfont>`;
+  }),
+);
 const REJECT_CJK = ["zh-cn", "zh-tw", "ja", "ko"].map(
   (lang) => `<rejectfont>${pattern("lang", lang)}</rejectfont>`,
 );
+// Both Noto families cover Han, and fontconfig's sort would pick either for a Source Sans 3 text's
+// ideographs. Appending them to every pattern's families, in core's order, ranks Noto Sans SC first,
+// so Han and kana draw in it as in resvg, and only what it lacks, Hangul, in Noto Sans KR.
+const PREFER_NOTO = `<match target="pattern"><edit name="family" mode="append" binding="weak">${NOTO.map(
+  (f) => `<string>${f}</string>`,
+).join("")}</edit></match>`;
 mkdirSync(STATE, { recursive: true });
 writeFileSync(
   FONTS_CONF,
@@ -55,6 +68,7 @@ writeFileSync(
   <selectfont>
     ${[...ACCEPT_NOTO, ...REJECT_CJK].join("\n    ")}
   </selectfont>
+  ${PREFER_NOTO}
   <cachedir>${resolve(STATE, "fontconfig")}</cachedir>
 </fontconfig>
 `,
@@ -407,7 +421,12 @@ async function main() {
       const pixels = over.length
         ? `pixels FAIL ${over.map(describe).join(", ")}`
         : `pixels pass (worst ${label(worst)} ${against(worst)})`;
-      return [`structure ${structure ? `FAIL ${structure}` : "pass"}`, pixels].join("  ");
+      // Every region's score, so a run can be compared with a baseline region by region.
+      const scores = regions.filter((r) => r.area).map((r) => `\n  ${describe(r)}`);
+      return (
+        [`structure ${structure ? `FAIL ${structure}` : "pass"}`, pixels].join("  ") +
+        scores.join("")
+      );
     };
     /** resvg's PNG of `docId`, the whole Document or `rect`, into `dir`; returns the rect drawn. */
     const resvg = async (dir: string, docId: string, rect?: Rect) => {

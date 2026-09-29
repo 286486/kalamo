@@ -1,18 +1,18 @@
-import { bounds, type Document, drawnFamily, formatPath, fromAnchors } from "@zibel/core";
+import {
+  BUNDLED_FAMILIES,
+  BUNDLED_FONT,
+  type BundledFamily,
+  bounds,
+  formatPath,
+  fromAnchors,
+} from "@zibel/core";
 import { toSvg } from "@zibel/io/write";
 import { drawDocument } from "@zibel/render/canvas";
-import notoBoldUrl from "@zibel/render/fonts/NotoSansSC-Bold.otf?url";
-import notoRegularUrl from "@zibel/render/fonts/NotoSansSC-Regular.otf?url";
-import blackUrl from "@zibel/render/fonts/SourceSans3-Black.ttf?url";
-import blackItalicUrl from "@zibel/render/fonts/SourceSans3-BlackIt.ttf?url";
-import boldUrl from "@zibel/render/fonts/SourceSans3-Bold.ttf?url";
-import boldItalicUrl from "@zibel/render/fonts/SourceSans3-BoldIt.ttf?url";
-import italicUrl from "@zibel/render/fonts/SourceSans3-It.ttf?url";
-import regularUrl from "@zibel/render/fonts/SourceSans3-Regular.ttf?url";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { AnchorsBar } from "./AnchorsBar.tsx";
 import { drawPending, SELECTION } from "./canvas.ts";
 import { anchorsOf, hasAnchors } from "./direct.ts";
+import { drawnLazyFamilies, loadFamily } from "./fonts.ts";
 import { IsolationBar } from "./IsolationBar.tsx";
 import { imageCache } from "./images.ts";
 import { Layers } from "./Layers.tsx";
@@ -41,61 +41,8 @@ const ORIGINAL = "#E8413C";
 /** Pinch sends small deltas and passes through; a mouse-wheel notch (about 100) is capped to x1.65. */
 const wheelZoom = (deltaY: number) => Math.exp(-Math.max(-50, Math.min(50, deltaY)) * 0.01);
 
-// The faces the Worker renders with (ADR-0013, ADR-0028), loaded once per page.
-// Settled, not all: a face that fails leaves the others to draw.
-const fontLoaded = Promise.allSettled(
-  (
-    [
-      [regularUrl, "400", "normal"],
-      [italicUrl, "400", "italic"],
-      [boldUrl, "700", "normal"],
-      [boldItalicUrl, "700", "italic"],
-      [blackUrl, "900", "normal"],
-      [blackItalicUrl, "900", "italic"],
-    ] as const
-  ).map(([url, weight, style]) => {
-    const face = new FontFace("Source Sans 3", `url(${url})`, { weight, style });
-    document.fonts.add(face);
-    return face.load();
-  }),
-);
-
-/** Some text in `doc` draws a character in Noto Sans SC (ADR-0063). */
-const needsNoto = (doc: Document) =>
-  [...doc.nodes.values()].some(
-    (n) => n.type === "text" && [...n.content].some((c) => drawnFamily(n, c) === "Noto Sans SC"),
-  );
-
-let notoLoaded: Promise<unknown> | undefined;
-/**
- * Loads Noto Sans SC's two files, 17 MB, once per page, the first time a Document needs them. Each
- * is registered upright and italic, so an italic text's CJK draws upright as `render` draws it,
- * never slanted by font synthesis.
- */
-function loadNoto() {
-  notoLoaded ??= Promise.allSettled(
-    (
-      [
-        [notoRegularUrl, "400"],
-        [notoBoldUrl, "700"],
-      ] as const
-    ).map(async ([url, weight]) => {
-      const bytes = await (await fetch(url)).arrayBuffer();
-      return Promise.all(
-        (["normal", "italic"] as const).map((style) => {
-          const face = new FontFace("Noto Sans SC", bytes, { weight, style });
-          document.fonts.add(face);
-          return face.load();
-        }),
-      );
-    }),
-  ).then((faces) => {
-    for (const f of faces)
-      if (f.status === "rejected")
-        console.warn("A Noto Sans SC face did not load; its text draws in a fallback.", f.reason);
-  });
-  return notoLoaded;
-}
+// Source Sans 3 loads with the page; the other families only for a Document that draws in them.
+const fontLoaded = loadFamily(BUNDLED_FONT);
 
 /** Sizes `el` to `size` in device pixels, cleared, and returns its context in Document coordinates. */
 function sized(
@@ -155,8 +102,8 @@ export function Viewer({ docId }: { docId: string }) {
   const [overlay, redraw] = useReducer((n: number) => n + 1, 0);
   /** True once the faces have settled; until then text draws in a fallback font. */
   const [fontReady, setFontReady] = useState(false);
-  /** True once Noto Sans SC has settled, loaded only for a Document that draws in it. */
-  const [notoReady, setNotoReady] = useState(false);
+  /** The families besides Source Sans 3 that have settled, each loaded once a Document draws in it. */
+  const [lazyReady, setLazyReady] = useState<ReadonlySet<BundledFamily>>(new Set());
   /** Counts image files decoded, so the canvas redraws as each arrives. */
   const [imagesLoaded, setImagesLoaded] = useState(0);
   const images = useMemo(() => imageCache(docId, () => setImagesLoaded((n) => n + 1)), [docId]);
@@ -167,20 +114,19 @@ export function Viewer({ docId }: { docId: string }) {
   }, [images]);
 
   useEffect(() => {
-    fontLoaded.then((faces) => {
-      for (const f of faces)
-        if (f.status === "rejected")
-          console.warn(
-            "A Source Sans 3 face did not load; its text draws in a fallback.",
-            f.reason,
-          );
-      setFontReady(true);
-    });
+    fontLoaded.then(() => setFontReady(true));
   }, []);
 
   useEffect(() => {
-    if (!notoReady && doc && needsNoto(doc)) loadNoto().then(() => setNotoReady(true));
-  }, [doc, notoReady]);
+    if (!doc) return;
+    for (const family of drawnLazyFamilies(
+      doc,
+      BUNDLED_FAMILIES.filter((f) => !lazyReady.has(f)),
+    ))
+      loadFamily(family).then(() =>
+        setLazyReady((ready) => (ready.has(family) ? ready : new Set(ready).add(family))),
+      );
+  }, [doc, lazyReady]);
 
   useEffect(() => {
     const stop = connect(docId);
@@ -229,7 +175,7 @@ export function Viewer({ docId }: { docId: string }) {
   }, [simplified, drag, edit]);
 
   // ponytail: redraws every Node on every Document change; add viewport culling and dirty rects for 5k+ Nodes (F-VIEW-08).
-  // biome-ignore lint/correctness/useExhaustiveDependencies: fontReady, notoReady and imagesLoaded redraw text and Images once their fonts or files are in
+  // biome-ignore lint/correctness/useExhaustiveDependencies: fontReady, lazyReady and imagesLoaded redraw text and Images once their fonts or files are in
   useEffect(() => {
     // On a tab switch the store holds the last tab's Document until connect clears it.
     if (!doc || !shown || doc.id !== docId || !viewport) return;
@@ -253,7 +199,7 @@ export function Viewer({ docId }: { docId: string }) {
     };
     // Isolation Mode (ADR-0057): the isolated Node draws over the rest, faded halfway to white.
     drawDocument(ctx, shown, layer, images.get, isolated);
-  }, [doc, shown, isolated, docId, viewport, size, fontReady, notoReady, images, imagesLoaded]);
+  }, [doc, shown, isolated, docId, viewport, size, fontReady, lazyReady, images, imagesLoaded]);
 
   // The overlay redraws on its own canvas, without repainting the Document's Nodes.
   // biome-ignore lint/correctness/useExhaustiveDependencies: anchors, segments, pen, pending, fillStroke and overlay redraw the tools' overlays

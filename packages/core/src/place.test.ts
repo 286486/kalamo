@@ -513,7 +513,7 @@ describe("placeNodes' per-file text warnings (#162)", () => {
     const warnings = [reader, ...fileTextWarnings(nodes)];
     return { nodes, warnings, reader, clipId: c.id, keptId: k.id, artId: art.id };
   }
-  const clip = { fontFamily: "Helvetica", content: "한국" };
+  const clip = { fontFamily: "Helvetica", content: "กข" };
   const paste = (f: ReturnType<typeof copy>, nodeIds?: string[]) => {
     const { doc, defaultLayerId } = setup();
     return placeNodes(
@@ -525,7 +525,7 @@ describe("placeNodes' per-file text warnings (#162)", () => {
 
   for (const order of ["clip first", "kept first"] as const) {
     it(`count the texts a Zibel copy places, not the Clipping Path it leaves behind (${order})`, () => {
-      const f = copy(clip, { fontFamily: "Helvetica", content: "어" }, order);
+      const f = copy(clip, { fontFamily: "Helvetica", content: "ค" }, order);
       const placed = paste(f, [f.artId, f.keptId]);
       const kept = placed.created.find((n) => n.name === "kept")?.id;
       expect(placed.warnings).toEqual([
@@ -534,7 +534,7 @@ describe("placeNodes' per-file text warnings (#162)", () => {
         {
           code: "MISSING_GLYPHS",
           nodeId: kept,
-          message: expect.stringContaining("has glyphs for 어;"),
+          message: expect.stringContaining("has glyphs for ค;"),
         },
       ]);
     });
@@ -546,7 +546,7 @@ describe("placeNodes' per-file text warnings (#162)", () => {
   }
 
   it("give a full-file Place Open's warnings, renamed to the copies", () => {
-    const f = copy(clip, { fontFamily: "Arial", content: "어" }, "clip first");
+    const f = copy(clip, { fontFamily: "Arial", content: "ค" }, "clip first");
     const placed = paste(f);
     const copyOf = (name: string) => placed.created.find((n) => n.name === name)?.id;
     const renamed = { [f.clipId]: copyOf("clip"), [f.keptId]: copyOf("kept") };
