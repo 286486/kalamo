@@ -338,6 +338,34 @@ it("splits a line for resvg where its drawing family changes, each chunk at its 
   expect(line(toSvg(doc))).toBe('H<tspan rotate="5">i 小</tspan>动x');
 });
 
+it("writes a range's family as written, and for resvg the bundled family each chunk draws in (ADR-0068)", () => {
+  const { doc, defaultLayerId: parentId } = newDoc();
+  createNodes(doc, [
+    {
+      type: "text",
+      parentId,
+      x: 0,
+      y: 20,
+      content: "Hi Hi",
+      fontSize: 10,
+      ranges: [
+        { start: 0, end: 2, fontFamily: "Helvetica" },
+        { start: 3, end: 5, fontFamily: "Noto Sans SC" },
+      ],
+    },
+  ]);
+  const line = (svg: string) =>
+    /<tspan sodipodi:role="line"[^>]*>(.*?)<\/tspan><\/text>/.exec(svg)?.[1];
+  expect(line(toSvg(doc))).toBe(
+    '<tspan font-family="Helvetica">Hi</tspan> <tspan font-family="Noto Sans SC">Hi</tspan>',
+  );
+  // Helvetica draws in Source Sans 3, the text's first family; Noto Sans SC in itself, from its x:
+  // H 6.52, i 2.46 and the space 2.
+  expect(line(toSvg(doc, undefined, { resvg: true }))).toBe(
+    'Hi <tspan x="10.98" font-family="Noto Sans SC">Hi</tspan>',
+  );
+});
+
 it("writes a text's style as font-weight and font-style, the stored style and not the face drawn", () => {
   const { doc, defaultLayerId: parentId } = newDoc();
   createNodes(doc, [

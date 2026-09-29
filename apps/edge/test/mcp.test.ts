@@ -1065,6 +1065,20 @@ it("returns a text's range overrides from node_get full (ADR-0068)", async () =>
   const [id] = created.structuredContent.createdIds as string[];
   const got = await call("kalamo_node_get", { docId: doc.docId, nodeIds: [id], detail: "full" });
   expect(got.structuredContent.nodes[0]).toMatchObject({ ranges });
+  // A range's missing family warns as the text's own does, naming the face drawn.
+  const updated = await call("kalamo_node_update", {
+    docId: doc.docId,
+    updates: [
+      { nodeId: id, patch: { ranges: [...ranges, { start: 0, end: 1, fontFamily: "Helvetica" }] } },
+    ],
+  });
+  expect(updated.structuredContent.warnings).toEqual([
+    {
+      code: "FONT_MISSING",
+      nodeId: id,
+      message: "Helvetica is not bundled, so it renders in Source Sans 3; the name is kept.",
+    },
+  ]);
 });
 
 it("warns TEXT_OVERFLOW while an Area Type's content does not fit its frame", async () => {

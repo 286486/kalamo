@@ -588,7 +588,10 @@ it("draws each character of a range in its own face, then goes back to the text'
       x: 10,
       y: 50,
       content: "Hi!",
-      ranges: [{ start: 1, end: 2, fontStyle: "Black Italic" }],
+      ranges: [
+        { start: 1, end: 2, fontStyle: "Black Italic" },
+        { start: 2, end: 3, fontFamily: "Noto Sans SC" },
+      ],
       appearance: { fills: [{ color: "#000000" }], strokes: [{ color: "#0000FF", width: 1 }] },
     },
   ]);
@@ -596,18 +599,21 @@ it("draws each character of a range in its own face, then goes back to the text'
   drawDocument(ctx, doc, layer);
   const plain = 'font=12px "Source Sans 3", "Noto Sans SC", "Noto Sans KR"';
   const black = 'font=italic 900 12px "Source Sans 3", "Noto Sans SC", "Noto Sans KR"';
+  const noto = 'font=12px "Noto Sans SC", "Source Sans 3", "Noto Sans KR"';
   expect(log.filter((l) => /^(font=|fillText|strokeText)/.test(l))).toEqual([
     plain,
     "fillText H 10 50",
     black,
     expect.stringMatching(/^fillText i /),
-    plain,
+    noto,
     expect.stringMatching(/^fillText ! /),
+    plain,
     "strokeText H 10 50",
     black,
     expect.stringMatching(/^strokeText i /),
-    plain,
+    noto,
     expect.stringMatching(/^strokeText ! /),
+    plain,
   ]);
 });
 

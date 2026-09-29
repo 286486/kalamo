@@ -200,7 +200,6 @@ function rotate(chars: Char[]) {
 
 /** What a nested tspan cannot set on part of a text yet (ADR-0029, ADR-0068). */
 const PER_TEXT = [
-  "font-family",
   "font-size",
   "stroke-width",
   "stroke-dasharray",
@@ -221,6 +220,13 @@ function fontWeight(value = "normal") {
   const n = named[value.trim().toLowerCase()] ?? Number.parseFloat(value);
   return Number.isFinite(n) ? Math.min(900, Math.max(100, Math.round(n / 100) * 100)) : 400;
 }
+
+/** The first family a style's `font-family` names, unquoted, or Source Sans 3 if none. */
+const fontFamilyOf = (style: Style) =>
+  style["font-family"]
+    ?.split(",")[0]
+    ?.trim()
+    .replace(/^['"]|['"]$/g, "") || BUNDLED_FONT;
 
 /** A style's `font-weight` and `font-style` as a style name (ADR-0028). */
 const fontStyleOf = (style: Style) =>
@@ -1098,6 +1104,7 @@ class Reader {
           ...(c.rotate && { rotation: n3(c.rotate % 360) }),
           tracking: trackingOf(c.style, length(own["font-size"]) ?? 12),
           fontStyle: fontStyleOf(c.style),
+          fontFamily: fontFamilyOf(c.style),
         },
       ];
     });
@@ -1117,16 +1124,12 @@ class Reader {
     const [line] = tspans;
     const own = line ? computeStyle(line, style, this.rules) : style;
     const fontSize = n3((length(own["font-size"]) ?? 12) * k);
-    const family = own["font-family"]
-      ?.split(",")[0]
-      ?.trim()
-      .replace(/^['"]|['"]$/g, "");
     const leading = lineHeight(own["line-height"], fontSize, k);
     const fontStyle = fontStyleOf(own);
     const tracking = trackingOf(own, length(own["font-size"]) ?? 12);
     const text = {
       type: "text",
-      fontFamily: family || BUNDLED_FONT,
+      fontFamily: fontFamilyOf(own),
       fontStyle,
       fontSize,
       ...(leading !== undefined && { leading }),

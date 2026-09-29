@@ -603,6 +603,44 @@ it("measures a range's characters in its style's face, its style dropped if the 
   ]);
 });
 
+it("draws a range's characters in its family's fallback order, its family kept as written (ADR-0068)", () => {
+  const hi = { x: 0, y: 0, content: "Hi", fontSize: 1000 };
+  const ranged = (fontFamily: string) => ({ ...hi, ranges: [{ start: 0, end: 2, fontFamily }] });
+  // In Noto Sans SC's own Latin, as a text in it measures; an unbundled name in Source Sans 3.
+  expect(textBox(ranged("Noto Sans SC")).width).toBeCloseTo(728 + 275);
+  expect(textBox(ranged("Helvetica"))).toEqual(textBox(hi));
+  expect(glyphs(ranged("Helvetica"))[0]).toMatchObject({ fontFamily: "Helvetica" });
+  const text = (fontFamily: string) =>
+    ({ id: "a", type: "text", fontFamily: "Source Sans 3", ...ranged(fontFamily) }) as never;
+  expect(fontWarnings([text("Noto Sans SC")])).toEqual([]);
+  expect(fontWarnings([text("Helvetica")]).map((w) => w.message)).toEqual([
+    "Helvetica is not bundled, so it renders in Source Sans 3; the name is kept.",
+  ]);
+  expect(
+    canonicalRanges(
+      [
+        { start: 0, end: 2, fontFamily: "Helvetica" },
+        { start: 1, end: 2, fontFamily: "Noto Sans SC" },
+      ],
+      "ranges",
+      { fontFamily: "Noto Sans SC" },
+    ),
+  ).toEqual([{ start: 0, end: 1, fontFamily: "Helvetica" }]);
+});
+
+it("stacks an Area Type line by the families its range characters draw in (ADR-0064, ADR-0068)", () => {
+  const frame = { kind: "area" as const, x: 0, y: 0, width: 200, height: 100, fontSize: 10 };
+  const lines = (ranges?: { start: number; end: number; fontFamily: string }[]) =>
+    layoutText({ ...frame, content: "ab\ncd\nef", ranges }).lines.map((l) => l.y);
+  const latin = lines();
+  const noto = lines([{ start: 3, end: 4, fontFamily: "Noto Sans SC" }]);
+  // The Noto line rises by its em box's ascent over Source Sans 3's, 10 × (0.88 - 1000/1326).
+  const rise = 10 * (0.88 - 1000 / 1326);
+  expect(noto[0]).toBeCloseTo(latin[0] as number);
+  expect(noto[1]).toBeCloseTo((latin[1] as number) + rise);
+  expect(noto[2]).toBeCloseTo((latin[2] as number) + rise);
+});
+
 it("grows Point Type's box to hold a shifted or rotated character", () => {
   const box = (range: object) =>
     textBox({ x: 0, y: 0, content: "H", fontSize: 10, ranges: [{ start: 0, end: 1, ...range }] });

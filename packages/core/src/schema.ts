@@ -358,6 +358,11 @@ export const CharacterRange = z.strictObject({
     .enum(FONT_STYLES)
     .optional()
     .describe("The style name these characters draw in, as the text's fontStyle."),
+  fontFamily: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("Any font name for these characters, kept as written, as the text's fontFamily."),
 });
 /** A stored Character Range, its fill and stroke parsed to `#RRGGBB` or `#RRGGBBAA`. */
 export type CharacterRange = Omit<z.output<typeof CharacterRange>, "fill" | "stroke"> & {

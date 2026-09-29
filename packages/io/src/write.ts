@@ -3,6 +3,7 @@ import {
   type Artboard,
   applyTo,
   type CharacterRange,
+  characterFont,
   childrenOf,
   clippingPath,
   containerAppearance,
@@ -778,20 +779,23 @@ function text(n: TextNode, a: Attrs, extra: (string | false)[], chunked: boolean
     for (const char of t) {
       index++;
       while ((ranges[range]?.end ?? Infinity) <= index) range++;
-      const r = ranges[range];
+      const r = (ranges[range]?.start ?? Infinity) <= index ? ranges[range] : undefined;
+      // The character's own font, its range's family and style included (ADR-0068).
+      const font = characterFont(n, r);
       const origin = laidOut ? origins[shown++] : undefined;
-      const drawn = chunked && laidOut && char !== "\n" ? drawnFamily(n, char) : family;
+      const drawn = chunked && laidOut && char !== "\n" ? drawnFamily(font, char) : family;
       const chunk = drawn !== family && origin !== undefined;
       family = drawn;
       let alone = false;
       if (!chunked) {
-        const f = drawnFamily(n, char);
+        const f = drawnFamily(font, char);
         if (char === " " || char === "\u00a0") alone = before !== undefined && f !== before;
         else before = char === "\n" ? undefined : f;
       }
+      // resvg is told the bundled family each chunk draws in; others the range's, as written.
       const own = attrs({
-        ...(r && r.start <= index && overrides(r)),
-        "font-family": family === first ? undefined : family,
+        ...(r && overrides(r)),
+        "font-family": chunked ? (family === first ? undefined : family) : r?.fontFamily,
       });
       const last = runs.at(-1);
       if (!chunk && last?.attrs === own && last.alone === alone) last.text += char;

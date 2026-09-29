@@ -155,13 +155,16 @@ it("draws tracking, baseline shift, rotation and range overrides inside the boun
     drawHH(second({ rotation: 90 })),
     drawHH({ ranges: [{ start: 0, end: 1, tracking: 500 }] }),
     drawHH(second({ fontStyle: "Black Italic" })),
+    drawHH(second({ fontFamily: "Noto Sans SC" })),
   ]);
-  const [plain, tracked, shifted, rotated, rangeTracked, styled] = drawn;
-  if (!plain || !tracked || !shifted || !rotated || !rangeTracked || !styled) {
+  const [plain, tracked, shifted, rotated, rangeTracked, styled, family] = drawn;
+  if (!plain || !tracked || !shifted || !rotated || !rangeTracked || !styled || !family) {
     throw new Error("setup");
   }
   expect(drawn.map((d) => d.outside)).toEqual(drawn.map(() => []));
   expect(styled.right).toBeGreaterThan(plain.right);
+  // Noto Sans SC's H is 728 units to Source Sans 3's 652: 3 px wider at 40 pt.
+  expect(family.right).toBeGreaterThanOrEqual(plain.right + 2);
   expect(tracked.right).toBeGreaterThanOrEqual(plain.right + 19);
   expect(rangeTracked.right).toBe(tracked.right);
   expect(shifted.top).toBeLessThanOrEqual(plain.top - 14);
@@ -489,12 +492,12 @@ it("draws the fixture Document with known pixels", async () => {
   // holding Chinese mixed with Latin in Regular and Bold (bundling Noto Sans SC moved no pixel); by
   // #160, a fifteenth holding a CJK Area Type wrapped between characters; by #164, a sixteenth
   // holding Korean Point Type in Regular and Bold and a Korean Area Type; by #67, a seventeenth
-  // holding texts whose Character Ranges override stroke, tracking and font style. This export SVG names no
+  // holding texts whose Character Ranges override stroke, tracking, font style and family. This export SVG names no
   // Noto chunk, so its Chinese and Korean draw as .notdef boxes; render's does not.
   // By #175, the texts that named the product say Kalamo, one clipping text says KAL, and the
   // namespace is kalamo.cc.
   expect(await hash(toSvg(doc, docRect(doc), { images }))).toBe(
-    "4e6d31b4ea0611880c05f059d742014ec1d28a9d58f1060d8bf962357063cd81",
+    "807842fa8f8b4da082f20da9c8ee8702d7fdd9d69bd7e8620c0c7efdeec195f4",
   );
   expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned, images }))).toBe(
     "24c1e7ad8db33f59933a1b355c879cb19bfdfd67d70b11427b196aa646ea4b60",

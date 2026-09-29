@@ -101,7 +101,7 @@ Text 的字符属性 `tracking`，每个字符后增加的间距，单位 1/1000
 _Avoid_: Letter spacing、Character spacing、Kerning（Kerning 是字符对之间的调整）
 
 **Character Range（字符区间）**：
-Text 的 `ranges` 中的一项 `{start, end, …}`：按字符（码点）索引 `content` 的 `[start, end)`，为这些字符覆盖 Node 的字符属性，目前是 `fill`（替换每个 Fill 的颜色）、`stroke`（替换每个 Stroke 的颜色，无 Stroke 的文字不描边）、`baselineShift`（pt，向上为正）和 `rotation`（度，顺时针，绕字符基线原点）、`tracking`（字符自身 em 的千分之一）与 `fontStyle`（Illustrator 样式名）。存储为规范形式：有序、不重叠、相邻相同合并，等于 Node 自身值的覆盖即无覆盖；写 `content` 而不给 `ranges` 会清空它们（ADR-0029、ADR-0068）。
+Text 的 `ranges` 中的一项 `{start, end, …}`：按字符（码点）索引 `content` 的 `[start, end)`，为这些字符覆盖 Node 的字符属性，目前是 `fill`（替换每个 Fill 的颜色）、`stroke`（替换每个 Stroke 的颜色，无 Stroke 的文字不描边）、`baselineShift`（pt，向上为正）和 `rotation`（度，顺时针，绕字符基线原点）、`tracking`（字符自身 em 的千分之一）、`fontStyle`（Illustrator 样式名）与 `fontFamily`（任意字体名，原样保存）。存储为规范形式：有序、不重叠、相邻相同合并，等于 Node 自身值的覆盖即无覆盖；写 `content` 而不给 `ranges` 会清空它们（ADR-0029、ADR-0068）。
 _Avoid_: Run、Span、Character style（Character Style 是具名样式，F-TEXT-08）
 
 ## 图像

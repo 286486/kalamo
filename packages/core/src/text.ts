@@ -202,22 +202,21 @@ export function notdefBox(text: TextFont & { fontSize: number }, x: number, y: n
 export const drawnFamily = (text: TextFont, char: string): BundledFamily =>
   faceFor(facesOf(text), char).family;
 
-/** A text's advance of a character in font units, in the face it draws in. */
-function advancer(text: TextFont): (char: string) => number {
-  const faces = facesOf(text);
-  return (char) => {
-    const { face } = faceFor(faces, char);
-    return face.advance(char.codePointAt(0) as number) ?? face.notdef;
-  };
-}
-
 type Overrides = Omit<CharacterRange, "start" | "end">;
 /** A Character Range as written, its colours not parsed yet. */
 type RangeInput = Omit<CharacterRange, "fill" | "stroke"> & { fill?: unknown; stroke?: unknown };
 /** The overrides a range can hold, which runs must all share to merge. */
-const OVERRIDES = ["fill", "stroke", "baselineShift", "rotation", "tracking", "fontStyle"] as const;
+const OVERRIDES = [
+  "fill",
+  "stroke",
+  "baselineShift",
+  "rotation",
+  "tracking",
+  "fontStyle",
+  "fontFamily",
+] as const;
 /** A text's own character attributes, the values a range override is none at (ADR-0068). */
-export type OwnAttributes = { tracking?: number | undefined; fontStyle?: FontStyle | undefined };
+export type OwnAttributes = TextFont & { tracking?: number | undefined };
 
 /**
  * Character Ranges in canonical form (ADR-0029, ADR-0068): colours parsed, a later range winning
@@ -230,7 +229,11 @@ export function canonicalRanges(
   path: string,
   text: OwnAttributes,
 ): CharacterRange[] | undefined {
-  const own = { tracking: text.tracking ?? 0, fontStyle: text.fontStyle ?? "Regular" };
+  const own = {
+    tracking: text.tracking ?? 0,
+    fontStyle: text.fontStyle ?? "Regular",
+    fontFamily: text.fontFamily ?? BUNDLED_FONT,
+  };
   // ponytail: per-character expansion, O(Σ range lengths); sweep the boundaries if it shows in a
   // profile.
   const chars: Overrides[] = [];
@@ -246,7 +249,7 @@ export function canonicalRanges(
         if (r[k] === 0) delete o[k];
         else if (r[k] !== undefined) o[k] = r[k];
       }
-      for (const k of ["tracking", "fontStyle"] as const) {
+      for (const k of ["tracking", "fontStyle", "fontFamily"] as const) {
         if (r[k] === own[k]) delete o[k];
         else if (r[k] !== undefined) Object.assign(o, { [k]: r[k] });
       }
@@ -299,11 +302,15 @@ export interface TextLine {
   start: number;
 }
 
-/** A character of `content` on its own: its advance and the tracking after it in pt, and its overrides. */
+/**
+ * A character of `content` on its own: its advance and the tracking after it in pt, the bundled
+ * family it draws in, and its overrides.
+ */
 interface Metric {
   char: string;
   advance: number;
   tracking: number;
+  family: BundledFamily;
   overrides: Overrides | undefined;
 }
 
@@ -312,19 +319,20 @@ interface Metric {
  * that holds it (ADR-0068).
  */
 export const characterFont = (text: TextFont, overrides: Overrides | undefined): TextFont => ({
-  fontFamily: text.fontFamily,
+  fontFamily: overrides?.fontFamily ?? text.fontFamily,
   fontStyle: overrides?.fontStyle ?? text.fontStyle,
 });
 
 /** Each character of a text's content, with the overrides of the Character Range that holds it. */
 function metrics(text: TextLayout): Metric[] {
-  // One advance lookup per font the text's characters draw in.
-  const advancers = new Map<string, (char: string) => number>();
-  const advance = (font: TextFont, char: string) => {
+  // The faces of each font the text's characters draw in, looked up once.
+  const fonts = new Map<string, [DrawnFace, ...DrawnFace[]]>();
+  const drawn = (font: TextFont, char: string) => {
     const key = `${font.fontFamily}\n${font.fontStyle}`;
-    const a = advancers.get(key) ?? advancer(font);
-    advancers.set(key, a);
-    return a(char);
+    const faces = fonts.get(key) ?? facesOf(font);
+    fonts.set(key, faces);
+    const { family, face } = faceFor(faces, char);
+    return { family, units: face.advance(char.codePointAt(0) as number) ?? face.notdef };
   };
   const s = text.fontSize / SOURCE_SANS_3.unitsPerEm;
   const ranges = text.ranges ?? [];
@@ -335,7 +343,8 @@ function metrics(text: TextLayout): Metric[] {
     const o = (ranges[j]?.start ?? Infinity) <= c ? overrides[j] : undefined;
     // A character's tracking is in its own em (ADR-0068).
     const tracking = ((o?.tracking ?? text.tracking ?? 0) * text.fontSize) / 1000;
-    return { char, advance: advance(characterFont(text, o), char) * s, tracking, overrides: o };
+    const { family, units } = drawn(characterFont(text, o), char);
+    return { char, advance: units * s, tracking, family, overrides: o };
   });
 }
 
@@ -388,19 +397,19 @@ function layout(text: TextLayout) {
     return span(m, from, to) <= width;
   };
   // CSS inline boxes, as Inkscape stacks them (ADR-0064): half the leading above and below each
-  // family's em box, and a line as tall as the union of its first family's box, the strut, and the
-  // boxes of the families its characters draw in. Latin alone is one leading tall.
-  const faces = facesOf(text);
+  // family's em box, and a line as tall as the union of its text's first family's box, the strut,
+  // and the boxes of the families its characters draw in (ADR-0068). Latin alone is one leading tall.
   const halfLeading = (leading - fontSize) / 2;
   const box = (family: BundledFamily) => ({
     ascent: halfLeading + fontSize * FAMILIES[family].ascent,
     descent: halfLeading + fontSize * (1 - FAMILIES[family].ascent),
   });
-  const strut = box(faces[0].family);
-  const lineBox = (l: string) => {
+  const strut = box(fontFamilies(text)[0]);
+  const lineBox = (from: number, to: number) => {
     const b = { ...strut };
-    for (const ch of l.trimEnd()) {
-      const { ascent, descent } = box(faceFor(faces, ch).family);
+    while (to > from && /\s/.test((m[to - 1] as Metric).char)) to--;
+    for (let i = from; i < to; i++) {
+      const { ascent, descent } = box((m[i] as Metric).family);
       b.ascent = Math.max(b.ascent, ascent);
       b.descent = Math.max(b.descent, descent);
     }
@@ -412,8 +421,8 @@ function layout(text: TextLayout) {
   // ponytail: Inkscape's thresholds, measured rather than specified: the first line shows while 90%
   // of its height lies in the frame, a later one while 90% of the leading does, or all of it if the
   // line is taller than the strut; and a unit wider than the frame overflows with all that follows.
-  const push = (l: string) => {
-    const { ascent, descent } = lineBox(l);
+  const push = (l: string, from: number, to: number) => {
+    const { ascent, descent } = lineBox(from, to);
     let shows = 0.9 * leading;
     if (!lines.length) shows = 0.9 * (ascent + descent);
     else if (ascent > strut.ascent) shows = leading;
@@ -431,14 +440,14 @@ function layout(text: TextLayout) {
     for (const unit of lineBreakUnits(paragraph)) {
       const n = [...unit].length;
       if (l && !fits(from, to + n)) {
-        if (!push(l)) break wrap;
+        if (!push(l, from, to)) break wrap;
         [l, from] = ["", to];
       }
       if (!fits(to, to + n)) break wrap;
       l += unit;
       to += n;
     }
-    if (!push(l)) break;
+    if (!push(l, from, to)) break;
   }
   return { lines, overflow: content.slice(used), m };
 }

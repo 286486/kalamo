@@ -1073,6 +1073,22 @@ describe("tracking and Character Ranges (ADR-0029)", () => {
     });
   });
 
+  it("reads a tspan's font-family as its characters' family, kept as written (ADR-0068)", () => {
+    const file = read(
+      `<text font-family="Source Sans 3">a<tspan font-family="'Helvetica Neue', Arial">b</tspan><tspan style="font-family:Noto Sans SC">c</tspan><tspan font-family="Source Sans 3, serif">d</tspan></text>`,
+    );
+    expect(file.warnings.map((w) => w.message)).toEqual([
+      "Helvetica Neue is not bundled, so it renders in Source Sans 3; the name is kept.",
+    ]);
+    expect(leaves(file)[0]).toMatchObject({
+      fontFamily: "Source Sans 3",
+      ranges: [
+        { start: 1, end: 2, fontFamily: "Helvetica Neue" },
+        { start: 2, end: 3, fontFamily: "Noto Sans SC" },
+      ],
+    });
+  });
+
   it("reads a tspan's weight and italic as its characters' style (ADR-0068)", () => {
     const file = read(
       '<text font-weight="bold">a<tspan font-weight="normal">b</tspan><tspan font-style="italic">c</tspan><tspan font-weight="300" font-style="oblique">d</tspan><tspan font-weight="700">e</tspan></text>',
@@ -1191,7 +1207,7 @@ describe("tracking and Character Ranges (ADR-0029)", () => {
           { start: 0, end: 1, fill: "#FF000080" },
           { start: 1, end: 2, stroke: "#00FF00", tracking: -50 },
           { start: 2, end: 4, baselineShift: 3, rotation: -15, stroke: "#FF000080" },
-          { start: 4, end: 5, tracking: 0, fontStyle: "Black Italic" },
+          { start: 4, end: 5, tracking: 0, fontStyle: "Bold", fontFamily: "Noto Sans SC" },
         ],
       },
     ]).nodes;
