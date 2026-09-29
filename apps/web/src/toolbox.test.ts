@@ -43,7 +43,7 @@ it("shows each group as one button, at its first tool, fronting its last chosen 
     "pencil",
   ]);
   expect(slots[3]?.tools).toEqual(["pen", "addAnchor", "deleteAnchor", "anchorPoint", "curvature"]);
-  expect(slots[4]?.tools).toEqual(["rectangle", "roundedRectangle", "ellipse"]);
+  expect(slots[4]?.tools).toEqual(["rectangle", "roundedRectangle", "ellipse", "polygon"]);
   expect(toolSlots(all, { pen: "curvature", rectangle: "ellipse" })[3]?.shown).toBe("curvature");
   expect(toolSlots(all, { pen: "curvature", rectangle: "ellipse" })[4]?.shown).toBe("ellipse");
   // A viewer's tools show no group; a fronted tool that is not shown is ignored.
@@ -102,13 +102,22 @@ it("a key the pressed tool takes switches no tool; one it does not take still do
   expect(setTool).toHaveBeenLastCalledWith("anchorPoint");
 });
 
-it("the Rounded Rectangle tool takes the arrow keys while dragging, and has no shortcut", () => {
-  const tool = TOOLS.roundedRectangle;
-  const arrow = press("ArrowUp");
-  expect(pressedKey(arrow, tool, false, () => {})).toBe(false);
-  tool.down({ x: 0, y: 0, capture() {} } as never);
-  expect(pressedKey(arrow, tool, false, () => {})).toBe(true);
-  expect(pressedKey(press("v"), tool, false, () => {})).toBe(false);
-  tool.cancel?.(() => {});
-  expect(Object.values(TOOLS).filter((t) => !t.shortcut)).toEqual([tool]);
+it.each(["roundedRectangle", "polygon"] as const)(
+  "the %s tool takes the arrow keys while dragging",
+  (name) => {
+    const tool = TOOLS[name];
+    const arrow = press("ArrowUp");
+    expect(pressedKey(arrow, tool, false, () => {})).toBe(false);
+    tool.down({ x: 0, y: 0, capture() {} } as never);
+    expect(pressedKey(arrow, tool, false, () => {})).toBe(true);
+    expect(pressedKey(press("v"), tool, false, () => {})).toBe(false);
+    tool.cancel?.(() => {});
+  },
+);
+
+it("gives the Rounded Rectangle and Polygon tools no shortcut, as Illustrator does", () => {
+  expect(Object.values(TOOLS).filter((t) => !t.shortcut)).toEqual([
+    TOOLS.roundedRectangle,
+    TOOLS.polygon,
+  ]);
 });

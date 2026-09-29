@@ -6,7 +6,7 @@ import { exitIsolation, keysOf } from "./menu.ts";
 import { pencilTool } from "./pencilTool.ts";
 import { penTool } from "./penTool.ts";
 import { selectionTool } from "./selectionTool.ts";
-import { ellipseTool, rectangleTool, roundedRectangleTool } from "./shapeTool.ts";
+import { ellipseTool, polygonTool, rectangleTool, roundedRectangleTool } from "./shapeTool.ts";
 import { useStore } from "./store.ts";
 import { fillStrokeKey, setTool } from "./tools.ts";
 import type { Viewport } from "./viewport.ts";
@@ -130,6 +130,7 @@ export const TOOLS = {
   rectangle: rectangleTool,
   roundedRectangle: roundedRectangleTool,
   ellipse: ellipseTool,
+  polygon: polygonTool,
   pencil: pencilTool,
 } satisfies Record<string, CanvasTool>;
 

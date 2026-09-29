@@ -7,6 +7,7 @@ import {
   invert,
   type NodeInput,
   type PathEditInput,
+  type Shape,
   worldTransform,
 } from "@zibel/core";
 import { addAnchorAt, deleteAnchorAt } from "./anchorTools.ts";
@@ -62,7 +63,10 @@ export function constrain(from: Point, p: Point): Point {
 export const NOTHING_DRAWN = "The Layer is hidden or locked; nothing was drawn.";
 
 /** What a drawing tool draws, in document coordinates: a path, or a Live Shape dragged out. */
-export type NewArt = { type: "path"; d: string } | ShapeBox;
+export type NewArt =
+  | { type: "path"; d: string }
+  | ShapeBox
+  | Pick<Extract<Shape, { type: "polygon" }>, "type" | "cx" | "cy" | "radius" | "sides" | "angle">;
 
 /**
  * The `create` input for drawn art: the current Fill and Stroke, in placeParent's Layer or

@@ -5,7 +5,7 @@ import { drawPending } from "./canvas.ts";
 import { curvatureDown, curvatureUp } from "./curvature.ts";
 import { DEFAULT_PENCIL, pencilDown, pencilMove, pencilUp, savePencilOptions } from "./pencil.ts";
 import { receive } from "./receive.ts";
-import { ellipseTool, rectangleTool, roundedRectangleTool } from "./shapeTool.ts";
+import { ellipseTool, polygonTool, rectangleTool, roundedRectangleTool } from "./shapeTool.ts";
 import { connect, DEFAULT_FILL_STROKE, send, useStore } from "./store.ts";
 import type { CanvasTool, ToolEvent } from "./toolbox.ts";
 import { finishPen, penDown, penUp } from "./tools.ts";
@@ -123,7 +123,7 @@ const drawPencil = (keep = true) => {
     pencilMove([[x, 50 + ((x * 7) % 5)]], { shift: false, alt: false });
   pencilUp(1);
 };
-/** A drag with the Rectangle or Ellipse tool, at scale 1. */
+/** A drag with a shape tool, at scale 1. */
 const drawShape = (tool: CanvasTool) => () => {
   const at = (x: number, y: number) =>
     ({
@@ -148,6 +148,7 @@ const tools: [string, () => void][] = [
   ["Rectangle", drawShape(rectangleTool)],
   ["Rounded Rectangle", drawShape(roundedRectangleTool)],
   ["Ellipse", drawShape(ellipseTool)],
+  ["Polygon", drawShape(polygonTool)],
 ];
 
 beforeEach(() => {

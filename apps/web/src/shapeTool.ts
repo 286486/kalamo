@@ -2,7 +2,7 @@ import { dragged, drawDrawing, type Press, shapePath } from "./canvas.ts";
 import type { ShapeBox } from "./receive.ts";
 import { useStore } from "./store.ts";
 import type { CanvasTool, KeyMods } from "./toolbox.ts";
-import { sendNewArt } from "./tools.ts";
+import { type NewArt, sendNewArt } from "./tools.ts";
 
 type Point = [number, number];
 
@@ -33,11 +33,29 @@ export function dragBox(
 }
 
 /**
- * The Rounded Rectangle tool's corner radius, kept for the next drag in the session as
- * Illustrator's Preferences > General > Corner Radius is. Its 12 pt default is Illustrator's, not
- * checked in a live Illustrator (research 06, open question 7).
+ * The `angle` (ADR-0024) at which a polygon of `sides` sits upright, its bottom edge horizontal:
+ * 0 for an odd count, whose first vertex points up, and half a step for an even one.
  */
-let cornerRadius = 12;
+export const uprightAngle = (sides: number) => (sides % 2 ? 0 : 180 / sides);
+
+/**
+ * The centre, radius and angle a drag from `press` to `p` draws (F-DRAW-01), as Illustrator's
+ * Polygon tool does; the Star and Spiral tools share it. The press is the centre and the pointer
+ * sets the radius. Its direction turns the shape, which is upright for a drag straight down, and
+ * Shift keeps it upright.
+ */
+export function dragRadial(
+  press: Point,
+  p: Point,
+  { shift }: Pick<KeyMods, "shift">,
+  sides: number,
+): { cx: number; cy: number; radius: number; angle: number } {
+  const [dx, dy] = [p[0] - press[0], p[1] - press[1]];
+  // Degrees clockwise on screen from straight down.
+  const turn = shift ? 0 : (Math.atan2(-dx, dy) * 180) / Math.PI;
+  const angle = (((uprightAngle(sides) + turn) % 360) + 360) % 360;
+  return { cx: press[0], cy: press[1], radius: Math.hypot(dx, dy), angle };
+}
 
 /**
  * The corner radius after `key` while dragging `box`, as in Illustrator, or null for another key.
@@ -64,26 +82,43 @@ export function radiusKey(
   }
 }
 
-/**
- * A drag draws a Live Shape of `type`, previewed in the current Fill and Stroke until release. A
- * rounded one's arrow keys change its corner radius.
- */
-const shapeTool = (
-  type: ShapeBox["type"],
-  tool: Pick<CanvasTool, "title" | "shortcut" | "icon" | "group">,
-  rounded = false,
-): CanvasTool => {
+/** The side count after `key`, as in Illustrator: Up adds a side and Down removes one, in 3…1000. */
+export function sidesKey(sides: number, key: string): number | null {
+  if (key === "ArrowUp") return Math.min(1000, sides + 1);
+  if (key === "ArrowDown") return Math.max(3, sides - 1);
+  return null;
+}
+
+/** What a shape tool's drag draws, and the option (corner radius, side count) its keys change. */
+interface DragShape<A extends NewArt, O> {
+  /** The option the session's first drag starts with. */
+  option: O;
+  art(origin: Point, p: Point, mods: KeyMods, option: O): A;
+  /** False for art dragged back to a line or a point, which would be invisible. */
+  visible(art: A): boolean;
+  /** `option` after `key` while `art` is drawn, or null when the key is not the drag's. */
+  key?(option: O, key: string, art: A | null): O | null;
   /**
-   * The drag under way: where it started, moved by Space, the pointer, the corner radius, and the
-   * modifiers, re-read on every move and key. `box` is null until the drag passes SLOP.
+   * The option the next drag starts from, after one that ended with `option` and drew `art`, or
+   * nothing; `kept` is the one it started from. The drag's own by default.
    */
-  let drag: {
-    gesture: Press;
-    origin: Point;
-    at: Point;
-    radius: number;
-    box: ShapeBox | null;
-  } | null = null;
+  keep?(option: O, art: A | null, kept: O): O;
+}
+
+/**
+ * A drag draws a Live Shape, previewed in the current Fill and Stroke until release. The option
+ * each drag ends with carries over to the next one in the session.
+ */
+function shapeTool<A extends NewArt, O>(
+  tool: Pick<CanvasTool, "title" | "shortcut" | "icon" | "group">,
+  shape: DragShape<A, O>,
+): CanvasTool {
+  let kept = shape.option;
+  /**
+   * The drag under way: where it started, moved by Space, the pointer, the option, and the
+   * modifiers, re-read on every move and key. `art` is null until the drag passes SLOP.
+   */
+  let drag: { gesture: Press; origin: Point; at: Point; option: O; art: A | null } | null = null;
 
   function update(p: Point, mods: KeyMods, moved: boolean) {
     if (!drag) return;
@@ -91,11 +126,7 @@ const shapeTool = (
     if (mods.space)
       drag.origin = [drag.origin[0] + p[0] - drag.at[0], drag.origin[1] + p[1] - drag.at[1]];
     drag.at = p;
-    if (!moved) return;
-    const box = dragBox(drag.origin, p, mods);
-    // The radius drawn, which core would clamp to anyway, is the one sent.
-    const radius = Math.min(drag.radius, box.width / 2, box.height / 2);
-    drag.box = { type, ...box, ...(rounded && { radius }) };
+    if (moved) drag.art = shape.art(drag.origin, p, mods, drag.option);
   }
 
   return {
@@ -107,8 +138,8 @@ const shapeTool = (
         gesture: { start: { x: e.x, y: e.y }, moved: false },
         origin: [e.x, e.y],
         at: [e.x, e.y],
-        radius: cornerRadius,
-        box: null,
+        option: kept,
+        art: null,
       };
     },
     move(e) {
@@ -118,23 +149,20 @@ const shapeTool = (
     },
     keyChange(key, redraw) {
       if (!drag) return false;
-      const radius = rounded ? radiusKey(drag.radius, key.key, drag.box) : null;
-      if (radius !== null && key.down) drag.radius = radius;
-      update(drag.at, key, drag.box !== null);
+      const option = shape.key?.(drag.option, key.key, drag.art) ?? null;
+      if (option !== null && key.down) drag.option = option;
+      update(drag.at, key, drag.art !== null);
       redraw();
-      return radius !== null;
+      return option !== null;
     },
     up(e) {
       if (!drag) return;
       update([e.x, e.y], e, !!dragged(drag.gesture, e));
-      const { box, radius } = drag;
+      const { art, option } = drag;
       drag = null;
-      if (rounded && Number.isFinite(radius)) cornerRadius = radius;
-      // One dragged back to a line or a point would be invisible.
-      if (!box || box.width === 0 || box.height === 0) return e.redraw();
-      // Right's fully rounded corners are kept as the radius they drew.
-      if (rounded && !Number.isFinite(radius)) cornerRadius = box.radius ?? 0;
-      sendNewArt([box]);
+      const shown = art && shape.visible(art) ? art : null;
+      kept = shape.keep ? shape.keep(option, shown, kept) : option;
+      if (shown) sendNewArt([shown]);
       e.redraw();
     },
     cancel(redraw) {
@@ -142,33 +170,78 @@ const shapeTool = (
       redraw();
     },
     draw(ctx, _doc, scale) {
-      const path = drag?.box && shapePath(drag.box);
+      const path = drag?.art && shapePath(drag.art);
       if (path) drawDrawing(ctx, path, useStore.getState().fillStroke, scale);
     },
   };
-};
+}
 
-export const rectangleTool = shapeTool("rect", {
-  title: "Rectangle Tool",
-  shortcut: "M",
-  group: "rectangle",
-  icon: "M2.5 3.5 H13.5 V12.5 H2.5 Z",
+/** A Rectangle or Ellipse spanning the drag. */
+const box = (type: ShapeBox["type"]): DragShape<ShapeBox, null> => ({
+  option: null,
+  art: (origin, p, mods) => ({ type, ...dragBox(origin, p, mods) }),
+  visible: (b) => b.width > 0 && b.height > 0,
 });
 
-export const roundedRectangleTool = shapeTool(
-  "rect",
+export const rectangleTool = shapeTool(
+  {
+    title: "Rectangle Tool",
+    shortcut: "M",
+    group: "rectangle",
+    icon: "M2.5 3.5 H13.5 V12.5 H2.5 Z",
+  },
+  box("rect"),
+);
+
+export const roundedRectangleTool = shapeTool<ShapeBox, number>(
   {
     title: "Rounded Rectangle Tool",
     shortcut: "",
     group: "rectangle",
     icon: "M5.5 3.5 H10.5 A3 3 0 0 1 13.5 6.5 V9.5 A3 3 0 0 1 10.5 12.5 H5.5 A3 3 0 0 1 2.5 9.5 V6.5 A3 3 0 0 1 5.5 3.5 Z",
   },
-  true,
+  {
+    ...box("rect"),
+    // Kept as Illustrator's Preferences > General > Corner Radius is. Its 12 pt default is
+    // Illustrator's, not checked in a live Illustrator (research 06, open question 7).
+    option: 12,
+    art(origin, p, mods, radius) {
+      const b = dragBox(origin, p, mods);
+      // The radius drawn, which core would clamp to anyway, is the one sent.
+      return { type: "rect", ...b, radius: Math.min(radius, b.width / 2, b.height / 2) };
+    },
+    key: radiusKey,
+    // Right's fully rounded corners are kept as the radius they drew, or not at all if none.
+    keep: (radius, b, kept) => (Number.isFinite(radius) ? radius : (b?.radius ?? kept)),
+  },
 );
 
-export const ellipseTool = shapeTool("ellipse", {
-  title: "Ellipse Tool",
-  shortcut: "L",
-  group: "rectangle",
-  icon: "M2 8 A6 4.5 0 1 0 14 8 A6 4.5 0 1 0 2 8 Z",
-});
+export const ellipseTool = shapeTool(
+  {
+    title: "Ellipse Tool",
+    shortcut: "L",
+    group: "rectangle",
+    icon: "M2 8 A6 4.5 0 1 0 14 8 A6 4.5 0 1 0 2 8 Z",
+  },
+  box("ellipse"),
+);
+
+export const polygonTool = shapeTool(
+  {
+    title: "Polygon Tool",
+    shortcut: "",
+    group: "rectangle",
+    icon: "M2 8 L5 2.8 H11 L14 8 L11 13.2 H5 Z",
+  },
+  {
+    // Illustrator's default side count.
+    option: 6,
+    art: (origin, p, mods, sides) => ({
+      type: "polygon",
+      ...dragRadial(origin, p, mods, sides),
+      sides,
+    }),
+    visible: (polygon) => polygon.radius > 0,
+    key: sidesKey,
+  },
+);

@@ -149,3 +149,66 @@ test("the Rounded Rectangle tool's arrow keys set the radius, which the next dra
   await expect.poll(async () => (await rects()).length).toBe(4);
   expect((await rects()).find((r) => r.x === 160)).toMatchObject({ radius: 0 });
 });
+
+// #144: the Polygon tool draws from its centre, turned by the drag, its arrows changing the sides.
+test("the Polygon tool drags a Live Polygon from its centre, and Up and Down set its sides", async ({
+  page,
+  request,
+}) => {
+  const { docId } = (
+    await call(request, "zibel_doc_create", {
+      name: "Polygons",
+      artboards: [{ width: 200, height: 100 }],
+    })
+  ).structuredContent;
+  await page.goto(`/docs/${docId}`);
+  await expect(page.getByTestId("status-bar")).toContainText(/\d+%/);
+  await page.keyboard.press("Control+1");
+  await expect(page.getByTestId("status-bar")).toContainText("100%");
+  const box = await page.getByTestId("canvas").boundingBox();
+  if (!box) throw new Error("no canvas");
+  const at = (x: number, y: number) =>
+    [box.x + box.width / 2 + x - 100, box.y + box.height / 2 + y - 50] as const;
+  const polygons = async () => {
+    const found = (await call(request, "zibel_node_query", { docId, types: ["polygon"] }))
+      .structuredContent.nodes as { id: string }[];
+    if (found.length === 0) return [];
+    const nodeIds = found.map((n) => n.id);
+    return (await call(request, "zibel_node_get", { docId, nodeIds, detail: "full" }))
+      .structuredContent.nodes as {
+      cx: number;
+      cy: number;
+      radius: number;
+      sides: number;
+      angle: number;
+    }[];
+  };
+  const drag = async (from: [number, number], to: [number, number], keys: string[] = []) => {
+    await page.mouse.move(...at(...from));
+    await page.mouse.down();
+    await page.mouse.move(...at(...to), { steps: 5 });
+    for (const k of keys) await page.keyboard.press(k);
+    await page.mouse.up();
+  };
+
+  await page
+    .getByRole("button", { name: "Rectangle Tool (M)", exact: true })
+    .click({ button: "right" });
+  await page.getByRole("menuitemradio", { name: "Polygon Tool", exact: true }).click();
+  const button = page.getByRole("button", { name: "Polygon Tool", exact: true });
+  await expect(button).toHaveAttribute("aria-pressed", "true");
+
+  // Straight down: 6 sides, flat. Then to the left, a quarter turn clockwise, with one side fewer.
+  await drag([30, 50], [30, 80]);
+  await expect.poll(polygons).toMatchObject([{ cx: 30, cy: 50, radius: 30, sides: 6, angle: 30 }]);
+  await drag([120, 50], [100, 50], ["ArrowDown", "ArrowDown", "ArrowUp"]);
+  await expect.poll(async () => (await polygons()).length).toBe(2);
+  const turned = (await polygons()).find((p) => p.cx === 120);
+  expect(turned).toMatchObject({ cy: 50, radius: 20, sides: 5 });
+  expect(turned?.angle).toBeCloseTo(90, 6);
+  await expect(button).toHaveAttribute("aria-pressed", "true");
+  // The count carries over.
+  await drag([170, 50], [170, 70]);
+  await expect.poll(async () => (await polygons()).length).toBe(3);
+  expect((await polygons()).find((p) => p.cx === 170)).toMatchObject({ sides: 5, angle: 0 });
+});
