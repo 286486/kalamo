@@ -198,7 +198,9 @@ export function receive(
       : settlePending(s.pending, msg.commandId)),
     ...(s.opPreview?.commandId &&
       (msg.type === "document" || msg.commandId === s.opPreview.commandId) && { opPreview: null }),
-    ...(skipped > 0 && { notice: `Skipped ${skipped} deleted object(s); they stay deleted.` }),
+    ...(skipped > 0 && {
+      notice: `Skipped ${skipped} object(s) deleted or moved since; they stay as they are.`,
+    }),
   };
 }
 

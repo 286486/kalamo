@@ -1,5 +1,6 @@
 import { evictDurableObject, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
+import { parseDocument, resolveImages } from "@kalamo/core";
 import { afterEach, expect, it, vi } from "vitest";
 
 const stub = (docId: string) => env.DOCUMENT.get(env.DOCUMENT.idFromName(docId));
@@ -806,4 +807,87 @@ it("stages moves in an open Transaction, and guards them with ifRev", async () =
   expect(await places()).toEqual(before);
   expect(ok(await s.commitTx(txId, "agent-a"))).toMatchObject({ rev: 4, updatedIds: [ids[0]] });
   expect((await places())[0]?.[0]).toBe(g);
+});
+
+/** Layer L holds Groups g1 and g2; the Document is at rev 2. */
+async function withGroups(docId: string) {
+  const s = stub(docId);
+  const { defaultLayerId: l } = ok(await s.create({ docId, name: "Doc", artboards, actor: "a" }));
+  const [g1 = "", g2 = ""] = ok(
+    await s.createNodes(
+      [
+        { type: "group", parentId: l },
+        { type: "group", parentId: l },
+      ],
+      "agent-a",
+    ),
+  ).createdIds;
+  return { s, l, g1, g2 };
+}
+
+/** Exports `s` as `.kalamo.json` and opens the text as a new Document, as doc_open does. */
+async function reopens(s: ReturnType<typeof stub>, docId: string) {
+  const { text } = ok(await s.file("user"));
+  const file = await resolveImages(parseDocument(text));
+  ok(await stub(docId).open({ docId, ...file, actor: "agent-a" }));
+  expect(ok(await stub(docId).file("user")).text).toBe(text);
+}
+
+it("refuses a commit whose move makes a cycle with one committed meanwhile, keeping the Transaction open (ADR-0072)", async () => {
+  const { s, g1, g2 } = await withGroups("tree1");
+  const { txId } = ok(await s.begin("agent-a"));
+  ok(await s.reparentNodes([{ nodeId: g1, parentId: g2 }], "agent-a", { txId }));
+  ok(await s.reparentNodes([{ nodeId: g2, parentId: g1 }], "agent-b"));
+  expect(await s.commitTx(txId, "agent-a")).toMatchObject({
+    error: {
+      code: "TREE_CONFLICT",
+      nodeIds: [g1],
+      hint: expect.stringContaining("kalamo_tx_rollback"),
+    },
+  });
+  expect(await s.info()).toMatchObject({ rev: 3 });
+  ok(await s.rollback(txId, "agent-a"));
+  await reopens(s, "tree1-copy");
+});
+
+it("commits two Transactions' creates on top of one Layer in commit order (ADR-0072)", async () => {
+  const { s, l, g1, g2 } = await withGroups("tree2");
+  const a = ok(await s.begin("agent-a")).txId;
+  const b = ok(await s.begin("agent-b")).txId;
+  const [x] = ok(
+    await s.createNodes([{ ...rect, parentId: l }], "agent-a", { txId: a }),
+  ).createdIds;
+  const [y] = ok(
+    await s.createNodes([{ ...rect, parentId: l }], "agent-b", { txId: b }),
+  ).createdIds;
+  ok(await s.commitTx(b, "agent-b"));
+  ok(await s.commitTx(a, "agent-a"));
+  expect(await layerChildren(s)).toEqual([g1, g2, y, x]);
+  ok(await s.reparentNodes([{ nodeId: g1, parentId: l, before: x as string }], "agent-a"));
+  expect(await layerChildren(s)).toEqual([g2, y, g1, x]);
+  await reopens(s, "tree2-copy");
+});
+
+it("skips an undone move that would now make a cycle, and names it in doc_changes (ADR-0072)", async () => {
+  const { s, l, g1, g2 } = await withGroups("tree3");
+  ok(await s.reparentNodes([{ nodeId: g1, parentId: g2 }], "agent-a"));
+  ok(await s.reparentNodes([{ nodeId: g1, parentId: l }], "agent-a"));
+  // A move of g2 into g1 that is not on the undo stack, as another Actor's would be with per-Actor
+  // undo (ADR-0011); a linear stack cannot reach this yet.
+  await runInDurableObject(s, (_, state) => {
+    const { json } = state.storage.sql
+      .exec<{ json: string }>("SELECT json FROM nodes WHERE id = ?", g2)
+      .one();
+    const moved = { ...JSON.parse(json), parentId: g1 };
+    state.storage.sql.exec("UPDATE nodes SET json = ? WHERE id = ?", JSON.stringify(moved), g2);
+  });
+  expect(ok(await s.undo("user"))).toMatchObject({ rev: 5, updatedIds: [] });
+  expect(ok(await s.changes(4)).changes).toMatchObject([
+    {
+      rev: 5,
+      actor: "user",
+      summary: expect.stringContaining(`skipped, deleted or moved since: ${g1}`),
+    },
+  ]);
+  await reopens(s, "tree3-copy");
 });

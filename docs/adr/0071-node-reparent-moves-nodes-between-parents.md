@@ -36,5 +36,5 @@ An Agent could not move a Node to another Layer or Group. `node_update` refuses 
 
 - `node_update`'s `READ_ONLY` hints for `parentId` and `index` point at `node_reparent`, and `index` says `node_reorder` is not available yet. `mask_make`'s refusal of content in another parent says to move it next to the clip Node first.
 - ADR-0021's note that `node_reparent` can reuse Make's move does not apply: Make keeps keys because its Group is new and empty, while a move into a parent with children needs a new key.
-- A committed Transaction's undo, and the commit of a staged one, merge per top-level key (ADR-0011) and do not re-check the tree rules against edits made since. Concurrent moves can then leave a cycle, a Layer in a Group or two Clipping Paths in one container. Re-checking them there is #189.
+- A committed Transaction's undo, and the commit of a staged one, merge per top-level key (ADR-0011) and do not re-check the tree rules against edits made since. Concurrent moves can then leave a cycle, a Layer in a Group or two Clipping Paths in one container. Re-checking them there is #189. Amended by ADR-0072: a commit that would do so fails with `TREE_CONFLICT`, an undo or redo skips the row, and a duplicate sibling key is rekeyed.
 - The browser has no reparent Command yet: dragging in the Layers panel (F-LAYER-01) is #190.

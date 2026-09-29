@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { createDocument, createNodes } from "./document.ts";
-import { deleteNodes, transformNodes, updateNodes } from "./edit.ts";
+import { deleteNodes, reparentNodes, transformNodes, updateNodes } from "./edit.ts";
 import { KalamoError } from "./errors.ts";
+import { parseDocument, serializeDocument } from "./file.ts";
+import { makeMask } from "./mask.ts";
 import { convertToPath } from "./path-op.ts";
+import { placeNodes } from "./place.ts";
 import type { Document, Node, ShapeNode } from "./schema.ts";
 import { commitTransaction, type DeltaRow, overlay, revert, type TxRow } from "./tx.ts";
 
@@ -294,5 +297,223 @@ describe("revert", () => {
     expect(skipped.sort()).toEqual([inner.id, leaf.id].sort());
     expect(after.nodes).toEqual(before.nodes);
     expect([defaultLayerId, child.id].map((id) => after.nodes.has(id))).toEqual([true, false]);
+  });
+});
+
+describe("tree rules at commit, undo and redo (ADR-0072)", () => {
+  /** Layer L holds Groups G1 and G2 and, on top, rect R; Layer M is empty. */
+  const tree = () => {
+    const { doc, defaultLayerId: l } = createDocument({
+      id: "d",
+      name: "Doc",
+      artboards: [{ width: 200, height: 100 }],
+    });
+    const [g1, g2, r, m] = createNodes(doc, [
+      { type: "group", parentId: l },
+      { type: "group", parentId: l },
+      { type: "rect", parentId: l, x: 0, y: 0, width: 10, height: 10 },
+      { type: "layer" },
+    ]).nodes.map((n) => n.id) as [string, string, string, string];
+    return { doc, l, g1, g2, r, m };
+  };
+
+  /** Runs `edit` on a Transaction's overlay of `doc`, adding what it changed to `rows` (ADR-0008). */
+  const stage = (doc: Document, rows: TxRow[], edit: (view: Document) => unknown) => {
+    const view = overlay(doc, rows);
+    const before = new Map(view.nodes);
+    edit(view);
+    for (const id of new Set([...before.keys(), ...view.nodes.keys()])) {
+      const working = view.nodes.get(id) ?? null;
+      if (before.get(id) === working) continue;
+      const row = rows.find((r) => r.id === id);
+      if (row) row.working = working;
+      else rows.push({ id, base: doc.nodes.get(id) ?? null, working });
+    }
+  };
+
+  /** Runs a direct write and returns its delta, as the DO stores it for undo (ADR-0011). */
+  const write = (doc: Document, edit: (doc: Document) => unknown): DeltaRow[] => {
+    const before = copy(doc);
+    edit(doc);
+    return diff(before, doc);
+  };
+
+  /** Throws unless the Document passes file validation (ADR-0016) once exported. */
+  const reopens = (doc: Document) => parseDocument(serializeDocument(doc));
+
+  it("refuses a staged move that makes a cycle with a move committed meanwhile, changing nothing", () => {
+    const { doc, g1, g2 } = tree();
+    const rows: TxRow[] = [];
+    stage(doc, rows, (v) => reparentNodes(v, [{ nodeId: g1, parentId: g2 }]));
+    reparentNodes(doc, [{ nodeId: g2, parentId: g1 }]);
+    const before = copy(doc);
+    expect(nodeGone(() => commitTransaction(doc, rows))).toMatchObject({
+      code: "TREE_CONFLICT",
+      nodeIds: [g1],
+      message: expect.stringContaining("cycle"),
+      hint: expect.stringContaining("kalamo_tx_rollback"),
+    });
+    expect(doc.nodes).toEqual(before.nodes);
+    reopens(doc);
+  });
+
+  it("refuses with NODE_GONE a staged move into a Group deleted meanwhile", () => {
+    const { doc, g1, r } = tree();
+    const rows: TxRow[] = [];
+    stage(doc, rows, (v) => reparentNodes(v, [{ nodeId: r, parentId: g1 }]));
+    deleteNodes(doc, [g1]);
+    expect(nodeGone(() => commitTransaction(doc, rows))).toMatchObject({
+      code: "NODE_GONE",
+      nodeIds: [g1],
+    });
+  });
+
+  it("skips an undone move that would make a cycle with a later move", () => {
+    const { doc, l, g1, g2 } = tree();
+    reparentNodes(doc, [{ nodeId: g1, parentId: g2 }]);
+    const out = write(doc, (d) => reparentNodes(d, [{ nodeId: g1, parentId: l }]));
+    reparentNodes(doc, [{ nodeId: g2, parentId: g1 }]);
+    const { skipped, updated } = revert(doc, out);
+    expect(skipped).toEqual([g1]);
+    expect(updated).toEqual([]);
+    expect(doc.nodes.get(g1)?.parentId).toBe(l);
+    reopens(doc);
+  });
+
+  it("refuses a row that puts a Layer in a Group, or a Group at the root", () => {
+    const { doc, g1, g2, m } = tree();
+    const layer = doc.nodes.get(m) as Node;
+    const group = doc.nodes.get(g2) as Node;
+    for (const [row, id] of [
+      [{ id: m, base: layer, working: { ...layer, parentId: g1 } }, m],
+      [{ id: g2, base: group, working: { ...group, parentId: null } }, g2],
+    ] as const) {
+      expect(nodeGone(() => commitTransaction(doc, [row]))).toMatchObject({
+        code: "TREE_CONFLICT",
+        nodeIds: [id],
+      });
+      expect(revert(doc, [{ id, before: row.working, after: row.base }]).skipped).toEqual([id]);
+    }
+    reopens(doc);
+  });
+
+  it("refuses a Clipping Path staged in a Layer that got another meanwhile", () => {
+    const { doc, l, r } = tree();
+    const rows: TxRow[] = [];
+    stage(doc, rows, (v) => makeMask(v, { layerId: l }));
+    const [top] = createNodes(doc, [
+      { type: "ellipse", parentId: l, x: 0, y: 0, width: 5, height: 5 },
+    ]).nodes as [Node];
+    makeMask(doc, { layerId: l });
+    expect(nodeGone(() => commitTransaction(doc, rows))).toMatchObject({
+      code: "TREE_CONFLICT",
+      nodeIds: [r],
+      message: expect.stringContaining("already has a Clipping Path"),
+    });
+    expect(doc.nodes.get(top.id)).toMatchObject({ clipping: true });
+    reopens(doc);
+  });
+
+  it("skips an undone move of a Clipping Path back into a Layer that got another meanwhile", () => {
+    const { doc, l, r, m } = tree();
+    createNodes(doc, [{ type: "ellipse", parentId: l, x: 0, y: 0, width: 5, height: 5 }]);
+    reparentNodes(doc, [{ nodeId: r, parentId: l }]);
+    makeMask(doc, { layerId: l });
+    expect(doc.nodes.get(r)).toMatchObject({ clipping: true });
+    const out = write(doc, (d) => reparentNodes(d, [{ nodeId: r, parentId: m }]));
+    makeMask(doc, { layerId: l });
+    expect(revert(doc, out).skipped).toEqual([r]);
+    expect(doc.nodes.get(r)?.parentId).toBe(m);
+    reopens(doc);
+  });
+
+  it("gives the later of two staged creates on top of one parent a key above the other's", () => {
+    const { doc, l, g1, g2, r } = tree();
+    const keys = new Map([g1, g2, r].map((id) => [id, doc.nodes.get(id)?.index]));
+    const rect = { type: "rect" as const, parentId: l, x: 0, y: 0, width: 1, height: 1 };
+    const a: TxRow[] = [];
+    const b: TxRow[] = [];
+    stage(doc, a, (v) => createNodes(v, [rect]));
+    stage(doc, b, (v) => createNodes(v, [rect]));
+    expect(a[0]?.working?.index).toBe(b[0]?.working?.index);
+    const [x] = commitTransaction(doc, a).created as [Node];
+    const [y] = commitTransaction(doc, b).created as [Node];
+    const top = keys.get(r) as string;
+    expect(x.index > top && y.index > x.index).toBe(true);
+    expect(doc.nodes.get(y.id)).toBe(y);
+    expect(new Map([g1, g2, r].map((id) => [id, doc.nodes.get(id)?.index]))).toEqual(keys);
+    reopens(doc);
+    // A move or create into the parent now finds a slot between any two siblings.
+    reparentNodes(doc, [{ nodeId: r, parentId: l, before: y.id }]);
+    createNodes(doc, [rect]);
+    reopens(doc);
+  });
+
+  it("gives a Node an undo brings back a key above the one that took its slot meanwhile", () => {
+    const { doc, l, r } = tree();
+    const gone = write(doc, (d) => deleteNodes(d, [r]));
+    const [z] = createNodes(doc, [{ type: "rect", parentId: l, x: 0, y: 0, width: 1, height: 1 }])
+      .nodes as [Node];
+    const index = (doc.nodes.get(r) ?? gone[0]?.before)?.index as string;
+    expect(z.index).toBe(index);
+    const { created, skipped } = revert(doc, gone);
+    expect(skipped).toEqual([]);
+    expect(doc.nodes.get(z.id)?.index).toBe(index);
+    expect((created[0] as Node).index > index).toBe(true);
+    reopens(doc);
+  });
+
+  it("keeps every committed Document valid through random staged and direct edits and undos", () => {
+    let seed = 189;
+    const random = () => {
+      seed = (seed * 1103515245 + 12345) % 2 ** 31;
+      return seed / 2 ** 31;
+    };
+    const pick = <T>(list: T[]): T => list[Math.floor(random() * list.length)] as T;
+    /** Any Node's id, or one no Node has; core refuses what does not fit. */
+    const any = (d: Document, keep = (_: Node) => true) =>
+      pick([...[...d.nodes.values()].filter(keep).map((n) => n.id), "nope"]);
+    const edits: ((d: Document) => unknown)[] = [
+      (d) =>
+        createNodes(d, [
+          pick([
+            { type: "rect", parentId: any(d), x: 0, y: 0, width: 1, height: 1 },
+            { type: "group", parentId: any(d) },
+          ] as const),
+        ]),
+      (d) => {
+        const at = pick([{}, { index: 0 }, { before: any(d) }]);
+        return reparentNodes(d, [{ nodeId: any(d), parentId: pick([any(d), null]), ...at }]);
+      },
+      (d) => makeMask(d, { layerId: any(d) }),
+      (d) =>
+        placeNodes(d, { name: "f", nodes: [...tree().doc.nodes.values()] }, { parentId: any(d) }),
+      (d) => deleteNodes(d, [any(d, (n) => n.type !== "layer")]),
+    ];
+    for (let run = 0; run < 20; run++) {
+      const { doc } = tree();
+      const txs: TxRow[][] = [[], []];
+      const deltas: DeltaRow[][] = [];
+      for (let step = 0; step < 60; step++) {
+        const roll = random();
+        try {
+          if (roll < 0.1 && deltas.length > 0) revert(doc, pick(deltas));
+          else if (roll < 0.25) {
+            const rows = pick(txs);
+            const before = copy(doc);
+            try {
+              commitTransaction(doc, rows);
+              deltas.push(diff(before, doc));
+            } finally {
+              rows.length = 0;
+            }
+          } else if (roll < 0.6) stage(doc, pick(txs), pick(edits));
+          else deltas.push(write(doc, pick(edits)));
+        } catch (e) {
+          if (!(e instanceof KalamoError)) throw e;
+        }
+        reopens(doc);
+      }
+    }
   });
 });

@@ -1497,6 +1497,14 @@ it("returns a non-empty hint with every error code a tool can return", async () 
       await call("kalamo_node_delete", { docId, nodeIds: [id] });
       return tool("kalamo_tx_commit", { txId });
     },
+    TREE_CONFLICT: async () => {
+      const g1 = await create({ type: "group", parentId: defaultLayerId });
+      const g2 = await create({ type: "group", parentId: defaultLayerId });
+      const { txId } = (await call("kalamo_tx_begin", { docId })).structuredContent;
+      await call("kalamo_node_reparent", { docId, txId, moves: [{ nodeId: g1, parentId: g2 }] });
+      await call("kalamo_node_reparent", { docId, moves: [{ nodeId: g2, parentId: g1 }] });
+      return tool("kalamo_tx_commit", { txId });
+    },
     TX_NOT_FOUND: () => tool("kalamo_tx_commit", { txId: "nope" }),
     TX_EXPIRED: async () => {
       const { txId } = (await call("kalamo_tx_begin", { docId })).structuredContent;

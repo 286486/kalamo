@@ -1,7 +1,6 @@
-import { generateKeyBetween } from "fractional-indexing";
 import { z } from "zod";
 import { parseColor } from "./color.ts";
-import { assertParent, paint, paintContainer } from "./document.ts";
+import { checkTree, paint, paintContainer } from "./document.ts";
 import { zodPath } from "./edit.ts";
 import { KalamoError } from "./errors.ts";
 import {
@@ -302,52 +301,8 @@ export function parseDocument(
     nodes: new Map(nodes.map((n) => [n.id, n])),
     images,
   };
-  const siblings = new Set<string>();
-  const clipped = new Set<string | null>();
-  nodes.forEach((n, i) => {
-    const at = `nodes[${i}]`;
-    // An Artboard id falls through to assertParent, whose hint explains Artboards are not parents.
-    const { parentId } = n;
-    if (
-      parentId !== null &&
-      !doc.nodes.has(parentId) &&
-      !artboards.some((a) => a.id === parentId)
-    ) {
-      throw invalid(`${at}.parentId`, `No Node with id ${parentId} in the file.`);
-    }
-    assertParent(doc, n, n.parentId, `${at}.parentId`);
-    try {
-      // ponytail: fractional-indexing exports no validator; this also refuses the very top key.
-      generateKeyBetween(n.index, null);
-    } catch {
-      throw invalid(`${at}.index`, `${JSON.stringify(n.index)} is not a fractional-index key.`);
-    }
-    const key = JSON.stringify([n.parentId, n.index]);
-    if (siblings.has(key)) {
-      throw invalid(
-        `${at}.index`,
-        `Another child of the same parent has index ${n.index}.`,
-        "Siblings are ordered by index, so each needs its own.",
-      );
-    }
-    siblings.add(key);
-    if ("clipping" in n && n.clipping) {
-      const hint =
-        "A Clipping Path is the one clipping child of a Layer or Group, and visible (ADR-0021, ADR-0053).";
-      const parentType = doc.nodes.get(n.parentId ?? "")?.type;
-      if (parentType !== "group" && parentType !== "layer") {
-        throw invalid(`${at}.clipping`, "A Clipping Path's parent is a Layer or Group.", hint);
-      }
-      if (clipped.has(n.parentId)) {
-        throw invalid(
-          `${at}.clipping`,
-          `Its ${parentType === "layer" ? "Layer" : "Group"} already has a Clipping Path.`,
-          hint,
-        );
-      }
-      if (!n.visible) throw invalid(`${at}.visible`, "A Clipping Path cannot be hidden.", hint);
-      clipped.add(n.parentId);
-    }
+  checkTree(doc, nodes, (e) => {
+    throw e;
   });
   if (!nodes.some((n) => n.type === "layer" && n.parentId === null)) {
     throw invalid(

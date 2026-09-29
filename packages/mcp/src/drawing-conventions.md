@@ -60,7 +60,7 @@ Read this once before your first write. Tool descriptions cover each call; this 
 - Use one when several writes should land and undo as one step, or when `kalamo_doc_get_info` shows `browsers` above 0 and a person should not watch a half-built drawing.
 - `kalamo_tx_begin` returns a `txId`. Pass it to every write and to the reads (`kalamo_node_get`, `kalamo_node_query`, `kalamo_doc_outline`, `kalamo_render`, `kalamo_export`) to see your uncommitted work. Nobody else sees it until `kalamo_tx_commit`; put `intent` there. `kalamo_tx_rollback` discards it.
 - A Transaction rolls back after 5 minutes without a call carrying its `txId`.
-- If someone deleted a Node you edited meanwhile, the commit fails with `NODE_GONE` and the Transaction stays open: roll it back and redo the work.
+- If someone deleted a Node you edited meanwhile, the commit fails with `NODE_GONE` and the Transaction stays open: roll it back and redo the work. It fails the same way with `TREE_CONFLICT` when someone's moves meanwhile would make yours form a cycle, or give a Layer or Group two Clipping Paths.
 
 ## Checking what you drew
 
