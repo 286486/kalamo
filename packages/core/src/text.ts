@@ -310,7 +310,7 @@ export function fontWarnings(nodes: Node[]): Warning[] {
 
 /** The distinct characters of `content` the face a text draws in lacks, in order; `\n` is a hard return. */
 function missingGlyphs(text: Extract<Node, { type: "text" }>): string[] {
-  const { advances } = SOURCE_SANS_3.faces[bundledStyle(text.fontStyle)] as Face;
+  const { advances }: Face = SOURCE_SANS_3.faces[bundledStyle(text.fontStyle)];
   return [...new Set(text.content)].filter(
     (ch) => ch !== "\n" && advances[ch.codePointAt(0) as number] === undefined,
   );
@@ -344,10 +344,15 @@ export function glyphWarnings(nodes: Node[]): Warning[] {
  * its texts' missing characters, on the first text that has one.
  */
 export function fileGlyphWarnings(nodes: Node[]): Warning[] {
-  const [first, ...rest] = glyphWarnings(nodes).map((w) => w.nodeId as string);
-  if (!first) return [];
-  const texts = nodes.flatMap((n) => (n.type === "text" ? [n] : []));
-  return [missingGlyphsWarning(first, [...new Set(texts.flatMap(missingGlyphs))])];
+  let first: string | undefined;
+  const chars = new Set<string>();
+  for (const n of nodes) {
+    if (n.type !== "text") continue;
+    const missing = missingGlyphs(n);
+    if (missing.length) first ??= n.id;
+    for (const ch of missing) chars.add(ch);
+  }
+  return first ? [missingGlyphsWarning(first, [...chars])] : [];
 }
 
 /** A `TEXT_OVERFLOW` warning for each Area Type whose content does not all fit (ADR-0022). */
