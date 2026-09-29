@@ -81,7 +81,7 @@ Kalamo is hosted at `https://kalamo.woodywang2013.workers.dev`: the app, `/mcp` 
 claude mcp add --transport http kalamo https://kalamo.woodywang2013.workers.dev/mcp -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
-The deployment's former workers.dev URL redirects every request here, keeping the path, and a page load there brings the browser's open tabs and Pencil options along. To redeploy in dev mode, put only `DEV_TOKENS` in `apps/edge/.deploy.vars`, then run `pnpm deploy:check` and `pnpm run deploy --var AUTH_MODE:dev`, which overrides the config's `github`.
+The deployment's former workers.dev URL was deleted (#181) and answers 404. To redeploy in dev mode, put only `DEV_TOKENS` in `apps/edge/.deploy.vars`, then run `pnpm deploy:check` and `pnpm run deploy --var AUTH_MODE:dev`, which overrides the config's `github`.
 
 ## What it is meant to do
 
