@@ -1,15 +1,18 @@
 import { expect, type Page, test } from "@playwright/test";
 import { call } from "./mcp.ts";
+import { choose } from "./menubar.ts";
 
 /**
- * A new 200 × 100 pt Document open at 100%: `at` maps its points to the page's, `nodes` fetches
+ * A new 200 × 100 pt Document open at 100%: `create` adds Nodes to its Layer, `at` maps its points to the page's, `nodes` fetches
  * its Nodes of `types` in full, and `drag` presses at `from`, takes each step, then releases. A
  * step is a point to move to, a key to press, or `+Key` and `-Key` to hold one down and let it up.
  */
 async function openShapes(page: Page, request: Parameters<typeof call>[0], name: string) {
-  const { docId } = (
+  const { docId, defaultLayerId: parentId } = (
     await call(request, "zibel_doc_create", { name, artboards: [{ width: 200, height: 100 }] })
   ).structuredContent;
+  const create = (...nodes: object[]) =>
+    call(request, "zibel_node_create", { docId, nodes: nodes.map((n) => ({ ...n, parentId })) });
   await page.goto(`/docs/${docId}`);
   await expect(page.getByTestId("status-bar")).toContainText(/\d+%/);
   await page.keyboard.press("Control+1");
@@ -37,7 +40,7 @@ async function openShapes(page: Page, request: Parameters<typeof call>[0], name:
     }
     await page.mouse.up();
   };
-  return { nodes, drag };
+  return { create, nodes, drag };
 }
 
 /** Picks `name`, a tool without a shortcut, from the flyout of the group whose button is `group`. */
@@ -134,6 +137,44 @@ test("the Rounded Rectangle tool's arrow keys set the radius, which the next dra
   await dragAt(160, "ArrowLeft");
   await expect.poll(async () => (await rects()).length).toBe(4);
   expect((await rects()).find((r) => r.x === 160)).toMatchObject({ radius: 0 });
+});
+
+// #154: Enter and Escape during a drag are the Simplify bar's; the tool still takes its arrows.
+test("with Simplify's bar open, Enter and Escape mid-drag answer the bar and the drag goes on", async ({
+  page,
+  request,
+}) => {
+  const { create, nodes, drag } = await openShapes(page, request, "Simplify drag");
+  const points = Array.from({ length: 50 }, (_, i) => `${i * 4} ${50 + 20 * Math.sin(i / 4)}`);
+  const original = `M ${points.join(" L ")}`;
+  await create({ type: "path", d: original });
+  const d = async () => (await nodes<{ d: string }>("path"))[0]?.d;
+  const radii = async () => (await nodes<{ radius: number }>("rect")).map((r) => r.radius);
+  const bar = page.getByRole("toolbar", { name: "Simplify" });
+  await pickFromGroup(page, "Rectangle Tool (M)", "Rounded Rectangle Tool");
+  const simplify = async () => {
+    await page.keyboard.press("Control+a");
+    await choose(page, "Object", "Path", "Simplify…");
+    await expect(bar).toBeVisible();
+  };
+
+  // Enter is OK; Up before and after it still rounds the corners, and the release draws.
+  await simplify();
+  await drag([20, 10], [60, 90], "ArrowUp", "Enter", "ArrowUp");
+  await expect(bar).toBeHidden();
+  await expect.poll(radii).toEqual([14]);
+  await expect.poll(d).not.toBe(original);
+  const simplified = await d();
+
+  // Escape is Cancel, and Down still takes the radius back.
+  await page.keyboard.press("Control+z");
+  await expect.poll(radii).toEqual([]);
+  await simplify();
+  await drag([120, 10], [160, 90], "ArrowDown", "Escape", [170, 90]);
+  await expect(bar).toBeHidden();
+  await expect.poll(radii).toEqual([13]);
+  expect((await nodes<{ width: number }>("rect"))[0]?.width).toBe(50);
+  expect(await d()).toBe(simplified);
 });
 
 // #144: the Polygon tool draws from its centre, turned by the drag, its arrows changing the sides.

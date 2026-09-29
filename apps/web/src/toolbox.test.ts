@@ -1,4 +1,4 @@
-import { beforeEach, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useStore } from "./store.ts";
 import {
   type CanvasTool,
@@ -70,7 +70,7 @@ const press = (key: string, type = "keydown", mods: Partial<KeyboardEvent> = {})
   }) as KeyboardEvent;
 /** Viewer's routing: the pressed tool first, then the canvas's keys if it did not take the key. */
 const route = (e: KeyboardEvent, pressed: CanvasTool | null) =>
-  pressedKey(e, pressed, false, () => {}) || canvasKey(e);
+  pressedKey(e, pressed, false, false, () => {}) || canvasKey(e);
 
 beforeEach(() => {
   vi.mocked(setTool).mockClear();
@@ -106,15 +106,64 @@ it("a key the pressed tool takes switches no tool; one it does not take still do
   expect(setTool).toHaveBeenLastCalledWith("line");
 });
 
+describe("a pressed tool that takes Enter and Escape", () => {
+  const heard: string[] = [];
+  const pressed = {
+    ...TOOLS.rectangle,
+    keyChange: (key: ToolKey) => {
+      heard.push(`${key.key} ${key.down ? "down" : "up"}`);
+      return true;
+    },
+  };
+  beforeEach(() => {
+    heard.length = 0;
+  });
+
+  const key = (e: KeyboardEvent, modal: boolean) => pressedKey(e, pressed, false, modal, () => {});
+
+  it.each(["Enter", "Escape"])(
+    "does not hear an %s keydown behind Simplify's open bar, which then answers it",
+    (k) => {
+      expect(key(press(k), true)).toBe(false);
+      expect(heard).toEqual([]);
+    },
+  );
+
+  it("still hears their keyups, and every other key, behind the open bar", () => {
+    expect(key(press("Enter", "keyup"), true)).toBe(true);
+    expect(key(press("ArrowUp"), true)).toBe(true);
+    expect(heard).toEqual(["Enter up", "ArrowUp down"]);
+  });
+
+  it("takes them with no bar open, before any shortcut or the active tool's onKey", () => {
+    useStore.setState({ tool: "pen" });
+    const onKey = vi.spyOn(TOOLS.pen, "onKey");
+    for (const k of ["Enter", "Escape"]) expect(key(press(k), false)).toBe(true);
+    for (const k of ["Enter", "Escape"]) route(press(k), pressed);
+    expect(heard).toEqual(["Enter down", "Escape down", "Enter down", "Escape down"]);
+    expect(onKey).not.toHaveBeenCalled();
+    expect(setTool).not.toHaveBeenCalled();
+    onKey.mockRestore();
+  });
+});
+
+it("the Rounded Rectangle tool takes Up and Down behind Simplify's open bar", () => {
+  const tool = TOOLS.roundedRectangle;
+  tool.down({ x: 0, y: 0, capture() {} } as never);
+  for (const k of ["ArrowUp", "ArrowDown"])
+    expect(pressedKey(press(k), tool, false, true, () => {})).toBe(true);
+  tool.cancel?.(() => {});
+});
+
 it.each(["roundedRectangle", "polygon", "star", "arc", "spiral"] as const)(
   "the %s tool takes the arrow keys while dragging",
   (name) => {
     const tool = TOOLS[name];
     const arrow = press("ArrowUp");
-    expect(pressedKey(arrow, tool, false, () => {})).toBe(false);
+    expect(pressedKey(arrow, tool, false, false, () => {})).toBe(false);
     tool.down({ x: 0, y: 0, capture() {} } as never);
-    expect(pressedKey(arrow, tool, false, () => {})).toBe(true);
-    expect(pressedKey(press("v"), tool, false, () => {})).toBe(false);
+    expect(pressedKey(arrow, tool, false, false, () => {})).toBe(true);
+    expect(pressedKey(press("v"), tool, false, false, () => {})).toBe(false);
     tool.cancel?.(() => {});
   },
 );
@@ -123,29 +172,29 @@ it("the Arc tool takes C, F and X while dragging, which then switch no tool or F
   const tool = TOOLS.arc;
   tool.down({ x: 0, y: 0, capture() {} } as never);
   for (const k of ["c", "f", "x", "X"])
-    expect(pressedKey(press(k), tool, false, () => {})).toBe(true);
+    expect(pressedKey(press(k), tool, false, false, () => {})).toBe(true);
   tool.cancel?.(() => {});
-  expect(pressedKey(press("c"), tool, false, () => {})).toBe(false);
+  expect(pressedKey(press("c"), tool, false, false, () => {})).toBe(false);
 });
 
 it("the Rectangular Grid tool takes the arrows, F, V, X and C while dragging, which then switch nothing", () => {
   const tool = TOOLS.rectangularGrid;
   tool.down({ x: 0, y: 0, capture() {} } as never);
   for (const k of ["f", "v", "x", "c", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"])
-    expect(pressedKey(press(k), tool, false, () => {})).toBe(true);
-  expect(pressedKey(press("m"), tool, false, () => {})).toBe(false);
+    expect(pressedKey(press(k), tool, false, false, () => {})).toBe(true);
+  expect(pressedKey(press("m"), tool, false, false, () => {})).toBe(false);
   tool.cancel?.(() => {});
-  expect(pressedKey(press("v"), tool, false, () => {})).toBe(false);
+  expect(pressedKey(press("v"), tool, false, false, () => {})).toBe(false);
 });
 
 it("the Polar Grid tool takes the arrows, X, C, F and V while dragging, which then switch nothing", () => {
   const tool = TOOLS.polarGrid;
   tool.down({ x: 0, y: 0, capture() {} } as never);
   for (const k of ["x", "c", "f", "v", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"])
-    expect(pressedKey(press(k), tool, false, () => {})).toBe(true);
-  expect(pressedKey(press("m"), tool, false, () => {})).toBe(false);
+    expect(pressedKey(press(k), tool, false, false, () => {})).toBe(true);
+  expect(pressedKey(press("m"), tool, false, false, () => {})).toBe(false);
   tool.cancel?.(() => {});
-  expect(pressedKey(press("c"), tool, false, () => {})).toBe(false);
+  expect(pressedKey(press("c"), tool, false, false, () => {})).toBe(false);
 });
 
 it("gives the Arc, Spiral, Rectangular Grid, Polar Grid, Rounded Rectangle, Polygon and Star tools no shortcut, as Illustrator does", () => {

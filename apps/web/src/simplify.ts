@@ -28,6 +28,9 @@ interface Settings {
 /** The bar or dialog on screen: how to take it down, and to redo the preview at a new zoom. */
 let open: { close: () => void; update: () => void } | null = null;
 
+/** Whether Simplify's bar or dialog is on screen: its Enter and Escape pass the pressed tool by. */
+export const simplifyOpen = () => !!open;
+
 /** Closes the bar or dialog without touching the preview. */
 function takeDown() {
   const was = open;
@@ -142,7 +145,8 @@ export function startSimplify() {
     font: "12px system-ui, sans-serif",
     zIndex: "10",
   });
-  // Enter is OK and Esc is Cancel, before the tools' shortcuts see them; Enter on a button presses it.
+  // Enter is OK and Esc is Cancel. Viewer's pressed-tool listener comes first but lets them by
+  // while the bar is open, and the tools' shortcuts come after; Enter on a button presses it.
   const onKey = (e: KeyboardEvent) => {
     if (e.key !== "Enter" && e.key !== "Escape") return;
     if (e.key === "Enter" && e.target instanceof HTMLButtonElement) return;
