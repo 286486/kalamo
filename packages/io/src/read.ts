@@ -42,7 +42,7 @@ import {
   transformSegments,
   unfilledRanges,
   union,
-  type WriteReceipt,
+  type Warning,
   ZibelError,
 } from "@zibel/core";
 import { generateKeyBetween } from "fractional-indexing";
@@ -63,8 +63,6 @@ import {
 } from "./dialect.ts";
 import { asGradient, type Geometry, unroll } from "./gradient.ts";
 import { computeStyle, type Rule, type Style, stylesheet } from "./style.ts";
-
-export type Warning = WriteReceipt["warnings"][number];
 
 /** A file read for Open: a Document's contents without its docId, and what did not come across. */
 export interface OpenedFile {

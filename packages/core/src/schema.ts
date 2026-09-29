@@ -877,6 +877,14 @@ export interface Document {
   images: Map<string, ImageInfo>;
 }
 
+/** A non-fatal note on a write, in its receipt's `warnings`. */
+export const Warning = z.object({
+  code: z.string(),
+  nodeId: z.string().optional(),
+  message: z.string(),
+});
+export type Warning = z.infer<typeof Warning>;
+
 /** The uniform result of every write (REQUIREMENTS §6.5). */
 export const WriteReceipt = z.object({
   txId: z.string(),
@@ -886,9 +894,7 @@ export const WriteReceipt = z.object({
   deletedIds: z.array(z.string()),
   keyMap: z.record(z.string(), z.string()),
   bounds: Rect.nullable(),
-  warnings: z.array(
-    z.object({ code: z.string(), nodeId: z.string().optional(), message: z.string() }),
-  ),
+  warnings: z.array(Warning),
   failed: z
     .array(
       z.object({

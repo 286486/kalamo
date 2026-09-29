@@ -1,6 +1,12 @@
 import { evictAllDurableObjects } from "cloudflare:test";
 import { exports } from "cloudflare:workers";
-import { type ErrorCode, formatPath, type ShapeNode, shapeSegments } from "@zibel/core";
+import {
+  type ErrorCode,
+  formatPath,
+  type ShapeNode,
+  shapeSegments,
+  type Warning,
+} from "@zibel/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import exported from "../../../fixtures/documents/inkscape.svg?raw";
 import { BLUE_1x1_PNG, RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
@@ -1613,7 +1619,6 @@ it("opens and places an SVG set in CJK with one MISSING_GLYPHS for the file", as
 });
 
 describe("a Place receipt's warnings name the placed Nodes (#161)", () => {
-  type Warning = { code: string; nodeId?: string; message: string };
   const warned = (receipt: { structuredContent: { warnings: Warning[] } }, code: string) =>
     receipt.structuredContent.warnings.filter((w) => w.code === code);
   const texts = async (docId: string, ids: (string | undefined)[]) =>

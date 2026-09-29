@@ -29,12 +29,10 @@ import {
   TransformInput,
   textRanges,
   type UpdateInput,
+  type Warning,
   Writable,
-  type WriteReceipt,
 } from "./schema.ts";
 import { canonicalRanges } from "./text.ts";
-
-type Warning = WriteReceipt["warnings"][number];
 
 const isContainer = (n: Node): n is LayerNode | GroupNode =>
   n.type === "layer" || n.type === "group";

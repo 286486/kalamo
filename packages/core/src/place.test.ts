@@ -9,7 +9,7 @@ import {
 } from "./document.ts";
 import { makeMask } from "./mask.ts";
 import { placeImage, placeNodes } from "./place.ts";
-import type { Node, ShapeNode, Stroke, WriteReceipt } from "./schema.ts";
+import type { Node, ShapeNode, Stroke, Warning } from "./schema.ts";
 import { fileTextWarnings } from "./text.ts";
 
 /** The Nodes of a file with two Layers, a rect in each and a sub-Layer in the first, as Open reads it. */
@@ -509,7 +509,7 @@ describe("placeNodes' per-file text warnings (#162)", () => {
     );
     const rest = [...f.doc.nodes.values()].filter((n) => n.type !== "text");
     const nodes = [...texts, ...rest];
-    const reader: WriteReceipt["warnings"][number] = { code: "UNSUPPORTED_PAINT", message: "p" };
+    const reader: Warning = { code: "UNSUPPORTED_PAINT", message: "p" };
     const warnings = [reader, ...fileTextWarnings(nodes)];
     return { nodes, warnings, reader, clipId: c.id, keptId: k.id, artId: art.id };
   }

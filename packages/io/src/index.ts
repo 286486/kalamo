@@ -1,10 +1,10 @@
 import { fileTextWarnings, parseDocument, ZibelError } from "@zibel/core";
-import { type OpenedFile, parseSvg, type Warning } from "./read.ts";
+import { type OpenedFile, parseSvg } from "./read.ts";
 
 export { MAX_DEPTH, parseSvg, resolveLinks } from "./read.ts";
 export { docRect, type SvgOptions, scopeRect, svgRect, toSvg } from "./write.ts";
 
-export type { OpenedFile, Warning };
+export type { OpenedFile };
 
 /**
  * The largest SVG Zibel reads, in UTF-16 code units outside embedded images' data URLs, which
