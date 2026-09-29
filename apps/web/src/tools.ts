@@ -87,7 +87,30 @@ export function newArtNode(
 }
 
 /** The path the Pen is drawing, not yet sent. */
-export const drawing = (s: State) => (s.pen?.commandId === null ? s.pen : null);
+export const drawing = (s: State) => s.pen;
+
+/**
+ * Sends drawn art as one `create` (ADR-0032), placed and painted by newArtNode, in `fillStroke` or
+ * the current Fill and Stroke. It is drawn until its own answer, whose `tx` selects it unless
+ * `select` is false, and leaves an isolated leaf (#137). A hidden or locked Layer draws nothing.
+ */
+export function sendNewArt(
+  art: NewArt[],
+  { fillStroke, select = true }: { fillStroke?: FillStroke; select?: boolean } = {},
+) {
+  const { doc, ...s } = useStore.getState();
+  if (!doc) return;
+  const at = forNewArt(doc, s);
+  const paint = fillStroke ?? s.fillStroke;
+  const nodes = art.map((a) => newArtNode({ ...s, ...at, doc, fillStroke: paint }, a));
+  if (!nodes.every((n) => n !== null)) {
+    useStore.setState({ notice: NOTHING_DRAWN });
+    return;
+  }
+  const pending = { commandId: send({ type: "create", nodes }), nodes, select };
+  const leave = leaving(s.isolated, at);
+  useStore.setState((p) => ({ pending: [...p.pending, { ...pending, ...(leave && { leave }) }] }));
+}
 
 /**
  * Finishes the path the Pen is drawing and sends it as one `create` (ADR-0032). A single Anchor
@@ -99,27 +122,12 @@ export function finishPen(closed = false) {
   if (!pen) return;
   // A curve closing through its first Anchor bends there too.
   const anchors = pen.curve ? curveThrough(pen.curve, closed) : pen.anchors;
-  const done = { ...pen, anchors, closed };
   if (s.doc && (pen.from || pen.to)) {
-    finishEdit(s.doc, done);
+    finishEdit(s.doc, { ...pen, anchors, closed });
     return;
   }
-  const at = s.doc && forNewArt(s.doc, s);
-  const node =
-    s.doc && at && pen.anchors.length >= 2
-      ? newArtNode({ ...s, ...at, doc: s.doc }, { type: "path", d: pathD(anchors, closed) })
-      : null;
-  if (!node || !at) {
-    useStore.setState({
-      pen: null,
-      ...(pen.anchors.length >= 2 && {
-        notice: NOTHING_DRAWN,
-      }),
-    });
-    return;
-  }
-  const commandId = send({ type: "create", nodes: [node] });
-  useStore.setState({ pen: { ...done, commandId, leave: leaving(s.isolated, at) } });
+  useStore.setState({ pen: null });
+  if (pen.anchors.length >= 2) sendNewArt([{ type: "path", d: pathD(anchors, closed) }]);
 }
 
 /** The subpath reversed: its Anchors in the other order, each Handle swapped for the other. */
@@ -302,7 +310,6 @@ export function penDown(p: Point, tolerance: number, shift = false) {
     setPen({
       anchors: done,
       closed: false,
-      commandId: null,
       from: { ...end, kept: theirs.length },
     });
   } else if (s.doc && end && pen) {
@@ -326,7 +333,7 @@ export function penDown(p: Point, tolerance: number, shift = false) {
     press = { kind: "place", index: anchors.length, at: p };
     const anchor = last && shift ? constrain(last.anchor, p) : p;
     setPen({
-      ...(pen ?? { closed: false, commandId: null }),
+      ...(pen ?? { closed: false }),
       anchors: [...anchors, { anchor, handleIn: null, handleOut: null }],
     });
   }

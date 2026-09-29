@@ -1,4 +1,5 @@
-import type { Rect } from "@zibel/core";
+import { formatPath, type Rect, Shape, shapeSegments } from "@zibel/core";
+import type { PendingCreate } from "./receive.ts";
 import { send, useStore } from "./store.ts";
 import type { ToolEvent } from "./toolbox.ts";
 import type { FillStroke } from "./tools.ts";
@@ -41,7 +42,7 @@ export function drawMarquee(ctx: CanvasRenderingContext2D, rect: Rect, scale: nu
 export function drawDrawing(
   ctx: CanvasRenderingContext2D,
   path: Path2D,
-  { fill, stroke }: FillStroke,
+  { fill, stroke }: Pick<FillStroke, "fill" | "stroke">,
   scale: number,
 ) {
   if (fill) {
@@ -57,6 +58,43 @@ export function drawDrawing(
   ctx.strokeStyle = SELECTION;
   ctx.fillStyle = SELECTION;
   ctx.stroke(path);
+}
+
+/** A Live Shape's or path's outline, from core's shapeSegments; null for other Nodes. */
+export function shapePath(input: unknown): Path2D | null {
+  const shape = Shape.safeParse(input);
+  return shape.success ? new Path2D(formatPath(shapeSegments(shape.data))) : null;
+}
+
+type Paints = object[];
+type Painted = {
+  type: string;
+  appearance?: { fills?: Paints; strokes?: Paints };
+  children?: Painted[];
+};
+const firstColor = (paints?: Paints) => {
+  const paint = paints?.[0];
+  const color = paint && "color" in paint ? paint.color : null;
+  return typeof color === "string" ? color : null;
+};
+
+/**
+ * Drawn art in flight (ADR-0032): each Node and inline child in the Fill and Stroke it was sent
+ * with, so a change to the Fill and Stroke boxes meanwhile does not repaint it.
+ */
+export function drawPending(
+  ctx: CanvasRenderingContext2D,
+  pending: PendingCreate[],
+  scale: number,
+) {
+  const draw = (input: Painted) => {
+    const path = shapePath(input);
+    const { fills, strokes } = input.appearance ?? {};
+    if (path)
+      drawDrawing(ctx, path, { fill: firstColor(fills), stroke: firstColor(strokes) }, scale);
+    for (const child of input.children ?? []) draw(child);
+  };
+  for (const p of pending) for (const input of p.nodes) draw(input);
 }
 
 /** Releasing a drag commits it as one Transaction. */

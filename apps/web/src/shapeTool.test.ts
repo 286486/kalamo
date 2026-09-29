@@ -85,6 +85,7 @@ beforeEach(() => {
     selection: [],
     isolated: null,
     pen: null,
+    pending: [],
     notice: null,
     fillStroke: { fill: "#FF0000", stroke: null, active: "fill" },
   });
@@ -112,13 +113,13 @@ it.each([
     ],
   });
   // Drawn until its Transaction arrives, which selects it (receive.ts).
-  expect(useStore.getState().pen).toMatchObject({ commandId: "sent", shape: { type } });
+  expect(useStore.getState().pending).toMatchObject([{ commandId: "sent", nodes: [{ type }] }]);
 });
 
 it("sends nothing for a drag under SLOP", () => {
   dragWith(rectangleTool, [30, 40], [[31, 41]]);
   expect(send).not.toHaveBeenCalled();
-  expect(useStore.getState().pen).toBeNull();
+  expect(useStore.getState().pending).toEqual([]);
 });
 
 it("Space moves the shape, and sizing resumes from the moved origin", () => {
@@ -128,12 +129,12 @@ it("Space moves the shape, and sizing resumes from the moved origin", () => {
 });
 
 it("previews Shift and Alt pressed or released without a move", () => {
-  const rects: number[][] = [];
+  const rects: string[] = [];
   vi.stubGlobal(
     "Path2D",
     class {
-      rect(...box: number[]) {
-        rects.push(box);
+      constructor(d: string) {
+        rects.push(d);
       }
     },
   );
@@ -145,11 +146,11 @@ it("previews Shift and Alt pressed or released without a move", () => {
   };
   tool.down(at([10, 10]));
   tool.move?.(at([16, 14]));
-  expect(preview()).toEqual([10, 10, 6, 4]);
+  expect(preview()).toBe("M 10 10 L 16 10 L 16 14 L 10 14 Z");
   tool.keyChange?.({ ...NONE, shift: true, alt: true }, () => {});
-  expect(preview()).toEqual([4, 4, 12, 12]);
+  expect(preview()).toBe("M 4 4 L 16 4 L 16 16 L 4 16 Z");
   tool.keyChange?.(NONE, () => {});
-  expect(preview()).toEqual([10, 10, 6, 4]);
+  expect(preview()).toBe("M 10 10 L 16 10 L 16 14 L 10 14 Z");
   tool.cancel?.(() => {});
   vi.unstubAllGlobals();
 });
@@ -167,7 +168,7 @@ it("draws nothing into a hidden or locked Layer, and says why", () => {
   useStore.setState({ doc: { ...doc, nodes } });
   dragWith(ellipseTool, [0, 0], [[20, 20]]);
   expect(send).not.toHaveBeenCalled();
-  expect(useStore.getState()).toMatchObject({ pen: null, notice: /hidden or locked/ });
+  expect(useStore.getState()).toMatchObject({ pending: [], notice: /hidden or locked/ });
 });
 
 it("draws nothing into a locked Layer from an isolated leaf, leaving the Isolation and Selection", () => {
@@ -182,5 +183,5 @@ it("draws nothing into a locked Layer from an isolated leaf, leaving the Isolati
   useStore.setState({ doc: d, ...view });
   dragWith(rectangleTool, [0, 0], [[20, 20]]);
   expect(send).not.toHaveBeenCalled();
-  expect(useStore.getState()).toMatchObject({ ...view, pen: null, notice: /hidden or locked/ });
+  expect(useStore.getState()).toMatchObject({ ...view, pending: [], notice: /hidden or locked/ });
 });

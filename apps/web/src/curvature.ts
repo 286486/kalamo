@@ -75,10 +75,7 @@ export function curveThrough(curve: CurveAnchor[], closed: boolean): BareAnchor[
 /** Sets the curve of the path being drawn; its Anchors follow it. */
 function setCurve(curve: CurveAnchor[]) {
   useStore.setState({
-    pen:
-      curve.length > 0
-        ? { anchors: curveThrough(curve, false), curve, closed: false, commandId: null }
-        : null,
+    pen: curve.length > 0 ? { anchors: curveThrough(curve, false), curve, closed: false } : null,
   });
 }
 

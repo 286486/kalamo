@@ -9,7 +9,7 @@ import italicUrl from "@zibel/render/fonts/SourceSans3-It.ttf?url";
 import regularUrl from "@zibel/render/fonts/SourceSans3-Regular.ttf?url";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { AnchorsBar } from "./AnchorsBar.tsx";
-import { SELECTION } from "./canvas.ts";
+import { drawPending, SELECTION } from "./canvas.ts";
 import { anchorsOf, hasAnchors } from "./direct.ts";
 import { IsolationBar } from "./IsolationBar.tsx";
 import { imageCache } from "./images.ts";
@@ -81,6 +81,7 @@ export function Viewer({ docId }: { docId: string }) {
     edit,
     opPreview,
     pen,
+    pending,
     notice,
     isolated,
     size,
@@ -202,7 +203,7 @@ export function Viewer({ docId }: { docId: string }) {
   }, [doc, shown, isolated, docId, viewport, size, fontReady, images, imagesLoaded]);
 
   // The overlay redraws on its own canvas, without repainting the Document's Nodes.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: anchors, segments, pen, fillStroke and overlay redraw the tools' overlays
+  // biome-ignore lint/correctness/useExhaustiveDependencies: anchors, segments, pen, pending, fillStroke and overlay redraw the tools' overlays
   useEffect(() => {
     if (!doc || !shown || doc.id !== docId || !viewport) return;
     const ctx = sized(overlayCanvas.current, size, viewport);
@@ -218,6 +219,7 @@ export function Viewer({ docId }: { docId: string }) {
       if (b) ctx.strokeRect(b.x, b.y, b.width, b.height);
     }
     for (const t of Object.values(TOOLS)) t.draw?.(ctx, shown, scale);
+    drawPending(ctx, pending, scale);
     // Simplify's Show Original Path.
     if (opPreview?.showOriginal) {
       ctx.strokeStyle = ORIGINAL;
@@ -238,6 +240,7 @@ export function Viewer({ docId }: { docId: string }) {
     segments,
     tool,
     pen,
+    pending,
     fillStroke,
     overlay,
   ]);

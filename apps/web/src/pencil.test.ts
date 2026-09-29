@@ -62,6 +62,7 @@ beforeEach(() => {
     doc: created.doc,
     selection: [],
     pen: null,
+    pending: [],
     edit: null,
     fillStroke: DEFAULT_FILL_STROKE,
   });
@@ -80,7 +81,7 @@ it("a stroke commits one create with the fitted path, stroked but not filled", (
   expect(sub?.anchors.at(-1)?.anchor).toEqual([180, 100]);
   expect(sub?.anchors.length).toBeLessThan(8);
   expect(node.d).toContain("C");
-  expect(useStore.getState().pen).toMatchObject({ commandId: "sent", pencil: { keep: true } });
+  expect(useStore.getState().pending).toMatchObject([{ commandId: "sent", select: true }]);
 });
 
 it("ending within the close distance of the start closes the path", () => {
@@ -123,7 +124,7 @@ it("Fill new pencil strokes fills with the current Fill; Keep selected off leave
   savePencilOptions({ ...DEFAULT_PENCIL, fillNew: true, keepSelected: false });
   stroke(range(10, (t) => [10 + 50 * t, 10 + 20 * t * t]));
   expect(createdD().appearance?.fills).toEqual([{ color: "#FFFFFF" }]);
-  expect(useStore.getState().pen?.pencil).toEqual({ fill: "#FFFFFF", keep: false });
+  expect(useStore.getState().pending.at(-1)?.select).toBe(false);
 });
 
 it("redrawing across a selected path replaces that part in one path_edit", () => {
