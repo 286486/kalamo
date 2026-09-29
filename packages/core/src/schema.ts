@@ -829,6 +829,35 @@ export const TransformInput = z
     "The transform collapses the Nodes to a line or point; use a non-singular matrix and skews whose sum stays away from 90°.",
   );
 export type TransformInput = z.input<typeof TransformInput>;
+/** Several transforms, each applied in order to the Document the ones before it left (ADR-0070). */
+export const TransformBatchInput = z.strictObject({
+  transforms: z
+    .array(TransformInput)
+    .min(1)
+    .max(1000)
+    .describe(
+      "Instead of the fields above: transforms applied in order, each with its own nodeIds, pivot and parts, in one Transaction.",
+    ),
+});
+export type TransformBatchInput = z.input<typeof TransformBatchInput>;
+/** `node_transform`'s two forms: one transform, or `transforms`. */
+export const TransformNodesInput = z.union([TransformInput, TransformBatchInput]);
+export type TransformNodesInput = z.input<typeof TransformNodesInput>;
+/** A field with its default kept for the published schema only, so a parse leaves it unset. */
+const advertised = <T extends z.ZodType>(s: z.ZodDefault<T>) =>
+  s.unwrap().optional().meta({ description: s.description, default: s.def.defaultValue });
+/**
+ * Both forms' arguments in one object, as an MCP tool advertises them. The single form's fields
+ * stay unset unless sent, so `transforms` beside one of them can be refused.
+ */
+export const TransformFields = z.strictObject({
+  ...TransformInput.shape,
+  nodeIds: nodeIds.optional(),
+  pivot: advertised(TransformInput.shape.pivot),
+  each: advertised(TransformInput.shape.each),
+  scaleStrokes: advertised(TransformInput.shape.scaleStrokes),
+  transforms: TransformBatchInput.shape.transforms.optional(),
+});
 
 /** Common properties (F-DOC-02). */
 interface NodeBase {

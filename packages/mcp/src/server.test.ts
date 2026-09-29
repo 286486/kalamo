@@ -185,6 +185,25 @@ describe("write tools pass the write and its options apart", () => {
     });
   });
 
+  it("node_transform: transforms arrive as entries with their defaults, apart from the write options", async () => {
+    const { service, call } = await harness({ transformNodes: async () => receipt });
+    const transforms = [
+      { nodeIds: ["a"], rotate: -7 },
+      { nodeIds: ["b"], rotate: 6, pivot: "topLeft" },
+    ];
+    await call("kalamo_node_transform", { docId: "d", transforms, partial: true, ...opts });
+    expect(service.transformNodes.mock.calls[0]).toStrictEqual([
+      "d",
+      {
+        transforms: [
+          { nodeIds: ["a"], rotate: -7, pivot: "center", each: false, scaleStrokes: true },
+          { nodeIds: ["b"], rotate: 6, pivot: "topLeft", each: false, scaleStrokes: true },
+        ],
+      },
+      { ...opts, partial: true },
+    ]);
+  });
+
   it.each(writeOptions)(
     "mask_make: kind defaults to clip, with %s write options as given",
     async (_, write) => {
@@ -483,6 +502,50 @@ describe("reads pass their filters and txId, and bad arguments never reach the s
     expect(called()).toEqual([]);
   });
 
+  const entry = { nodeIds: ["a"], rotate: 1 };
+  it.each([
+    [
+      { transforms: [entry], rotate: 5 },
+      "rotate",
+      "kalamo_node_transform takes transforms or rotate, not both.",
+      "Put rotate inside each entry of transforms that needs it.",
+    ],
+    [
+      { transforms: [entry], nodeIds: ["a"] },
+      "nodeIds",
+      "kalamo_node_transform takes transforms or nodeIds, not both.",
+      "Put nodeIds inside each entry of transforms that needs it.",
+    ],
+    [{ transforms: [] }, "transforms", expect.any(String), "transforms must be at least 1 item."],
+    [
+      { transforms: [entry, { nodeIds: ["b"], rotat: 1 }] },
+      "transforms[1].rotat",
+      "kalamo_node_transform has no argument transforms[1].rotat.",
+      expect.stringMatching(/^Did you mean rotate\? transforms\[1\] takes: nodeIds, /),
+    ],
+    [
+      { transforms: [entry, { nodeIds: ["b"], matrix: [1, 0, 0, 1, 0, 0], rotate: 9 }] },
+      "transforms[1]",
+      expect.stringContaining("matrix replaces rotate"),
+      expect.any(String),
+    ],
+    [
+      { transforms: [entry, entry, { nodeIds: ["b"], matrix: [1, 0] }] },
+      "transforms[2].matrix",
+      expect.any(String),
+      expect.any(String),
+    ],
+    [{}, "nodeIds", "kalamo_node_transform needs nodeIds.", "nodeIds is required."],
+  ])(
+    "node_transform refuses %j as INVALID_INPUT at its path",
+    async (args, path, message, hint) => {
+      const { call, called } = await harness();
+      const result = await call("kalamo_node_transform", { docId: "d", ...args, partial: true });
+      expect(errorOf(result)).toEqual({ code: "INVALID_INPUT", path, message, hint });
+      expect(called()).toEqual([]);
+    },
+  );
+
   it("names nameRegex when it does not compile", async () => {
     const { call } = await harness();
     const result = await call("kalamo_node_query", { docId: "d", nameRegex: "(" });
@@ -750,6 +813,7 @@ describe("partial (F-MCP-16)", () => {
     ["kalamo_node_update", "updateNodes", { updates: [{ nodeId: "a", patch: { name: "x" } }] }],
     ["kalamo_node_delete", "deleteNodes", { nodeIds: ["a"] }],
     ["kalamo_node_transform", "transformNodes", { nodeIds: ["a"], rotate: 1 }],
+    ["kalamo_node_transform", "transformNodes", { transforms: [{ nodeIds: ["a"], rotate: 1 }] }],
   ] as const)("%s passes partial and returns failed intact", async (name, method, args) => {
     const { service, call } = await harness({ [method]: async () => ({ ...receipt, failed }) });
     const result = await call(name, { docId: "d", ...args, partial: true });
@@ -934,6 +998,7 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
     expect(described(name)).toContain("skill://kalamo/drawing-conventions");
   }
   expect(described("kalamo_node_create")).not.toContain("origin top-left");
+  expect(described("kalamo_node_transform")).toContain("transforms: [{nodeIds, rotate, ...}, ...]");
   expect(described("kalamo_node_create")).toContain("text {");
   expect(described("kalamo_node_create")).toContain("TEXT_OVERFLOW");
   expect(described("kalamo_node_create")).toContain("MISSING_GLYPHS");

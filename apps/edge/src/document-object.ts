@@ -44,7 +44,7 @@ import {
   releaseMask,
   revert,
   serializeDocument,
-  type TransformInput,
+  type TransformNodesInput,
   type TxRow,
   textWarnings,
   transformNodes,
@@ -837,7 +837,11 @@ export class DocumentObject extends DurableObject<Env> {
     });
   }
 
-  transformNodes(input: TransformInput, actor: string, opts: Options = {}): Result<WriteReceipt> {
+  transformNodes(
+    input: TransformNodesInput,
+    actor: string,
+    opts: Options = {},
+  ): Result<WriteReceipt> {
     return this.write(actor, opts, "Transform", (doc) => {
       const { nodes, warnings, failed } = transformNodes(doc, input, opts);
       return { updated: nodes, warnings, failed };

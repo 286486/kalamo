@@ -597,7 +597,7 @@ flowchart LR
 | `node_duplicate` | `docId`, `nodeIds[]`, `offset?`, `count?`, `targetParentId?` | 新 id 映射 | |
 | `node_reparent` | `docId`, `moves[]`：`{nodeId, parentId, index | before | after}` | 回执 | |
 | `node_reorder` | `docId`, `nodeIds[]`, `op`: front / forward / backward / back | 回执 | |
-| `node_transform` | `docId`, `nodeIds[]`, `translate?`, `rotate?`（角度）, `scale?`, `skew?`, `matrix?`, `pivot`（center / 9 点 / 坐标）, `each`（逐个 vs 整体）, `scaleStrokes` | 回执 + 新 bounds | |
+| `node_transform` | `docId`, `nodeIds[]`, `translate?`, `rotate?`（角度）, `scale?`, `skew?`, `matrix?`, `pivot`（center / 9 点 / 坐标）, `each`（逐个 vs 整体）, `scaleStrokes`；或 `transforms[]?`（每项即上述单个变换，按序施加，一个事务，ADR-0070） | 回执 + 新 bounds | |
 | `node_resize` | `docId`, `nodeIds[]`, `width?`, `height?`, `anchor`, `keepAspect` | 回执 | |
 | `align_distribute` | `docId`, `nodeIds[]`, `align?`（left/hcenter/right/top/vcenter/bottom）, `distribute?`（horizontal/vertical, spacing?）, `relativeTo`（selection / keyNodeId / artboardId） | 回执 | |
 | `group` / `ungroup` | `docId`, `nodeIds[]` / `groupIds[]` | 回执 | |
@@ -990,6 +990,7 @@ kalamo/
 | 50 | 严格工具参数（2026-09-29） | 工具参数由 Kalamo 自己严格解析，SDK 只校验参数是对象，并经 `.meta()` 公布真实 schema（带 `additionalProperties: false`）；未知键（嵌套的也算）让调用失败，不再被静默丢弃，`meta` 与 `node_update` patch 顶层除外；schema 失败统一为 `INVALID_INPUT`，附 `path` 与 `hint`（最接近的键名、必填、边界、允许值），记入每次调用的日志行；不新增错误码；缺 `arguments` 的请求仍是 SDK 文本 | ADR-0050、#23 |
 | 51 | 更名 Kalamo（2026-09-29） | 前一个名字在阿拉伯语、希伯来语中意为"粪、垃圾"，更名为 **Kalamo**（卡拉莫），产品域名 `kalamo.cc`，SVG 命名空间 `https://kalamo.cc/ns/svg`；旧 SVG 命名空间、旧存盘文件与旧浏览器存储键永久可读，MCP 名称不留别名；Cloudflare 资源迁移到 Kalamo 名下并逐字段核对后才删除旧部署；工作树内不留旧名的任何痕迹 | §1.1.1、ADR-0069、#172 |
 | 52 | 逐字符属性（2026-09-29） | Character Range 在 `fill`、`baselineShift`、`rotation` 之外还可覆盖 `stroke`（替换每个 Stroke 的颜色）、`tracking`（按字符自身字号）、`fontStyle`、`fontFamily` 与 `fontSize`（Auto 行距为该行最大字号的 120%，同 Illustrator；Inkscape 按 CSS 行框排，往返中混合字号的多行文字另有 25% 像素预算）；等于 Node 自身值的覆盖即无覆盖，存储时丢弃；Inkscape 在行内 tspan 上写的这些属性导入为 Character Range，不再警告 | ADR-0068、#67 |
+| 53 | 批量变换（2026-09-30） | `node_transform` 另收 `transforms[]`：每项是单个变换的全部字段，按序施加，每项的 pivot 取自前面各项之后的 bounds；整次调用一个事务、一个回执、一次撤销；`partial` 按项跳过；不新增工具，也不在 `node_create` 上加 `transform` | ADR-0070、#21 |
 
 **剩余开放问题**
 

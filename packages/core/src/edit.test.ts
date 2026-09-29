@@ -220,6 +220,118 @@ describe("transformNodes", () => {
   });
 });
 
+describe("transformNodes with transforms (ADR-0070)", () => {
+  it("gives each entry's Nodes its own transform about its own centre, as calls in sequence do", () => {
+    const { doc, rect } = newDoc();
+    const [a, b] = createNodes(doc, [rect(0, 0), rect(100, 0)]).nodes;
+    if (!a || !b) throw new Error("setup");
+    const one = structuredClone(doc);
+    transformNodes(one, { nodeIds: [a.id], rotate: -7 });
+    transformNodes(one, { nodeIds: [b.id], rotate: 6 });
+    const { nodes } = transformNodes(doc, {
+      transforms: [
+        { nodeIds: [a.id], rotate: -7 },
+        { nodeIds: [b.id], rotate: 6 },
+      ],
+    });
+    expect(nodes.map((n) => n.id)).toEqual([a.id, b.id]);
+    expect(doc.nodes).toEqual(one.nodes);
+    expect(near(bounds(doc, shape(doc, a.id)))).toEqual(near(bounds(one, shape(one, a.id))));
+    expect(shape(doc, a.id).transform).not.toEqual(shape(doc, b.id).transform);
+  });
+
+  it("composes two entries on one Node in order, pivoting on the bounds the first left", () => {
+    const { doc, rect } = newDoc();
+    const [a] = createNodes(doc, [rect(10, 10)]).nodes;
+    if (!a) throw new Error("setup");
+    const { nodes } = transformNodes(doc, {
+      transforms: [
+        { nodeIds: [a.id], translate: { x: 10 } },
+        { nodeIds: [a.id], rotate: 90 },
+      ],
+    });
+    // Turned about (45, 25), the centre after the move, not (35, 25).
+    expect(near(bounds(doc, shape(doc, a.id)))).toEqual({ x: 30, y: 0, width: 30, height: 50 });
+    expect(nodes).toEqual([shape(doc, a.id)]);
+  });
+
+  it("refuses the whole call for a failing entry, naming it, and changes nothing", () => {
+    const { doc, rect } = newDoc();
+    const [a] = createNodes(doc, [rect(0, 0)]).nodes;
+    if (!a) throw new Error("setup");
+    const transforms = [
+      { nodeIds: [a.id], rotate: 5 },
+      { nodeIds: ["nope"], rotate: 5 },
+    ];
+    expect(errorOf(() => transformNodes(doc, { transforms }))).toMatchObject({
+      code: "NODE_NOT_FOUND",
+      path: "transforms[1].nodeIds[0]",
+    });
+    expect(shape(doc, a.id).transform).toEqual([1, 0, 0, 1, 0, 0]);
+  });
+
+  it("with partial skips a failing entry whole and applies the others", () => {
+    const { doc, rect } = newDoc();
+    const [a, b] = createNodes(doc, [rect(0, 0), rect(100, 0)]).nodes;
+    if (!a || !b) throw new Error("setup");
+    const { nodes, failed } = transformNodes(
+      doc,
+      {
+        transforms: [
+          { nodeIds: [a.id], translate: { x: 1 } },
+          { nodeIds: [b.id, "nope"], translate: { x: 1 } },
+        ],
+      },
+      { partial: true },
+    );
+    expect(nodes.map((n) => n.id)).toEqual([a.id]);
+    expect(shape(doc, b.id).transform).toEqual([1, 0, 0, 1, 0, 0]);
+    expect(failed).toEqual([
+      expect.objectContaining({
+        index: 1,
+        code: "NODE_NOT_FOUND",
+        path: "transforms[1].nodeIds[1]",
+      }),
+    ]);
+    const transforms = [{ nodeIds: ["x"], rotate: 1 }];
+    expect(errorOf(() => transformNodes(doc, { transforms }, { partial: true }))).toMatchObject({
+      code: "NODE_NOT_FOUND",
+      path: "transforms[0].nodeIds[0]",
+    });
+  });
+
+  it("warns NESTED_TARGET per entry", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const [g, r] = createNodes(doc, [
+      {
+        type: "group",
+        parentId: defaultLayerId,
+        children: [{ type: "rect", x: 0, y: 0, width: 10, height: 10 }],
+      },
+    ]).nodes;
+    if (!g || !r) throw new Error("setup");
+    const { warnings } = transformNodes(doc, {
+      transforms: [
+        { nodeIds: [r.id], translate: { x: 1 } },
+        { nodeIds: [g.id, r.id], translate: { x: 1 } },
+      ],
+    });
+    expect(warnings).toEqual([
+      { code: "NESTED_TARGET", nodeId: r.id, message: expect.any(String) },
+    ]);
+    expect(shape(doc, r.id).transform).toEqual([1, 0, 0, 1, 2, 0]);
+  });
+
+  it.each([
+    [{ transforms: [] }],
+    [{ transforms: [{ nodeIds: ["a"], rotate: 1 }], rotate: 5 }],
+    [{ transforms: [{ nodeIds: ["a"], matrix: [1, 0, 0, 1, 0, 0], rotate: 1 }] }],
+  ])("rejects %j", (input) => {
+    const { doc } = newDoc();
+    expect(() => transformNodes(doc, input as never)).toThrow();
+  });
+});
+
 describe("updateNodes", () => {
   const setup = () => {
     const { doc, defaultLayerId, rect } = newDoc();
