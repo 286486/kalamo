@@ -8,7 +8,14 @@ import {
   ellipseMatrix,
   outline,
 } from "./document.ts";
-import { deleteNodes, reorderNodes, reparentNodes, transformNodes, updateNodes } from "./edit.ts";
+import {
+  deleteNodes,
+  duplicateNodes,
+  reorderNodes,
+  reparentNodes,
+  transformNodes,
+  updateNodes,
+} from "./edit.ts";
 import { KalamoError } from "./errors.ts";
 import { parseDocument, serializeDocument } from "./file.ts";
 import { makeMask } from "./mask.ts";
@@ -1610,5 +1617,228 @@ describe("reorderNodes (ADR-0074)", () => {
     const { nodes, failed } = reorderNodes(doc, [id("a"), "nope"], "front", { partial: true });
     expect(nodes.map((n) => n.id)).toEqual([id("a")]);
     expect(failed).toMatchObject([{ index: 1, code: "NODE_NOT_FOUND", path: "nodeIds[1]" }]);
+  });
+});
+
+describe("duplicateNodes (ADR-0076)", () => {
+  /**
+   * Layer L holds a b c bottom first, then Clip Group K (art, then its Clipping Path clip); Layer M,
+   * above L, holds Group G, which holds x y. Every Node is named after its key.
+   */
+  const scene = () => {
+    const { doc, defaultLayerId: l } = createDocument({
+      id: "d",
+      name: "Doc",
+      artboards: [{ width: 200, height: 100 }],
+    });
+    const box = (clientKey: string, x = 0) => ({
+      type: "rect" as const,
+      name: clientKey,
+      x,
+      y: 0,
+      width: 10,
+      height: 10,
+      clientKey,
+      appearance: { fills: [{ type: "solid" as const, color: "#FF0000" }], strokes: [] },
+    });
+    const { keyMap: top } = createNodes(doc, [
+      ...["a", "b", "c"].map((k, i) => ({ ...box(k, i * 20), parentId: l })),
+      { ...box("art", 60), parentId: l },
+      { ...box("clip", 65), parentId: l },
+    ]);
+    const { group } = makeMask(doc, {
+      clipNodeId: top.clip as string,
+      contentIds: [top.art as string],
+    });
+    const [m] = createNodes(doc, [{ type: "layer", name: "M" }]).nodes as [Node];
+    const { keyMap: inner } = createNodes(doc, [
+      {
+        type: "group",
+        name: "G",
+        parentId: m.id,
+        clientKey: "G",
+        children: [box("x", 100), { ...box("y", 120), type: "ellipse" as const }],
+      },
+    ]);
+    const keyMap: Record<string, string> = { ...top, ...inner, L: l, M: m.id, K: group.id };
+    const id = (k: string) => keyMap[k] as string;
+    const name = (n: Node) =>
+      Object.entries(keyMap).find(([, v]) => v === n.id)?.[0] ?? `${n.name}'`;
+    const kids = (parent: string) => childrenOf(doc, id(parent)).map(name);
+    const duplicate = (ks: string[], rest: Omit<Parameters<typeof duplicateNodes>[1], "nodeIds">) =>
+      duplicateNodes(doc, { nodeIds: ks.map(id), ...rest });
+    return { doc, id, kids, duplicate };
+  };
+  /** The Node without what a copy changes: its id, its parent's id and its key. */
+  const body = ({ id: _, parentId: __, index: ___, ...rest }: Node) => rest;
+
+  it("copies a leaf directly above it: a new id, everything else equal", () => {
+    const { doc, id, kids, duplicate } = scene();
+    updateNodes(doc, [{ nodeId: id("a"), patch: { tags: ["t"], meta: { k: 1 }, opacity: 0.5 } }]);
+    const { created, copies } = duplicate(["a"], {});
+    expect(created).toHaveLength(1);
+    const [copy] = created as [Node];
+    expect(copies).toEqual({ [id("a")]: [copy.id] });
+    expect(copy.id).not.toBe(id("a"));
+    expect(body(copy)).toEqual(body(doc.nodes.get(id("a")) as Node));
+    expect(doc.nodes.get(copy.id)).toBe(copy);
+    expect(kids("L")).toEqual(["a", "a'", "b", "c", "K"]);
+  });
+
+  it("copies a Group with every descendant, all ids new, structure and geometry equal", () => {
+    const { doc, id, kids, duplicate } = scene();
+    const keys = new Map([...doc.nodes.values()].map((n) => [n.id, n.index]));
+    const { created, copies } = duplicate(["G"], {});
+    const [g, x, y] = created as [Node, Node, Node];
+    expect(copies).toEqual({ [id("G")]: [g.id] });
+    expect(created.map((n) => n.id).some((c) => keys.has(c))).toBe(false);
+    expect(x.parentId).toBe(g.id);
+    expect(y.parentId).toBe(g.id);
+    expect(childrenOf(doc, g.id).map((n) => n.id)).toEqual([x.id, y.id]);
+    for (const [copy, k] of [
+      [g, "G"],
+      [x, "x"],
+      [y, "y"],
+    ] as const) {
+      const original = doc.nodes.get(id(k)) as Node;
+      expect(body(copy)).toEqual(body(original));
+      expect(bounds(doc, copy)).toEqual(bounds(doc, original));
+    }
+    expect(kids("M")).toEqual(["G", "G'"]);
+    // No existing Node's key changed.
+    for (const [nodeId, index] of keys) expect(doc.nodes.get(nodeId)?.index).toBe(index);
+  });
+
+  it("copies a Node named with its ancestor, or twice, once", () => {
+    const { doc, id, duplicate } = scene();
+    const size = doc.nodes.size;
+    const { created, copies } = duplicate(["x", "G", "G", "y"], {});
+    expect(Object.keys(copies)).toEqual([id("G")]);
+    expect(created).toHaveLength(3);
+    expect(doc.nodes.size).toBe(size + 3);
+  });
+
+  it("stacks each copy directly above its own original, in one parent and in two", () => {
+    const { kids, duplicate } = scene();
+    duplicate(["c", "a", "x"], {});
+    expect(kids("L")).toEqual(["a", "a'", "b", "c", "c'", "K"]);
+    expect(kids("G")).toEqual(["x", "x'", "y"]);
+  });
+
+  it("puts copies from several parents into a target as one block, in paint order", () => {
+    const { doc, id, kids, duplicate } = scene();
+    // x (in Layer M) paints above b (in Layer L), whatever order nodeIds names them in.
+    const { created, copies } = duplicate(["x", "b"], { targetParentId: id("L") });
+    expect(kids("L")).toEqual(["a", "b", "c", "K", "b'", "x'"]);
+    expect(created.map((n) => n.parentId)).toEqual([id("L"), id("L")]);
+    expect(Object.keys(copies)).toEqual([id("b"), id("x")]);
+    const x = created.find((n) => n.name === "x") as Node;
+    expect(bounds(doc, x)).toEqual(bounds(doc, doc.nodes.get(id("x")) as Node));
+  });
+
+  it("puts the block where index, before or after says (the Alt-drag places it after the topmost)", () => {
+    const { id, kids, duplicate } = scene();
+    duplicate(["a", "b"], { targetParentId: id("L"), after: id("b") });
+    expect(kids("L")).toEqual(["a", "b", "a'", "b'", "c", "K"]);
+    const next = scene();
+    next.duplicate(["y"], { targetParentId: next.id("L"), index: 0 });
+    expect(next.kids("L")).toEqual(["y'", "a", "b", "c", "K"]);
+    next.duplicate(["c"], { targetParentId: next.id("L"), before: next.id("c") });
+    expect(next.kids("L")).toEqual(["y'", "a", "b", "c'", "c", "K"]);
+  });
+
+  it("with offset and count 3, steps each copy by one more offset and stacks them upward", () => {
+    const { doc, id, kids, duplicate } = scene();
+    const { created, copies } = duplicate(["a"], { offset: { x: 5, y: -2 }, count: 3 });
+    expect(copies[id("a")]).toEqual(created.map((n) => n.id));
+    expect(created.map((n) => bounds(doc, n))).toEqual([
+      { x: 5, y: -2, width: 10, height: 10 },
+      { x: 10, y: -4, width: 10, height: 10 },
+      { x: 15, y: -6, width: 10, height: 10 },
+    ]);
+    expect(kids("L").slice(0, 4)).toEqual(["a", "a'", "a'", "a'"]);
+    expect(
+      childrenOf(doc, id("L"))
+        .slice(1, 4)
+        .map((n) => n.id),
+    ).toEqual(copies[id("a")]);
+  });
+
+  it("with count 2 into a target, repeats the block for each step", () => {
+    const { doc, id, duplicate } = scene();
+    const { copies } = duplicate(["b", "a"], { targetParentId: id("M"), count: 2 });
+    const [a1, a2] = copies[id("a")] as [string, string];
+    const [b1, b2] = copies[id("b")] as [string, string];
+    expect(childrenOf(doc, id("M")).map((n) => n.id)).toEqual([id("G"), a1, b1, a2, b2]);
+  });
+
+  it("a lone Clipping Path copied beside itself loses clipping; its Clip Group keeps one", () => {
+    const { doc, id, kids, duplicate } = scene();
+    const [copy] = duplicate(["clip"], {}).created as [Node];
+    expect(copy).not.toHaveProperty("clipping");
+    expect(kids("K")).toEqual(["art", "clip", "clip'"]);
+    expect(clippingPath(doc, doc.nodes.get(id("K")) as Node)?.id).toBe(id("clip"));
+  });
+
+  it("a copied Clip Group and a copied clipped Layer keep their Clipping Paths", () => {
+    const { doc, id, duplicate } = scene();
+    const [group] = duplicate(["K"], {}).created as [Node];
+    expect(clippingPath(doc, group)?.name).toBe("clip");
+    expect(clippingPath(doc, group)?.id).not.toBe(id("clip"));
+    const [n] = createNodes(doc, [{ type: "layer", name: "N" }]).nodes as [Node];
+    const art = { type: "rect", parentId: n.id, x: 0, y: 0, width: 10, height: 10 } as const;
+    createNodes(doc, [art, { ...art, name: "top" }]);
+    makeMask(doc, { layerId: n.id });
+    const [layer] = duplicateNodes(doc, { nodeIds: [n.id] }).created as [Node];
+    expect(layer).toMatchObject({ type: "layer", parentId: null });
+    expect(clippingPath(doc, layer)?.name).toBe("top");
+    expect(childrenOf(doc, null).map((c) => c.id)).toEqual([id("L"), id("M"), n.id, layer.id]);
+  });
+
+  it("keeps an Image's src and file, and a Live Shape's parameters", () => {
+    const { doc, id } = scene();
+    const src = "a".repeat(64);
+    doc.images.set(src, { mime: "image/png", width: 24, height: 16 });
+    const [image] = createNodes(doc, [
+      { type: "image", parentId: id("L"), src, file: "photo.png", x: 0, y: 0 },
+      { type: "star", parentId: id("L"), cx: 0, cy: 0, outerRadius: 10, innerRadius: 4, points: 7 },
+    ]).nodes as [Node, Node];
+    const star = childrenOf(doc, id("L")).at(-1) as Node;
+    const { created } = duplicateNodes(doc, { nodeIds: [image.id, star.id] });
+    expect(created.map(body)).toEqual([body(image), body(star)]);
+  });
+
+  it.each([
+    ["a Layer into a Group", ["M"], "G"],
+    ["a Group into itself", ["G"], "G"],
+    ["a Group into its descendant's parent chain", ["M"], "M"],
+    ["into a leaf", ["a"], "b"],
+  ])("refuses %s with INVALID_PARENT, writing nothing", (_, ks, target) => {
+    const { doc, id, duplicate } = scene();
+    const size = doc.nodes.size;
+    expect(errorOf(() => duplicate(ks, { targetParentId: id(target) }))).toMatchObject({
+      code: "INVALID_PARENT",
+      path: "targetParentId",
+    });
+    expect(doc.nodes.size).toBe(size);
+  });
+
+  it("names the unknown id's place, and refuses a position without a target", () => {
+    const { id, duplicate, doc } = scene();
+    expect(errorOf(() => duplicateNodes(doc, { nodeIds: [id("a"), "nope"] }))).toMatchObject({
+      code: "NODE_NOT_FOUND",
+      path: "nodeIds[1]",
+    });
+    expect(errorOf(() => duplicate(["a"], { targetParentId: "nope" }))).toMatchObject({
+      code: "NODE_NOT_FOUND",
+      path: "targetParentId",
+    });
+    expect(errorOf(() => duplicate(["a"], { after: id("b") }))).toMatchObject({
+      code: "INVALID_INPUT",
+      path: "after",
+    });
+    expect(
+      errorOf(() => duplicate(["a"], { targetParentId: id("L"), after: id("x") })),
+    ).toMatchObject({ code: "INVALID_INPUT", path: "after" });
   });
 });

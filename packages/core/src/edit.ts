@@ -1,4 +1,4 @@
-import { generateKeyBetween } from "fractional-indexing";
+import { generateKeyBetween, generateNKeysBetween } from "fractional-indexing";
 import type { z } from "zod";
 import {
   assertParent,
@@ -8,8 +8,10 @@ import {
   imageInfo,
   isTopLayer,
   mapPaint,
+  newId,
   paint,
   paintContainer,
+  paintOrder,
   union,
 } from "./document.ts";
 import { collect, type Failed, KalamoError } from "./errors.ts";
@@ -20,6 +22,7 @@ import {
   AppearanceInput,
   ContainerAppearanceInput,
   type Document,
+  DuplicateInput,
   type GroupNode,
   ImageShape,
   type LayerNode,
@@ -60,7 +63,7 @@ export function lookup(doc: Document, id: string, path: string): Node {
 }
 
 /** Drops targets that sit inside another target, so nothing is edited twice. */
-function outermost(doc: Document, targets: Node[]): { kept: Node[]; nested: Node[] } {
+export function outermost(doc: Document, targets: Node[]): { kept: Node[]; nested: Node[] } {
   const ids = new Set(targets.map((n) => n.id));
   const inside = (n: Node) => {
     for (let p = n.parentId; p; p = doc.nodes.get(p)?.parentId ?? null) {
@@ -371,50 +374,66 @@ export function updateNodes(
   return { nodes: unique, failed };
 }
 
-/** One move: the Node at its new parent and fractional-index key, not yet stored. */
-function moved(doc: Document, move: ReparentInput, i: number): Node {
-  const at = `moves[${i}]`;
+/**
+ * Where `pos` puts a Node among `siblings`, the parent's children bottom first without `self`, the
+ * Node being moved: it lands between siblings[slot - 1] and siblings[slot], by default on top. `at`
+ * is the path of an input key; `what` names the input in a message.
+ */
+function slotOf(
+  doc: Document,
+  siblings: Node[],
+  pos: Pick<ReparentInput, "parentId" | "index" | "before" | "after">,
+  at: (key: string) => string,
+  what: string,
+  self?: Node,
+): number {
   const invalid = (key: string, message: string, hint: string) =>
-    new KalamoError({ code: "INVALID_INPUT", message, hint, path: `${at}.${key}` });
-  const node = lookup(doc, move.nodeId, `${at}.nodeId`);
-  assertParent(doc, node, move.parentId, `${at}.parentId`);
-  const given = (["index", "before", "after"] as const).filter((k) => move[k] !== undefined);
+    new KalamoError({ code: "INVALID_INPUT", message, hint, path: at(key) });
+  const given = (["index", "before", "after"] as const).filter((k) => pos[k] !== undefined);
   if (given.length > 1) {
     throw invalid(
       given[1] as string,
-      `A move takes one of index, before and after, not ${given.join(" and ")}.`,
+      `${what} takes one of index, before and after, not ${given.join(" and ")}.`,
       "Keep one of them; with none the Node goes on top of the parent's children.",
     );
   }
-  // The parent's children without the Node, bottom first; it lands between siblings[slot - 1] and
-  // siblings[slot].
-  const siblings = childrenOf(doc, move.parentId).filter((n) => n.id !== node.id);
+  const other = self ? "other " : "";
   let slot = siblings.length;
-  if (move.index !== undefined) {
-    if (move.index > siblings.length) {
+  if (pos.index !== undefined) {
+    if (pos.index > siblings.length) {
       throw invalid(
         "index",
-        `index ${move.index} is past the top: the parent has ${siblings.length} other ${siblings.length === 1 ? "child" : "children"}.`,
+        `index ${pos.index} is past the top: the parent has ${siblings.length} ${other}${siblings.length === 1 ? "child" : "children"}.`,
         `Use 0 (bottom) to ${siblings.length} (top), or omit index to put the Node on top.`,
       );
     }
-    slot = move.index;
+    slot = pos.index;
   }
-  const key = move.before !== undefined ? "before" : move.after !== undefined ? "after" : undefined;
+  const key = pos.before !== undefined ? "before" : pos.after !== undefined ? "after" : undefined;
   if (key) {
-    const ref = lookup(doc, move[key] as string, `${at}.${key}`);
+    const ref = lookup(doc, pos[key] as string, at(key));
     const j = siblings.indexOf(ref);
     if (j < 0) {
       throw invalid(
         key,
-        ref === node
+        ref === self
           ? `${key} names the Node being moved.`
-          : `${ref.id} is not a child of ${move.parentId ?? "the Document root"}.`,
-        `${key} names another child of parentId; doc_outline lists them.`,
+          : `${ref.id} is not a child of ${pos.parentId ?? "the Document root"}.`,
+        `${key} names another child of the parent; doc_outline lists them.`,
       );
     }
     slot = key === "before" ? j : j + 1;
   }
+  return slot;
+}
+
+/** One move: the Node at its new parent and fractional-index key, not yet stored. */
+function moved(doc: Document, move: ReparentInput, i: number): Node {
+  const at = (key: string) => `moves[${i}].${key}`;
+  const node = lookup(doc, move.nodeId, at("nodeId"));
+  assertParent(doc, node, move.parentId, at("parentId"));
+  const siblings = childrenOf(doc, move.parentId).filter((n) => n.id !== node.id);
+  const slot = slotOf(doc, siblings, move, at, "A move", node);
   const below = siblings[slot - 1]?.index ?? null;
   const above = siblings[slot]?.index ?? null;
   // A key already in the slot is kept, as makeMask keeps keys.
@@ -510,6 +529,85 @@ export function reorderNodes(
     return now.index === n.index ? [] : [now];
   });
   return { nodes, failed };
+}
+
+/**
+ * `node_duplicate` and Alt-drag copy (ADR-0076): `count` copies of each Node with its whole subtree,
+ * every copy a new id and otherwise unchanged, copy k translated by k × `offset`. Without
+ * `targetParentId` each Node's copies stack directly above it in its parent, k = 1 lowest; with it
+ * they go there as one block, k by k and the originals in paint order, at `index`, `before` or
+ * `after` or else on top. No existing Node's key changes. A copied top-level Node loses `clipping`,
+ * so no container gets a second Clipping Path; a copied container keeps its own.
+ *
+ * Returns the new Nodes, depth first, and each outermost source id's copies in order k.
+ */
+export function duplicateNodes(
+  doc: Document,
+  raw: DuplicateInput,
+): { created: Node[]; copies: Record<string, string[]> } {
+  const input = DuplicateInput.parse(raw);
+  const { count = 1, offset, targetParentId: target } = input;
+  const found = input.nodeIds.map((id, i) => lookup(doc, id, `nodeIds[${i}]`));
+  const { kept } = outermost(doc, found);
+  // Each placement is an original and the keys of its copies, k = 1 first.
+  let placements: { node: Node; keys: string[] }[];
+  if (target === undefined) {
+    const pos = (["index", "before", "after"] as const).find((k) => input[k] !== undefined);
+    if (pos) {
+      throw new KalamoError({
+        code: "INVALID_INPUT",
+        message: `${pos} places the copies in targetParentId, which is missing.`,
+        hint: "Give targetParentId too, or omit it and the position to put each copy directly above its original.",
+        path: pos,
+      });
+    }
+    placements = kept.map((node) => {
+      const siblings = childrenOf(doc, node.parentId);
+      const above = siblings[siblings.indexOf(node) + 1]?.index ?? null;
+      return { node, keys: generateNKeysBetween(node.index, above, count) };
+    });
+  } else {
+    for (const n of kept) assertParent(doc, n, target, "targetParentId");
+    const order = paintOrder(doc);
+    const block = [...kept].sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+    const siblings = childrenOf(doc, target);
+    const slot = slotOf(doc, siblings, { ...input, parentId: target }, (k) => k, "A duplicate");
+    const keys = generateNKeysBetween(
+      siblings[slot - 1]?.index ?? null,
+      siblings[slot]?.index ?? null,
+      count * block.length,
+    );
+    placements = block.map((node, j) => ({
+      node,
+      keys: keys.filter((_, i) => i % block.length === j),
+    }));
+  }
+
+  const created: Node[] = [];
+  const copy = (n: Node, parentId: string | null, index: string): string => {
+    const id = newId();
+    doc.nodes.set(id, { ...structuredClone(n), id, parentId, index });
+    created.push(doc.nodes.get(id) as Node);
+    for (const c of childrenOf(doc, n.id)) copy(c, id, c.index);
+    return id;
+  };
+  const copies: Record<string, string[]> = {};
+  for (const { node, keys } of placements) {
+    copies[node.id] = keys.map((key, i) => {
+      const id = copy(node, target === undefined ? node.parentId : target, key);
+      const top = doc.nodes.get(id) as Node;
+      if ("clipping" in top && top.clipping) {
+        const { clipping: _, ...unclipped } = top;
+        doc.nodes.set(id, unclipped as Node);
+      }
+      if (offset) {
+        const k = i + 1;
+        transformNodes(doc, { nodeIds: [id], translate: { x: k * offset.x, y: k * offset.y } });
+      }
+      return id;
+    });
+  }
+  return { created: created.map((n) => doc.nodes.get(n.id) as Node), copies };
 }
 
 /**

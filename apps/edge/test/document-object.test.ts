@@ -1,6 +1,6 @@
 import { evictDurableObject, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
-import { parseDocument, resolveImages } from "@kalamo/core";
+import { type DuplicateInput, parseDocument, resolveImages } from "@kalamo/core";
 import { afterEach, expect, it, vi } from "vitest";
 
 const stub = (docId: string) => env.DOCUMENT.get(env.DOCUMENT.idFromName(docId));
@@ -915,6 +915,65 @@ it("restacks in two parents as one Transaction, one receipt and one undo step (A
   expect(await layers()).toEqual([b, a]);
   expect(ok(await s.undo("user")).rev).toBe(5);
   expect({ places: await places(), layers: await layers() }).toEqual(before);
+});
+
+it("duplicates as one Transaction, one receipt with the id map, and one undo step (ADR-0076)", async () => {
+  const { s, a, b, g, ids } = await withTwoLayers("duplicate1");
+  const [r0, r1] = ids as [string, string];
+  const size = async () => ok(await s.info()).nodeCount;
+  const before = await size();
+  const receipt = ok(
+    await s.duplicateNodes({ nodeIds: [r0, g], offset: { x: 5, y: 0 }, count: 2 }, "agent-a", {
+      intent: "repeat",
+    }),
+  );
+  expect(receipt).toMatchObject({ rev: 4, updatedIds: [], deletedIds: [] });
+  expect(Object.keys(receipt.copies)).toEqual([r0, g]);
+  const [c1, c2] = receipt.copies[r0] as [string, string];
+  expect(receipt.createdIds).toEqual(
+    expect.arrayContaining([c1, c2, ...(receipt.copies[g] ?? [])]),
+  );
+  expect(receipt.createdIds).toHaveLength(4);
+  // The copies of the empty Group have no bounds; the rect's are at x 5 and 10.
+  expect(receipt.bounds).toEqual({ x: 5, y: 0, width: 15, height: 10 });
+  expect(ok(await s.changes(3)).changes).toMatchObject([
+    { rev: 4, txId: receipt.txId, summary: "Duplicate 4 Nodes", intent: "repeat" },
+  ]);
+  type Row = { id: string; children?: Row[] };
+  const outline = async () => ok(await s.outline({ depth: 3 }, "user")).nodes as Row[];
+  const [layerA, layerB] = await outline();
+  expect(layerA?.children?.map((n) => n.id)).toEqual([r0, c1, c2, r1, ids[2]]);
+  expect(layerB?.id).toBe(b);
+  expect(layerB?.children?.map((n) => n.id)).toEqual([g, ...(receipt.copies[g] ?? [])]);
+  const { nodes } = ok(await s.get([c1, c2], "concise", "user"));
+  expect(nodes.map((n) => n.geometricBounds?.x)).toEqual([5, 10]);
+  expect(await size()).toBe(before + 4);
+  expect(ok(await s.undo("user")).deletedIds.sort()).toEqual([...receipt.createdIds].sort());
+  expect(await size()).toBe(before);
+  expect(a).toBeTruthy();
+});
+
+it("refuses a duplicate with its code and path, writing nothing (ADR-0076)", async () => {
+  const { s, b, g, ids } = await withTwoLayers("duplicate2");
+  const r0 = ids[0] as string;
+  for (const [input, error] of [
+    [{ nodeIds: [r0, "nope"] }, { code: "NODE_NOT_FOUND", path: "nodeIds[1]" }],
+    [
+      { nodeIds: [r0], targetParentId: "nope" },
+      { code: "NODE_NOT_FOUND", path: "targetParentId" },
+    ],
+    [
+      { nodeIds: [b], targetParentId: g },
+      { code: "INVALID_PARENT", path: "targetParentId" },
+    ],
+    [
+      { nodeIds: [b], targetParentId: b },
+      { code: "INVALID_PARENT", path: "targetParentId" },
+    ],
+  ] satisfies [DuplicateInput, object][]) {
+    expect(await s.duplicateNodes(input, "agent-a")).toMatchObject({ error });
+  }
+  expect(await s.info()).toMatchObject({ rev: 3 });
 });
 
 it("refuses an unknown id at nodeIds[i] changing nothing, and lists no Node that stays put", async () => {

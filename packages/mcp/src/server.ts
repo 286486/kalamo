@@ -3,6 +3,7 @@ import {
   BUNDLED_FAMILIES_NOTE,
   BUNDLED_FONT,
   Color,
+  DuplicateInput,
   FreehandStrokeInput,
   freehandPath,
   imageFrame,
@@ -41,6 +42,7 @@ import {
   DocDeleteOutput,
   DocInfoOutput,
   DocListOutput,
+  DuplicateOutput,
   ExportOutput,
   NodeGetOutput,
   NodeQueryOutput,
@@ -491,6 +493,31 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
 
   /** The write options of a tool without partial. */
   const txWrite = { intent, txId: writeFields.txId, ifRev };
+  // index, before and after are the browser's, for Alt-drag (ADR-0076).
+  const duplicateFields = DuplicateInput.omit({ index: true, before: true, after: true }).shape;
+  tool(
+    "kalamo_node_duplicate",
+    {
+      title: "Duplicate Nodes",
+      description: [
+        "Copy Nodes, each with everything inside it, as new Nodes with new ids, as Illustrator's Alt-drag copy does. A copy keeps everything else: name, visibility, lock, opacity, blend mode, transform, appearance, Live Shape and compound_shape parameters, text, tags, meta, and an image's pixels (src, shared, not stored twice) and linked file.",
+        "Without targetParentId each copy goes directly above its own original, in the original's parent; a Layer's copy stays a Layer. With targetParentId (a Layer or Group, or null for the top level, Layers only) every copy goes there on top, as one block in the originals' stacking order; a Layer into a Group, or a parent inside a copied Node, is INVALID_PARENT and nothing is written.",
+        "count (1 to 100, default 1) copies of each Node; offset {x, y} moves copy k by k × offset, as repeating Transform Again after an Alt-drag would, and the copies stack upward in that order. A Node named together with its ancestor is copied once, through the ancestor, and so is a repeated id.",
+        "A Clipping Path copied on its own stops clipping, so no Group or Layer gets two; a Clip Group or clipped Layer copied whole keeps its Clipping Path and still clips. Locks do not stop an Agent.",
+        "One Transaction: one receipt, one undo step. createdIds lists every new Node, descendants included; copies maps each source id to its new top-level ids in order k = 1…count.",
+      ].join(" "),
+      inputSchema: { docId, ...duplicateFields, ...txWrite },
+      outputSchema: DuplicateOutput.shape,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async (args) => json(await service.duplicateNodes(...splitTxWrite(args))),
+  );
+
   tool(
     "kalamo_mask_make",
     {

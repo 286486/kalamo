@@ -198,7 +198,7 @@ _Avoid_: Style preset、Theme
 _Avoid_: Clip、Crop（那是位图操作）、Clip group 作为类型名
 
 **Clipping Path（剪切路径）**：
-Clipping Mask 中做裁切的那个子 Node：一个 `clipping: true` 的 Live Shape、Path 或文字。文字按其排好的字形裁切，且仍可编辑（ADR-0052）。每个 Group 或 Layer 至多一个；它裁切同一容器中的其他 Node（ADR-0053）。建立时其 Appearance 清空（文字的 Character Range fill 与 stroke 一并清空）；重新赋予后，Fill 画在被裁切内容之下，Stroke 画在其上且不被自身裁切（ADR-0051）。移到别的父级即不再裁切，保留其 Appearance；在原父级内重排则照旧裁切（`node_reparent`，ADR-0071；`node_reorder` 与 Object > Arrange，ADR-0074）。Illustrator SVG 把它写成 `<clipPath><use>`，导入时按所指形状复制到原处读出，名称与 id 取自该 `<use>`（ADR-0056）。
+Clipping Mask 中做裁切的那个子 Node：一个 `clipping: true` 的 Live Shape、Path 或文字。文字按其排好的字形裁切，且仍可编辑（ADR-0052）。每个 Group 或 Layer 至多一个；它裁切同一容器中的其他 Node（ADR-0053）。建立时其 Appearance 清空（文字的 Character Range fill 与 stroke 一并清空）；重新赋予后，Fill 画在被裁切内容之下，Stroke 画在其上且不被自身裁切（ADR-0051）。移到别的父级即不再裁切，保留其 Appearance；在原父级内重排则照旧裁切（`node_reparent`，ADR-0071；`node_reorder` 与 Object > Arrange，ADR-0074）。单独 Duplicate 出的副本不裁切，随所在 Clip Group 或 Layer 一起复制的照旧裁切（ADR-0076）。Illustrator SVG 把它写成 `<clipPath><use>`，导入时按所指形状复制到原处读出，名称与 id 取自该 `<use>`（ADR-0056）。
 _Avoid_: Mask path、Clip shape
 
 **Opacity Mask（不透明度蒙版）**：
@@ -306,6 +306,10 @@ _Avoid_: Sheet、Page、Workbook、Window
 **Copy（拷贝）**：
 把 Selection 作为 Node 范围的 SVG 导出写进系统剪贴板，对应 Illustrator 的 Edit > Copy。Cut 是 Copy 后删除。同一份剪贴板可以粘贴到另一个 Document Tab、另一个浏览器窗口或 Inkscape（ADR-0030）。
 _Avoid_: Duplicate（那是在原处复制出新 Node）、Clone
+
+**Duplicate（复制出新 Node）**：
+把 Node 连同其整棵子树复制为新 Node，对应 Illustrator 的 Alt 拖拽复制。每个复制出的 Node 都有新 id，其余不变：名称、可见与锁定、不透明度、混合模式、transform、Appearance、Live Shape 与 `compound_shape` 参数、文字、tags、meta，image 的 `src`（按哈希共享像素）与 `file`。不走剪贴板，这点与 Copy 不同。Agent 用 `node_duplicate`：缺省每个副本紧贴在原件之上，给 `targetParentId` 则全部作为一块按原件的绘制次序放进该父级顶部；`count` 份副本的第 *k* 份平移 *k* × `offset`。浏览器里 Selection 工具松开鼠标时按着 Alt 即复制而非移动，副本作为一块放在最上面那个被拖 Node 之上、同一父级内，并成为 Selection。单独复制出的 Clipping Path 失去 `clipping`；整个复制的 Clip Group 或被剪切的 Layer 仍然裁切（ADR-0076）。
+_Avoid_: Clone、Copy（那是剪贴板）、Paste in Front
 
 **Place（置入）**：
 把一个文件放进已有 Document 的某个父级，对应 Illustrator 的 File > Place 与粘贴。SVG 置入为一个 Group，全部分配新 id；位图置入为 image 节点（F-IO-02）。粘贴 Kalamo 的 Copy（根上 `kalamo:scope` 为 `nodes:…`）例外：列出的 Node 直接进入目标 Layer，不包 Group（ADR-0030）。

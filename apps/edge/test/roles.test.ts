@@ -82,7 +82,11 @@ const FAMILIES: Record<
     // Each Role toggles it the other way, so no update is a no-op.
     s.send("c1", { type: "update", nodeId: imageId, patch: { visible: who.login === "olive" } });
     const answer = await s.next();
+    // An Alt-drag copy (ADR-0076) is refused the same way.
+    s.send("c2", { type: "duplicate", input: { nodeIds: [imageId] } });
+    const copy = await s.next();
     s.ws.close();
+    expect(copy.type).toBe(answer.type);
     return answer.type === "rejected" ? (answer.error.code as Outcome) : "ok";
   },
   "Place, place-image, relink": async (who, { docId, layerId, imageId }) => {

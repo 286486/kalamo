@@ -5,6 +5,7 @@ import type {
   Artboard,
   ArtboardInput,
   ConciseView,
+  DuplicateInput,
   FullView,
   MaskInput,
   NodeInput,
@@ -44,6 +45,11 @@ export interface ChangeEntry {
   updatedIds: string[];
   deletedIds: string[];
   intent: string | null;
+}
+
+/** A `node_duplicate` receipt: each source id's new top-level ids, in order k = 1…count. */
+export interface DuplicateReceipt extends WriteReceipt {
+  copies: Record<string, string[]>;
 }
 
 /** A `path_edit` receipt: the path's new `d` and its Anchors, as stored. */
@@ -158,6 +164,12 @@ export interface DocumentService {
     op: ReorderOp,
     opts?: WriteOptions,
   ): Promise<WriteReceipt>;
+  /** Copies Nodes with their subtrees as new Nodes (ADR-0076). */
+  duplicateNodes(
+    docId: string,
+    input: DuplicateInput,
+    opts?: Pick<WriteOptions, "txId" | "ifRev" | "intent">,
+  ): Promise<DuplicateReceipt>;
   /** Illustrator's Clipping Mask > Make and Release (ADR-0021). */
   makeMask(docId: string, input: MaskInput, opts?: WriteOptions): Promise<WriteReceipt>;
   releaseMask(docId: string, nodeIds: string[], opts?: WriteOptions): Promise<WriteReceipt>;

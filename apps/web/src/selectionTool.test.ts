@@ -115,3 +115,35 @@ it("moves on a second press that drags, and after a first press that dragged, wi
   press(doc, [25, 25], 2);
   expect(useStore.getState().isolated).toBeNull();
 });
+
+it("copies when Alt is down at the release, however it was held during the drag (ADR-0076)", () => {
+  const { doc, bg } = fixture();
+  const key = (alt: boolean) =>
+    selectionTool.keyChange?.(
+      { key: "Alt", down: alt, alt, shift: false, ctrl: false, space: false },
+      () => {},
+    );
+  const at = (x: number, alt: boolean) => ({ ...event(doc, x, 80, 1), alt });
+  for (const [pressed, released, copy] of [
+    [false, true, true],
+    [true, false, false],
+    [false, false, false],
+  ] as const) {
+    useStore.setState({ doc, selection: [], drag: null, role: "editor" });
+    selectionTool.down(at(80, false));
+    selectionTool.move?.(at(90, pressed));
+    expect(useStore.getState().drag).toMatchObject({ nodeIds: [bg.id], copy: pressed });
+    key(released);
+    expect(useStore.getState().drag?.copy).toBe(released);
+    selectionTool.up?.(at(90, released));
+    expect(useStore.getState().drag).toMatchObject({ copy, commandId: expect.any(String) });
+  }
+});
+
+it("gives a viewer's drag nothing to move or copy (ADR-0047)", () => {
+  const { doc, bg } = fixture();
+  useStore.setState({ doc, role: "viewer" });
+  press(doc, [80, 80], 1, [90, 80]);
+  expect(useStore.getState()).toMatchObject({ selection: [bg.id], drag: null });
+  useStore.setState({ role: "editor" });
+});
