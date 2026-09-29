@@ -1,4 +1,4 @@
-# Zibel
+# Kalamo
 
 A vector drawing tool that runs in the browser, built so AI agents can read and write the document through MCP while a person edits the same file in a normal Illustrator-style canvas.
 
@@ -6,7 +6,7 @@ A vector drawing tool that runs in the browser, built so AI agents can read and 
 
 An Agent drew this over MCP: Live Shapes, Bezier paths and text in two Layers, with each label centred from the bounds the server measured, then exported to PNG with `kalamo_export`.
 
-Zibel is a short form of Zobel / zibeline, the sable marten whose hair makes the finest illustration brushes.
+Kalamo comes from Greek *kálamos*, the reed pen, the first drawing instrument. The same word means "pen" as Arabic *qalam*, Turkish *kalem* and Hindi *kalam*. Say it KAH-lah-moh; in Chinese it is 卡拉莫 (kǎ lā mò).
 
 ## Status
 
@@ -52,10 +52,10 @@ The Worker runs in one of two auth modes, set by `AUTH_MODE` (ADR-0047):
 
 GitHub mode enforces the free beta's quotas, each failing `LIMIT_EXCEEDED` (ADR-0048): 50 owned Documents, 200 MB of image files per owner, 500 `render` and 200 `export` calls per User per UTC day, and 20 browser connections per Document. Dev mode enforces none of them.
 
-GitHub mode needs a GitHub OAuth App (GitHub > Settings > Developer settings > OAuth Apps) whose authorization callback URL is `<APP_ORIGIN>/auth/github/callback`, for example `https://zibel.example.workers.dev/auth/github/callback`. Zibel asks it for no scopes. The Worker then needs these secrets, and answers every request 500 `server misconfigured` while one is missing:
+GitHub mode needs a GitHub OAuth App (GitHub > Settings > Developer settings > OAuth Apps) whose authorization callback URL is `<APP_ORIGIN>/auth/github/callback`, for example `https://kalamo.example.workers.dev/auth/github/callback`. Kalamo asks it for no scopes. The Worker then needs these secrets, and answers every request 500 `server misconfigured` while one is missing:
 
-- `APP_ORIGIN`: the browser app's origin, such as `https://zibel.example.workers.dev`, with no trailing slash. It is also the OAuth issuer that MCP clients authorize with.
-- `MCP_ORIGIN` (optional): the origin MCP clients connect to, such as `https://mcp.zibel.example`, if it differs from `APP_ORIGIN`. Both hosts must route to the Worker.
+- `APP_ORIGIN`: the browser app's origin, such as `https://kalamo.example.workers.dev`, with no trailing slash. It is also the OAuth issuer that MCP clients authorize with.
+- `MCP_ORIGIN` (optional): the origin MCP clients connect to, such as `https://mcp.kalamo.example`, if it differs from `APP_ORIGIN`. Both hosts must route to the Worker.
 - `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`: the OAuth App's.
 
 GitHub mode also needs the `OAUTH_KV` KV namespace, where `@cloudflare/workers-oauth-provider` keeps MCP OAuth grants and tokens (hashed, with encrypted props). The provider needs no secret of its own.
@@ -65,7 +65,7 @@ MCP clients connect to `<MCP_ORIGIN>/mcp` with no token, for example `claude mcp
 ```sh
 pnpm exec wrangler login
 cp apps/edge/.deploy.vars.example apps/edge/.deploy.vars # fill in the secrets above
-pnpm exec wrangler d1 create zibel --location apac --binding DB --update-config -c apps/edge/wrangler.jsonc
+pnpm exec wrangler d1 create kalamo --location apac --binding DB --update-config -c apps/edge/wrangler.jsonc
 pnpm exec wrangler kv namespace create OAUTH_KV --binding OAUTH_KV --update-config -c apps/edge/wrangler.jsonc
 pnpm deploy:check
 pnpm deploy
@@ -96,4 +96,4 @@ Agents drive it over MCP. Every edit a person can make in the UI has a matching 
 
 Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
-The Zibel name and logo are not covered by that licence.
+The Kalamo name and logo are not covered by that licence.

@@ -19,4 +19,4 @@ Object > Path > Divide Objects Below (F-PATH-03, #90) is a cookie cutter: the se
 ## Consequences
 
 - A cut shape's Stroke is kept on both pieces, so it now strokes the cut edges too. Illustrator's handling of Strokes, of stroke-only and open paths below, and whether it splits disjoint regions into separate objects should be checked in a live Illustrator when one is available.
-- The geometry `divide` op is the first Skia boolean in `@zibel/geometry`; Pathfinder (F-BOOL-02) can build on the same `op` calls.
+- The geometry `divide` op is the first Skia boolean in `@kalamo/geometry`; Pathfinder (F-BOOL-02) can build on the same `op` calls.

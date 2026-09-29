@@ -5,7 +5,7 @@ date: 2026-09-29
 
 # The product is named Kalamo
 
-The product was named Zibel. Arabic زِبْل *zibl* means "manure, dung", said almost exactly like "zibel", and Modern Hebrew זבל *zevel* and Egyptian زبالة *zebāla* mean "garbage". A vector editor meant to be shown worldwide cannot ship under that name, so it is replaced before the M1 announcement (#172). The candidates, their evidence and what was not checked are in #172; `docs/research/05-name-conflict-check.md` stays as the history of the Zibel choice.
+The product's former name is said almost exactly like Arabic زِبْل *zibl*, "manure, dung", and is close to Modern Hebrew זבל *zevel* and Egyptian زبالة *zebāla*, "garbage". A vector editor meant to be shown worldwide cannot ship under that name, so it is replaced before the M1 announcement (#172). The candidates, their evidence and what was not checked are in `docs/research/07-kalamo-name-check.md` and #172. The check that chose the former name is in git history only.
 
 ## Decision
 
@@ -24,13 +24,13 @@ The product was named Zibel. Arabic زِبْل *zibl* means "manure, dung", said
 
 | Old form | Rule |
 | --- | --- |
-| SVG namespace `https://zibel.dev/ns/svg` (`zibel:*`) | Import reads it **permanently**, beside the new one. When an element carries both, the new namespace wins. Export writes only the new one, and warnings name the `kalamo:` prefix. |
-| Saved file `<doc>.zibel.json` | Opens unchanged. Open detects a file by content, not by name, and the file holds no brand string. Saving writes `<doc>.kalamo.json`. |
-| Browser storage `zibel:tabs`, `zibel:pencil` | Read once: when the `kalamo:` key is absent and the old key is present, the old value is used, written under the new key and the old key is removed. The cutover also carries each browser's keys from the old Worker's origin to the new one while the old Worker exists. |
+| The former SVG namespace and its prefix (`LEGACY_SVG_NS` in `packages/core/src/legacy.ts`) | Import reads it **permanently**, beside the new one. When an element carries both, the new namespace wins. Export writes only the new one, and warnings name the `kalamo:` prefix. |
+| A saved file named `<doc>.<former name>.json` | Opens unchanged. Open detects a file by content, not by name, and the file holds no brand string. Saving writes `<doc>.kalamo.json`. |
+| Browser storage keys `<former name>:tabs` and `<former name>:pencil` | Read once: when the `kalamo:` key is absent and the old key is present, the old value is used, written under the new key and the old key is removed. The cutover also carries each browser's keys from the old Worker's origin to the new one while the old Worker exists. |
 
-**No aliases for MCP names.** The 25 `zibel_*` tools, the `zibel` server name, the `skill://zibel/*` resources, the `zibel_json` format and the `zibel:read` and `zibel:write` scopes are renamed without aliases. The server is stateless and every client reads `tools/list` fresh (ADR-0006), nothing is announced before M1, and no OAuth grant exists. An old tool name fails as any unknown tool does. `zibel_json` fails with `INVALID_INPUT` and the nearest-value hint names `kalamo_json` (ADR-0050).
+**No aliases for MCP names.** The 25 tools with the former prefix, the former server name, its `skill://` resources, its `…_json` export format and its `:read` and `:write` scopes are renamed without aliases. The server is stateless and every client reads `tools/list` fresh (ADR-0006), nothing is announced before M1, and no OAuth grant exists. An old tool name fails as any unknown tool does. The former `…_json` format fails with `INVALID_INPUT` and the nearest-value hint names `kalamo_json` (ADR-0050).
 
-**Cloudflare moves to Kalamo, and the old deployment is deleted only after a verified migration.** The owner decided on 2026-09-29 that the Worker, its Durable Object namespace, the D1 database and the R2 bucket all take Kalamo names. A D1 database cannot be renamed and Durable Object storage belongs to its Worker, so the Kalamo resources are created and the live Documents are moved into them. Writes on `zibel` are frozen, a final copy of both Documents and their state is taken, and both are verified field for field against that copy before traffic switches (#180). Only then is the old `zibel` deployment deleted, from an explicit target list checked before and after, with a report of what can still be recovered (#181). The owner authorized that deletion but not any loss of data. Resources of other projects on the same account, including the KV namespace `OAUTH_KV`, are never touched.
+**Cloudflare moves to Kalamo, and the old deployment is deleted only after a verified migration.** The owner decided on 2026-09-29 that the Worker, its Durable Object namespace, the D1 database and the R2 bucket all take Kalamo names. A D1 database cannot be renamed and Durable Object storage belongs to its Worker, so the Kalamo resources are created and the live Documents are moved into them. Writes on the old Worker are frozen, a final copy of both Documents and their state is taken, and both are verified field for field against that copy before traffic switches (#180). Only then is the old deployment deleted, from an explicit target list checked before and after, with a report of what can still be recovered (#181). The owner authorized that deletion but not any loss of data. Resources of other projects on the same account, including the KV namespace `OAUTH_KV`, are never touched.
 
 **No trace of the old name is left in the working tree.** The owner decided on 2026-09-29 that when the rename is done, a case-insensitive search for the old name over every tracked file's content and path finds nothing: code, tests, XML and JSON fixtures, docs and config alike, with no allowlist entry left to keep a brand trace. GitHub Issues and the Claude project memory reach the same state (#182). Git history is not rewritten, and the Cloudflare backups and recovery records of #179 and #180 are kept outside the working tree, where they do not count. Reading the old forms needs the old name, so `packages/core/src/legacy.ts` is its one source: it builds the name from parts, so no tracked file spells it out, and derives the legacy SVG namespace from it. The SVG importer, the browser-storage fallback and the old-name guard take it from there, and tests build their legacy inputs from it at run time instead of keeping legacy fixtures.
 
@@ -38,7 +38,7 @@ The product was named Zibel. Arabic زِبْل *zibl* means "manure, dung", said
 
 ## Considered Options
 
-- **Keep Zibel.** Rejected: the meaning is not a niche reading but the everyday word in Arabic and Hebrew.
+- **Keep the former name.** Rejected: the meaning is not a niche reading but the everyday word in Arabic and Hebrew.
 - **Duktus**, the stroke order of a letterform. The cleanest registry and trademark profile, but obscure and harder to say and remember.
 - **Pennel**, "a little pen". The best domains, but one letter from PENTEL, a famous pen brand in this product space.
 - **Kalamos**, the Greek word itself. It shares Kalamo's neighbours and adds a crates.io conflict and a transcription app at `kalamos.app`; it stays the fallback.

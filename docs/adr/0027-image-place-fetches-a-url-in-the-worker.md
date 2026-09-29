@@ -9,7 +9,7 @@ Since #32 an Agent places an image only through `node_create` with a data URL, p
 
 ## The tool
 
-`zibel_image_place {docId, src, parentId, frame?, asTemplate?}` plus `intent`, `txId` and `ifRev`, returning a `WriteReceipt`. It is Illustrator's File > Place for a bitmap.
+`kalamo_image_place {docId, src, parentId, frame?, asTemplate?}` plus `intent`, `txId` and `ifRev`, returning a `WriteReceipt`. It is Illustrator's File > Place for a bitmap.
 
 - **`src`** is an `http:` or `https:` URL, or a `data:` URL as `node_create` takes. A local path, or any other scheme, fails `INVALID_IMAGE` with a hint to send the file as a data URL: the Worker cannot read the Agent's disk. §6.4.3's path is dropped.
 - **`embed` is dropped.** Every Image is embedded (ADR-0023); a linked Image waits for Links.
@@ -40,18 +40,18 @@ F-ILL-04 is Illustrator's Place with **Template** checked. Illustrator puts the 
 - The Image gets `opacity: 0.5`.
 - Without `frame`, the Image is centred on `parentId`'s Artboard, as it would be without `asTemplate`.
 
-Illustrator's template layer also does not print. Zibel has no `template` flag on a Layer yet, so the Template Layer still exports and renders like any other Layer; an Agent that does not want the reference in `export` hides or deletes it. The flag, which should keep the Layer in `render` and out of `export`, waits for its own issue.
+Illustrator's template layer also does not print. Kalamo has no `template` flag on a Layer yet, so the Template Layer still exports and renders like any other Layer; an Agent that does not want the reference in `export` hides or deletes it. The flag, which should keep the Layer in `render` and out of `export`, waits for its own issue.
 
 ## Considered Options
 
 - **Fetch in the Durable Object.** One RPC fewer, but a Durable Object handles one input at a time, so a 10 s fetch would stall every other Actor's writes.
-- **A `template` flag on Layer now.** It is Illustrator's model, but it needs non-printing semantics in `export`, `render`, the canvas, the Layers panel and the SVG round trip. Inkscape has no template layer, so the SVG would need a Zibel attribute.
+- **A `template` flag on Layer now.** It is Illustrator's model, but it needs non-printing semantics in `export`, `render`, the canvas, the Layers panel and the SVG round trip. Inkscape has no template layer, so the SVG would need a Kalamo attribute.
 - **Resolve DNS names and check every address.** It adds a DNS-over-HTTPS dependency and still loses to DNS rebinding (above).
 - **Keep `embed` and refuse `false`.** A parameter with one legal value only adds a way to fail.
 
 ## Consequences
 
-- MCP: `zibel_image_place` joins the tools, the first with `openWorldHint: true`; `FETCH_FAILED` joins the error codes. `DocumentService` gains `placeImage`.
+- MCP: `kalamo_image_place` joins the tools, the first with `openWorldHint: true`; `FETCH_FAILED` joins the error codes. `DocumentService` gains `placeImage`.
 - CONTEXT.md gains **Template Layer**.
 - §6.4.3's row, §6.1 item 7 and §7.5 change to match (REQUIREMENTS).
 - The non-printing `template` flag, and fetching over the browser's paste or drop of a URL, are follow-up issues.

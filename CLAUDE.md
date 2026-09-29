@@ -1,6 +1,6 @@
-# Zibel
+# Kalamo
 
-Browser-based vector drawing tool with an MCP-native document model: AI agents and people edit the same Illustrator-style canvas. Read `docs/REQUIREMENTS.md` before proposing scope or architecture changes, and `docs/research/` for the evidence behind it. Milestones are in its §9.
+Kalamo (卡拉莫, kǎ lā mò) is a browser-based vector drawing tool with an MCP-native document model: AI agents and people edit the same Illustrator-style canvas. Read `docs/REQUIREMENTS.md` before proposing scope or architecture changes, and `docs/research/` for the evidence behind it. Milestones are in its §9.
 
 ## Agent skills
 

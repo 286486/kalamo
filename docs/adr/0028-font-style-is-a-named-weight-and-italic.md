@@ -45,7 +45,7 @@ The `FONT_MISSING` receipt warning now fires when a text's family or style is no
 
 ## SVG import
 
-`font-weight` is read from the text's computed style. `normal` is 400 and `bold` is 700. A number rounds to the nearest hundred in 100–900. `bolder` and `lighter` resolve against 400 as CSS Fonts' table does, to 700 and 100. `font-style` `italic` or `oblique` adds ` Italic`. The weight and italic map back to the style name, so a Zibel export reopens as the same `fontStyle`. Inkscape's `-inkscape-font-specification` is ignored: Inkscape keeps it in step with `font-weight` and `font-style`, and writes both.
+`font-weight` is read from the text's computed style. `normal` is 400 and `bold` is 700. A number rounds to the nearest hundred in 100–900. `bolder` and `lighter` resolve against 400 as CSS Fonts' table does, to 700 and 100. `font-style` `italic` or `oblique` adds ` Italic`. The weight and italic map back to the style name, so a Kalamo export reopens as the same `fontStyle`. Inkscape's `-inkscape-font-specification` is ignored: Inkscape keeps it in step with `font-weight` and `font-style`, and writes both.
 
 ## Considered Options
 

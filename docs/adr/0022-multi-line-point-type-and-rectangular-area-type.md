@@ -25,10 +25,10 @@ One function in `core/text.ts` lays out a text Node into lines, each a string wi
 
 ## SVG
 
-| Zibel | SVG |
+| Kalamo | SVG |
 |---|---|
 | Point Type | `<text x y>` with one `<tspan sodipodi:role="line" x y>` per line, an empty line as an empty tspan, the way Inkscape writes it |
-| Area Type | a `<defs><rect id="area-z-<id>" x y width height/></defs>` just before the text (before its `<g zibel:stack>`, if any), and `<text style="shape-inside:url(#area-z-<id>);white-space:pre">` holding one `<tspan x y>` per shown line, each keeping its trailing spaces and hard return, then the overflow in a `<tspan style="visibility:hidden">` |
+| Area Type | a `<defs><rect id="area-z-<id>" x y width height/></defs>` just before the text (before its `<g kalamo:stack>`, if any), and `<text style="shape-inside:url(#area-z-<id>);white-space:pre">` holding one `<tspan x y>` per shown line, each keeping its trailing spaces and hard return, then the overflow in a `<tspan style="visibility:hidden">` |
 | `leading` | `line-height` in `style`: Auto is the unitless `1.2`, which CSS also scales with the font size; a set leading is `<leading>px`, one user unit per pt |
 
 resvg ignores `shape-inside` and draws the tspans where they are written, so `render` shows the layout above. Inkscape reflows the text in the frame from its content, and on save writes positioned tspans again with every character, the overflow included. The frame's coordinates are the text's user space, as Inkscape reads them.

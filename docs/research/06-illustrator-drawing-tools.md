@@ -107,7 +107,7 @@ Sources:
 
 **Closing** [U]
 - Not stated in the docs. Clicking the first point closes the path, and the pointer shows a close indicator the way the Pen does.
-- Zibel (#82) closes on a click on the first Anchor, once the path has two, as its Pen does; a drag on it moves it instead. Not yet checked against a live Illustrator.
+- Kalamo (#82) closes on a click on the first Anchor, once the path has two, as its Pen does; a drag on it moves it instead. Not yet checked against a live Illustrator.
 
 **Shortcut**
 - The shortcuts page writes it as "Shift + ~" on both Windows and macOS. On US layouts that is the backtick/tilde key (`` ` ``/`~`) with Shift. [A]
@@ -244,13 +244,13 @@ Sources:
 | 1 | Join | Ctrl+J / Cmd+J [A] | See the Join details below this table. |
 | 2 | Average… | Alt+Ctrl+J / Opt+Cmd+J [A] | Dialog with an Axis choice of Horizontal, Vertical or Both. Moves the selected anchors (two or more, on one or several paths) to their average position on that axis. [A] "Horizontal" puts the points on a horizontal line (same Y) [U: Adobe's wording "horizontal (X) axis only" is ambiguous]. |
 | 3 | Outline Stroke | none | Turns the stroke into a filled compound path of the stroke's outline. If the object also has a fill, "the resulting Compound Path is grouped with the filled object." [A] |
-| 4 | Offset Path… | none | Dialog: **Offset** (signed distance; negative goes inward; shown as 10 px in the doc screenshot), **Joins** (Miter, Round, Bevel), **Miter limit** (4 in the screenshot), Preview. Creates a *new* offset copy and keeps the original. [A] Where the copy sits in the stack is [U]; Zibel puts it directly below, as Inkscape's Linked Offset does (ADR-0039). |
+| 4 | Offset Path… | none | Dialog: **Offset** (signed distance; negative goes inward; shown as 10 px in the doc screenshot), **Joins** (Miter, Round, Bevel), **Miter limit** (4 in the screenshot), Preview. Creates a *new* offset copy and keeps the original. [A] Where the copy sits in the stack is [U]; Kalamo puts it directly below, as Inkscape's Linked Offset does (ADR-0039). |
 | 5 | Reverse Path Direction | none | Reverses the anchor order, and so the start and end, of the selected paths. Arrowheads, brushes and type on a path flip. [C] Before this command, only compound paths could be reversed, through the Attributes panel. [C] |
 | 6 | Simplify… | none [A: none listed] | See the Simplify details below this table. |
 | 7 | Smooth | none | On-canvas slider from Minimum to Maximum smoothing, plus Auto-Smooth. Applies to the whole path or to the anchors selected with Direct Selection. [A] Position in the menu [U]. |
 | 8 | Add Anchor Points | none | Adds one anchor at the middle of **every** segment of the selected paths, doubling the anchor count without changing the shape. Repeating keeps subdividing. [C/U] |
 | 9 | Remove Anchor Points | none | Removes the **selected** anchors and keeps the path connected, with the neighbouring segments refitted like the Delete Anchor Point tool. It is the same as the Control panel's "Remove selected anchor points" and unlike the Delete key. [C] |
-| 10 | Divide Objects Below | none | Cookie cutter: the selected object cuts through every object below it that it overlaps, and the cutter is then discarded. [A] Which objects are cut and how the pieces are stored is [U]; Zibel cuts filled shapes in two (ADR-0041). |
+| 10 | Divide Objects Below | none | Cookie cutter: the selected object cuts through every object below it that it overlaps, and the cutter is then discarded. [A] Which objects are cut and how the pieces are stored is [U]; Kalamo cuts filled shapes in two (ADR-0041). |
 | 11 | Split Into Grid… | none | Dialog: Rows (Number, Height, Gutter, Total), Columns (Number, Width, Gutter, Total), Add Guides, Preview. Replaces the selected objects with a grid of rectangles. With several objects selected, the grid uses the topmost object's appearance. [A] |
 | 12 | Clean Up… | none | Dialog with three checkboxes, all on by default: Stray Points, Unpainted Objects (no fill and no stroke, and not a mask), Empty Text Paths. Deletes matching objects document-wide. [C] The Adobe page on stray points documents only Select > Object > Stray Points, then Delete. [A] |
 
@@ -336,11 +336,11 @@ Source: https://helpx.adobe.com/illustrator/using/default-keyboard-shortcuts.htm
 
 ## Open questions to verify in a live Illustrator
 1. Does Undo while drawing with the Pen keep the path active, and is the continued path's outgoing handle kept?
-2. Does continuing from a smooth endpoint start a straight or a curved segment? (The docs contradict each other.) Not verified live; Zibel starts it straight, because `d` stores no outgoing Handle at an open Endpoint (ADR-0037).
+2. Does continuing from a smooth endpoint start a straight or a curved segment? (The docs contradict each other.) Not verified live; Kalamo starts it straight, because `d` stores no outgoing Handle at an open Endpoint (ADR-0037).
 3. Exact positions of Reverse Path Direction and Smooth in Object > Path.
 4. The Pencil option defaults (15 px close, 12 px edit, Keep selected on).
 5. How the Curvature tool closes a path (clicking the first point?).
-6. Where Offset Path puts the new object in the stacking order. Not verified live; Zibel puts it directly below the original, as Inkscape's Linked Offset does (ADR-0039).
-7. The Rounded Rectangle tool's Corner Radius default (Preferences > General), which Zibel takes as 12 pt (#143). Also: do Up and Down step from the radius drawn or from the stored one when the box is too small for it, and after Right, is the fully rounded radius what the next drag starts from? Not verified live; Zibel steps from the radius drawn and keeps the one Right drew.
-8. Where the pointer sits on the Polygon tool's shape during a drag: Zibel (#144) takes its distance from the centre as the radius to a vertex, and its direction as the middle of the bottom edge, so a drag straight down draws the polygon upright. Not verified live.
-9. Where the pointer sits on the Star tool's shape during a drag, and whether the inner/outer ratio Ctrl leaves carries over to the next star: Zibel (#145) takes the pointer's distance as the outer radius and its direction as straight down from an upright star, so a drag straight down points it up for any count, and keeps the ratio and the point count for the rest of the session. Ctrl held from the press holds the inner radius the drag has once it passes the drag threshold, a tiny one; Alt held with Ctrl straightens the shoulders over the held radius. Not verified live.
+6. Where Offset Path puts the new object in the stacking order. Not verified live; Kalamo puts it directly below the original, as Inkscape's Linked Offset does (ADR-0039).
+7. The Rounded Rectangle tool's Corner Radius default (Preferences > General), which Kalamo takes as 12 pt (#143). Also: do Up and Down step from the radius drawn or from the stored one when the box is too small for it, and after Right, is the fully rounded radius what the next drag starts from? Not verified live; Kalamo steps from the radius drawn and keeps the one Right drew.
+8. Where the pointer sits on the Polygon tool's shape during a drag: Kalamo (#144) takes its distance from the centre as the radius to a vertex, and its direction as the middle of the bottom edge, so a drag straight down draws the polygon upright. Not verified live.
+9. Where the pointer sits on the Star tool's shape during a drag, and whether the inner/outer ratio Ctrl leaves carries over to the next star: Kalamo (#145) takes the pointer's distance as the outer radius and its direction as straight down from an upright star, so a drag straight down points it up for any count, and keeps the ratio and the point count for the rest of the session. Ctrl held from the press holds the inner radius the drag has once it passes the drag threshold, a tiny one; Alt held with Ctrl straightens the shoulders over the held radius. Not verified live.

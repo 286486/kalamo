@@ -5,15 +5,15 @@ date: 2026-09-29
 
 # Export puts a space after a character in another bundled family in its own tspan
 
-After a character Zibel draws in Noto Sans SC or Noto Sans KR, Inkscape drew the following space in that Noto face, 224 units wide (227 in Bold), where Zibel, resvg and the browser draw it in the text's first bundled family that has it, Source Sans 3 by default, 200 units wide. Every later word on an Inkscape line shifted by 0.024 em per such space, and Inkscape, which reflows Area Type itself (ADR-0022), could break a Korean paragraph at another place than Zibel (#170). This ADR amends ADR-0066's "worst region" consequence and ADR-0017's `text` row.
+After a character Kalamo draws in Noto Sans SC or Noto Sans KR, Inkscape drew the following space in that Noto face, 224 units wide (227 in Bold), where Kalamo, resvg and the browser draw it in the text's first bundled family that has it, Source Sans 3 by default, 200 units wide. Every later word on an Inkscape line shifted by 0.024 em per such space, and Inkscape, which reflows Area Type itself (ADR-0022), could break a Korean paragraph at another place than Kalamo (#170). This ADR amends ADR-0066's "worst region" consequence and ADR-0017's `text` row.
 
 ## Decision
 
-**Zibel's model does not change.** A space draws in the first family in the text's fallback order that has it (ADR-0063, ADR-0066), in `core`, `render` and the canvas. This is Illustrator's model:
+**Kalamo's model does not change.** A space draws in the first family in the text's fallback order that has it (ADR-0063, ADR-0066), in `core`, `render` and the canvas. This is Illustrator's model:
 
-- An Illustrator composite font assigns fonts by character class: Kanji, Kana, Punctuation, Symbols, Roman ("the font used for half-width roman characters") and Numbers. U+0020 is half-width Roman, so it draws in the Roman font whatever comes before it. Zibel's fallback order has the same shape: Source Sans 3 is the Roman font, Noto Sans SC and Noto Sans KR the CJK classes. The ideographic space U+3000 is full-width and draws in a CJK font, as it does in Zibel.
+- An Illustrator composite font assigns fonts by character class: Kanji, Kana, Punctuation, Symbols, Roman ("the font used for half-width roman characters") and Numbers. U+0020 is half-width Roman, so it draws in the Roman font whatever comes before it. Kalamo's fallback order has the same shape: Source Sans 3 is the Roman font, Noto Sans SC and Noto Sans KR the CJK classes. The ideographic space U+3000 is full-width and draws in a CJK font, as it does in Kalamo.
 - Without a composite font, Illustrator substitutes a font only for a glyph the text's font lacks, so a space the font has stays in it.
-- Browsers match fonts per character (CSS Fonts), and resvg per chunk with `render`'s chunks (ADR-0063); both agree with Zibel.
+- Browsers match fonts per character (CSS Fonts), and resvg per chunk with `render`'s chunks (ADR-0063); both agree with Kalamo.
 
 Pango, and so Inkscape, is the renderer that differs. Pango 1.50.12's itemizer (`itemize.c`, `consider_as_space`) gives every `G_UNICODE_SPACE_SEPARATOR`, U+0020 and U+00A0 included, no font of its own: it joins the current item and takes the previous character's font, even when the next character is Latin. Pango's move of trailing spaces to a less-fallback font (its issue 249) fires only when `font_position < state->font_position`, and does not in Inkscape's layout: H → A and C → A measure 224.
 
@@ -38,14 +38,14 @@ Measured for #170 on `main@5e6f223`, and reproduced in its triage, with Inkscape
 | H → H, Bold | 227 | 200 |
 | H → H, two spaces | 448 | 400 |
 | H → H, U+00A0 | 224 | 200 |
-| any, U+3000 | 1000 | 1000 (Zibel draws it in Noto too) |
+| any, U+3000 | 1000 | 1000 (Kalamo draws it in Noto too) |
 | U+2060 word joiner before the space | 224 | – |
 
-Without `xml:space="preserve"`, which Zibel already writes, a whitespace-only `<tspan>` collapses to nothing.
+Without `xml:space="preserve"`, which Kalamo already writes, a whitespace-only `<tspan>` collapses to nothing.
 
-**Area Type line breaks.** Inkscape's saved file writes flowed text as one positioned tspan per line it laid out, so a save shows where Inkscape breaks. For the fixture's Korean Area Type (14 pt, 90 pt wide), the code-point offset each Inkscape line starts at equals `layoutText`'s `start`: `[0, 8, 16, 25, 36]`, with and without the spans. The same text at every width from 60 to 198 pt in 3 pt steps (47 widths) breaks at Zibel's offsets in every case with the spans. With them stripped from the same export, as before this ADR, 5 of the 47 break elsewhere:
+**Area Type line breaks.** Inkscape's saved file writes flowed text as one positioned tspan per line it laid out, so a save shows where Inkscape breaks. For the fixture's Korean Area Type (14 pt, 90 pt wide), the code-point offset each Inkscape line starts at equals `layoutText`'s `start`: `[0, 8, 16, 25, 36]`, with and without the spans. The same text at every width from 60 to 198 pt in 3 pt steps (47 widths) breaks at Kalamo's offsets in every case with the spans. With them stripped from the same export, as before this ADR, 5 of the 47 break elsewhere:
 
-| width | Zibel | plain spaces |
+| width | Kalamo | plain spaces |
 | --- | --- | --- |
 | 87 | `[0, 8, 16, 25, 36]` | `[0, 8, 16, 25, 35]` |
 | 96 | `[0, 9, 19, 30, 38]` | `[0, 8, 16, 25, 36]` |
@@ -53,7 +53,7 @@ Without `xml:space="preserve"`, which Zibel already writes, a whitespace-only `<
 | 186 | `[0, 17, 38]` | `[0, 17, 37]` |
 | 192 | `[0, 19]` | `[0, 17, 38]` |
 
-**After an Inkscape save.** Inkscape keeps the nested span in Point Type, and its re-saved file still measures 200. In Area Type it rewrites the flowed text as one positioned tspan per line and drops the span, so Inkscape drawing its own saved file measures 224 again. Zibel's import of Area Type ignores tspans and recomputes the layout (ADR-0022), so its next export writes the span back.
+**After an Inkscape save.** Inkscape keeps the nested span in Point Type, and its re-saved file still measures 200. In Area Type it rewrites the flowed text as one positioned tspan per line and drops the span, so Inkscape drawing its own saved file measures 224 again. Kalamo's import of Area Type ignores tspans and recomputes the layout (ADR-0022), so its next export writes the span back.
 
 ## Round trip
 
@@ -98,7 +98,7 @@ Every region's score in each `pnpm roundtrip` case, before this ADR (`main@5e6f2
 | outside Artboards `Paint` | 0% | 2.96% | 0% |
 | Text Clipping `TYPE MASK hidden` | 2.77% | 2.77% | 2.77% |
 | Korean `한국어 문장은 음절 사이에서 ` | 8.73% → **0.63%** | 8.73% | 8.73% |
-| CJK Area Type `Zibel用SVG保存「矢量图」` | 1.1% | 1.1% | 1.1% |
+| CJK Area Type `Kalamo用SVG保存「矢量图」` | 1.1% | 1.1% | 1.1% |
 | outside Artboards `Point Type` | 8.69% | 8.69% | 8.69% |
 | Korean `Hi 直骨한국` | 0.53% | 0.53% | 0.53% |
 | CJK `Hi 你好，世界。` | 0.68% | 0.68% | 0.68% |
@@ -106,23 +106,23 @@ Every region's score in each `pnpm roundtrip` case, before this ADR (`main@5e6f2
 | Layer Clipping `ZIB` | 0% | 0% | 0% |
 | outside Artboards `Round & trip` | 0% | 0% | 0% |
 | Korean `Bold 한글` | 0.91% | 0.91% | 0.91% |
-| CJK `Bold 小动物 Zibel` | 4.34% → **0.31%** | 4.34% → **0.31%** | 4.34% → **0.31%** |
-| Text Clipping `Zibel` | 0.21% | 0.21% | 0.21% |
+| CJK `Bold 小动物 Kalamo` | 4.34% → **0.31%** | 4.34% → **0.31%** | 4.34% → **0.31%** |
+| Text Clipping `Kalamo` | 0.21% | 0.21% | 0.21% |
 | Characters `Paint` | – | 0.38% | – |
 | Layer Clipping `Paint` | – | 1.12% | – |
 
-- **No edit.** Inkscape draws Zibel's export. The Korean Area Type falls from 8.73% to 0.63% and `Bold 小动物 Zibel` from 4.34% to 0.31%. The worst region is `Point Type` again (8.69%, unchanged), as before ADR-0066.
-- **rotate+scale and flip.** Inkscape edits the export, saves it, and draws its own saved file. `Bold 小动物 Zibel` is Point Type, whose span Inkscape keeps: 0.31%. The Korean Area Type stays at 8.73%: Inkscape's save rewrites flowed text and drops the span (above), so it draws its own file with the 224-unit spaces. The residual is that save, not Zibel's export; making Inkscape keep the span is out of scope. The structural check, which compares the shown lines Inkscape saves with the export's, passes in both cases: Inkscape laid the export out at Zibel's breaks before it saved, as it also did without the spans at the fixture's 90 pt width.
+- **No edit.** Inkscape draws Kalamo's export. The Korean Area Type falls from 8.73% to 0.63% and `Bold 小动物 Kalamo` from 4.34% to 0.31%. The worst region is `Point Type` again (8.69%, unchanged), as before ADR-0066.
+- **rotate+scale and flip.** Inkscape edits the export, saves it, and draws its own saved file. `Bold 小动物 Kalamo` is Point Type, whose span Inkscape keeps: 0.31%. The Korean Area Type stays at 8.73%: Inkscape's save rewrites flowed text and drops the span (above), so it draws its own file with the 224-unit spaces. The residual is that save, not Kalamo's export; making Inkscape keep the span is out of scope. The structural check, which compares the shown lines Inkscape saves with the export's, passes in both cases: Inkscape laid the export out at Kalamo's breaks before it saved, as it also did without the spans at the fixture's 90 pt width.
 
 ## Considered Options
 
-- **Follow Pango in Zibel.** It diverges from Illustrator's composite-font Roman class and from the browser, needs the canvas to paint spaces run by run, and changes the layout of every existing CJK Document in `core`, `render`'s chunks and the canvas.
-- **`dx` or `word-spacing` corrections on the spaces.** They write positional or style data that Inkscape keeps and Zibel's import would have to interpret or warn about, and they hard-code the 24- or 27-unit difference per face.
+- **Follow Pango in Kalamo.** It diverges from Illustrator's composite-font Roman class and from the browser, needs the canvas to paint spaces run by run, and changes the layout of every existing CJK Document in `core`, `render`'s chunks and the canvas.
+- **`dx` or `word-spacing` corrections on the spaces.** They write positional or style data that Inkscape keeps and Kalamo's import would have to interpret or warn about, and they hard-code the 24- or 27-unit difference per face.
 - **An explicit `x` per word.** Each word becomes a text chunk, which breaks editing in Inkscape and flowing in Area Type (ADR-0063 keeps one chunk per line).
 - **Accepting the divergence.** Korean puts a space between words, so almost every Korean line drifts in Inkscape, and Area Type can wrap differently, as the width scan shows.
 
 ## Consequences
 
-- Inkscape draws a Korean or Chinese line's words where Zibel does, and wraps Area Type at Zibel's offsets, from Zibel's export. Its own re-save of Area Type loses the spans until Zibel exports it again.
+- Inkscape draws a Korean or Chinese line's words where Kalamo does, and wraps Area Type at Kalamo's offsets, from Kalamo's export. Its own re-save of Area Type loses the spans until Kalamo exports it again.
 - Other space separators (U+2000–U+200A, U+202F, U+205F) keep Pango's behaviour: no bundled font shows a divergence the fixture measures. They join the rule if a measurement shows one. Pango's trailing-space move, should a later Pango enable it here, is not emulated.
 - #67 (per-range font family) changes which family a character draws in; the rule reads `drawnFamily`, so it follows.

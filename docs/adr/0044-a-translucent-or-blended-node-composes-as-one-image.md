@@ -22,7 +22,7 @@ It is SVG and CSS compositing:
 
 ## Interface
 
-`@zibel/render` is type-checked for workerd, which has no DOM, so it cannot make a canvas. `drawDocument(ctx, doc, layer, images?)` takes a `NewLayer`: a function that returns a fresh, transparent `Canvas2D` of the target's device size with the image to hand to `drawImage`. `Canvas2D` gains `getTransform` and the three-argument `drawImage`, declared structurally. The Viewer backs it with a DOM canvas, which uses the Document's loaded fonts.
+`@kalamo/render` is type-checked for workerd, which has no DOM, so it cannot make a canvas. `drawDocument(ctx, doc, layer, images?)` takes a `NewLayer`: a function that returns a fresh, transparent `Canvas2D` of the target's device size with the image to hand to `drawImage`. `Canvas2D` gains `getTransform` and the three-argument `drawImage`, declared structurally. The Viewer backs it with a DOM canvas, which uses the Document's loaded fonts.
 
 A layer covers the whole canvas; cropping it to the Node's visible bounds in device space, or reusing layers, is the upgrade if translucent containers show up in a profile.
 

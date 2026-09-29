@@ -1,4 +1,4 @@
-# Zibel
+# Kalamo
 
 浏览器里的矢量绘图工具。文档模型为 AI Agent 通过 MCP 读写而设计，人类用户在同一份文档上用 Illustrator 风格的画布编辑。术语以 Adobe Illustrator 的用法为准，Illustrator 没有的概念才自造。
 
@@ -21,7 +21,7 @@ _Avoid_: Element、Object、Item、Shape（泛指时）
 _Avoid_: Folder、Sublayer 作为独立类型（嵌套 Layer 就叫 Layer）
 
 **Template Layer（模板图层）**：
-放参考图供描摹的 Layer，对应 Illustrator 置入时勾选 Template：`image_place` 的 `asTemplate` 在父级所在 Layer 下方新建一个锁定的 Layer，名为 `Template <文件名>`，其中的 Image 不透明度 50%。Illustrator 的模板图层不打印；Zibel 的 Layer 还没有 `template` 标志，所以它照常导出与渲染（ADR-0027）。
+放参考图供描摹的 Layer，对应 Illustrator 置入时勾选 Template：`image_place` 的 `asTemplate` 在父级所在 Layer 下方新建一个锁定的 Layer，名为 `Template <文件名>`，其中的 Image 不透明度 50%。Illustrator 的模板图层不打印；Kalamo 的 Layer 还没有 `template` 标志，所以它照常导出与渲染（ADR-0027）。
 _Avoid_: Reference layer、Trace layer、Background layer
 
 **Group（编组）**：
@@ -252,7 +252,7 @@ _Avoid_: Result、Response、Ack
 _Avoid_: Session、Client、Connection、User（Actor 可能是 Agent）
 
 **User（用户）**：
-一个用 GitHub 登录 Zibel 的人，按 GitHub 数字 id 识别，login 每次登录时刷新。每个 User 有一个自己的 User Actor（`user_<userId>`），他在浏览器里的所有标签页都以它编辑。dev 模式只有一个本地 User `local`，其 Actor 是 `user`（ADR-0047）。
+一个用 GitHub 登录 Kalamo 的人，按 GitHub 数字 id 识别，login 每次登录时刷新。每个 User 有一个自己的 User Actor（`user_<userId>`），他在浏览器里的所有标签页都以它编辑。dev 模式只有一个本地 User `local`，其 Actor 是 `user`（ADR-0047）。
 _Avoid_: Account、Member（保留给文档成员）、Session（那是一次登录）
 
 **Role（角色）**：
@@ -268,7 +268,7 @@ _Avoid_: Collaborator、Participant、Guest
 _Avoid_: Limit（那是请求本身的上限，如 5 MB 位图、4096 px 渲染）、Rate limit、Plan
 
 **Agent**：
-通过 MCP 调用 Zibel 的 AI 客户端，以自己的凭证作为一个 Actor。与人类用户拥有同等的编辑能力，只是入口不同。
+通过 MCP 调用 Kalamo 的 AI 客户端，以自己的凭证作为一个 Actor。与人类用户拥有同等的编辑能力，只是入口不同。
 _Avoid_: Bot、AI、Model、Assistant
 
 ## 渲染与导出
@@ -288,11 +288,11 @@ _Avoid_: Annotation、Guide（那是参考线）；不要单说 Overlay（ADR-00
 ## 导入与往返
 
 **Round Trip（往返）**：
-Document 导出为 SVG、在 Inkscape 中编辑、再在 Zibel 中打开为一个新 Document 的全过程；需要的图稿再经 Copy 粘贴回原 Document。Document 能表达的一切结构都必须保留；Inkscape 能表达而 Zibel 不能的，是 Zibel 的缺口（ADR-0017）。
+Document 导出为 SVG、在 Inkscape 中编辑、再在 Kalamo 中打开为一个新 Document 的全过程；需要的图稿再经 Copy 粘贴回原 Document。Document 能表达的一切结构都必须保留；Inkscape 能表达而 Kalamo 不能的，是 Kalamo 的缺口（ADR-0017）。
 _Avoid_: Sync、Roundtrip conversion
 
 **Open（打开）**：
-把一个文件（`.zibel.json` 或 SVG）变成一个新 Document，在浏览器中新开一个 Document Tab 显示，对应 Illustrator 的 File > Open。导入一个编辑过的文件就是 Open；Zibel 不把文件合并回已有 Document（ADR-0030 删除了 Replace）。
+把一个文件（`.kalamo.json` 或 SVG）变成一个新 Document，在浏览器中新开一个 Document Tab 显示，对应 Illustrator 的 File > Open。导入一个编辑过的文件就是 Open；Kalamo 不把文件合并回已有 Document（ADR-0030 删除了 Replace）。
 _Avoid_: Load、Import（泛指时）、Replace、Update from file
 
 **Document Tab（文档标签页）**：
@@ -304,7 +304,7 @@ _Avoid_: Sheet、Page、Workbook、Window
 _Avoid_: Duplicate（那是在原处复制出新 Node）、Clone
 
 **Place（置入）**：
-把一个文件放进已有 Document 的某个父级，对应 Illustrator 的 File > Place 与粘贴。SVG 置入为一个 Group，全部分配新 id；位图置入为 image 节点（F-IO-02）。粘贴 Zibel 的 Copy（根上 `zibel:scope` 为 `nodes:…`）例外：列出的 Node 直接进入目标 Layer，不包 Group（ADR-0030）。
+把一个文件放进已有 Document 的某个父级，对应 Illustrator 的 File > Place 与粘贴。SVG 置入为一个 Group，全部分配新 id；位图置入为 image 节点（F-IO-02）。粘贴 Kalamo 的 Copy（根上 `kalamo:scope` 为 `nodes:…`）例外：列出的 Node 直接进入目标 Layer，不包 Group（ADR-0030）。
 _Avoid_: Insert、Embed（那是位图的链接方式）
 
 ## 读取与查询
@@ -324,5 +324,5 @@ _Avoid_: Page token、Offset、Session
 ## MCP 接口
 
 **Skill（技能文档）**：
-随服务分发的 `skill://zibel/*` 资源，写绘图约定、坐标 / 颜色 / 路径规范与推荐工作流。Agent 按需读取；工具描述只指向它，不重复它。
+随服务分发的 `skill://kalamo/*` 资源，写绘图约定、坐标 / 颜色 / 路径规范与推荐工作流。Agent 按需读取；工具描述只指向它，不重复它。
 _Avoid_: Prompt（那是 MCP prompts，F-MCP-20）、Guide、Instructions、README

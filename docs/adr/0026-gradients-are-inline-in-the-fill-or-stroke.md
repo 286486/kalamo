@@ -5,7 +5,7 @@ date: 2026-09-25
 
 # A gradient is inline in its Fill or Stroke, positioned in the Node's own coordinates
 
-Linear and radial gradients (F-DOC-04, F-APP-04, #22) are one of the Zibel gaps ADR-0017 lists: until they exist, an Inkscape gradient imports as a solid Fill or Stroke in its first stop's colour with `GRADIENT_FLATTENED`. This ADR adds them to Fills and Strokes, on every leaf that has an Appearance, text included.
+Linear and radial gradients (F-DOC-04, F-APP-04, #22) are one of the Kalamo gaps ADR-0017 lists: until they exist, an Inkscape gradient imports as a solid Fill or Stroke in its first stop's colour with `GRADIENT_FLATTENED`. This ADR adds them to Fills and Strokes, on every leaf that has an Appearance, text included.
 
 ## The model
 
@@ -63,7 +63,7 @@ Gradients do not change bounds.
 
 **SVG** (`toSvg`, so `render` and `export` alike). Each gradient paint is one self-contained `<linearGradient>` or `<radialGradient>` with its stops, in a `<defs>` just before its element, as Area Type's frame is (ADR-0022), and the paint is `fill="url(#…)"` or `stroke="url(#…)"`:
 
-| Zibel | SVG |
+| Kalamo | SVG |
 |---|---|
 | gradient id | `fill-<i>-z-<ULID>` or `stroke-<i>-z-<ULID>`, `<i>` the paint's index in its list, beside `clip-z-` and `area-z-` |
 | any gradient | `gradientUnits="userSpaceOnUse"`, no `spreadMethod` (pad is the default) |
@@ -91,7 +91,7 @@ Replace (ADR-0017 step 2) needs nothing new: export rounds the positions to 3 de
 
 ## Files
 
-**`.zibel.json`** holds the gradient inside the Node's `appearance`, like any Fill; `version` stays 1, since a file without gradients is unchanged.
+**`.kalamo.json`** holds the gradient inside the Node's `appearance`, like any Fill; `version` stays 1, since a file without gradients is unchanged.
 
 ## Considered Options
 
@@ -109,5 +109,5 @@ Replace (ADR-0017 step 2) needs nothing new: export rounds the positions to 3 de
 - MCP: `node_create` and `node_update` describe gradients and their defaults; `doc_open`'s text and `drawing-conventions.md` stop saying gradients flatten.
 - The Canvas2D interface in `packages/render` gains `createLinearGradient` and `createRadialGradient`.
 - The round-trip fixture gains linear and radial gradients on Fills, a Stroke and text, including a turned Node, an elliptical radial with a focus, and a stack.
-- ADR-0017's Zibel gap for gradients is closed, and its `GRADIENT_FLATTENED` warning is removed.
+- ADR-0017's Kalamo gap for gradients is closed, and its `GRADIENT_FLATTENED` warning is removed.
 - F-DOC-04, F-DOC-05, REQUIREMENTS's example Document and decision 43 change to match.

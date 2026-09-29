@@ -5,7 +5,7 @@ date: 2026-09-29
 
 # The Arc tool draws a Path
 
-REQUIREMENTS F-DRAW-01 lists Arc among the shape tools and says they all make Live Shapes. Illustrator's Arc tool does not: its arc is a plain path of two anchors, and the Arc Segment Tool Options only set up the next drag. This ADR records how Zibel's Arc tool (#147) draws, and amends F-DRAW-01 for Arc.
+REQUIREMENTS F-DRAW-01 lists Arc among the shape tools and says they all make Live Shapes. Illustrator's Arc tool does not: its arc is a plain path of two anchors, and the Arc Segment Tool Options only set up the next drag. This ADR records how Kalamo's Arc tool (#147) draws, and amends F-DRAW-01 for Arc.
 
 ## Why a Path
 
@@ -64,4 +64,4 @@ Adobe does not publish the formula, and no public Illustrator SVG of an arc at k
 
 - REQUIREMENTS F-DRAW-01 says Arc makes a Path; CONTEXT.md's Live Shape entry says the same.
 - The web app's drawn art gains `PathArt`, the `{ type: "path", d }` the Pen already sent. The shape tools' `unfilled` becomes a predicate of the tool's options, so a closed arc is filled and an open one is not.
-- No change to core, the Document schema, the sync protocol, MCP, `render`, SVG or `.zibel.json`: an arc is an ordinary Path everywhere.
+- No change to core, the Document schema, the sync protocol, MCP, `render`, SVG or `.kalamo.json`: an arc is an ordinary Path everywhere.

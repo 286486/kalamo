@@ -15,7 +15,7 @@ A designer cannot reach a Clipping Mask's content or its Clipping Path on the ca
 - **Clipping Masks.** An isolated Clip Group shows its content clipped, as it prints. Its content and its Clipping Path can each be selected and edited.
 - **Files.** Isolation Mode is a window state. It is not saved in the file.
 
-Adobe's help pages refuse automated fetches. This record rests on the text of Adobe's "Isolate objects" page as search results quote it ("press Esc or select Exit Isolation Mode", "the Layers panel displays only the artwork in the isolated sublayer or group", "if you have isolated a sublayer, select Exit Isolation Mode multiple times"), on tutorials that say one double-click goes one level deeper, and on common practice, as ADR-0052 and ADR-0053 do. Adobe's help does not say what is selected right after a double-click. Zibel decides that below.
+Adobe's help pages refuse automated fetches. This record rests on the text of Adobe's "Isolate objects" page as search results quote it ("press Esc or select Exit Isolation Mode", "the Layers panel displays only the artwork in the isolated sublayer or group", "if you have isolated a sublayer, select Exit Isolation Mode multiple times"), on tutorials that say one double-click goes one level deeper, and on common practice, as ADR-0052 and ADR-0053 do. Adobe's help does not say what is selected right after a double-click. Kalamo decides that below.
 
 ## The rule
 

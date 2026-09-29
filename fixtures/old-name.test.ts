@@ -21,21 +21,6 @@ type Entry = {
 
 const ALLOWLIST: Entry[] = [
   {
-    path: /^docs\/research\/05-name-conflict-check\.md$/,
-    reason: "The name check that chose the former name.",
-    until: "#177",
-  },
-  {
-    path: /^docs\/adr\/0069-the-product-is-named-kalamo\.md$/,
-    reason: "The rename ADR names the former name.",
-    until: "#177",
-  },
-  {
-    path: /^(docs\/|README\.md$|CONTEXT\.md$|CLAUDE\.md$|NOTICE$|apps\/edge\/\.deploy\.vars\.example$)/,
-    reason: "Docs, ADRs, research notes, README and the deploy example.",
-    until: "#177",
-  },
-  {
     path: /^site\//,
     reason: "The landing page's copy and wordmark.",
     until: "#178",
@@ -97,6 +82,7 @@ describe("the old name", () => {
     expect(uncovered.map((h) => h.text)).toEqual([
       `export class ${Old}Thing {}`,
       `packages/core/src/${OLD}.ts`,
+      `The ${Old} Authors.`,
     ]);
   });
 
