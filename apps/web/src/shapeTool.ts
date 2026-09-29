@@ -160,7 +160,7 @@ interface DragShape<A extends NewArt, O> {
   /** The option the session's first drag starts with. */
   option: O;
   art(origin: Point, p: Point, mods: KeyMods, option: O): A;
-  /** False for art dragged back to a line or a point, which would be invisible. */
+  /** False for art dragged back to nothing visible: a point, or a box flat as a line. */
   visible(art: A): boolean;
   /** Painted with the current Stroke and no Fill, whatever the Fill box holds. */
   unfilled?: true;

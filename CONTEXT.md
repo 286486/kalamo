@@ -63,7 +63,7 @@ _Avoid_: End point、Tip、Terminal
 _Avoid_: Orphan point、Lone anchor
 
 **Live Shape（实时形状）**：
-由参数（宽高、圆角、边数、内外半径、起止角）定义的 Node，如矩形、椭圆、多边形、星形。多边形和星形另有 Inkscape 的 `angle`（首个顶点方向）、`rounded`（圆滑）、`randomized`（随机扰动），星形还有 `twist`（内顶点扭转）（ADR-0024）。椭圆的起止角 `startAngle` / `endAngle` 从 3 点钟方向顺时针量，弧类型 `arcType` 为 `slice`（扇形）、`chord`（弓形）或 `open`（开放弧）（ADR-0025）。锚点级编辑会把它转为 Path。它的派生几何以 `d` 形式只读暴露。
+由参数（宽高、圆角、边数、内外半径、起止角、端点）定义的 Node，如矩形、椭圆、多边形、星形、直线（Illustrator 的 Live Line，端点 `x1, y1, x2, y2`）。多边形和星形另有 Inkscape 的 `angle`（首个顶点方向）、`rounded`（圆滑）、`randomized`（随机扰动），星形还有 `twist`（内顶点扭转）（ADR-0024）。椭圆的起止角 `startAngle` / `endAngle` 从 3 点钟方向顺时针量，弧类型 `arcType` 为 `slice`（扇形）、`chord`（弓形）或 `open`（开放弧）（ADR-0025）。锚点级编辑会把它转为 Path。它的派生几何以 `d` 形式只读暴露。
 _Avoid_: Primitive、Basic shape、Parametric shape
 
 **Compound Path（复合路径）**：
