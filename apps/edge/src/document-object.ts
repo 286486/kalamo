@@ -221,15 +221,25 @@ export class DocumentObject extends DurableObject<Env> {
     `);
   }
 
-  /** Moves the files a Document stored in SQLite chunks (ADR-0023) to R2, before any request. */
+  /**
+   * Moves the files a Document stored in SQLite chunks (ADR-0023) to R2, before any request, and
+   * reports its stored bytes. A file's chunks go only once it is in R2, and the table once it is
+   * empty. Without a `doc` row there is no R2 key yet, so every chunk stays for a later open.
+   */
   private async migrate() {
     const sized = this.sql.exec("SELECT 1 FROM pragma_table_info('images') WHERE name = 'size'");
     if (sized.toArray().length === 0) {
       this.sql.exec("ALTER TABLE images ADD COLUMN size INTEGER NOT NULL DEFAULT 0");
     }
+    // Only rows with chunks: a file written since the table appeared is in R2 with its size already.
+    const chunked = "id IN (SELECT id FROM image_chunks)";
+    this.sql.exec(
+      `UPDATE images SET size = (SELECT SUM(length(bytes)) FROM image_chunks c WHERE c.id = images.id) WHERE ${chunked}`,
+    );
     const docId = this.sql.exec<{ id: string }>("SELECT id FROM doc").toArray()[0]?.id;
+    if (!docId) return;
     const rows = this.sql.exec<{ id: string; mime: ImageInfo["mime"] }>(
-      "SELECT id, mime FROM images",
+      `SELECT id, mime FROM images WHERE ${chunked}`,
     );
     for (const { id, mime } of rows.toArray()) {
       const chunks = this.sql
@@ -242,10 +252,13 @@ export class DocumentObject extends DurableObject<Env> {
         bytes.set(c, at);
         at += c.length;
       }
-      if (docId) await this.upload(docId, new Map([[id, { mime, width: 0, height: 0, bytes }]]));
-      this.sql.exec("UPDATE images SET size = ? WHERE id = ?", bytes.length, id);
+      await this.upload(docId, new Map([[id, { mime, width: 0, height: 0, bytes }]]));
+      this.sql.exec("DELETE FROM image_chunks WHERE id = ?", id);
     }
-    this.sql.exec("DROP TABLE image_chunks");
+    // Chunks with no `images` row have no MIME type to serve them with; they stay for the operator.
+    const left = this.sql.exec("SELECT 1 FROM image_chunks LIMIT 1").toArray().length;
+    if (left === 0) this.sql.exec("DROP TABLE image_chunks");
+    await this.reportStoredBytes();
   }
 
   create(input: {

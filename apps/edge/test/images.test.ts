@@ -7,6 +7,7 @@ import { BLUE_1x1_PNG, RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images
 import { imageKey } from "../src/document-object.ts";
 
 const stub = (docId: string) => env.DOCUMENT.get(env.DOCUMENT.idFromName(docId));
+type Stub = ReturnType<typeof stub>;
 
 const ok = <T extends object>(result: T): Exclude<T, { error: unknown }> => {
   if ("error" in result) throw new Error(JSON.stringify(result.error));
@@ -293,7 +294,7 @@ describe("image files in R2, swept once nothing names them (ADR-0046)", () => {
   afterEach(() => vi.useRealTimers());
 
   /** Ends a Transaction that staged a rect, which has the alarm sweep, and runs the alarm. */
-  async function sweep(s: ReturnType<typeof stub>, parentId: string) {
+  async function sweep(s: Stub, parentId: string) {
     const { txId } = ok(await s.begin("agent"));
     const rect = { type: "rect", parentId, x: 0, y: 0, width: 1, height: 1 } as const;
     ok(await s.createNodes([rect], "agent", { txId }));
@@ -502,32 +503,160 @@ describe("image files in R2, swept once nothing names them (ADR-0046)", () => {
     }, 30_000);
   });
 
-  it("moves a Document's files from SQLite chunks to R2 on its first request", async () => {
-    const { s, image } = await setup("r2-legacy");
-    const id = await redId();
-    const bytes = readImage(RED_2x2_PNG, "src").bytes;
-    await runInDurableObject(s, (_, state) => {
-      const sql = state.storage.sql;
-      sql.exec("DROP TABLE images");
-      sql.exec(`CREATE TABLE images (
-        id TEXT PRIMARY KEY, mime TEXT NOT NULL, width INTEGER NOT NULL, height INTEGER NOT NULL)`);
-      sql.exec(`CREATE TABLE image_chunks (
-        id TEXT NOT NULL, n INTEGER NOT NULL, bytes BLOB NOT NULL, PRIMARY KEY (id, n))`);
-      sql.exec("INSERT INTO images VALUES (?, 'image/png', 2, 2)", id);
-      sql.exec("INSERT INTO image_chunks VALUES (?, 0, ?)", id, bytes.slice(0, 10).buffer);
-      sql.exec("INSERT INTO image_chunks VALUES (?, 1, ?)", id, bytes.slice(10).buffer);
-    });
-    await evictDurableObject(s);
+  describe("the legacy image upgrade (ADR-0023 to ADR-0046)", () => {
+    /** Rewrites the Durable Object's file tables in the legacy shape: `images` without `size`, `bytes` in 2 chunks. */
+    const seedLegacy = (s: Stub, id: string, bytes: Uint8Array) =>
+      runInDurableObject(s, (_, state) => {
+        const sql = state.storage.sql;
+        sql.exec("DROP TABLE images");
+        sql.exec(`CREATE TABLE images (
+          id TEXT PRIMARY KEY, mime TEXT NOT NULL, width INTEGER NOT NULL, height INTEGER NOT NULL)`);
+        sql.exec(`CREATE TABLE image_chunks (
+          id TEXT NOT NULL, n INTEGER NOT NULL, bytes BLOB NOT NULL, PRIMARY KEY (id, n))`);
+        sql.exec("INSERT INTO images VALUES (?, 'image/png', 2, 2)", id);
+        sql.exec("INSERT INTO image_chunks VALUES (?, 0, ?)", id, bytes.slice(0, 10).buffer);
+        sql.exec("INSERT INTO image_chunks VALUES (?, 1, ?)", id, bytes.slice(10).buffer);
+      });
 
-    ok(await s.createNodes([image(id)], "agent"));
-    expect(await objectOf("r2-legacy", id)).toBe(bytes.toBase64());
-    expect(await s.storedImageBytes()).toBe(bytes.length);
-    expect(ok(await s.svg("agent", {})).svg).toContain(RED_2x2_PNG);
-    const tables = await runInDurableObject(s, (_, state) =>
-      state.storage.sql
-        .exec("SELECT name FROM sqlite_master WHERE name = 'image_chunks'")
-        .toArray(),
-    );
-    expect(tables).toEqual([]);
+    /** The rows of `image_chunks`, bytes as base64, or null once the table is gone. */
+    const chunks = (s: Stub) =>
+      runInDurableObject(s, (_, state) => {
+        const sql = state.storage.sql;
+        if (
+          sql.exec("SELECT 1 FROM sqlite_master WHERE name = 'image_chunks'").toArray().length === 0
+        )
+          return null;
+        return sql
+          .exec<{ id: string; n: number; bytes: ArrayBuffer }>(
+            "SELECT * FROM image_chunks ORDER BY id, n",
+          )
+          .toArray()
+          .map((r) => ({ id: r.id, n: r.n, bytes: new Uint8Array(r.bytes).toBase64() }));
+      });
+
+    /** Every row of the tables the upgrade must leave alone. */
+    const untouched = (s: Stub) =>
+      runInDurableObject(s, (_, state) =>
+        ["doc", "nodes", "tx_log", "tx", "tx_nodes", "tx_delta", "history"].map((t) =>
+          state.storage.sql.exec(`SELECT * FROM ${t} ORDER BY 1`).toArray(),
+        ),
+      );
+
+    const addRow = (docId: string) =>
+      env.DB.prepare(
+        "INSERT INTO documents (id, name, created_at, owner_id, stored_bytes) VALUES (?, 'Doc', '', 'local', 0)",
+      )
+        .bind(docId)
+        .run();
+
+    const storedBytes = (docId: string) =>
+      env.DB.prepare("SELECT stored_bytes FROM documents WHERE id = ?")
+        .bind(docId)
+        .first<number>("stored_bytes");
+
+    it("moves a Document's files from SQLite chunks to R2 on its first request", async () => {
+      const { s, image } = await setup("r2-legacy");
+      const id = await redId();
+      const bytes = readImage(RED_2x2_PNG, "src").bytes;
+      await seedLegacy(s, id, bytes);
+      await evictDurableObject(s);
+
+      ok(await s.createNodes([image(id)], "agent"));
+      expect(await objectOf("r2-legacy", id)).toBe(bytes.toBase64());
+      expect(await s.storedImageBytes()).toBe(bytes.length);
+      expect(ok(await s.svg("agent", {})).svg).toContain(RED_2x2_PNG);
+      expect(await chunks(s)).toBeNull();
+    });
+
+    it("reports a live file's bytes to the Quota on the first open, and keeps every other table", async () => {
+      const { s, image } = await setup("r2-legacy-live");
+      await addRow("r2-legacy-live");
+      const id = await redId();
+      const bytes = readImage(RED_2x2_PNG, "src").bytes;
+      ok(await s.createNodes([image(RED_2x2_PNG)], "agent"));
+      await env.IMAGES.delete(imageKey("r2-legacy-live", id));
+      await env.DB.prepare(
+        "UPDATE documents SET stored_bytes = 0 WHERE id = 'r2-legacy-live'",
+      ).run();
+      await runInDurableObject(s, (_, state) => {
+        state.storage.sql.exec(
+          "INSERT INTO tx (id, actor, label, deadline) VALUES ('tx-open', 'agent', 'Open', 0)",
+        );
+        state.storage.sql.exec(
+          "INSERT INTO tx_nodes (tx_id, node_id, working) VALUES ('tx-open', 'n1', '{}')",
+        );
+      });
+      await seedLegacy(s, id, bytes);
+      const before = await untouched(s);
+      await evictDurableObject(s);
+
+      expect(await s.storedImageBytes()).toBe(bytes.length);
+      expect(await storedBytes("r2-legacy-live")).toBe(bytes.length);
+      expect(await objectOf("r2-legacy-live", id)).toBe(bytes.toBase64());
+      expect(await untouched(s)).toEqual(before);
+      expect(await chunks(s)).toBeNull();
+    });
+
+    it("keeps chunks that no images row names, and the table with them", async () => {
+      const { s } = await setup("r2-legacy-stray");
+      const id = await redId();
+      const bytes = readImage(RED_2x2_PNG, "src").bytes;
+      await seedLegacy(s, id, bytes);
+      await runInDurableObject(s, (_, state) => {
+        state.storage.sql.exec("INSERT INTO image_chunks VALUES ('stray', 0, ?)", bytes.buffer);
+      });
+      await evictDurableObject(s);
+
+      ok(await s.info());
+      expect(await objectOf("r2-legacy-stray", id)).toBe(bytes.toBase64());
+      expect(await chunks(s)).toEqual([{ id: "stray", n: 0, bytes: bytes.toBase64() }]);
+    });
+
+    it("counts a file that only undo history holds", async () => {
+      const { s } = await setup("r2-legacy-held");
+      await addRow("r2-legacy-held");
+      const id = await redId();
+      const bytes = readImage(RED_2x2_PNG, "src").bytes;
+      await seedLegacy(s, id, bytes);
+      await evictDurableObject(s);
+
+      ok(await s.info());
+      expect(await storedBytes("r2-legacy-held")).toBe(bytes.length);
+      expect(await s.storedImageBytes()).toBe(bytes.length);
+      expect(await objectOf("r2-legacy-held", id)).toBe(bytes.toBase64());
+    });
+
+    it("keeps the chunks of a Durable Object with no doc row, and finishes once the Document exists", async () => {
+      const s = stub("r2-legacy-docless");
+      const id = await redId();
+      const bytes = readImage(RED_2x2_PNG, "src").bytes;
+      const blue = readImage(BLUE_1x1_PNG, "src").bytes;
+      await seedLegacy(s, id, bytes);
+      const seeded = await chunks(s);
+      await evictDurableObject(s);
+
+      expect(await s.info()).toMatchObject({ error: { code: "DOC_NOT_FOUND" } });
+      expect(await chunks(s)).toEqual(seeded);
+      expect(seeded).toHaveLength(2);
+      expect(await objectOf("r2-legacy-docless", id)).toBeNull();
+
+      const { defaultLayerId: parentId } = ok(
+        await s.create({ docId: "r2-legacy-docless", name: "Doc", artboards: [], actor: "a" }),
+      );
+      expect(await s.storedImageBytes()).toBe(bytes.length);
+      await addRow("r2-legacy-docless");
+      // A file written before the upgrade finishes goes to R2 as usual, and the upgrade leaves it be.
+      ok(
+        await s.createNodes([{ type: "image", parentId, src: BLUE_1x1_PNG, x: 0, y: 0 }], "agent"),
+      );
+      await evictDurableObject(s);
+
+      ok(await s.info());
+      expect(await objectOf("r2-legacy-docless", id)).toBe(bytes.toBase64());
+      expect(await objectOf("r2-legacy-docless", await blueId())).toBe(blue.toBase64());
+      expect(await storedBytes("r2-legacy-docless")).toBe(bytes.length + blue.length);
+      expect(await s.storedImageBytes()).toBe(bytes.length + blue.length);
+      expect(await chunks(s)).toBeNull();
+    });
   });
 });
