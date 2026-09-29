@@ -294,6 +294,83 @@ export function assertParent(
   }
 }
 
+/**
+ * Checks `nodes`, in order, against the rules every committed Document keeps (ADR-0016, ADR-0072):
+ * a parent that exists and may hold the Node (`assertParent`, cycles included), a valid
+ * fractional-index key no earlier sibling in `nodes` holds, and at most one Clipping Path per Layer
+ * or Group, visible. The first rule each Node breaks goes to `report` with the Node's position in
+ * `nodes`; its `path` starts with `nodes[i]`. File validation throws the first; a commit reports
+ * the Nodes it touched.
+ */
+export function checkTree(
+  doc: Document,
+  nodes: Node[],
+  report: (error: KalamoError, i: number) => void,
+): void {
+  const invalid = (path: string, message: string, hint: string) =>
+    new KalamoError({ code: "INVALID_DOCUMENT", message, hint, path });
+  const siblings = new Set<string>();
+  const clipped = new Set<string | null>();
+  nodes.forEach((n, i) => {
+    const path = `nodes[${i}]`;
+    try {
+      // An Artboard id falls through to assertParent, whose hint explains Artboards are not parents.
+      const { parentId } = n;
+      if (
+        parentId !== null &&
+        !doc.nodes.has(parentId) &&
+        !doc.artboards.some((a) => a.id === parentId)
+      ) {
+        throw invalid(
+          `${path}.parentId`,
+          `No Node with id ${parentId}.`,
+          "Every parentId names a Layer or Group of the Document.",
+        );
+      }
+      assertParent(doc, n, parentId, `${path}.parentId`);
+      try {
+        // ponytail: fractional-indexing exports no validator; this also refuses the very top key.
+        generateKeyBetween(n.index, null);
+      } catch {
+        throw invalid(
+          `${path}.index`,
+          `${JSON.stringify(n.index)} is not a fractional-index key.`,
+          "Every index is a key of the fractional-indexing package, as kalamo_export writes it.",
+        );
+      }
+      const key = JSON.stringify([parentId, n.index]);
+      if (siblings.has(key)) {
+        throw invalid(
+          `${path}.index`,
+          `Another child of the same parent has index ${n.index}.`,
+          "Siblings are ordered by index, so each needs its own.",
+        );
+      }
+      siblings.add(key);
+      if ("clipping" in n && n.clipping) {
+        const hint =
+          "A Clipping Path is the one clipping child of a Layer or Group, and visible (ADR-0021, ADR-0053).";
+        const parentType = doc.nodes.get(parentId ?? "")?.type;
+        if (parentType !== "group" && parentType !== "layer") {
+          throw invalid(`${path}.clipping`, "A Clipping Path's parent is a Layer or Group.", hint);
+        }
+        if (clipped.has(parentId)) {
+          throw invalid(
+            `${path}.clipping`,
+            `Its ${parentType === "layer" ? "Layer" : "Group"} already has a Clipping Path.`,
+            hint,
+          );
+        }
+        if (!n.visible) throw invalid(`${path}.visible`, "A Clipping Path cannot be hidden.", hint);
+        clipped.add(parentId);
+      }
+    } catch (e) {
+      if (!(e instanceof KalamoError)) throw e;
+      report(e, i);
+    }
+  });
+}
+
 /** Refuses a linked Image's `file` that cannot name a file (ADR-0042). */
 export function checkFile(file: string, path: string) {
   const problem = fileProblem(file);

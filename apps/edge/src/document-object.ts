@@ -979,7 +979,7 @@ export class DocumentObject extends DurableObject<Env> {
   private receipt(
     before: Document,
     after: Document,
-    change: { created: Node[]; updated: Node[]; deletedIds: string[] },
+    change: Required<Change>,
     meta: {
       txId: string;
       rev: number;
@@ -1270,7 +1270,8 @@ export class DocumentObject extends DurableObject<Env> {
       verb,
       (doc) => {
         const { skipped, ...change } = revert(doc, delta);
-        const gone = skipped.length > 0 ? `; skipped, deleted since: ${skipped.join(", ")}` : "";
+        const gone =
+          skipped.length > 0 ? `; skipped, deleted or moved since: ${skipped.join(", ")}` : "";
         return {
           ...change,
           skipped,
