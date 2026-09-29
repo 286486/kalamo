@@ -67,7 +67,10 @@ export interface PenPath {
   closed: boolean;
 }
 
-/** A drawing tool's `create`, sent and drawn until its own answer arrives (ADR-0032). */
+/**
+ * A drawing tool's `create`, sent and drawn until its own answer arrives (ADR-0032); or, with no
+ * `nodes`, a Layers panel Alt-drag's `duplicate`, whose answer selects its copies (ADR-0075).
+ */
 export interface PendingCreate {
   commandId: string;
   nodes: NodeInput[];

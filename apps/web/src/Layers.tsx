@@ -1,6 +1,15 @@
 import { lockedIn } from "@kalamo/core";
 import { memo, useState } from "react";
-import { type Drop, dropAt, dropMoves, layerIsolation, layerMask, nameOf, rows } from "./layers.ts";
+import {
+  type Drop,
+  dropAt,
+  dropCopies,
+  dropMoves,
+  layerIsolation,
+  layerMask,
+  nameOf,
+  rows,
+} from "./layers.ts";
 import { combine, objects } from "./selection.ts";
 import { canEdit, send, useStore } from "./store.ts";
 
@@ -106,7 +115,9 @@ export const Layers = memo(function Layers() {
               draggable={movable}
               data-drop={indicated?.zone}
               onDragStart={(e) => {
-                e.dataTransfer.effectAllowed = "move";
+                // A drag of text selected in a row that does not drag carries no Node.
+                if (!movable) return;
+                e.dataTransfer.effectAllowed = "copyMove";
                 // A selected row carries the Selection with it, another row only itself.
                 setDragged(selected ? selection : [node.id]);
               }}
@@ -120,6 +131,8 @@ export const Layers = memo(function Layers() {
                 // ponytail: re-plans the drop on every dragover; cache per row and zone if it lags.
                 if (!dropMoves(doc, dragged, at, isolated)) return setDrop(null);
                 e.preventDefault();
+                // Alt copies (ADR-0075): the browser's plus cursor while it is down.
+                e.dataTransfer.dropEffect = e.altKey ? "copy" : "move";
                 if (at.row !== drop?.row || at.zone !== drop.zone || at.depth !== drop.depth) {
                   setDrop(at);
                 }
@@ -133,9 +146,22 @@ export const Layers = memo(function Layers() {
               onDrop={(e) => {
                 e.preventDefault();
                 const { doc, isolated } = useStore.getState();
-                const plan = doc && dragged && dropMoves(doc, dragged, pointer(e), isolated);
                 setDragged(null);
                 setDrop(null);
+                if (!doc || !dragged) return;
+                // Alt at the release copies, as on the canvas (ADR-0076), and the copies become
+                // the Selection, as drawn art does.
+                if (e.altKey) {
+                  const input = dropCopies(doc, dragged, pointer(e), isolated);
+                  if (!input) return;
+                  const commandId = send({ type: "duplicate", input });
+                  useStore.setState((s) => ({
+                    notice: null,
+                    pending: [...s.pending, { commandId, nodes: [], select: true }],
+                  }));
+                  return;
+                }
+                const plan = dropMoves(doc, dragged, pointer(e), isolated);
                 // Nothing is sent when no Node would change place, so Undo has no empty step.
                 if (!plan?.moved) return;
                 useStore.setState({ notice: null });

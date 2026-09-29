@@ -359,7 +359,7 @@ Kalamo 要填的空位是：**Agent 能生成、人能精修、二者共享同�
 
 ### 5.12 图层面板与对象管理
 
-- **F-LAYER-01** Layers 面板：树形展示图层 / 子图层 / 组 / 对象；缩略图；显示 / 隐藏、锁定、图层颜色；拖拽重排与重新父级（浏览器 `reparent` 命令，与 `node_reparent` 同一核心编辑，ADR-0075）；点击右侧圆点选中（target）对象；Alt 点击选中图层全部内容；搜索与按类型过滤。（P0）
+- **F-LAYER-01** Layers 面板：树形展示图层 / 子图层 / 组 / 对象；缩略图；显示 / 隐藏、锁定、图层颜色；拖拽重排与重新父级（浏览器 `reparent` 命令，与 `node_reparent` 同一核心编辑，ADR-0075）；Alt 拖拽复制到放置目标（浏览器 `duplicate` 命令，与 `node_duplicate` 同一核心编辑，ADR-0075、ADR-0076）；点击右侧圆点选中（target）对象；Alt 点击选中图层全部内容；搜索与按类型过滤。（P0）
 - **F-LAYER-02** 图层操作：新建、复制、合并、拼合、Release to Layers（Sequence / Build）、Collect in New Layer、Paste Remembers Layers。（P0 前四项；P1 其余）
 - **F-LAYER-03** 对象命名与自动命名（`<Path>`、`<Group>`、图表 / 文字自动取内容）；Agent 写入的名称与 `tags` 显示在面板。（P0）
 - **F-LAYER-04** 模板图层（锁定、半透明显示参考图）。（P1）

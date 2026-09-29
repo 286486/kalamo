@@ -94,7 +94,9 @@ async function setup(page: Page, request: APIRequestContext, { viewer = false } 
       ws.send(viewer && msg.type === "document" ? JSON.stringify({ ...msg, role: "viewer" }) : m);
     });
   });
-  const reparents = () => sent.filter((m) => JSON.parse(m).command?.type === "reparent").length;
+  const count = (type: string) => sent.filter((m) => JSON.parse(m).command?.type === type).length;
+  const reparents = () => count("reparent");
+  const duplicates = () => count("duplicate");
 
   await page.goto(`/docs/${docId}`);
   await expect(page.getByTestId("status-bar")).toContainText(/\d+%/);
@@ -136,7 +138,35 @@ async function setup(page: Page, request: APIRequestContext, { viewer = false } 
     await dragOver(from, to, y, x);
     await page.mouse.up();
   };
-  return { docId, id, children, rev, reparents, top, row, rowNames, dragOver, drag };
+  /** A drag with Alt held throughout. */
+  const altDrag = async (from: string, to: string, y: number) => {
+    await page.keyboard.down("Alt");
+    await drag(from, to, y);
+    await page.keyboard.up("Alt");
+  };
+  /** The positions of the rows whose name button is pressed, the Selection's. */
+  const selected = () =>
+    page
+      .getByRole("listitem")
+      .evaluateAll((els) =>
+        els.flatMap((e, i) => (e.querySelector("[aria-pressed=true]") ? [i] : [])),
+      );
+  return {
+    docId,
+    id,
+    children,
+    outline,
+    rev,
+    reparents,
+    duplicates,
+    top,
+    row,
+    rowNames,
+    selected,
+    dragOver,
+    drag,
+    altDrag,
+  };
 }
 
 test("dragging a Path's row onto a Group in another Layer puts it on top there, geometry unchanged, and one Ctrl+Z restores it (ADR-0075)", async ({
@@ -283,6 +313,155 @@ test("a drop into a descendant, a Layer onto a Group, or into a locked container
   expect(await s.rev()).toBe(rev);
   expect(s.reparents()).toBe(0);
   await expect.poll(s.rowNames).toEqual(["B", "G", "Blue", "A", "Sub", "Green", "Red"]);
+
+  // Alt copies nowhere a move is refused, not even into the dragged Node's own descendant.
+  await page.keyboard.down("Alt");
+  await refused("B", "Blue", 0.1);
+  await refused("G", "Blue", 0.9);
+  await refused("Sub", "G", 0.5);
+  await refused("Red", "Sub", 0.5);
+  await page.keyboard.up("Alt");
+  expect(await s.rev()).toBe(rev);
+  expect(s.duplicates()).toBe(0);
+});
+
+test("in Isolation Mode an Alt-drag outside the isolated Layer shows no indicator and sends nothing", async ({
+  page,
+  request,
+}) => {
+  const s = await setup(page, request);
+  await call(request, "kalamo_node_reparent", {
+    docId: s.docId,
+    moves: [{ nodeId: s.id("Red"), parentId: s.id("Sub") }],
+  });
+  await page.getByRole("button", { name: "Red", exact: true }).click();
+  await page.getByRole("button", { name: "Enter Isolation Mode for Sub" }).click();
+  await expect.poll(s.rowNames).toEqual(["Sub", "Red"]);
+  const rev = await s.rev();
+  await page.keyboard.down("Alt");
+  // The gap above Sub is in A, outside it.
+  await s.dragOver("Red", "Sub", 0.1);
+  await expect(s.row("Sub")).not.toHaveAttribute("data-drop");
+  await page.mouse.up();
+  await page.keyboard.up("Alt");
+  expect(await s.rev()).toBe(rev);
+  expect(s.duplicates()).toBe(0);
+  // Inside it, onto Sub, the copy lands.
+  await s.altDrag("Red", "Sub", 0.5);
+  await expect.poll(s.rowNames).toEqual(["Sub", "Red", "Red"]);
+});
+
+test("an Alt-drag of a Path's row onto a Group in another Layer leaves it and puts a selected copy on the Group's top, undone in one step (ADR-0075)", async ({
+  page,
+  request,
+}) => {
+  const s = await setup(page, request);
+  const rev = await s.rev();
+  const red = s.id("Red");
+  await page.keyboard.down("Alt");
+  await s.dragOver("Red", "G", 0.5);
+  await expect(s.row("G")).toHaveAttribute("data-drop", "onto");
+  await page.mouse.up();
+  await page.keyboard.up("Alt");
+  await page.getByRole("button", { name: "Expand G" }).click();
+  await expect.poll(s.rowNames).toEqual(["B", "G", "Red", "Blue", "A", "Sub", "Green", "Red"]);
+  expect(await s.children("G")).toEqual(["Blue", "Red"]);
+  expect(await s.children("A")).toEqual(["Red", "Green", "Sub"]);
+  const { nodes } = await s.outline();
+  const g = nodes[1]?.children?.[0]?.children ?? [];
+  expect(g[1]?.id).not.toBe(red);
+  await expect.poll(s.top).toBe("RRB");
+  await expect.poll(s.selected).toEqual([2]);
+  expect(await s.rev()).toBe(rev + 1);
+  expect(s.duplicates()).toBe(1);
+  expect(s.reparents()).toBe(0);
+
+  await page.keyboard.press("Control+Z");
+  await expect.poll(s.top).toBe("GBB");
+  expect(await s.children("G")).toEqual(["Blue"]);
+});
+
+test("an Alt-drag of a Group's row between two siblings copies its whole subtree there", async ({
+  page,
+  request,
+}) => {
+  const s = await setup(page, request);
+  const [g, blue] = [s.id("G"), s.id("Blue")];
+  // The top quarter of Green's row: the gap above it, in A.
+  await s.altDrag("G", "Green", 0.1);
+  await expect.poll(() => s.children("A")).toEqual(["Red", "Green", "G", "Sub"]);
+  expect(await s.children("B")).toEqual(["G"]);
+  const { nodes } = await s.outline();
+  const copy = nodes[0]?.children?.[2];
+  expect(copy?.id).not.toBe(g);
+  expect(copy?.children?.map((e) => e.name)).toEqual(["Blue"]);
+  expect(copy?.children?.[0]?.id).not.toBe(blue);
+  await expect.poll(s.rowNames).toEqual(["B", "G", "A", "Sub", "G", "Green", "Red"]);
+});
+
+test("two selected rows Alt-dragged together give two selected copies in their relative order", async ({
+  page,
+  request,
+}) => {
+  const s = await setup(page, request);
+  await page.getByRole("button", { name: "Green", exact: true }).click();
+  await page.getByRole("button", { name: "Red", exact: true }).click({ modifiers: ["Shift"] });
+  await s.altDrag("Red", "B", 0.5);
+  await expect.poll(() => s.children("B")).toEqual(["G", "Red", "Green"]);
+  expect(await s.children("A")).toEqual(["Red", "Green", "Sub"]);
+  await expect.poll(s.rowNames).toEqual(["B", "Green", "Red", "G", "A", "Sub", "Green", "Red"]);
+  await expect.poll(s.selected).toEqual([1, 2]);
+  expect(s.duplicates()).toBe(1);
+});
+
+test("Alt counts at the release: pressed mid-drag copies, released before the button moves", async ({
+  page,
+  request,
+}) => {
+  const s = await setup(page, request);
+  await s.dragOver("Red", "B", 0.5);
+  await page.keyboard.down("Alt");
+  const b = await s.row("B").boundingBox();
+  if (!b) throw new Error("no row");
+  await page.mouse.move(b.x + b.width / 2 + 2, b.y + b.height / 2);
+  await page.mouse.up();
+  await page.keyboard.up("Alt");
+  await expect.poll(() => s.children("B")).toEqual(["G", "Red"]);
+  expect(await s.children("A")).toEqual(["Red", "Green", "Sub"]);
+
+  await page.keyboard.down("Alt");
+  await s.dragOver("Green", "B", 0.5);
+  await page.keyboard.up("Alt");
+  await page.mouse.move(b.x + b.width / 2 + 2, b.y + b.height / 2);
+  await page.mouse.up();
+  await expect.poll(() => s.children("A")).toEqual(["Red", "Sub"]);
+  expect(await s.children("B")).toEqual(["G", "Red", "Green"]);
+  expect(s.duplicates()).toBe(1);
+  expect(s.reparents()).toBe(1);
+});
+
+test("an Alt-drop in the gap directly above the row's own Node copies it there", async ({
+  page,
+  request,
+}) => {
+  const s = await setup(page, request);
+  await page.keyboard.down("Alt");
+  await s.dragOver("Red", "Red", 0.1);
+  await expect(s.row("Red")).toHaveAttribute("data-drop", "above");
+  await page.mouse.up();
+  await page.keyboard.up("Alt");
+  await expect.poll(() => s.children("A")).toEqual(["Red", "Red", "Green", "Sub"]);
+  expect(s.duplicates()).toBe(1);
+});
+
+test("Alt-click on a Layer's row still selects its contents and copies nothing", async ({
+  page,
+  request,
+}) => {
+  const s = await setup(page, request);
+  await page.getByRole("button", { name: "A", exact: true }).click({ modifiers: ["Alt"] });
+  await expect.poll(s.selected).toEqual([4, 5]);
+  expect(s.duplicates()).toBe(0);
 });
 
 test("an Agent's concurrent node_reparent shows up live in the open panel", async ({
@@ -305,6 +484,8 @@ test("a viewer's rows do not drag, and a drag sends nothing (ADR-0047)", async (
   const s = await setup(page, request, { viewer: true });
   await expect(s.row("Red")).toHaveAttribute("draggable", "false");
   await s.drag("Red", "G", 0.5);
+  await s.altDrag("Red", "G", 0.5);
   await expect.poll(s.rowNames).toEqual(["B", "G", "A", "Sub", "Green", "Red"]);
   expect(s.reparents()).toBe(0);
+  expect(s.duplicates()).toBe(0);
 });
