@@ -139,7 +139,8 @@ function areaLines(svg: string): Map<string, string[][]> {
     );
   const out = new Map<string, string[][]>();
   const texts = /<text\b[^>]*shape-inside:url\(#area-z-([^)]+)\)[^>]*>([\s\S]*?)<\/text>/g;
-  for (const [, id, body] of svg.matchAll(texts)) {
+  for (const [, key, body] of svg.matchAll(texts)) {
+    const id = key as string;
     const rect = new RegExp(`<rect\\b[^>]*\\sid="area-z-${id}"[^>]*>`).exec(svg)?.[0] ?? "";
     const bottom = attr(rect, "y") + attr(rect, "height");
     const lines: string[] = [];
@@ -155,7 +156,7 @@ function areaLines(svg: string): Map<string, string[][]> {
       depth += end ? -1 : empty ? 0 : 1;
       if (depth === 0 && shown) lines.push(line);
     }
-    out.set(id as string, [...(out.get(id as string) ?? []), lines]);
+    out.set(id, [...(out.get(id) ?? []), lines]);
   }
   return out;
 }
@@ -169,12 +170,12 @@ function lineDifference(exported: string, saved: string): string | undefined {
   // A pattern that stops matching would compare no copies on either side, and pass.
   const frames = exported.split("shape-inside:url(#area-z-").length - 1;
   const copies = [...want.values()].reduce((n, c) => n + c.length, 0);
-  if (copies !== frames) return `area lines: ${copies} texts read, ${frames} name a frame`;
+  if (copies !== frames) return `Area Type texts read: ${copies}, want ${frames}`;
   const show = JSON.stringify;
   for (const [id, copiesWant] of want) {
     const copiesGot = got.get(id) ?? [];
     if (copiesGot.length !== copiesWant.length)
-      return `${id}: ${copiesWant.length} copies exported, ${copiesGot.length} saved`;
+      return `copies of ${id}: ${copiesGot.length} saved, want ${copiesWant.length} exported`;
     for (const [i, lines] of copiesWant.entries())
       if (show(copiesGot[i]) !== show(lines))
         return `lines of ${id} copy ${i + 1} of ${copiesWant.length}: ${show(copiesGot[i])}, want ${show(lines)}`;
