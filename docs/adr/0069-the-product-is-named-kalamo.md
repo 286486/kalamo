@@ -24,7 +24,7 @@ The product's former name is said almost exactly like Arabic زِبْل *zibl*, 
 
 | Old form | Rule |
 | --- | --- |
-| The former SVG namespace, `LEGACY_SVG_NS`, and its prefix | Import reads it **permanently**, beside the new one. When an element carries both, the new namespace wins. Export writes only the new one, and warnings name the `kalamo:` prefix. |
+| The former SVG namespace and its prefix (`LEGACY_SVG_NS` in `packages/core/src/legacy.ts`) | Import reads it **permanently**, beside the new one. When an element carries both, the new namespace wins. Export writes only the new one, and warnings name the `kalamo:` prefix. |
 | A saved file named `<doc>.<former name>.json` | Opens unchanged. Open detects a file by content, not by name, and the file holds no brand string. Saving writes `<doc>.kalamo.json`. |
 | Browser storage keys `<former name>:tabs` and `<former name>:pencil` | Read once: when the `kalamo:` key is absent and the old key is present, the old value is used, written under the new key and the old key is removed. The cutover also carries each browser's keys from the old Worker's origin to the new one while the old Worker exists. |
 

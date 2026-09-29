@@ -58,7 +58,7 @@
 - **含义**：源自希腊语 *kálamos*（芦苇笔），最早的书写与绘图工具。同一个词沿用为拉丁语 *calamus*、阿拉伯语 *qalam*（笔）、土耳其语 *kalem*、印地语与乌尔都语 *kalam*、斯瓦希里语 *kalamu*、俄语 *калам*（芦苇笔），在十几种语言里都是"笔"。英文读作 KAH-lah-moh，中文读作"卡拉莫"（kǎ lā mò），日文カラモ。
 - **形式**：6 个字母。CLI `kalamo`，npm 包名 `kalamo` 与 scope `@kalamo/*`，URI scheme `kalamo://`，MCP 工具前缀 `kalamo_`，SVG 命名空间 `https://kalamo.cc/ns/svg`（前缀 `kalamo:`），产品域名 `kalamo.cc`。
 - **核查**（`docs/research/07-kalamo-name-check.md`，2026-09-29）：npm、PyPI、crates.io 与 npm scope 均空闲；`kalamo.com` 停放待售，`kalamo.app`、`kalamo.net` 已被他人注册；`kalamo.ai` 是同名的会议 AI 字幕翻译服务（econf.ai），受众与功能不同。美国第 9、42 类无在册 KALAMO 商标；EUIPO / WIPO / CNIPA 未查，M1 前由所有者手工检索（#173）。
-- **为何更名**：前一个名字在阿拉伯语、希伯来语中读作"粪、垃圾"的日常词，不能面向全球发布，2026-09-29 更名为 Kalamo（ADR-0069，#172）。更早的 Sable 因包名与短域名全部被占、且 Sable AI 在同一开发者 / Agent 受众中已有品牌而弃用。
+- **为何更名**：前一个名字在阿拉伯语、希伯来语中读作"粪、垃圾"的日常词，不能面向全球发布，2026-09-29 更名为 Kalamo（ADR-0069，#172）。更早的 Sable 因包名与短域名全部被占、且 Sable AI 在同一开发者 / Agent 受众中已有品牌而弃用（当时的核查见 git 历史）。
 - **备选**：Kalamos（同一词源，若 Kalamo 遇阻断商标则改用）；Duktus、Pennel 见调研七。
 - 仓库：`github.com/286486/kalamo`（旧地址自动重定向）。
 

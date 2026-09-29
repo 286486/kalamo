@@ -10,4 +10,4 @@
 | [research/06-illustrator-drawing-tools.md](./research/06-illustrator-drawing-tools.md) | 调研六：Illustrator 绘图工具的行为核查 |
 | [research/07-kalamo-name-check.md](./research/07-kalamo-name-check.md) | 调研七：Kalamo 与其他候选名在含义、包名、域名、商标上的核查，以及未核查的范围（ADR-0069） |
 
-调研日期：2026-09-22。调研报告中标注"未核实"的条目在需求文档 §10.1 风险表中有对应缓解措施。
+调研一至四的日期为 2026-09-22，调研六、七的日期见各自文首。调研报告中标注"未核实"的条目在需求文档 §10.1 风险表中有对应缓解措施。

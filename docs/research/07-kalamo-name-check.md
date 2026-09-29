@@ -1,4 +1,4 @@
-# Research 7: Kalamo and the other name candidates
+# Kalamo and the other name candidates (research notes, 2026-09-29)
 
 > **Outcome (2026-09-29)**: the owner chose **Kalamo** to replace the former name, which reads as "manure" or "garbage" in Arabic and Hebrew (ADR-0069, #172). This note keeps the candidate evidence and states what was not checked. The rename itself is ADR-0069.
 
@@ -19,7 +19,7 @@ Legend: ✅ free / unregistered, ❌ taken / registered.
 
 | # | Name | Verdict |
 |---|---|---|
-| 1 | **Kalamo** | Recommended |
+| 1 | **Kalamo** | Recommended, chosen |
 | 2 | **Duktus** | Recommended |
 | 3 | **Pennel** | Recommended |
 | 4 | Kalamos | Backup variant of #1 only |
