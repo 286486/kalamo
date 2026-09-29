@@ -63,7 +63,7 @@ _Avoid_: End point、Tip、Terminal
 _Avoid_: Orphan point、Lone anchor
 
 **Live Shape（实时形状）**：
-由参数（宽高、圆角、边数、内外半径、起止角、端点、圈数）定义的 Node，如矩形、椭圆、多边形、星形、直线（Illustrator 的 Live Line，端点 `x1, y1, x2, y2`）、螺旋线。多边形和星形另有 Inkscape 的 `angle`（首个顶点方向）、`rounded`（圆滑）、`randomized`（随机扰动），星形还有 `twist`（内顶点扭转）（ADR-0024）。椭圆的起止角 `startAngle` / `endAngle` 从 3 点钟方向顺时针量，弧类型 `arcType` 为 `slice`（扇形）、`chord`（弓形）或 `open`（开放弧）（ADR-0025）。螺旋线（spiral）用 Inkscape 的参数：中心 `cx, cy`、外端半径 `radius`、圈数 `revolution`、展开 `expansion`、起始方向 `argument`（度，从 3 点钟方向顺时针）与内端起点 `t0`；它总是开放的，从中心向外顺时针旋转，逆时针的螺旋线是镜像放在 `transform` 里的同一条螺旋线。Illustrator 的 Decay / Segments 只是 Spiral 工具的选项，映射到这些参数（ADR-0060）。Arc 工具画的弧不是 Live Shape，而是普通 Path，其类型、基准轴与斜率只是工具选项（ADR-0059）。Rectangular Grid / Polar Grid 工具画的网格也不是 Live Shape，而是一个 Group，子级是 Live Shape（矩形网格：外框 `rect` 与每条分隔线一个 `line`），分隔线数量与偏斜只是工具选项（ADR-0061）。锚点级编辑会把它转为 Path。它的派生几何以 `d` 形式只读暴露。
+由参数（宽高、圆角、边数、内外半径、起止角、端点、圈数）定义的 Node，如矩形、椭圆、多边形、星形、直线（Illustrator 的 Live Line，端点 `x1, y1, x2, y2`）、螺旋线。多边形和星形另有 Inkscape 的 `angle`（首个顶点方向）、`rounded`（圆滑）、`randomized`（随机扰动），星形还有 `twist`（内顶点扭转）（ADR-0024）。椭圆的起止角 `startAngle` / `endAngle` 从 3 点钟方向顺时针量，弧类型 `arcType` 为 `slice`（扇形）、`chord`（弓形）或 `open`（开放弧）（ADR-0025）。螺旋线（spiral）用 Inkscape 的参数：中心 `cx, cy`、外端半径 `radius`、圈数 `revolution`、展开 `expansion`、起始方向 `argument`（度，从 3 点钟方向顺时针）与内端起点 `t0`；它总是开放的，从中心向外顺时针旋转，逆时针的螺旋线是镜像放在 `transform` 里的同一条螺旋线。Illustrator 的 Decay / Segments 只是 Spiral 工具的选项，映射到这些参数（ADR-0060）。Arc 工具画的弧不是 Live Shape，而是普通 Path，其类型、基准轴与斜率只是工具选项（ADR-0059）。Rectangular Grid / Polar Grid 工具画的网格也不是 Live Shape，而是一个 Group，子级是 Live Shape（矩形网格：外框 `rect` 与每条分隔线一个 `line`；极坐标网格：外椭圆与每条同心分隔线一个 `ellipse`、每条径向分隔线一个 `line`），分隔线数量与偏斜只是工具选项（ADR-0061）。锚点级编辑会把它转为 Path。它的派生几何以 `d` 形式只读暴露。
 _Avoid_: Primitive、Basic shape、Parametric shape
 
 **Compound Path（复合路径）**：

@@ -298,7 +298,7 @@ const unholdSpiral = (spiral: SpiralOption, art: SpiralArt | null): SpiralOption
     ? { segments: art.revolution * 4, decay: 100 * 0.8 ** art.expansion, hold: null }
     : { ...spiral, hold: null };
 
-/** One direction's dividers in Illustrator's Rectangular Grid options: how many, and their skew in %. */
+/** One kind of dividers in Illustrator's grid tool options: how many, and their skew in %. */
 export interface Dividers {
   count: number;
   skew: number;
@@ -369,14 +369,92 @@ const GRID_KEYS = new Map<string, [keyof GridOption, keyof Dividers, number]>([
 ]);
 const DIVIDER_BOUNDS = { count: [0, 999], skew: [-500, 500] } as const;
 
-/** The Rectangular Grid tool's option after `key` during a drag (ADR-0061), or null for another key. */
-export function gridKey(grid: GridOption, key: string): GridOption | null {
-  const change = GRID_KEYS.get(key);
+/** A grid option after `key` during a drag, by `keys` (ADR-0061), or null for another key. */
+function dividersKey<O extends Record<keyof O, Dividers>>(
+  keys: Map<string, [keyof O, keyof Dividers, number]>,
+  grid: O,
+  key: string,
+): O | null {
+  const change = keys.get(key);
   if (!change) return null;
   const [axis, field, by] = change;
   const [min, max] = DIVIDER_BOUNDS[field];
   return { ...grid, [axis]: { ...grid[axis], [field]: clamp(grid[axis][field] + by, min, max) } };
 }
+
+/** The Rectangular Grid tool's option after `key` during a drag (ADR-0061), or null for another key. */
+export const gridKey = (grid: GridOption, key: string) => dividersKey(GRID_KEYS, grid, key);
+
+/** The Polar Grid tool's option (ADR-0061): its concentric and radial dividers. */
+export interface PolarGridOption {
+  concentric: Dividers;
+  radial: Dividers;
+}
+
+/** A Polar Grid: its outer ellipse, its concentric dividers, then its radial ones (ADR-0061). */
+type PolarGridArt = GroupArt & { children: [ShapeBox, ...(ShapeBox | LineArt)[]] };
+
+/**
+ * The polar grid a drag from `press` to `p` draws (ADR-0061), as Illustrator's Polar Grid tool
+ * does: `dragBox`'s box as its outer ellipse; its concentric dividers from the centre out, skewed
+ * toward the outside; then its radial dividers, one line each from the centre to the outer
+ * ellipse, clockwise from 12 o'clock and skewed clockwise.
+ */
+export function dragPolarGrid(
+  press: Point,
+  p: Point,
+  mods: Pick<KeyMods, "shift" | "alt">,
+  { concentric, radial }: PolarGridOption,
+): PolarGridArt {
+  const outer = dragBox(press, p, mods);
+  const [rx, ry] = [outer.width / 2, outer.height / 2];
+  const [cx, cy] = [outer.x + rx, outer.y + ry];
+  // n radial dividers cut n sectors: the first at 0, the rest where n − 1 dividers split the turn.
+  const turns = radial.count
+    ? [0, ...dividerFractions({ ...radial, count: radial.count - 1 })]
+    : [];
+  return {
+    type: "group",
+    children: [
+      { type: "ellipse", ...outer },
+      ...dividerFractions(concentric).map(
+        (f): ShapeBox => ({
+          type: "ellipse",
+          x: cx - f * rx,
+          y: cy - f * ry,
+          width: 2 * f * rx,
+          height: 2 * f * ry,
+        }),
+      ),
+      ...turns.map((t): LineArt => {
+        const a = 2 * Math.PI * t;
+        return {
+          type: "line",
+          x1: cx,
+          y1: cy,
+          x2: cx + rx * Math.sin(a),
+          y2: cy - ry * Math.cos(a),
+        };
+      }),
+    ],
+  };
+}
+
+/** Each Polar Grid key's change (ADR-0061), from Illustrator's keyboard shortcuts for drawing. */
+const POLAR_GRID_KEYS = new Map<string, [keyof PolarGridOption, keyof Dividers, number]>([
+  ["ArrowUp", ["concentric", "count", 1]],
+  ["ArrowDown", ["concentric", "count", -1]],
+  ["ArrowRight", ["radial", "count", 1]],
+  ["ArrowLeft", ["radial", "count", -1]],
+  ["C", ["concentric", "skew", 10]],
+  ["X", ["concentric", "skew", -10]],
+  ["V", ["radial", "skew", 10]],
+  ["F", ["radial", "skew", -10]],
+]);
+
+/** The Polar Grid tool's option after `key` during a drag (ADR-0061), or null for another key. */
+export const polarGridKey = (grid: PolarGridOption, key: string) =>
+  dividersKey(POLAR_GRID_KEYS, grid, key);
 
 /**
  * What a shape tool's drag draws, and the option (corner radius, side count, a star's radii) its
@@ -660,6 +738,27 @@ export const rectangularGridTool = shapeTool<GridArt, GridOption>(
     art: dragGrid,
     visible: ({ children: [frame] }) => frame.width > 0 && frame.height > 0,
     key: gridKey,
+    unfilled: () => true,
+  },
+);
+
+/**
+ * Illustrator's Polar Grid tool (ADR-0061) with Fill Grid off, its default: a Group of concentric
+ * ellipses and radial lines, each in the current Stroke and no Fill. The arrows add and remove
+ * dividers, and X, C, F and V skew them; the counts and skews carry over, from 5 and 5 at 0%.
+ */
+export const polarGridTool = shapeTool<PolarGridArt, PolarGridOption>(
+  {
+    title: "Polar Grid Tool",
+    shortcut: "",
+    group: "line",
+    icon: "M2 8 A6 6 0 1 0 14 8 A6 6 0 1 0 2 8 Z M5 8 A3 3 0 1 0 11 8 A3 3 0 1 0 5 8 Z M8 2 V14 M2 8 H14",
+  },
+  {
+    option: { concentric: { count: 5, skew: 0 }, radial: { count: 5, skew: 0 } },
+    art: dragPolarGrid,
+    visible: ({ children: [outer] }) => outer.width > 0 && outer.height > 0,
+    key: polarGridKey,
     unfilled: () => true,
   },
 );
