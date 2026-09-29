@@ -725,6 +725,8 @@ function containerPaints(
  * (ADR-0013). `chunked`, for resvg, which picks one face for a whole text chunk, starts a chunk at
  * the character's own x wherever the bundled family a character draws in changes, naming a family
  * other than the text's first (ADR-0063); Inkscape and browsers fall back per character themselves.
+ * Otherwise a run of spaces after a character another bundled family draws is a tspan of its own,
+ * which Pango draws in the text's family as Zibel does, not in that character's (ADR-0067).
  */
 function text(n: TextNode, a: Attrs, extra: (string | false)[], chunked: boolean): string {
   const { lines, overflow } = layoutText(n);
@@ -749,10 +751,15 @@ function text(n: TextNode, a: Attrs, extra: (string | false)[], chunked: boolean
   let shown = 0;
   /** The characters of `t` from code point `start`, and whether they are laid out, so may chunk. */
   const spans = (start: number, t: string, laidOut: boolean) => {
-    /** Runs of characters, each with the attributes that set it apart and the x a chunk starts at. */
-    const runs: { attrs: string; x?: number; text: string }[] = [];
+    /**
+     * Runs of characters, each with the attributes that set it apart, the x a chunk starts at, and
+     * whether it is spaces that need a tspan of their own (ADR-0067).
+     */
+    const runs: { attrs: string; x?: number; text: string; alone: boolean }[] = [];
     let family = first;
     let [index, range] = [start - 1, 0];
+    // Not for resvg: the family of the last character on the line that is not a space (ADR-0067).
+    let before: string | undefined;
     for (const char of t) {
       index++;
       while ((ranges[range]?.end ?? Infinity) <= index) range++;
@@ -761,18 +768,24 @@ function text(n: TextNode, a: Attrs, extra: (string | false)[], chunked: boolean
       const drawn = chunked && laidOut && char !== "\n" ? drawnFamily(n, char) : family;
       const chunk = drawn !== family && origin !== undefined;
       family = drawn;
+      let alone = false;
+      if (!chunked) {
+        const f = drawnFamily(n, char);
+        if (char === " " || char === "\u00a0") alone = before !== undefined && f !== before;
+        else before = char === "\n" ? undefined : f;
+      }
       const own = attrs({
         ...(r && r.start <= index && overrides(r)),
         "font-family": family === first ? undefined : family,
       });
       const last = runs.at(-1);
-      if (!chunk && last?.attrs === own) last.text += char;
-      else runs.push({ attrs: own, x: chunk ? origin : undefined, text: char });
+      if (!chunk && last?.attrs === own && last.alone === alone) last.text += char;
+      else runs.push({ attrs: own, x: chunk ? origin : undefined, text: char, alone });
     }
     return runs
-      .map(({ attrs: own, x, text }) => {
+      .map(({ attrs: own, x, text, alone }) => {
         const at = x === undefined ? "" : attrs({ x: formatNumber(x) });
-        return own || at ? `<tspan${at}${own}>${esc(text)}</tspan>` : esc(text);
+        return own || at || alone ? `<tspan${at}${own}>${esc(text)}</tspan>` : esc(text);
       })
       .join("");
   };
