@@ -85,7 +85,7 @@ _Avoid_: Label、Text box、Text element
 _Avoid_: Point text、Label、Single-line text
 
 **Area Type（区域文字）**：
-在一个矩形框内自动换行的 Text，`kind: "area"`，`x, y, width, height` 就是那个框。拉丁文在空格处换行，中日韩文在字符间换行（ADR-0064）。放不下的文字是溢出（Overflow），不绘制，写入时回执警告 `TEXT_OVERFLOW`（ADR-0022）。
+在一个矩形框内自动换行的 Text，`kind: "area"`，`x, y, width, height` 就是那个框。拉丁文在空格处换行，中文、日文、韩文在字符间换行（ADR-0064）。放不下的文字是溢出（Overflow），不绘制，写入时回执警告 `TEXT_OVERFLOW`（ADR-0022）。
 _Avoid_: Text box、Paragraph text、Flowed text
 
 **Font Style（字体样式）**：

@@ -16,7 +16,7 @@ import {
 } from "./text.ts";
 
 // Read straight from SourceSans3-Regular.ttf, not from the generated table: unitsPerEm 1000,
-// hhea ascender 1000 and descender -326; advances H 652, i 246, space 200, .notdef 653.
+// typographic ascender 1000 and descender -326; advances H 652, i 246, space 200, .notdef 653.
 const at12 = (units: number) => (units * 12) / 1000;
 
 it("measures a line by its advance widths, from the ascender to the descender", () => {
@@ -323,6 +323,16 @@ it("stacks Area Type lines by the em boxes of the families they draw in, as Inks
   expect(area("Hi\n中文", { width: 100, height: 28.8 }).lines).toHaveLength(2);
   expect(area("中文\nHi", { width: 100, height: 28.87 }).lines).toHaveLength(1);
   expect(area("中文\nHi", { width: 100, height: 28.871 }).lines).toHaveLength(2);
+});
+
+it("never starts an Area Type line with closing punctuation, small kana or ー, nor ends one with opening", () => {
+  const lines = (content: string, width: number) =>
+    area(content, { width, height: 100 }).lines.map((l) => l.text);
+  expect(lines("你好。世界、再见", 24)).toEqual(["你", "好。", "世", "界、", "再见"]);
+  expect(lines("你（好）吗", 36)).toEqual(["你", "（好）", "吗"]);
+  expect(lines("ちょっとコーヒー", 36)).toEqual(["ちょっ", "とコー", "ヒー"]);
+  // Hangul measures at Source Sans 3's .notdef advance, 653 units, until #164.
+  expect(lines("한국어문장", 24)).toEqual(["한국어", "문장"]);
 });
 
 it("keeps a punctuation-bound cluster together, overflowing only when it alone is wider", () => {

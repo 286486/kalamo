@@ -334,7 +334,7 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 - **F-TEXT-01** 三种文本对象：Point Type（T 点击）、Area Type（T 拖框或点击闭合路径内）、Type on a Path（点击路径）；纵排（P2）。（P0 点 / 区域；P1 路径文字）
 - **F-TEXT-02** 字符属性：字体族 / 样式（系统字体 + Google Fonts + 上传 TTF / OTF / WOFF2）、字号、行距、字距（kerning：metrics / optical / 手动）、字符间距（tracking）、水平 / 垂直缩放、基线偏移、旋转、大小写、上下标、下划线 / 删除线、颜色（fill / stroke 独立）。（P0 常用项；P1 全部）字体样式 `fontStyle` 为 Illustrator 样式名，内置 Source Sans 3 的 Regular、Italic、Bold、Bold Italic、Black、Black Italic（ADR-0028），以及 Noto Sans SC 的 Regular、Bold，Source Sans 3 缺字形的字符逐字回退到它（ADR-0063）。字符间距 `tracking` 在 Node 上；逐字符的颜色、基线偏移与旋转是 `ranges` 中的 Character Range（ADR-0029）。
 - **F-TEXT-03** 段落属性：左 / 中 / 右 / 两端对齐、缩进、段前后距、连字符（P2）、制表符（P2）。（P0 对齐缩进）
-- **F-TEXT-04** 区域文字：自动换行、溢出标记、串接文本框（threading，P2）、行列分栏（P2）、Auto Size。（P0 基础）矩形框、自动换行与溢出警告见 ADR-0022，中文、日文、韩文在字符间换行并避开行首行尾禁则标点（ADR-0064）；任意闭合路径内的区域文字、点 / 区域互转暂缓。
+- **F-TEXT-04** 区域文字：自动换行、溢出标记、串接文本框（threading，P2）、行列分栏（P2）、Auto Size。（P0 基础）矩形框、自动换行与溢出警告见 ADR-0022，中文、日文、韩文在字符间换行，句号、闭括号等不居行首，开括号不居行尾（ADR-0064）；任意闭合路径内的区域文字、点 / 区域互转暂缓。
 - **F-TEXT-05** 路径文字：沿路径起止滑块、翻转、对齐基线 / 上 / 下 / 中、效果（Rainbow / Skew / 3D Ribbon / Stair / Gravity，P2）。（P1）
 - **F-TEXT-06** Create Outlines（Shift+Ctrl+O）：文字转曲为 Path 组，每个字形一个 Path（带洞的字形是多子路径的 Compound Path），逐字形可编辑。（P0）
 - **F-TEXT-07** OpenType 特性：连字、替代字形、数字样式、样式集；Glyphs 面板。（P2）

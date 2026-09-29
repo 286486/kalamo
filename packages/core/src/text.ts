@@ -303,11 +303,9 @@ export function layoutText(text: TextLayout): { lines: TextLine[]; overflow: str
   // line is taller than the strut; and a unit wider than the frame overflows with all that follows.
   const push = (l: string) => {
     const { ascent, descent } = lineBox(l);
-    const shows = lines.length
-      ? ascent > strut.ascent
-        ? leading
-        : 0.9 * leading
-      : 0.9 * (ascent + descent);
+    let shows = 0.9 * leading;
+    if (!lines.length) shows = 0.9 * (ascent + descent);
+    else if (ascent > strut.ascent) shows = leading;
     if (top + shows > height + 1e-9 * leading) return false;
     lines.push(line(l, y + top + ascent));
     top += ascent + descent;
