@@ -137,7 +137,10 @@ const unhold = (star: StarOption, art: StarArt | null): StarOption => ({
   inner: null,
 });
 
-/** What a shape tool's drag draws, and the option (corner radius, side count) its keys change. */
+/**
+ * What a shape tool's drag draws, and the option (corner radius, side count, a star's radii) its
+ * keys and modifiers change.
+ */
 interface DragShape<A extends NewArt, O> {
   /** The option the session's first drag starts with. */
   option: O;
@@ -308,19 +311,17 @@ export const starTool = shapeTool<StarArt, StarOption>(
   {
     // Illustrator's default star: 5 points, radii 50 pt and 25 pt.
     option: { points: 5, ratio: 0.5, inner: null },
-    art: (origin, p, mods, star) => dragStar(origin, p, mods, star),
+    art: dragStar,
     visible: (star) => star.outerRadius > 0,
     key: (star, key) => {
       const points = countKey(star.points, key);
       return points === null ? null : { ...star, points };
     },
     // Ctrl pressed holds the inner radius drawn; released, it leaves the ratio that drew.
-    mods: (star, { ctrl }, art) =>
-      ctrl
-        ? star.inner === null && art
-          ? { ...star, inner: art.innerRadius }
-          : star
-        : unhold(star, art),
-    keep: (star, art) => unhold(star, art),
+    mods(star, { ctrl }, art) {
+      if (!ctrl) return unhold(star, art);
+      return star.inner === null && art ? { ...star, inner: art.innerRadius } : star;
+    },
+    keep: unhold,
   },
 );

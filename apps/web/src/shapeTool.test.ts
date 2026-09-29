@@ -508,6 +508,24 @@ describe("dragStar", () => {
   });
 });
 
+it.each([
+  ["Polygon", polygonTool, "sides"],
+  ["Star", starTool, "points"],
+] as const)("the %s tool's Up stops at 1000 and Down at 3", (_, tool, count) => {
+  const press = (k: string, times: number) => {
+    tool.down(at([0, 0]));
+    for (let i = 0; i < times; i++) tool.keyChange?.({ ...NONE, key: k, down: true }, () => {});
+    tool.up?.(at([0, 20]));
+    return (sent() as { nodes: Record<string, unknown>[] }).nodes[0]?.[count];
+  };
+  expect(press("ArrowUp", 1000)).toBe(1000);
+  expect(press("ArrowUp", 1)).toBe(1000);
+  expect(press("ArrowDown", 1000)).toBe(3);
+  expect(press("ArrowDown", 1)).toBe(3);
+  // Back to the tools' defaults for the tests after.
+  press("ArrowUp", count === "sides" ? 3 : 2);
+});
+
 describe("the Star tool", () => {
   const key = (k: string, down = true, mods: Partial<typeof NONE> = {}) =>
     starTool.keyChange?.({ ...NONE, ...mods, key: k, down }, () => {});
