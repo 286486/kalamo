@@ -615,3 +615,33 @@ it("stages a Clipping Mask in a Transaction until commit", async () => {
   ok(await s.commitTx(txId, "agent-a"));
   expect(await layerChildren(s)).toHaveLength(1);
 });
+
+it("warns MISSING_GLYPHS in the receipt of a browser create or update Command", async () => {
+  const s = stub("glyphs");
+  const { defaultLayerId } = ok(
+    await s.create({ docId: "glyphs", name: "Doc", artboards, actor: "user" }),
+  );
+  // A browser Command reaches edit() through the socket; call it directly to read its receipt.
+  const edit = (command: object, commandId: string) =>
+    runInDurableObject(s, (instance) =>
+      (instance as unknown as { edit: (...a: unknown[]) => unknown }).edit(
+        command,
+        "user",
+        commandId,
+      ),
+    ) as Promise<{ createdIds: string[]; warnings: unknown[] }>;
+  const text = { type: "text", parentId: defaultLayerId, x: 10, y: 50, content: "Hi" };
+  const created = await edit({ type: "create", nodes: [{ ...text, content: "小" }] }, "c1");
+  const [id] = created.createdIds;
+  expect(created.warnings).toEqual([
+    expect.objectContaining({ code: "MISSING_GLYPHS", nodeId: id }),
+  ]);
+  const updated = await edit({ type: "update", nodeId: id, patch: { content: "动物" } }, "c2");
+  expect(updated.warnings).toEqual([
+    expect.objectContaining({
+      code: "MISSING_GLYPHS",
+      nodeId: id,
+      message: expect.stringContaining("动, 物;"),
+    }),
+  ]);
+});

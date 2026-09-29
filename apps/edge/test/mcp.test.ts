@@ -781,6 +781,38 @@ it("keeps a style Zibel lacks and warns FONT_MISSING naming the face it renders 
   expect(updated.structuredContent.warnings).toEqual([]);
 });
 
+it("writes a text with characters Source Sans 3 lacks and warns MISSING_GLYPHS naming them", async () => {
+  const doc = await newDoc();
+  const text = { type: "text", parentId: doc.defaultLayerId, x: 10, y: 50 };
+  const created = await call("zibel_node_create", {
+    docId: doc.docId,
+    nodes: [{ ...text, content: "Hi 小动物" }],
+  });
+  const [id] = created.structuredContent.createdIds as string[];
+  expect(created.structuredContent.warnings).toEqual([
+    {
+      code: "MISSING_GLYPHS",
+      nodeId: id,
+      message: expect.stringContaining("no glyphs for 小, 动, 物;"),
+    },
+  ]);
+  const update = (content: string) =>
+    call("zibel_node_update", { docId: doc.docId, updates: [{ nodeId: id, patch: { content } }] });
+  expect((await update("Hi")).structuredContent.warnings).toEqual([]);
+  expect((await update("你好")).structuredContent.warnings).toEqual([
+    expect.objectContaining({ code: "MISSING_GLYPHS", nodeId: id }),
+  ]);
+  expect((await update("Hi")).structuredContent.warnings).toEqual([]);
+  const other = await call("zibel_node_create", {
+    docId: doc.docId,
+    nodes: [{ ...text, content: "你好", fontFamily: "Noto Sans SC" }],
+  });
+  expect(other.structuredContent.warnings.map((w: { code: string }) => w.code)).toEqual([
+    "FONT_MISSING",
+    "MISSING_GLYPHS",
+  ]);
+});
+
 it("keeps a font Zibel lacks, warns FONT_MISSING and renders it in Source Sans 3", async () => {
   const doc = await newDoc();
   const created = await call("zibel_node_create", {
@@ -1560,6 +1592,24 @@ describe("zibel_json", () => {
     });
     expect(await count()).toBe(before + 1);
   });
+});
+
+it("opens and places an SVG set in CJK with one MISSING_GLYPHS for the file", async () => {
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="50"><text x="0" y="10">小动</text><text x="0" y="30">动物</text></svg>';
+  const glyphs = [
+    {
+      code: "MISSING_GLYPHS",
+      nodeId: expect.any(String),
+      message: expect.stringContaining("no glyphs for 小, 动, 物;"),
+    },
+  ];
+  expect((await call("zibel_doc_open", { content: svg })).structuredContent.warnings).toEqual(
+    glyphs,
+  );
+  const { docId, defaultLayerId } = await newDoc();
+  const placed = await call("zibel_svg_import", { docId, svg, parentId: defaultLayerId });
+  expect(placed.structuredContent.warnings).toEqual(glyphs);
 });
 
 it("places an SVG as one Group under the parent, and refuses a .zibel.json", async () => {

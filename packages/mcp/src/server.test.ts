@@ -925,6 +925,7 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
   expect(described("zibel_node_create")).not.toContain("origin top-left");
   expect(described("zibel_node_create")).toContain("text {");
   expect(described("zibel_node_create")).toContain("TEXT_OVERFLOW");
+  expect(described("zibel_node_create")).toContain("MISSING_GLYPHS");
   expect(described("zibel_node_update")).toContain("leading");
   expect(described("zibel_node_create")).toContain("Bold Italic");
   expect(described("zibel_node_update")).toContain("fontStyle");
@@ -1021,6 +1022,7 @@ it("serves skill://zibel/drawing-conventions and points at it in the instruction
     "INVALID_DOCUMENT",
     "SVG",
     "FONT_MISSING",
+    "MISSING_GLYPHS",
     "LIMIT_EXCEEDED",
     "## Images",
     "INVALID_IMAGE",

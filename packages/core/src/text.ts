@@ -127,6 +127,8 @@ export interface TextLine {
   start: number;
 }
 
+type Warning = WriteReceipt["warnings"][number];
+
 type Face = { advances: Record<number, number>; notdef: number };
 
 const advanceOf = (ch: string, { advances, notdef }: Face) =>
@@ -289,7 +291,7 @@ const faceName = (family: string, style: FontStyle) =>
   style === "Regular" ? family : `${family} ${style}`;
 
 /** A `FONT_MISSING` warning for each text whose family or style is not bundled (ADR-0017, ADR-0028). */
-export function fontWarnings(nodes: Node[]): WriteReceipt["warnings"] {
+export function fontWarnings(nodes: Node[]): Warning[] {
   return nodes.flatMap((n) => {
     if (n.type !== "text") return [];
     const style = n.fontStyle ?? "Regular";
@@ -306,8 +308,55 @@ export function fontWarnings(nodes: Node[]): WriteReceipt["warnings"] {
   });
 }
 
+/** The distinct characters of `content` the face a text draws in lacks, in order; `\n` is a hard return. */
+function missingGlyphs(text: Extract<Node, { type: "text" }>): string[] {
+  const { advances }: Face = SOURCE_SANS_3.faces[bundledStyle(text.fontStyle)];
+  return [...new Set(text.content)].filter(
+    (ch) => ch !== "\n" && advances[ch.codePointAt(0) as number] === undefined,
+  );
+}
+
+const MISSING_GLYPHS_NAMED = 20;
+const missingGlyphsWarning = (nodeId: string, chars: string[]): Warning => {
+  const more = chars.length - MISSING_GLYPHS_NAMED;
+  const named =
+    chars.slice(0, MISSING_GLYPHS_NAMED).join(", ") + (more > 0 ? ` and ${more} more` : "");
+  return {
+    code: "MISSING_GLYPHS",
+    nodeId,
+    message: `${BUNDLED_FONT} has no glyphs for ${named}; they render as .notdef boxes and measure as its width.`,
+  };
+};
+
+/**
+ * A `MISSING_GLYPHS` warning for each text with characters the face it draws in lacks (ADR-0062). The
+ * face, not `fontFamily`, decides: every text draws in Source Sans 3.
+ */
+export function glyphWarnings(nodes: Node[]): Warning[] {
+  return nodes.flatMap((n) => {
+    const chars = n.type === "text" ? missingGlyphs(n) : [];
+    return chars.length ? [missingGlyphsWarning(n.id, chars)] : [];
+  });
+}
+
+/**
+ * One `MISSING_GLYPHS` warning for a whole file, as Open and Place report it (ADR-0062): the union of
+ * its texts' missing characters, on the first text that has one.
+ */
+export function fileGlyphWarnings(nodes: Node[]): Warning[] {
+  let first: string | undefined;
+  const chars = new Set<string>();
+  for (const n of nodes) {
+    if (n.type !== "text") continue;
+    const missing = missingGlyphs(n);
+    if (missing.length) first ??= n.id;
+    for (const ch of missing) chars.add(ch);
+  }
+  return first ? [missingGlyphsWarning(first, [...chars])] : [];
+}
+
 /** A `TEXT_OVERFLOW` warning for each Area Type whose content does not all fit (ADR-0022). */
-export function overflowWarnings(nodes: Node[]): WriteReceipt["warnings"] {
+export function overflowWarnings(nodes: Node[]): Warning[] {
   return nodes.flatMap((n) => {
     const overflow = n.type === "text" ? layoutText(n).overflow : "";
     return overflow
@@ -321,3 +370,10 @@ export function overflowWarnings(nodes: Node[]): WriteReceipt["warnings"] {
       : [];
   });
 }
+
+/** Every text warning a write that creates or updates Nodes reports in its receipt. */
+export const textWarnings = (nodes: Node[]): Warning[] => [
+  ...fontWarnings(nodes),
+  ...glyphWarnings(nodes),
+  ...overflowWarnings(nodes),
+];
