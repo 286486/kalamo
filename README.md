@@ -103,7 +103,7 @@ curl -sI https://kalamo.cc/        # 200 once #186 binds the domain
 curl -sI https://kalamo.cc/index.html # 404
 ```
 
-and check the account's custom domains (`GET /accounts/<account>/workers/domains`) list only the domains meant for `kalamo-site`.
+and check that the account's custom domains (`GET /accounts/<account>/workers/domains`) show no domain for `kalamo-site` until #186 binds `kalamo.cc`, and only that one after.
 
 To roll back:
 

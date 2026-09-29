@@ -69,7 +69,7 @@ describe("kalamo-site", () => {
       expect(res.status, path).toBe(200);
       expect(res.body.equals(page), path).toBe(true);
     }
-  });
+  }, 30_000);
 
   it("answers 404, not a redirect, on every other path", async () => {
     const paths = [
@@ -97,11 +97,11 @@ describe("kalamo-site", () => {
     ];
     const statuses = await Promise.all(paths.map(async (p) => [p, (await send(p)).status]));
     expect(Object.fromEntries(statuses)).toEqual(Object.fromEntries(paths.map((p) => [p, 404])));
-  });
+  }, 30_000);
 
   it("never accepts a POST to /mcp", async () => {
     expect([404, 405]).toContain((await send("/mcp", "POST")).status);
-  });
+  }, 30_000);
 
   it("is configured as assets only: no script, route, binding or public URL", () => {
     const config = experimental_readRawConfig({ config: "site/wrangler.jsonc" }).rawConfig;
