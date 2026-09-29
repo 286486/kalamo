@@ -1,7 +1,6 @@
 // The landing page Worker kalamo-site (#185), under a local `wrangler dev` of site/wrangler.jsonc:
 // the page at / byte for byte, a 404 for every other path (or a 307 to /index.html, which 404s), and a
 // config with nothing but assets.
-import { type ChildProcess, spawn } from "node:child_process";
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { request } from "node:http";
 import { createServer } from "node:net";
@@ -9,10 +8,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { experimental_readRawConfig } from "wrangler";
+import { startServer } from "./wrangler.ts";
 
 const page = readFileSync("site/public/index.html");
 let port = 0;
-let server: ChildProcess | undefined;
+let server: { stop(): void } | undefined;
 let state = "";
 
 /** A request with the path sent as written (no URL normalisation) and no redirect following. node:http
@@ -50,25 +50,15 @@ function freePort(): Promise<number> {
 beforeAll(async () => {
   port = await freePort();
   state = mkdtempSync(join(tmpdir(), "kalamo-site-"));
-  server = spawn(
-    "wrangler",
-    ["dev", "-c", "site/wrangler.jsonc", "--port", String(port), "--persist-to", state],
-    { detached: true, stdio: "ignore" },
-  );
-  for (let i = 0; i < 120; i++) {
-    if (server.exitCode !== null) throw new Error("wrangler dev exited");
-    try {
-      if ((await send("/")).status === 200) return;
-    } catch {}
-    await new Promise((r) => setTimeout(r, 250));
-  }
-  throw new Error("wrangler dev did not answer in 30 s");
+  server = await startServer(port, state, {
+    args: ["-c", "site/wrangler.jsonc"],
+    ready: "/",
+    seconds: 25,
+  });
 }, 30_000);
 
 afterAll(() => {
-  try {
-    if (server?.pid) process.kill(-server.pid, "SIGTERM");
-  } catch {} // already exited
+  server?.stop();
   rmSync(state, { recursive: true, force: true });
 });
 
