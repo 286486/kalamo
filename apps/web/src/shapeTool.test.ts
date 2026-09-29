@@ -1,14 +1,17 @@
 import { createDocument, createNodes, Shape, shapeSegments } from "@zibel/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  countKey,
   dragBox,
   dragRadial,
+  dragStar,
   ellipseTool,
   polygonTool,
   radiusKey,
   rectangleTool,
   roundedRectangleTool,
-  sidesKey,
+  shouldersRatio,
+  starTool,
   uprightAngle,
 } from "./shapeTool.ts";
 import { send, useStore } from "./store.ts";
@@ -20,7 +23,7 @@ vi.mock("./store.ts", async (original) => ({
 }));
 
 type Point = [number, number];
-const NONE = { shift: false, alt: false, space: false };
+const NONE = { shift: false, alt: false, ctrl: false, space: false };
 
 describe("dragBox", () => {
   const press: Point = [10, 10];
@@ -316,7 +319,7 @@ describe("dragRadial", () => {
       [[0, 10], false],
       [[7, -3], true],
     ] as const) {
-      const { radius, angle } = dragRadial([0, 0], [...p], { shift }, n);
+      const { radius, angle } = dragRadial([0, 0], [...p], { shift }, uprightAngle(n));
       const [a, b] = bottom(vertices(n, angle));
       expect(a?.[1]).toBeCloseTo(b?.[1] ?? Number.NaN, 9);
       expect(radius).toBeCloseTo(Math.hypot(...p), 9);
@@ -331,21 +334,28 @@ describe("dragRadial", () => {
 
   it("centres on the press, and turns with the pointer's direction", () => {
     const press: Point = [10, 20];
-    expect(dragRadial(press, [10, 30], NONE, 6)).toEqual({ cx: 10, cy: 20, radius: 10, angle: 30 });
+    expect(dragRadial(press, [10, 30], NONE, uprightAngle(6))).toEqual({
+      cx: 10,
+      cy: 20,
+      radius: 10,
+      angle: 30,
+    });
     // Clockwise on screen: from straight down to the left is a quarter turn.
-    expect(dragRadial(press, [0, 20], NONE, 6).angle).toBeCloseTo(120, 9);
-    expect(dragRadial(press, [20, 20], NONE, 6).angle).toBeCloseTo(300, 9);
-    expect(dragRadial(press, [10, 10], NONE, 5).angle).toBeCloseTo(180, 9);
-    expect(dragRadial(press, [20, 30], { shift: true }, 5)).toMatchObject({ angle: 0 });
+    expect(dragRadial(press, [0, 20], NONE, uprightAngle(6)).angle).toBeCloseTo(120, 9);
+    expect(dragRadial(press, [20, 20], NONE, uprightAngle(6)).angle).toBeCloseTo(300, 9);
+    expect(dragRadial(press, [10, 10], NONE, uprightAngle(5)).angle).toBeCloseTo(180, 9);
+    expect(dragRadial(press, [20, 30], { shift: true }, uprightAngle(5))).toMatchObject({
+      angle: 0,
+    });
   });
 });
 
-it("sidesKey adds and removes a side with Up and Down, within 3…1000", () => {
-  expect(sidesKey(6, "ArrowUp")).toBe(7);
-  expect(sidesKey(6, "ArrowDown")).toBe(5);
-  expect(sidesKey(3, "ArrowDown")).toBe(3);
-  expect(sidesKey(1000, "ArrowUp")).toBe(1000);
-  expect(sidesKey(6, "ArrowLeft")).toBeNull();
+it("countKey adds and removes one with Up and Down, within 3…1000", () => {
+  expect(countKey(6, "ArrowUp")).toBe(7);
+  expect(countKey(6, "ArrowDown")).toBe(5);
+  expect(countKey(3, "ArrowDown")).toBe(3);
+  expect(countKey(1000, "ArrowUp")).toBe(1000);
+  expect(countKey(6, "ArrowLeft")).toBeNull();
 });
 
 describe("the Polygon tool", () => {
@@ -439,5 +449,150 @@ describe("the Polygon tool", () => {
     polygonTool.up?.(at([0, 0]));
     expect(send).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
+  });
+});
+
+describe("dragStar", () => {
+  const star = { points: 5, ratio: 0.5, inner: null };
+  /** The star's vertices, outer first, as core draws them. */
+  const vertices = (points: number, innerRadius: number) =>
+    shapeSegments(Shape.parse({ type: "star", cx: 0, cy: 0, outerRadius: 10, innerRadius, points }))
+      .filter((s) => s.cmd !== "Z")
+      .map((s) => s.args as Point);
+
+  it.each([5, 6])("a %i-point star dragged straight down, or with Shift, points up", (points) => {
+    expect(dragStar([10, 20], [10, 40], NONE, { ...star, points })).toEqual({
+      type: "star",
+      cx: 10,
+      cy: 20,
+      outerRadius: 20,
+      innerRadius: 10,
+      points,
+      angle: 0,
+    });
+    const shifted = dragStar([10, 20], [30, 5], { ...NONE, shift: true }, { ...star, points });
+    expect(shifted).toMatchObject({ outerRadius: 25, innerRadius: 12.5, angle: 0 });
+  });
+
+  it("turns with the drag, and Ctrl's held inner radius overrides the ratio", () => {
+    expect(dragStar([0, 0], [-20, 0], NONE, star).angle).toBeCloseTo(90, 9);
+    expect(dragStar([0, 0], [0, 30], NONE, { ...star, inner: 4 })).toMatchObject({
+      outerRadius: 30,
+      innerRadius: 4,
+    });
+  });
+
+  it.each([5, 6, 8])("Alt straightens a %i-point star's shoulders", (points) => {
+    const { innerRadius, outerRadius } = dragStar(
+      [0, 0],
+      [0, 10],
+      { ...NONE, alt: true },
+      {
+        ...star,
+        inner: 4,
+        points,
+      },
+    );
+    expect(innerRadius / outerRadius).toBeCloseTo(shouldersRatio(points) ?? Number.NaN, 12);
+    // Outer 0, inner 0, inner 1 and outer 2 lie on one line.
+    const [p0, q0, , q1, p2] = vertices(points, innerRadius) as [Point, Point, Point, Point, Point];
+    const cross = (a: Point, b: Point) =>
+      (b[0] - p0[0]) * (a[1] - p0[1]) - (b[1] - p0[1]) * (a[0] - p0[0]);
+    for (const v of [q0, q1]) expect(cross(v, p2)).toBeCloseTo(0, 9);
+  });
+
+  it.each([3, 4])("Alt does nothing to a %i-point star", (points) => {
+    expect(shouldersRatio(points)).toBeNull();
+    const plain = dragStar([0, 0], [0, 10], NONE, { ...star, points });
+    expect(dragStar([0, 0], [0, 10], { ...NONE, alt: true }, { ...star, points })).toEqual(plain);
+  });
+});
+
+describe("the Star tool", () => {
+  const key = (k: string, down = true, mods: Partial<typeof NONE> = {}) =>
+    starTool.keyChange?.({ ...NONE, ...mods, key: k, down }, () => {});
+  const created = () => {
+    const command = sent();
+    return command?.type === "create" ? command.nodes[0] : null;
+  };
+
+  // In order: the point count and ratio each drag leaves are the next one's.
+  it("draws 5 points at half the radius, and Up and Down change the count, which carries over", () => {
+    dragWith(starTool, [30, 40], [[30, 50]], [[30, 60]]);
+    expect(vi.mocked(send)).toHaveBeenCalledTimes(1);
+    expect(created()).toEqual({
+      type: "star",
+      parentId: defaultLayerId,
+      cx: 30,
+      cy: 40,
+      outerRadius: 20,
+      innerRadius: 10,
+      points: 5,
+      angle: 0,
+      appearance: { fills: [{ color: "#FF0000" }], strokes: [] },
+    });
+
+    starTool.down(at([0, 0]));
+    starTool.move?.(at([0, 20]));
+    expect([key("ArrowUp"), key("ArrowUp"), key("ArrowDown"), key("C")]).toEqual([
+      true,
+      true,
+      true,
+      false,
+    ]);
+    starTool.up?.(at([0, 20]));
+    expect(created()).toMatchObject({ points: 6, angle: 0 });
+    dragWith(starTool, [0, 0], [[0, 20]]);
+    expect(created()).toMatchObject({ points: 6 });
+
+    // Clamped to 3, and kept by a press that draws nothing.
+    starTool.down(at([0, 0]));
+    for (let i = 0; i < 10; i++) key("ArrowDown");
+    starTool.up?.(at([1, 1]));
+    dragWith(starTool, [0, 0], [[0, 20]]);
+    expect(created()).toMatchObject({ points: 3 });
+    for (let i = 0; i < 2; i++) {
+      starTool.down(at([0, 0]));
+      key("ArrowUp");
+      starTool.up?.(at([0, 20]));
+    }
+    expect(created()).toMatchObject({ points: 5 });
+  });
+
+  it("Ctrl holds the inner radius as the pointer moves, and its ratio holds once released", () => {
+    const ctrl = { ctrl: true };
+    starTool.down(at([0, 0]));
+    starTool.move?.(at([0, 20]));
+    key("Control", true, ctrl);
+    starTool.move?.(at([0, 40], ctrl));
+    starTool.move?.(at([0, 50], ctrl));
+    key("Control", false);
+    // 10 of 50: a ratio of 0.2 from here on.
+    starTool.move?.(at([0, 30]));
+    starTool.up?.(at([0, 30]));
+    expect(created()).toMatchObject({ outerRadius: 30, innerRadius: 6 });
+    dragWith(starTool, [0, 0], [[0, 10]]);
+    expect(created()).toMatchObject({ outerRadius: 10, innerRadius: 2 });
+    // Ctrl read from the move alone, held to the release.
+    dragWith(starTool, [0, 0], [[0, 20]], [[0, 20], ctrl], [[0, 80], ctrl]);
+    expect(created()).toMatchObject({ outerRadius: 80, innerRadius: 4 });
+    dragWith(starTool, [0, 0], [[0, 10]]);
+    expect(created()).toMatchObject({ outerRadius: 10, innerRadius: 0.5 });
+  });
+
+  it("Shift keeps it upright, Alt straightens its shoulders, and Space moves it", () => {
+    dragWith(starTool, [0, 0], [[-20, 0], { shift: true }]);
+    const { angle, outerRadius } = created() as { angle: number; outerRadius: number };
+    expect([angle, outerRadius]).toEqual([0, 20]);
+    dragWith(starTool, [0, 0], [[0, 20], { alt: true }]);
+    expect(created()).toMatchObject({ innerRadius: 20 * (shouldersRatio(5) ?? 0) });
+    const space = { space: true };
+    dragWith(starTool, [0, 0], [[0, 10]], [[5, 15], space], [[5, 25], space], [[5, 30]]);
+    expect(created()).toMatchObject({ cx: 5, cy: 15, outerRadius: 15, angle: 0 });
+  });
+
+  it("sends nothing dragged back to its centre", () => {
+    dragWith(starTool, [0, 0], [[20, 0]], [[0, 0]]);
+    expect(send).not.toHaveBeenCalled();
   });
 });

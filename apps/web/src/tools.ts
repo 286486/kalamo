@@ -66,7 +66,14 @@ export const NOTHING_DRAWN = "The Layer is hidden or locked; nothing was drawn."
 export type NewArt =
   | { type: "path"; d: string }
   | ShapeBox
-  | Pick<Extract<Shape, { type: "polygon" }>, "type" | "cx" | "cy" | "radius" | "sides" | "angle">;
+  | Pick<Extract<Shape, { type: "polygon" }>, "type" | "cx" | "cy" | "radius" | "sides" | "angle">
+  | StarArt;
+
+/** A star as the Star tool draws it: not twisted, rounded or randomized. */
+export type StarArt = Pick<
+  Extract<Shape, { type: "star" }>,
+  "type" | "cx" | "cy" | "outerRadius" | "innerRadius" | "points" | "angle"
+>;
 
 /**
  * The `create` input for drawn art: the current Fill and Stroke, in placeParent's Layer or

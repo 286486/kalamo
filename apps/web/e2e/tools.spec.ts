@@ -63,6 +63,7 @@ test("a group's flyout opens by hold, right-click or keyboard, and fronts the ch
     "Rounded Rectangle Tool",
     "Ellipse ToolL",
     "Polygon Tool",
+    "Star Tool",
   ]);
   await page.getByTestId("overlay").click({ position: { x: 600, y: 600 } });
   await expect(menu).toHaveCount(0);
