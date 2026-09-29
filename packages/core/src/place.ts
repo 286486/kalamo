@@ -2,6 +2,7 @@ import { generateKeyBetween, generateNKeysBetween } from "fractional-indexing";
 import { assertParent, bounds, childrenOf, createNodes, newId, union } from "./document.ts";
 import { transformNodes } from "./edit.ts";
 import type { Artboard, Document, Node, Rect, RenderScope, WriteReceipt } from "./schema.ts";
+import { FILE_TEXT_WARNING_CODES, fileTextWarnings } from "./text.ts";
 
 type Warning = WriteReceipt["warnings"][number];
 
@@ -30,7 +31,8 @@ function artboardOf(doc: Document, node: Node): Artboard | undefined {
  * land directly in the parent, in stacking order, less the Layers and Groups that only lead to a
  * listed Node. `placedIds` are the Nodes put in the parent, the Group or those, and `created`
  * starts with them. `warnings` are the file's, each `nodeId` renamed to its copy's id; one on a Node
- * that stays behind is dropped.
+ * that stays behind is dropped. The per-file `FONT_MISSING` and `MISSING_GLYPHS` are counted again
+ * over the texts Place copies, in file order as Open counts them (ADR-0017, ADR-0062).
  */
 export function placeNodes(
   doc: Document,
@@ -117,7 +119,11 @@ export function placeNodes(
   }
   const placed = new Set(placedIds);
   const rest = [...ids.values()].filter((id) => !placed.has(id));
-  const warnings = (file.warnings ?? []).flatMap((w) => {
+  const originals = file.nodes.filter((n) => ids.has(n.id));
+  const warnings = [
+    ...(file.warnings ?? []).filter((w) => !FILE_TEXT_WARNING_CODES.has(w.code)),
+    ...fileTextWarnings(originals),
+  ].flatMap((w) => {
     if (w.nodeId === undefined) return [w];
     const id = ids.get(w.nodeId);
     return id ? [{ ...w, nodeId: id }] : [];

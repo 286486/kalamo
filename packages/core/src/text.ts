@@ -308,6 +308,16 @@ export function fontWarnings(nodes: Node[]): Warning[] {
   });
 }
 
+/**
+ * One `FONT_MISSING` warning per missing face, as Open and Place report it (ADR-0017): a file set in
+ * one missing font says so once, on the first text in that face.
+ */
+export function fileFontWarnings(nodes: Node[]): Warning[] {
+  const faces = new Map<string, Warning>();
+  for (const w of fontWarnings(nodes)) if (!faces.has(w.message)) faces.set(w.message, w);
+  return [...faces.values()];
+}
+
 /** The distinct characters of `content` the face a text draws in lacks, in order; `\n` is a hard return. */
 function missingGlyphs(text: Extract<Node, { type: "text" }>): string[] {
   const { advances }: Face = SOURCE_SANS_3.faces[bundledStyle(text.fontStyle)];
@@ -354,6 +364,15 @@ export function fileGlyphWarnings(nodes: Node[]): Warning[] {
   }
   return first ? [missingGlyphsWarning(first, [...chars])] : [];
 }
+
+/** The codes `fileTextWarnings` keeps once per file or face, so one stands for several texts. */
+export const FILE_TEXT_WARNING_CODES = new Set(["FONT_MISSING", "MISSING_GLYPHS"]);
+
+/** The text warnings Open and Place report once per file (`FONT_MISSING` once per face), in order. */
+export const fileTextWarnings = (nodes: Node[]): Warning[] => [
+  ...fileFontWarnings(nodes),
+  ...fileGlyphWarnings(nodes),
+];
 
 /** A `TEXT_OVERFLOW` warning for each Area Type whose content does not all fit (ADR-0022). */
 export function overflowWarnings(nodes: Node[]): Warning[] {

@@ -1,4 +1,4 @@
-import { fileGlyphWarnings, fontWarnings, parseDocument, ZibelError } from "@zibel/core";
+import { fileTextWarnings, parseDocument, ZibelError } from "@zibel/core";
 import { type OpenedFile, parseSvg, type Warning } from "./read.ts";
 
 export { MAX_DEPTH, parseSvg, resolveLinks } from "./read.ts";
@@ -117,11 +117,7 @@ export function parseFile(
       path: "content",
     });
   }
-  // One per font, not per text: a file set in one missing font says so once. Its missing glyphs
-  // likewise, so a CJK poster warns once (ADR-0062).
-  const fonts = new Map<string, Warning>();
-  for (const w of fontWarnings(file.nodes)) if (!fonts.has(w.message)) fonts.set(w.message, w);
   const format = text.startsWith("<") ? "svg" : "zibel_json";
-  const warnings = [...file.warnings, ...fonts.values(), ...fileGlyphWarnings(file.nodes)];
+  const warnings = [...file.warnings, ...fileTextWarnings(file.nodes)];
   return { ...file, format, warnings };
 }
