@@ -5,7 +5,7 @@ date: 2026-09-25
 
 # The ellipse carries start and end angles and an arc type
 
-ADR-0017 lists an ellipse's start and end angles with slice, chord and open arc types as a Zibel gap: until they exist, Inkscape's `sodipodi:type="arc"` imports as a Path with `ARC_AS_PATH` (#35, F-DRAW-03). This ADR adds them.
+ADR-0017 lists an ellipse's start and end angles with slice, chord and open arc types as a Kalamo gap: until they exist, Inkscape's `sodipodi:type="arc"` imports as a Path with `ARC_AS_PATH` (#35, F-DRAW-03). This ADR adds them.
 
 ## The parameters
 
@@ -19,7 +19,7 @@ The names and the 0°/360° defaults are Illustrator's Pie Start Angle and Pie E
 
 An angle is **parametric**, as Inkscape's are: the point at angle `t` is `(cx + rx·cos t, cy + ry·sin t)`, the point at `t` on the circle the ellipse is stretched from. On a circle it is the polar angle. On any other ellipse it differs from the polar angle, but it survives a change of `width` or `height`: the pie keeps its share of the outline when the ellipse is stretched.
 
-The ranges make each outline one pair of numbers. 0° and 360° are the same direction, so a start of 360° is written 0° and an end of 0° is written 360°. Import normalises Inkscape's radians the same way, so a file's angle comes back as the number Zibel wrote.
+The ranges make each outline one pair of numbers. 0° and 360° are the same direction, so a start of 360° is written 0° and an end of 0° is written 360°. Import normalises Inkscape's radians the same way, so a file's angle comes back as the number Kalamo wrote.
 
 ## The geometry
 
@@ -29,7 +29,7 @@ The outline runs clockwise from `startAngle` to `endAngle`, through a sweep of `
 - `chord`: `M` at the start point, the arc, `Z`.
 - `open`: `M` at the start point and the arc, unclosed. Its Fill is drawn as if closed, as SVG and Canvas2D fill any open subpath.
 
-A sweep of 0 (the defaults, or equal angles) is the whole ellipse, closed, whatever the arc type, as Zibel drew it before this ADR. Inkscape draws a whole open arc unclosed, which only changes the line join at one point.
+A sweep of 0 (the defaults, or equal angles) is the whole ellipse, closed, whatever the arc type, as Kalamo drew it before this ADR. Inkscape draws a whole open arc unclosed, which only changes the line join at one point.
 
 `shapeSegments` draws them, so the canvas, `render` and export draw the same outline, and `node_get` returns it as `d`. `node_create` and `node_update` accept the three fields. `node_transform` composes into `transform` (ADR-0007) and leaves them alone.
 
@@ -41,7 +41,7 @@ A plain save in Inkscape keeps these attributes verbatim and rebuilds only the d
 
 **Import.** A `<path sodipodi:type="arc">` is an ellipse: `x = cx − rx`, `y = cy − ry`, `width = 2rx`, `height = 2ry`, baked and rounded as any ellipse (ADR-0017). `sodipodi:start` and `sodipodi:end` become degrees modulo 360, rounded to 3 decimals, a start of 360 read as 0 and an end of 0 as 360. A missing angle is 0, as Inkscape reads it. `sodipodi:arc-type` `chord` and `arc` are `chord` and `open`, any other value is `slice`; with no `arc-type`, `sodipodi:open="true"` is `open` and anything else `slice`, as Inkscape 1.2.2 reads them. The `d` is ignored, since Inkscape draws from the parameters too.
 
-`ARC_AS_PATH` now covers only an arc whose parameters Zibel cannot hold, a non-finite value or a negative radius: it imports as the Path its `d` draws.
+`ARC_AS_PATH` now covers only an arc whose parameters Kalamo cannot hold, a non-finite value or a negative radius: it imports as the Path its `d` draws.
 
 ## Considered Options
 
@@ -52,5 +52,5 @@ A plain save in Inkscape keeps these attributes verbatim and rebuilds only the d
 
 ## Consequences
 
-- Schema: the ellipse gains `startAngle`, `endAngle` and `arcType`. Existing Documents read them as the defaults, which draw what they drew: a `.zibel.json` through the schema defaults, a Node already stored where it is drawn and exported, without rewriting storage.
+- Schema: the ellipse gains `startAngle`, `endAngle` and `arcType`. Existing Documents read them as the defaults, which draw what they drew: a `.kalamo.json` through the schema defaults, a Node already stored where it is drawn and exported, without rewriting storage.
 - ADR-0017's ellipse row is amended: a partial ellipse, or one with a non-default arc type, is a `<path sodipodi:type="arc">`.

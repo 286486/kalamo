@@ -5,7 +5,7 @@ date: 2026-09-24
 
 # `render` and `export` share one scope; overlays are drawn into the SVG at pixel size
 
-An Agent looks at part of a Document with `zibel_render` and saves part of it with `zibel_export` (F-MCP-10, F-MCP-11, REQUIREMENTS §6.4). Both tools take the same scope and build the same SVG serialization; `render` adds overlays and caps the image size, `export` returns the artwork only.
+An Agent looks at part of a Document with `kalamo_render` and saves part of it with `kalamo_export` (F-MCP-10, F-MCP-11, REQUIREMENTS §6.4). Both tools take the same scope and build the same SVG serialization; `render` adds overlays and caps the image size, `export` returns the artwork only.
 
 - **Scope.** `scope` is one of `{artboardId}`, `{nodeIds}` or `{rect}`; omitted, it is the whole Document, the union of every Artboard, as before (for an SVG `export`, one Artboard with the others as pages outside it: ADR-0017). The scope fixes `docRect`, the area in document coordinates that the image covers.
   - `{artboardId}`: the Artboard's `frame`. Everything inside it is drawn, and everything outside is clipped away, as Illustrator exports an Artboard. An unknown id is `ARTBOARD_NOT_FOUND`.
@@ -19,7 +19,7 @@ An Agent looks at part of a Document with `zibel_render` and saves part of it wi
   - `ids`: each of those Nodes' id as a label at the top-left corner of its `geometricBounds`, with a white halo so it reads on any colour.
   - `artboards`: each Artboard's `frame` as a line in a colour distinct from `bounds`.
   - Hidden Nodes, and Nodes outside the nodeIds scope, get no overlay.
-- **Formats.** `export` takes `format: "svg" | "png"` (and `zibel_json` with #13) and returns the result inline: SVG as text content, PNG as image content. Overlays never appear in an export; it is the artwork the Agent hands on.
+- **Formats.** `export` takes `format: "svg" | "png"` (and `kalamo_json` with #13) and returns the result inline: SVG as text content, PNG as image content. Overlays never appear in an export; it is the artwork the Agent hands on.
 
 ## Considered Options
 

@@ -19,7 +19,7 @@ ADR-0022 wraps Area Type greedily at spaces. A Chinese, Japanese or Korean parag
 
 So `使用SVG格式` breaks as `使|用|SVG|格|式`, `「字」` is one unit, and a single ideograph, or a cluster such as `「字」`, overflows only when it alone is wider than the frame.
 
-**How it was checked.** Pango 1.50.12, the version Inkscape 1.2.2 links on this machine, was called through `pango_get_log_attrs`. Every assigned code point in the Han, kana, Hangul, Yi, CJK punctuation and full-width blocks, and in ASCII, Latin-1, General Punctuation, currency and letterlike symbols, was placed after and before `字`, and the CJK blocks also after and before `a`. Every result equals the table's, except for combining marks tested at the start of a string, characters that Unicode added after GLib's tables, and conjoining jamo beside a non-jamo, which Zibel keeps attached so that a decomposed syllable stays whole, as Pango does. On 20,000 random strings of CJK, kana, Hangul, CJK and ASCII punctuation, Latin letters and digits, the only CJK-adjacent differences are 22 inside number sequences (UAX #14 LB25).
+**How it was checked.** Pango 1.50.12, the version Inkscape 1.2.2 links on this machine, was called through `pango_get_log_attrs`. Every assigned code point in the Han, kana, Hangul, Yi, CJK punctuation and full-width blocks, and in ASCII, Latin-1, General Punctuation, currency and letterlike symbols, was placed after and before `字`, and the CJK blocks also after and before `a`. Every result equals the table's, except for combining marks tested at the start of a string, characters that Unicode added after GLib's tables, and conjoining jamo beside a non-jamo, which Kalamo keeps attached so that a decomposed syllable stays whole, as Pango does. On 20,000 random strings of CJK, kana, Hangul, CJK and ASCII punctuation, Latin letters and digits, the only CJK-adjacent differences are 22 inside number sequences (UAX #14 LB25).
 
 **Left out:**
 
@@ -31,7 +31,7 @@ So `使用SVG格式` breaks as `使|用|SVG|格|式`, `「字」` is one unit, a
 
 ## A line holding CJK is as tall as Inkscape stacks it
 
-With the fixture wrapping, Inkscape drew each CJK line 1.76 pt lower than Zibel at 14 pt, and hid the last line as overflow. Inkscape sizes lines as CSS inline boxes do. Each family on a line has an em box, its OS/2 typographic ascender and descender scaled to sum to one em, with half the leading above and below. The line is as tall as the union of the text's first family's box (the strut) and the boxes of the families its characters draw in. Source Sans 3's box is 1000 / 1326 above the baseline and 326 / 1326 below. Noto Sans SC's is 880 above and 120 below. So with Auto leading, a line that holds a Noto character rises `fontSize · (0.88 − 0.754)` above a Latin line, and its descent stays Source Sans 3's.
+With the fixture wrapping, Inkscape drew each CJK line 1.76 pt lower than Kalamo at 14 pt, and hid the last line as overflow. Inkscape sizes lines as CSS inline boxes do. Each family on a line has an em box, its OS/2 typographic ascender and descender scaled to sum to one em, with half the leading above and below. The line is as tall as the union of the text's first family's box (the strut) and the boxes of the families its characters draw in. Source Sans 3's box is 1000 / 1326 above the baseline and 326 / 1326 below. Noto Sans SC's is 880 above and 120 below. So with Auto leading, a line that holds a Noto character rises `fontSize · (0.88 − 0.754)` above a Latin line, and its descent stays Source Sans 3's.
 
 `layoutText` stacks Area Type lines this way. The first baseline sits one line-box ascent below the frame's top, and each later baseline sits the previous line's descent plus its own ascent below the one before. A Latin-only line is exactly one leading tall, so Latin text lays out as ADR-0022 describes. Overflow uses the thresholds measured in Inkscape 1.2.2 at 12, 14 and 20 pt, with Auto, 2 and fixed leading:
 
@@ -43,13 +43,13 @@ With the fixture wrapping, Inkscape drew each CJK line 1.76 pt lower than Zibel 
 
 ## Illustrator
 
-Illustrator also breaks between ideographs. Its Kinsoku Shock sets (Hard, Soft) forbid about the same line starts and ends as UAX #14's CL, NS and OP. It can also hang punctuation past the frame (Burasagari) and push or pull characters to satisfy kinsoku. Illustrator keeps leading as the fixed distance between baselines, whatever fonts a line uses. Zibel follows Pango and Inkscape instead, as ADR-0022 chose Inkscape's overflow and first baseline: the exported file is edited in Inkscape, and it must show the same lines there. Hanging punctuation, burasage and Illustrator's kinsoku sets are out of scope (#160).
+Illustrator also breaks between ideographs. Its Kinsoku Shock sets (Hard, Soft) forbid about the same line starts and ends as UAX #14's CL, NS and OP. It can also hang punctuation past the frame (Burasagari) and push or pull characters to satisfy kinsoku. Illustrator keeps leading as the fixed distance between baselines, whatever fonts a line uses. Kalamo follows Pango and Inkscape instead, as ADR-0022 chose Inkscape's overflow and first baseline: the exported file is edited in Inkscape, and it must show the same lines there. Hanging punctuation, burasage and Illustrator's kinsoku sets are out of scope (#160).
 
 ## Considered Options
 
 - **The full UAX #14 pair table.** Its 40-odd classes and pair rules would also change Latin wrapping around punctuation and emoji, and would take a larger table in every bundle. The three-flag reduction matches Pango on every CJK pair checked.
 - **`Intl.Segmenter`.** It has no line granularity.
-- **Keeping the line pitch at the leading, as Illustrator does.** With it, Inkscape hid lines that Zibel draws. The fixture's fifth line overflowed there.
+- **Keeping the line pitch at the leading, as Illustrator does.** With it, Inkscape hid lines that Kalamo draws. The fixture's fifth line overflowed there.
 - **Noto's hhea metrics (1160 / −288).** Inkscape does not use them. The measured baselines match the typographic ones.
 
 ## Consequences

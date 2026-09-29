@@ -5,7 +5,7 @@ date: 2026-09-29
 
 # The grid tools draw a Group of Live Shapes
 
-REQUIREMENTS F-DRAW-01 lists Rectangular Grid and Polar Grid among the shape tools and says every one but Arc makes a Live Shape. Neither grid does in Illustrator. This ADR records what Zibel's Rectangular Grid tool (#150) and Polar Grid tool (#151) draw, and amends F-DRAW-01 for both grids.
+REQUIREMENTS F-DRAW-01 lists Rectangular Grid and Polar Grid among the shape tools and says every one but Arc makes a Live Shape. Neither grid does in Illustrator. This ADR records what Kalamo's Rectangular Grid tool (#150) and Polar Grid tool (#151) draw, and amends F-DRAW-01 for both grids.
 
 ## Why a Group
 
@@ -54,7 +54,7 @@ The outer ellipse is `dragBox`'s box, with Shift for a circle, Alt from the cent
 - **Concentric.** `n` concentric dividers split the radius into `n + 1` rings, spaced as the Rectangular Grid's dividers: divider `i` has radii `f_i·rx, f_i·ry`. Positive skew packs the rings toward the outer ellipse, following the In…Out ends of the Concentric Skew slider.
 - **Radial.** `n` radial dividers cut the turn into `n` sectors, not `n + 1`: a full turn has no second end. The first line points to 12 o'clock. The sectors follow the same geometric rule, so line `j`, from 0 to `n − 1`, lies at the turn fraction `t_0 = 0` and `t_j = f_j` for `n − 1` dividers otherwise, evenly `j / n` at 0%. Positive skew packs the lines clockwise, toward the end of the turn. Its end is the point of the outer ellipse at the parametric angle `2π·t`: `(cx + rx·sin 2πt, cy − ry·cos 2πt)`. On an ellipse, the lines stay where a circle's grid, scaled to the box, puts them.
 
-**Ceiling.** Adobe does not publish the skew formula. This one keeps what the Options dialog describes: 0% is even, and the sign picks the side the dividers weight toward. It is not matched against a live Illustrator, so a grid of the same counts and skew can space its dividers differently there. For the Polar Grid, Illustrator's starting direction for the radial lines, and whether its skew or 12 o'clock are measured clockwise, are also unverified: these are Zibel's choices.
+**Ceiling.** Adobe does not publish the skew formula. This one keeps what the Options dialog describes: 0% is even, and the sign picks the side the dividers weight toward. It is not matched against a live Illustrator, so a grid of the same counts and skew can space its dividers differently there. For the Polar Grid, Illustrator's starting direction for the radial lines, and whether its skew or 12 o'clock are measured clockwise, are also unverified: these are Kalamo's choices.
 
 ## The keys and defaults
 
@@ -76,7 +76,7 @@ The Polar Grid tool's keys differ, as Illustrator's do:
 | C, X | raise or lower the concentric skew by 10% |
 | V, F | raise or lower the radial skew by 10% |
 
-Counts run from 0 to 999 and skews from −500% to 500%. These are Zibel's bounds, not checked against Illustrator's Options fields: 999 keeps a grid under 2,000 Nodes, and at 500% each cell is 1/32 of the one before it. The tool takes these keys while the pointer is down (#143), so they switch no tool and change no Fill and Stroke box. Both tools share these bounds. A session starts each tool at 5 and 5 dividers (horizontal and vertical, or concentric and radial) at 0% skew, the defaults Illustrator's Options dialog is described with, unverified in the research ([?]). The counts and skews a drag ends with carry over to that tool's next drag.
+Counts run from 0 to 999 and skews from −500% to 500%. These are Kalamo's bounds, not checked against Illustrator's Options fields: 999 keeps a grid under 2,000 Nodes, and at 500% each cell is 1/32 of the one before it. The tool takes these keys while the pointer is down (#143), so they switch no tool and change no Fill and Stroke box. Both tools share these bounds. A session starts each tool at 5 and 5 dividers (horizontal and vertical, or concentric and radial) at 0% skew, the defaults Illustrator's Options dialog is described with, unverified in the research ([?]). The counts and skews a drag ends with carry over to that tool's next drag.
 
 ## The paint
 

@@ -5,7 +5,7 @@ date: 2026-09-27
 
 # A desktop-style menu bar above the Document Tabs, built from one table that also binds the shortcuts
 
-The browser's commands are a row of floating buttons over the canvas (Select All, Deselect, Inverse, Download .zibel.json, Download SVG) plus a `keydown` switch in `Viewer.tsx` that binds the shortcuts again. Each new feature (Copy and Paste in #70, clipping masks in #52, and the `Object > Path` commands of F-PATH-03) would add another button and another case in that switch. The P2 persona expects Illustrator's menus and shortcuts (REQUIREMENTS §4, principle 10), so Zibel gets Illustrator's menu bar.
+The browser's commands are a row of floating buttons over the canvas (Select All, Deselect, Inverse, Download .kalamo.json, Download SVG) plus a `keydown` switch in `Viewer.tsx` that binds the shortcuts again. Each new feature (Copy and Paste in #70, clipping masks in #52, and the `Object > Path` commands of F-PATH-03) would add another button and another case in that switch. The P2 persona expects Illustrator's menus and shortcuts (REQUIREMENTS §4, principle 10), so Kalamo gets Illustrator's menu bar.
 
 ## Decision
 
@@ -13,7 +13,7 @@ The browser's commands are a row of floating buttons over the canvas (Select All
 
 **One table.** `apps/web/src/menu.ts` holds every Menu Item as data: `label`, optional `keys`, `enabled(state)`, optional `checked(state)`, and `run()`. The menu bar is drawn from this table, and the `keydown` handler looks shortcuts up in the same table, so a shortcut and its menu entry cannot drift apart. Tool keys (V, Z, Space and later P, M, L, T) are not Menu Items and stay with the tools, just as Illustrator lists Tools and Menu Commands separately in its Keyboard Shortcuts dialog. A later context menu (right-click, and long-press for F-FREE-08) reads the same table.
 
-**Illustrator's menus, in Illustrator's order:** File, Edit, Object, Type, Select, Effect, View, Window, Help. A menu is shown only once it has an item, and an item only once its feature exists: a greyed-out entry for something Zibel cannot do yet would read as a bug. An item that exists but does not apply right now, such as Clear with nothing selected, is greyed out, as in Illustrator. Labels and shortcuts are Illustrator's; the shortcut is shown right-aligned, as `⇧⌘Z` on macOS and `Shift+Ctrl+Z` elsewhere.
+**Illustrator's menus, in Illustrator's order:** File, Edit, Object, Type, Select, Effect, View, Window, Help. A menu is shown only once it has an item, and an item only once its feature exists: a greyed-out entry for something Kalamo cannot do yet would read as a bug. An item that exists but does not apply right now, such as Clear with nothing selected, is greyed out, as in Illustrator. Labels and shortcuts are Illustrator's; the shortcut is shown right-aligned, as `⇧⌘Z` on macOS and `Shift+Ctrl+Z` elsewhere.
 
 The first contents are today's features, plus Place… and the Layers toggle, both of which are small:
 
@@ -21,7 +21,7 @@ The first contents are today's features, plus Place… and the Layers toggle, bo
 |---|---|---|---|
 | File | Open… | Ctrl+O | tab bar's Open file… (kept there too) |
 | File | Close | none, see below | a tab's × |
-| File | Save a Copy… | Alt+Ctrl+S | Download .zibel.json |
+| File | Save a Copy… | Alt+Ctrl+S | Download .kalamo.json |
 | File | Export > Export As SVG | none (Illustrator gives Export As none) | Download SVG |
 | File | Place… | Shift+Ctrl+P | new: a file picker for the drop and paste Place (ADR-0017) |
 | Edit | Undo, Redo | Ctrl+Z, Shift+Ctrl+Z | `keydown` switch |

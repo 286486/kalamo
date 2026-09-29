@@ -1,10 +1,10 @@
-# Zibel — MCP 驱动的 Web 矢量绘图工具 需求文档
+# Kalamo — MCP 驱动的 Web 矢量绘图工具 需求文档
 
 | 项目 | 内容 |
 |---|---|
 | 文档版本 | v0.4（草案） |
 | 日期 | 2026-09-22 |
-| 状态 | 待评审；v0.4 落实 grilling 前三轮共 28 项决策（含更名 Zibel、MCP 无状态网络化），见 §10.2；术语表见根目录 `CONTEXT.md`，架构决策见 `docs/adr/` |
+| 状态 | 待评审；v0.4 落实 grilling 前三轮共 28 项决策（含更名 Kalamo、MCP 无状态网络化），见 §10.2；术语表见根目录 `CONTEXT.md`，架构决策见 `docs/adr/` |
 | 调研依据 | `docs/research/01-illustrator-core-features.md`（Illustrator 功能盘点）、`02-web-vector-tech-landscape.md`（Web 矢量技术与竞品）、`03-mcp-design-tool-patterns.md`（MCP 设计工具接口模式） |
 
 > 本文档中出现的 Illustrator 工具、面板、菜单名保留英文原名；本项目自身的模块、工具（MCP tool）名使用 `snake_case` 英文。"Agent" 指通过 MCP 调用本系统的 AI 客户端（Claude Code、Claude Desktop、Cursor 等）。
@@ -51,15 +51,15 @@
 
 ### 1.1 一句话定位
 
-**Zibel 是一个运行在浏览器里的专业矢量绘图工具，文档模型从第一天起就是为 AI Agent 通过 MCP 读写而设计的，同时给人类用户提供接近 Adobe Illustrator 核心体验的画布与面板。**
+**Kalamo 是一个运行在浏览器里的专业矢量绘图工具，文档模型从第一天起就是为 AI Agent 通过 MCP 读写而设计的，同时给人类用户提供接近 Adobe Illustrator 核心体验的画布与面板。**
 
-### 1.1.1 产品名：Zibel
+### 1.1.1 产品名：Kalamo
 
-- **含义**：Zibel 是德语 Zobel、法语 zibeline（貂）的短拼。貂毫（Kolinsky sable）是插画与水彩领域最顶级的画笔毛料，寓意"最好的笔"。中文读作"齐贝尔"。
-- **形式**：5 个字母的自造词。CLI `zibel`，npm 包名 `zibel` 与 scope `@zibel/*`，URI scheme `zibel://`，MCP 工具前缀 `zibel_`。
-- **核查**（`docs/research/05-name-conflict-check.md`，2026-09-23）：npm、PyPI、crates.io 均空闲，`zibel.dev` 与 `zibel.app` 未注册，GitHub 无同名项目。商标未查，发布前需手工检索 USPTO / EUIPO / WIPO。
-- **为何不用 Sable**：原名 Sable 的包名与短域名全部被占，且 Sable AI 在同一开发者 / Agent 受众中已有品牌。
-- **备选**：Kolinsky（全部空闲，但属艺术材料通用词，商标有描述性风险）、Zibeline。
+- **含义**：源自希腊语 *kálamos*（芦苇笔），最早的书写与绘图工具。同一个词沿用为拉丁语 *calamus*、阿拉伯语 *qalam*（笔）、土耳其语 *kalem*、印地语与乌尔都语 *kalam*、斯瓦希里语 *kalamu*、俄语 *калам*（芦苇笔），在十几种语言里都是"笔"。英文读作 KAH-lah-moh，中文读作"卡拉莫"（kǎ lā mò），日文カラモ。
+- **形式**：6 个字母。CLI `kalamo`，npm 包名 `kalamo` 与 scope `@kalamo/*`，URI scheme `kalamo://`，MCP 工具前缀 `kalamo_`，SVG 命名空间 `https://kalamo.cc/ns/svg`（前缀 `kalamo:`），产品域名 `kalamo.cc`。
+- **核查**（`docs/research/07-kalamo-name-check.md`，2026-09-29）：npm、PyPI、crates.io 与 npm scope 均空闲；`kalamo.com` 停放待售，`kalamo.app`、`kalamo.net` 已被他人注册；`kalamo.ai` 是同名的会议 AI 字幕翻译服务（econf.ai），受众与功能不同。美国第 9、42 类无在册 KALAMO 商标；EUIPO / WIPO / CNIPA 未查，M1 前由所有者手工检索（#173）。
+- **为何更名**：前一个名字在阿拉伯语、希伯来语中读作"粪、垃圾"的日常词，不能面向全球发布，2026-09-29 更名为 Kalamo（ADR-0069，#172）。更早的 Sable 因包名与短域名全部被占、且 Sable AI 在同一开发者 / Agent 受众中已有品牌而弃用。
+- **备选**：Kalamos（同一词源，若 Kalamo 遇阻断商标则改用）；Duktus、Pennel 见调研七。
 - 仓库：`github.com/286486/kalamo`（旧地址自动重定向）。
 
 ### 1.2 要解决的问题
@@ -71,7 +71,7 @@
 | Excalidraw / tldraw 有优秀的 agent 集成，但只是白板：无真正贝塞尔编辑、无布尔、无排版引擎 | 产出物是草图，不是可交付的矢量作品 |
 | 图表 MCP（antvis、Vega-Lite）输出 PNG 或不可编辑 SVG | 图表生成后人无法继续在同一工具里精修 |
 
-Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一份可编辑矢量文档**。
+Kalamo 要填的空位是：**Agent 能生成、人能精修、二者共享同一份可编辑矢量文档**。
 
 ### 1.3 目标
 
@@ -79,7 +79,7 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 2. **三大场景可交付**：图表 / 信息图、插画 / 图标 / Logo、自由手绘 / 速写。
 3. **MCP 优先**：每一个人能在 UI 里完成的编辑，Agent 都能通过 MCP 完成，且能拿到视觉与结构两种反馈。
 4. **人机同一文档**：人类在浏览器中打开的文档与 Agent 正在编辑的文档是同一份实时状态，变更双向可见。
-5. **开放格式**：原生文件为可读 JSON，SVG 无损往返，PDF 导出。**编辑往返以 Inkscape 为目标**：Zibel → Inkscape 编辑 → Zibel 不丢失 Document 能表达的任何结构（ADR-0017）。
+5. **开放格式**：原生文件为可读 JSON，SVG 无损往返，PDF 导出。**编辑往返以 Inkscape 为目标**：Kalamo → Inkscape 编辑 → Kalamo 不丢失 Document 能表达的任何结构（ADR-0017）。
 6. **开源**：全部代码以 Apache-2.0 发布（见 §8.4），任何人可自托管；官方托管版跑在 Cloudflare 上。
 7. **托管即服务**：官方托管版基于 Cloudflare（Workers、Durable Objects、R2、D1），全球边缘低延迟，文档在边缘节点上权威存储与同步。
 
@@ -87,7 +87,7 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 
 - 印刷生产工作流：ICC 色彩管理、专色、叠印、陷印、出血与裁切标记。（参照 Illustrator 保留 **CMYK 文档模式的数值与近似预览**，列为 P2；不承诺印刷准确性。）
 - 3D and Materials、Perspective Grid、Gradient Mesh、Liquify 七件套、Puppet Warp。
-- `.ai` 私有格式的高保真读写。PDF 兼容的 `.ai` 经 Inkscape 打开、另存 SVG 进入 Zibel（ADR-0017）。
+- `.ai` 私有格式的高保真读写。PDF 兼容的 `.ai` 经 Inkscape 打开、另存 SVG 进入 Kalamo（ADR-0017）。
 - 栅格图像编辑（只做置入、裁切、描摹）。
 - 原生桌面客户端（第一阶段只做 Web，PWA 可离线是加分项）。
 - 非 Cloudflare 的官方托管形态（自托管用户运行同一 Worker 包于 workerd，见 §6.2）。
@@ -146,7 +146,7 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 | **P1 AI Agent** | Claude Code / Claude Desktop / Cursor 等 MCP 客户端中的模型，代表人类执行绘图任务 | 工具少而高层、schema 清晰、每步有回执与视觉反馈、错误可修正 |
 | **P2 设计师 / 插画师** | 熟悉 Illustrator，希望在浏览器里获得相近的手感 | 钢笔手感、快捷键一致、布尔与外观栈可靠、导出可交付 |
 | **P3 知识工作者 / 开发者** | 需要做图表、架构图、流程图、幻灯片配图；愿意用自然语言让 Agent 起稿再手工微调 | 从数据 / 描述到图，一分钟内出可编辑结果 |
-| **P4 开发者（集成方）** | 想把 Zibel 嵌入自己的产品或流水线，headless 生成 SVG / PNG | 无 UI 运行、稳定 API、可自托管 |
+| **P4 开发者（集成方）** | 想把 Kalamo 嵌入自己的产品或流水线，headless 生成 SVG / PNG | 无 UI 运行、稳定 API、可自托管 |
 
 ### 3.2 三大场景
 
@@ -202,7 +202,7 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 **F-DOC-01 文档（Document）**（P0）
 - 属性：`id`、`name`、`version`（schema 版本）、`rev`（单调递增的文档修订号，每个提交的 Transaction 加一）、`units`（pt，固定）、`colorSpace`（sRGB，固定）、`createdAt / updatedAt`、`assets`（资源库）、`nodes`（节点表）、`artboards`、`rootOrder`（顶层图层顺序）。
 - 一个文档可包含 1–1000 个画板（与 Illustrator 上限一致）。
-- 原生文件格式 `.zibel.json`：UTF-8 JSON，可读、可 diff、可 git 管理。内嵌位图以 base64 或相对路径引用（可选）。
+- 原生文件格式 `.kalamo.json`：UTF-8 JSON，可读、可 diff、可 git 管理。内嵌位图以 base64 或相对路径引用（可选）。
 
 **F-DOC-02 节点（Node）通用属性**（P0）
 - `id`（稳定，ULID）、`type`、`name`、`parentId`、`index`（分数索引字符串，用于排序）、`visible`、`locked`、`opacity`（0–1）、`blendMode`（16 种，与 Illustrator 一致）、`transform`（2×3 仿射矩阵）、`tags`（字符串数组）、`meta`（任意 JSON，供 Agent 存备注 / 数据绑定）。
@@ -407,11 +407,11 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 ### 5.16 导入与导出
 
 **导入**
-- **F-IO-01** SVG 1.1 导入（P0）：`path / rect / circle / ellipse / line / polyline / polygon / text / tspan / textPath / g / use / symbol / defs / linearGradient / radialGradient / pattern / clipPath / mask / image`，`transform`、`style` 与 presentation attributes、`viewBox`；Inkscape 约定：`inkscape:groupmode="layer"` → Layer、`inkscape:label` → 名称、`sodipodi:insensitive` → 锁定、`display:none` → 隐藏、`<inkscape:page>` → Artboard、`sodipodi:type="star"/"arc"` → Live Shape、`z-<ULID>` id 对回原 Node。祖先 `transform` 合入叶子（ADR-0007），路径归一化为绝对 `M L C Q Z`，单位换算为 pt（px 按 1 pt 计，与 Illustrator 一致）。Zibel 路线图内但尚未实现的内容先降级并提示，实现后原样映射；Zibel 不建模的（Inkscape 路径效果、`flowRoot`、3D box、Effects 之前的 filter）取可见几何并提示；不保留原始 XML 片段（ADR-0017）。SVG `<text>` 映射到文本对象，字体名原样保存（F-TEXT-11）。两种入口：打开（`doc_open`，新 Document，浏览器中新开一个标签页）、置入（`svg_import`，一个 Group）。编辑过的文件经打开回到 Zibel，需要的图稿再复制粘贴回原 Document；三方合并的替换已删除（ADR-0030）。
-- **F-IO-02** 位图置入 PNG / JPG / WebP / GIF（首帧）；链接或嵌入；裁切。（P0）现状（ADR-0023）：PNG / JPEG / GIF 嵌入；WebP 在 resvg 与 Inkscape 1.2 能绘制之前拒绝并提示转 PNG；裁切用 Clipping Mask；`image_place` 可从 http(s) URL 置入（ADR-0027）；链接（ADR-0042）：Image 可带 `file`，`node_create` 可建链接 Image 与缺失链接，`export` SVG 写 `xlink:href="<file>"`，`render` 画存下的像素或带对角线的框；`doc_open` 与 `svg_import` 把链接的 `<image>` 读成链接 Image，`zibel:src` 仅当目标 Document 有该图像时保留为 `src`，其余为缺失链接并警告 `IMAGE_LINK_MISSING`，不拉取任何文件（#99）；`node_update` 写 `src` 即 Relink，写 `file` 链接或重新链接，`file: null` 即 Embed（#101）；浏览器 Object > Relink… 从磁盘选文件、Object > Embed 嵌入所选链接 Image（#102）。
+- **F-IO-01** SVG 1.1 导入（P0）：`path / rect / circle / ellipse / line / polyline / polygon / text / tspan / textPath / g / use / symbol / defs / linearGradient / radialGradient / pattern / clipPath / mask / image`，`transform`、`style` 与 presentation attributes、`viewBox`；Inkscape 约定：`inkscape:groupmode="layer"` → Layer、`inkscape:label` → 名称、`sodipodi:insensitive` → 锁定、`display:none` → 隐藏、`<inkscape:page>` → Artboard、`sodipodi:type="star"/"arc"` → Live Shape、`z-<ULID>` id 对回原 Node。祖先 `transform` 合入叶子（ADR-0007），路径归一化为绝对 `M L C Q Z`，单位换算为 pt（px 按 1 pt 计，与 Illustrator 一致）。Kalamo 路线图内但尚未实现的内容先降级并提示，实现后原样映射；Kalamo 不建模的（Inkscape 路径效果、`flowRoot`、3D box、Effects 之前的 filter）取可见几何并提示；不保留原始 XML 片段（ADR-0017）。SVG `<text>` 映射到文本对象，字体名原样保存（F-TEXT-11）。两种入口：打开（`doc_open`，新 Document，浏览器中新开一个标签页）、置入（`svg_import`，一个 Group）。编辑过的文件经打开回到 Kalamo，需要的图稿再复制粘贴回原 Document；三方合并的替换已删除（ADR-0030）。
+- **F-IO-02** 位图置入 PNG / JPG / WebP / GIF（首帧）；链接或嵌入；裁切。（P0）现状（ADR-0023）：PNG / JPEG / GIF 嵌入；WebP 在 resvg 与 Inkscape 1.2 能绘制之前拒绝并提示转 PNG；裁切用 Clipping Mask；`image_place` 可从 http(s) URL 置入（ADR-0027）；链接（ADR-0042）：Image 可带 `file`，`node_create` 可建链接 Image 与缺失链接，`export` SVG 写 `xlink:href="<file>"`，`render` 画存下的像素或带对角线的框；`doc_open` 与 `svg_import` 把链接的 `<image>` 读成链接 Image，`kalamo:src` 仅当目标 Document 有该图像时保留为 `src`，其余为缺失链接并警告 `IMAGE_LINK_MISSING`，不拉取任何文件（#99）；`node_update` 写 `src` 即 Relink，写 `file` 链接或重新链接，`file: null` 即 Embed（#101）；浏览器 Object > Relink… 从磁盘选文件、Object > Embed 嵌入所选链接 Image（#102）。
 - **F-IO-03** PDF 导入（第一页或指定页；矢量路径与文字尽力提取，不保证图层）；`.ai`（PDF 兼容模式保存的文件）按 PDF 处理。（P2）在此之前 `.ai` 经 Inkscape 另存 SVG 进入（ADR-0017）。
-- **F-IO-04** 粘贴：剪贴板 SVG 文本、Figma / Illustrator / Inkscape 复制出来的 SVG、位图。SVG 粘贴与拖放 `.svg` 到画布都按置入处理，放在视口中心；粘贴 Zibel 自己复制出的 SVG（根上 `zibel:scope="nodes:…"`）时，被复制的 Node 直接进入目标 Layer、分配新 id，不包 Group；Ctrl+Shift+V 原位粘贴，保留文档坐标（ADR-0030）。（P0 SVG 与位图）现状（ADR-0023）：粘贴或拖入 PNG / JPEG / GIF 置入为原像素尺寸的 Image。
-- **F-IO-05** 原生 `.zibel.json` 与 `.svg` 打开为新 Document，在新标签页中显示（文档列表页与标签栏的"打开文件…"，或把文件拖到标签栏）。（P0）PNG / JPEG / GIF 打开为一个与图像同尺寸的画板加该 Image（Illustrator 的 File > Open，P1，#71）。
+- **F-IO-04** 粘贴：剪贴板 SVG 文本、Figma / Illustrator / Inkscape 复制出来的 SVG、位图。SVG 粘贴与拖放 `.svg` 到画布都按置入处理，放在视口中心；粘贴 Kalamo 自己复制出的 SVG（根上 `kalamo:scope="nodes:…"`）时，被复制的 Node 直接进入目标 Layer、分配新 id，不包 Group；Ctrl+Shift+V 原位粘贴，保留文档坐标（ADR-0030）。（P0 SVG 与位图）现状（ADR-0023）：粘贴或拖入 PNG / JPEG / GIF 置入为原像素尺寸的 Image。
+- **F-IO-05** 原生 `.kalamo.json` 与 `.svg` 打开为新 Document，在新标签页中显示（文档列表页与标签栏的"打开文件…"，或把文件拖到标签栏）。（P0）PNG / JPEG / GIF 打开为一个与图像同尺寸的画板加该 Image（Illustrator 的 File > Open，P1，#71）。
 
 **导出**
 - **F-IO-06** SVG 导出（P0）：范围（文档 / 画板 / 选中对象）、精度（小数位 1–7）、样式写法（presentation attributes / inline style / `<style>` 类）、文字处理（保留 `<text>` / 转曲 / 嵌入字体子集 P1）、是否包含 `id` 与 `data-*`、是否压缩（SVGO）、是否响应式（去 width/height 留 viewBox）。默认输出 Inkscape 方言、可编辑：`render` 与 `export` 共用一个序列化器；Layer / 锁定 / 隐藏 / 名称 / Artboard（`<inkscape:page>`）/ `tags` / `meta` 都写入；一个 Fill 加一个 Stroke 的叶子写成一个元素；矩形、椭圆、线写原生元素，多边形与星形写 Inkscape 星形对象；文字保留 `<text>` 与原字体名；`viewBox` 是文件的第一个页面，整个 Document 导出时取位于 (0,0) 的 Artboard，没有则取第一个（映射表见 ADR-0017）。其余实时对象展开导出；效果映射到 SVG filter 或栅格化。
@@ -447,7 +447,7 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 
 依据报告三 §A–D 的对比与 Anthropic「Writing effective tools for agents」指南：
 
-1. **混合粒度**：约 55 个具名工具（含 9 个 P0 图表工具），统一前缀 `zibel_`，按"名词_动词"命名并分组；大多数写工具接受**数组**（批量）；图表每类型一个工具族共享 schema；保留一个沙箱化 `run_script` 作为逃生舱。
+1. **混合粒度**：约 55 个具名工具（含 9 个 P0 图表工具），统一前缀 `kalamo_`，按"名词_动词"命名并分组；大多数写工具接受**数组**（批量）；图表每类型一个工具族共享 schema；保留一个沙箱化 `run_script` 作为逃生舱。
 2. **显式寻址**：所有工具都要 `docId`；节点操作要 `nodeIds`。没有"当前文档 / 当前选区 / 当前图层"的隐式参数。UI 选区可通过 `selection_get` 读到，但只是便利。
 3. **回执标准化**：所有写工具返回统一 `WriteReceipt`（见 6.5）。
 4. **分层读取**：`doc_outline`（稀疏）→ `node_get`（详情）→ `export`（全量）。默认返回 `concise`，可选 `detailed`。
@@ -456,7 +456,7 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 7. **工具 annotations 全部声明**：`readOnlyHint`、`destructiveHint`、`idempotentHint`、`openWorldHint`（本服务全部为 false，除 `image_place`：它可从 URL 拉图，annotations 按工具声明，故恒为 true，ADR-0027）。
 8. **`outputSchema` + `structuredContent`**：每个工具声明输出 schema，客户端可程序化消费。
 9. **错误即修正提示**：错误消息包含 `code`、`message`、`hint`（下一步该做什么）、`path`（schema 中出错字段），不返回堆栈。输入 schema 不接受的参数（包括未知的参数名）与其他错误一样返回 `INVALID_INPUT`，`path` 指向该键，`hint` 给出最接近的已知键名（ADR-0050）。
-10. **Skill 文档随服务分发**：`skill://zibel/*` 资源提供绘图约定、坐标 / 颜色规范、推荐工作流（骨架优先 → 填充 → 校验），客户端按需加载，不塞进工具描述。
+10. **Skill 文档随服务分发**：`skill://kalamo/*` 资源提供绘图约定、坐标 / 颜色规范、推荐工作流（骨架优先 → 填充 → 校验），客户端按需加载，不塞进工具描述。
 11. **MCP 层无状态**：只用 Streamable HTTP，不发 `Mcp-Session-Id`；每个请求自带 Bearer token 与全部寻址信息（`docId`、`txId`），任意 Worker 实例都能处理，请求之间 MCP 服务端不留任何状态。文档的权威状态（含未提交事务、锁、修订号）全部在该文档的 Durable Object 里。因此：无 stdio、无 `resources/subscribe`、无 elicitation、无服务端发起的请求；进度通知只在单个请求的 SSE 响应流内发送。见 ADR-0006。
 
 ### 6.2 Server 形态与部署
@@ -527,23 +527,23 @@ flowchart LR
 | 单次上传位图 | 5 MB |
 | 同一文档并发浏览器连接 | 20 |
 
-- **F-MCP-06d 域名**：注册于 Cloudflare Registrar（`zibel.dev` 为首选）；M1 前用 `wizard` 生成一份手动配置向导，覆盖 Cloudflare 账号、域名、GitHub OAuth App。（P0）
+- **F-MCP-06d 域名**：产品域名 `kalamo.cc`（2026-09-29 选定，由所有者注册，#173）；M1 前用 `wizard` 生成一份手动配置向导，覆盖 Cloudflare 账号、域名、GitHub OAuth App。（P0）
 
 ### 6.3 Resources（资源）
 
 | URI 模板 | 内容 | 用途 |
 |---|---|---|
-| `zibel://docs` | 打开的文档列表（JSON） | 发现 |
-| `zibel://docs/{docId}/outline?depth=&filter=` | 稀疏大纲（id、type、name、bounds、childCount），Figma `get_metadata` 式 | 低 token 概览 |
-| `zibel://docs/{docId}/nodes/{nodeId}` | 单节点完整 JSON | 精读 |
-| `zibel://docs/{docId}/render.png?scope=&scale=` | 渲染快照 | 视觉反馈 |
-| `zibel://docs/{docId}/export.svg?scope=` | SVG 文本 | 可被模型读取并推理 |
-| `zibel://docs/{docId}/assets` | 色板 / 渐变 / 符号 / 主题清单 | 复用资源 |
-| `zibel://docs/{docId}/history?limit=` | 最近事务列表（who / when / summary / ids） | 了解人类做了什么 |
-| `skill://zibel/drawing-conventions` | 坐标、单位、颜色、path `d` 规范、命名建议 | 首次使用必读 |
-| `skill://zibel/workflows` | 图表 / 插画 / 手绘的推荐调用序列与校验清单 | 任务指南 |
-| `skill://zibel/chart-recipes` | 每种图表的示例输入与典型错误 | 图表 |
-| `skill://zibel/script-api` | `run_script` 可用的 Editor API 参考 | 脚本 |
+| `kalamo://docs` | 打开的文档列表（JSON） | 发现 |
+| `kalamo://docs/{docId}/outline?depth=&filter=` | 稀疏大纲（id、type、name、bounds、childCount），Figma `get_metadata` 式 | 低 token 概览 |
+| `kalamo://docs/{docId}/nodes/{nodeId}` | 单节点完整 JSON | 精读 |
+| `kalamo://docs/{docId}/render.png?scope=&scale=` | 渲染快照 | 视觉反馈 |
+| `kalamo://docs/{docId}/export.svg?scope=` | SVG 文本 | 可被模型读取并推理 |
+| `kalamo://docs/{docId}/assets` | 色板 / 渐变 / 符号 / 主题清单 | 复用资源 |
+| `kalamo://docs/{docId}/history?limit=` | 最近事务列表（who / when / summary / ids） | 了解人类做了什么 |
+| `skill://kalamo/drawing-conventions` | 坐标、单位、颜色、path `d` 规范、命名建议 | 首次使用必读 |
+| `skill://kalamo/workflows` | 图表 / 插画 / 手绘的推荐调用序列与校验清单 | 任务指南 |
+| `skill://kalamo/chart-recipes` | 每种图表的示例输入与典型错误 | 图表 |
+| `skill://kalamo/script-api` | `run_script` 可用的 Editor API 参考 | 脚本 |
 
 资源列表与模板列表支持 cursor 分页。不提供 `resources/subscribe`：变更用 `doc_changes` 拉取。
 
@@ -558,7 +558,7 @@ flowchart LR
 | `doc_list` | — | 调用者拥有或被分享的文档摘要列表，各带 `role` | R；ADR-0047 |
 | `doc_delete` | `docId` | `{ docId, deleted: true }` | D；仅 owner；ADR-0047 |
 | `doc_create` | `name`, `artboards[]`（预设名或 w/h）, `template?` | `docId`, 大纲 | |
-| `doc_open` | `content`（`.zibel.json` 或 SVG 文本，按内容识别；SVG 至多 5 MB） | 新 `docId`、大纲、`warnings`（每类一条） | ADR-0016、ADR-0017 |
+| `doc_open` | `content`（`.kalamo.json` 或 SVG 文本，按内容识别；SVG 至多 5 MB） | 新 `docId`、大纲、`warnings`（每类一条） | ADR-0016、ADR-0017 |
 | `doc_save` | `docId`, `path?` | 保存位置 | I |
 | `doc_close` | `docId`, `discardChanges?` | — | D |
 | `doc_get_info` | `docId` | 名称、画板、节点计数、资源计数、当前 `rev`、在线浏览器连接数 | R |
@@ -646,7 +646,7 @@ flowchart LR
 
 | 工具 | 输入要点 | 输出 | 注 |
 |---|---|---|---|
-| `export` | `docId`, `format`（svg / png / jpeg / webp / pdf / zibel_json）, `scope`, `options`（见 F-IO-06/07/08）, `destination`（inline / path / resource） | inline 时返回文本或 image content；path 时返回文件路径；resource 时返回 `resource_link` | R |
+| `export` | `docId`, `format`（svg / png / jpeg / webp / pdf / kalamo_json）, `scope`, `options`（见 F-IO-06/07/08）, `destination`（inline / path / resource） | inline 时返回文本或 image content；path 时返回文件路径；resource 时返回 `resource_link` | R |
 | `export_batch` | `docId`, `jobs[]` | zip 路径或多个 resource_link；长任务用 progress token 汇报 | R |
 
 #### 6.4.8 脚本
@@ -656,7 +656,7 @@ flowchart LR
 | `run_script` | `docId`, `code`（JavaScript / TypeScript），`timeoutMs`（默认 5000，上限 30000）, `dryRun?` | 脚本 `return` 值（要求为 `{createdIds, updatedIds, deletedIds, result?}`）+ 控制台输出 + 自动汇总的回执 | D；调用方 token 需拥有 `script` 权限。**M1 仅在本地 `wrangler dev` 开放，官方托管 M2 开放** |
 
 - **F-MCP-07** 脚本沙箱：在 QuickJS（WASM）或 isolated-vm 中执行，只暴露 Editor API（与 MCP 工具同源的命令集 + 只读查询 + 几何数学库），无 `fetch`、无文件系统、无 `eval` 宿主；CPU 与内存配额；脚本内所有写操作自动包进一个事务，异常则整体回滚。（P1）
-- **F-MCP-08** Editor API 文档以 `skill://zibel/script-api` 与 TypeScript `.d.ts` 资源提供，Agent 可先读类型再写脚本。（P1）
+- **F-MCP-08** Editor API 文档以 `skill://kalamo/script-api` 与 TypeScript `.d.ts` 资源提供，Agent 可先读类型再写脚本。（P1）
 
 ### 6.5 Schema 规范
 
@@ -698,7 +698,7 @@ flowchart LR
 **分页与大小限制**
 - 列表类工具默认 `limit` 100，最大 1000，`cursor` 续页。
 - 单次 `node_create` 上限 2000 节点；`svg_import` 上限 5 MB；`render` 单边 ≤ 4096 px。
-- 请求体：打开文件与置入 SVG 至多 32 MiB，粘贴 / 拖入 / 重新链接位图至多 5 MiB，Worker 读取前检查、读到上限即停；`.zibel.json` 没有自己的格式上限，由此上限约束（ADR-0049）。
+- 请求体：打开文件与置入 SVG 至多 32 MiB，粘贴 / 拖入 / 重新链接位图至多 5 MiB，Worker 读取前检查、读到上限即停；`.kalamo.json` 没有自己的格式上限，由此上限约束（ADR-0049）。
 - 超限返回 `LIMIT_EXCEEDED` 与建议拆分方式。
 
 ### 6.6 反馈回路
@@ -712,7 +712,7 @@ flowchart LR
 
 ### 6.7 错误处理、并发与长任务
 
-- **F-MCP-15** 错误码枚举：`REV_CONFLICT`（附当前 `rev` 与冲突节点）、`NEEDS_DECISION`（需要人类决定，附选项）、`DOC_NOT_FOUND`、`NODE_NOT_FOUND`、`NODE_GONE`（并发删除）、`LOCKED_BY_USER`、`INVALID_COLOR`、`INVALID_PATH`、`INVALID_PARENT`（如把节点放进 path）、`INVALID_INPUT`（参数不合工具的输入 schema：未知键、类型不对、缺失、越界、不在允许值中，或合乎 schema 但违反 schema 表达不了的规则，如容器 `appearance.contents`；ADR-0043、ADR-0050）、`INVALID_PATCH`（patch 含只读键、该类型没有的键或删除了必填键）、`INVALID_MASK`（`mask_make` / `mask_release` 的对象不合规则；ADR-0021）、`INVALID_DOCUMENT`（`.zibel.json` 或 SVG 不合法，附文件内 `path`；ADR-0017）、`INVALID_IMAGE`（图像不是 PNG / JPEG / GIF、是 WebP，或 `src` 指向文档里没有的图像；ADR-0023）、`TX_NOT_FOUND`、`TX_EXPIRED`、`LIMIT_EXCEEDED`、`BOOLEAN_FAILED`（含几何诊断）、`FONT_MISSING`、`SCRIPT_ERROR`（含行号）、`PERMISSION_DENIED`。每条附 `hint`。（P0）
+- **F-MCP-15** 错误码枚举：`REV_CONFLICT`（附当前 `rev` 与冲突节点）、`NEEDS_DECISION`（需要人类决定，附选项）、`DOC_NOT_FOUND`、`NODE_NOT_FOUND`、`NODE_GONE`（并发删除）、`LOCKED_BY_USER`、`INVALID_COLOR`、`INVALID_PATH`、`INVALID_PARENT`（如把节点放进 path）、`INVALID_INPUT`（参数不合工具的输入 schema：未知键、类型不对、缺失、越界、不在允许值中，或合乎 schema 但违反 schema 表达不了的规则，如容器 `appearance.contents`；ADR-0043、ADR-0050）、`INVALID_PATCH`（patch 含只读键、该类型没有的键或删除了必填键）、`INVALID_MASK`（`mask_make` / `mask_release` 的对象不合规则；ADR-0021）、`INVALID_DOCUMENT`（`.kalamo.json` 或 SVG 不合法，附文件内 `path`；ADR-0017）、`INVALID_IMAGE`（图像不是 PNG / JPEG / GIF、是 WebP，或 `src` 指向文档里没有的图像；ADR-0023）、`TX_NOT_FOUND`、`TX_EXPIRED`、`LIMIT_EXCEEDED`、`BOOLEAN_FAILED`（含几何诊断）、`FONT_MISSING`、`SCRIPT_ERROR`（含行号）、`PERMISSION_DENIED`。每条附 `hint`。（P0）
 - **F-MCP-16** 批量工具的部分失败：默认**原子**（任一失败整批回滚）；可选 `partial: true` 返回逐项结果。（P0）
 - **F-MCP-17** 长任务（`export_batch`、`image_trace`、大 `svg_import`）：单个请求内可经 SSE 响应流发送 progress；预计超过 30 秒的任务一律返回 `jobId`，由 Queues 执行，用 `job_status / job_cancel` 轮询。（P1）
 - **F-MCP-18** 幂等：读工具与 `doc_save`、`tx_rollback` 幂等；`node_create` 通过 `clientKey` + `txId` 去重（同一事务内重复提交同 key 不重复创建）。（P1）
@@ -721,7 +721,7 @@ flowchart LR
 ### 6.8 Prompts 与 Skills
 
 - **F-MCP-20** MCP prompts：`draw_chart_from_data`、`illustrate_from_description`、`vectorize_sketch`、`review_document`（用 `render` + `validate` + `scene_describe` 做质检）。（P1）
-- **F-MCP-21** Skill 文档内容要点（`skill://zibel/*`）：坐标 / 颜色 / 路径规范；"骨架优先"工作流（先建图层与占位组 → 分批创建 → `render` 校验 → 微调）；常见错误与修正；每类图表的最小示例；插画结构建议（背景 / 中景 / 前景图层、命名规范）；何时用 `run_script` 而非多次工具调用（例如 > 50 个节点的程序化排布）。（P0）
+- **F-MCP-21** Skill 文档内容要点（`skill://kalamo/*`）：坐标 / 颜色 / 路径规范；"骨架优先"工作流（先建图层与占位组 → 分批创建 → `render` 校验 → 微调）；常见错误与修正；每类图表的最小示例；插画结构建议（背景 / 中景 / 前景图层、命名规范）；何时用 `run_script` 而非多次工具调用（例如 > 50 个节点的程序化排布）。（P0）
 
 ---
 
@@ -826,7 +826,7 @@ flowchart TD
 - **文字**：harfbuzzjs 整形 + opentype.js / fontkit 读取字形轮廓；字体来源：系统（Local Font Access API，Chrome）、Google Fonts、用户上传；字体缓存 IndexedDB。
 - **图表**：内部用 D3 的 scale / shape / axis / hierarchy 计算几何，直接产出 core 节点（不经过 SVG DOM 再解析，保证 id 与语义 key 稳定）；图示布局 dagre（P0）/ ELK（P1）。Mermaid 解析用 mermaid 的 parser 或自研子集。
 - **同步**：`sync` 包定义 Document Service 接口（apply transaction、向浏览器广播、lock）与线协议；唯一实现在 `apps/edge`（Cloudflare Durable Object，每文档一实例，SQLite 存储，浏览器连接用 WebSocket Hibernation）。冲突按属性 LWW + 结构规则。不引入 CRDT（可在 `sync` 包内后期替换为 Yjs 以支持离线）。
-- **存储**：`.zibel.json` 只是导入导出格式；运行时 DO SQLite（本地 `wrangler dev` 持久化到 `.wrangler/state`） 存事务日志与当前状态，R2 存快照 / 位图 / 字体 / 导出物，D1 存用户与文档元数据，KV 存 OAuth token 与缓存。
+- **存储**：`.kalamo.json` 只是导入导出格式；运行时 DO SQLite（本地 `wrangler dev` 持久化到 `.wrangler/state`） 存事务日志与当前状态，R2 存快照 / 位图 / 字体 / 导出物，D1 存用户与文档元数据，KV 存 OAuth token 与缓存。
 - **core 必须能在 Worker 运行时执行**：无 Node 专有 API（fs、Buffer 直接依赖），WASM 模块以 `import` 方式打包，包体控制在 Worker 限制内；这一约束从 M0 起用 CI 在 `workerd` 中跑测试保证。
 - **脚本沙箱**：QuickJS WASM（与 Figma 同选型），暴露 Editor API 代理。
 
@@ -857,7 +857,7 @@ flowchart TD
 ### 8.3 仓库结构建议
 
 ```
-zibel/
+kalamo/
   apps/web/            # React UI
   apps/edge/           # Cloudflare Worker（API + MCP HTTP）+ Document Durable Object + Queue consumer + wrangler.toml
   packages/core/       # 文档模型、命令、事务、历史、查询、schema
@@ -878,11 +878,11 @@ zibel/
 ### 8.4 开源与许可
 
 - **许可证**：全仓库 Apache-2.0；贡献者需签 DCO（`Signed-off-by`），不要求 CLA。
-- **商标**：名称 "Zibel" 与 logo 不在 Apache-2.0 授权范围内，单独的商标政策允许自托管者在"基于 Zibel 构建"意义上使用名称。
+- **商标**：名称 "Kalamo" 与 logo 不在 Apache-2.0 授权范围内，单独的商标政策允许自托管者在"基于 Kalamo 构建"意义上使用名称。
 - **依赖许可白名单**：MIT、BSD、Apache-2.0、MPL-2.0（resvg、pdf.js）、BSL-1.0（Clipper2）、Unlicense；**禁止** GPL / AGPL 依赖（potrace）与需商业授权的代码（tldraw ≥ 2025-09 许可）。CI 用 license checker 强制。
 - **仓库结构**：单一 monorepo 公开；官方托管的部署配置（`apps/edge`）同样开源，秘密与域名通过 wrangler secrets 注入，任何人可 `wrangler deploy` 自己的实例。
 - **开源治理**：GitHub 公开 roadmap（本需求文档的里程碑）、ADR 目录 `docs/adr/`、CHANGELOG、语义化版本；`core` 与 `mcp` 的 schema 变更走 RFC 流程。
-- **社区扩展点**：MCP skills（`skill://zibel/*` 的第三方补充）、图表主题、画笔库、符号库以 JSON 资源形式分发；插件 API（P2）与 `run_script` 共用 Editor API 与沙箱。
+- **社区扩展点**：MCP skills（`skill://kalamo/*` 的第三方补充）、图表主题、画笔库、符号库以 JSON 资源形式分发；插件 API（P2）与 `run_script` 共用 Editor API 与沙箱。
 
 ---
 
@@ -893,13 +893,13 @@ zibel/
 - **团队**：一人 + Claude Code 重度使用，接近全职。估算按此给出；若投入变化，先砍 M1 范围而不是延长周期。
 - **Hero slice**：第一个端到端可交付的场景是**图表 / 图示**（数据或 Mermaid 进，可编辑矢量出）。插画在 M1 后半接上，手绘在 M2。
 - **主要客户端**：Claude Code，以 HTTP 连接本地 `wrangler dev`。skill 文档与基准任务按它编写；OAuth 随 M1 托管上线。
-- **Agent 基准测试**：`fixtures/agent-benchmarks/` 每个任务一个 Markdown（提示词 + 结构断言说明）加同名 TypeScript 断言；`pnpm bench` 启动本地 `wrangler dev`，在空目录用 `claude -p` 非交互模式只连 zibel MCP 端点跑（不给 Bash / Write / Edit），断言自己通过 MCP 读回 Document，检查 `doc_outline`、节点属性与 SVG 导出，并报告每个任务的通过与否、工具调用数与耗时。只在本地运行：CI 不跑 Claude Code（2026-09-24 决定）。M0 即搭最小版（3 个任务），它也是调整工具描述与粒度的评测工具。
+- **Agent 基准测试**：`fixtures/agent-benchmarks/` 每个任务一个 Markdown（提示词 + 结构断言说明）加同名 TypeScript 断言；`pnpm bench` 启动本地 `wrangler dev`，在空目录用 `claude -p` 非交互模式只连 kalamo MCP 端点跑（不给 Bash / Write / Edit），断言自己通过 MCP 读回 Document，检查 `doc_outline`、节点属性与 SVG 导出，并报告每个任务的通过与否、工具调用数与耗时。只在本地运行：CI 不跑 Claude Code（2026-09-24 决定）。M0 即搭最小版（3 个任务），它也是调整工具描述与粒度的评测工具。
 
 ### 9.1 阶段
 
 | 阶段 | 周期（估） | 目标 | 退出标准 |
 |---|---|---|---|
-| **M0 基础骨架（headless-first）** | 4–6 周 | `core` 文档模型 + 命令 + 事务 + 历史；Canvas2D 渲染；**浏览器端只是查看器**：打开文档、缩放平移、选择、移动、删除、图层面板，不含绘图工具；`.zibel.json` 导入导出；MCP（无状态 HTTP，本地 `wrangler dev`）：`doc_*`、`doc_outline`、`node_get/query`、`node_create/update/delete/transform`、`render`、`export(svg/png)`、`tx_*`；Agent 是 M0 唯一的画图者 | Claude Code 能创建 100 个矩形 / 文字并截图；浏览器能看到并拖动它们；撤销正常；core 测试在 workerd 中通过；3 个 Agent 基准任务用 `pnpm bench` 在本地跑通 |
+| **M0 基础骨架（headless-first）** | 4–6 周 | `core` 文档模型 + 命令 + 事务 + 历史；Canvas2D 渲染；**浏览器端只是查看器**：打开文档、缩放平移、选择、移动、删除、图层面板，不含绘图工具；`.kalamo.json` 导入导出；MCP（无状态 HTTP，本地 `wrangler dev`）：`doc_*`、`doc_outline`、`node_get/query`、`node_create/update/delete/transform`、`render`、`export(svg/png)`、`tx_*`；Agent 是 M0 唯一的画图者 | Claude Code 能创建 100 个矩形 / 文字并截图；浏览器能看到并拖动它们；撤销正常；core 测试在 workerd 中通过；3 个 Agent 基准任务用 `pnpm bench` 在本地跑通 |
 | **M1 MVP（Illustrator 第一梯队 + 图表 + 托管）** | 10–12 周 | 钢笔 / 曲率 / 铅笔；路径编辑与 `Object > Path` 主要命令；布尔（live + expand）与 Shape Builder；对齐分布、智能参考线；填充 / 描边 / 线性径向渐变 / 色板；文字（点 / 区域、HarfBuzz、转曲）；剪切蒙版；画板；**Inkscape 往返：可编辑 SVG 导出、SVG 导入（打开 / 置入）、多文档标签页与跨标签页复制粘贴、`pnpm roundtrip`**（ADR-0017）；9 个 `chart_create_*`（Illustrator 同款）+ `chart_update/expand` + `diagram_create`（Mermaid flowchart）；`validate`、`scene_describe`、skills；**Cloudflare 托管上线**：Worker + Document DO + R2 + D1、OAuth、Streamable HTTP MCP、resvg 渲染；Apache-2.0 公开仓库 | 成功指标表 §1.5 中的 Agent 基准任务 ≥ 80% 一次通过；SVG 往返 diff < 1%；托管版可被 Claude Desktop 远程连接；Inkscape 往返检查通过（像素 diff 在按画板分区的预算内，ADR-0017） |
 | **M2 手绘 + 插画深度** | 8 周 | 压感手绘管线、Blob Brush、Eraser、Shaper；Calligraphic / Art 画笔；Appearance 多重 fill / stroke + Graphic Styles + 基础 Effects（阴影 / 发光 / 模糊 / 圆角 / 偏移）；不透明度蒙版；Symbols；Repeat；Blend；Recolor；Image Trace；可变宽度描边；路径文字；Asset Export、PDF 导出；连接线绑定；`run_script` 沙箱 | 插画基准任务通过；触控笔设备实测 |
 | **M3 性能与协作** | 6–8 周 | CanvasKit 渲染后端（浏览器与 Worker）；10k 节点性能达标；多用户协作（光标 / 选区）；软锁与 Agent 意图展示；版本历史（R2 快照）；Queues 长任务；审计与配额；Docker 自托管镜像 | §7.1 性能表全部达标 |
@@ -938,7 +938,7 @@ zibel/
 
 | # | 问题 | 决策 | 落点 |
 |---|---|---|---|
-| 1 | 产品名与工具前缀 | **Zibel**（原 Sable，因包名 / 域名冲突更名）；MCP 工具前缀 `zibel_`，npm `zibel` 与 `@zibel/*`，URI `zibel://`，CLI `zibel` | §1.1.1 |
+| 1 | 产品名与工具前缀 | **Kalamo**（2026-09-29 更名，见决策 51；更早为 Sable，因包名 / 域名冲突弃用）；MCP 工具前缀 `kalamo_`，npm `kalamo` 与 `@kalamo/*`，URI `kalamo://`，CLI `kalamo` | §1.1.1、ADR-0069 |
 | 2 | 托管 vs 本地 | **Cloudflare 官方托管**（Workers / Durable Objects / R2 / D1 / KV / Queues），M1 上线；本地与自托管运行同一 Worker 包（`wrangler dev` / workerd） | §6.2、§8 |
 | 3 | 图表工具粒度 | **每类型一个工具**，首批 9 个与 Illustrator Graph 工具一一对应 | §6.4.5 |
 | 4 | 字体策略 | 参照 Illustrator（系统字体 + Adobe Fonts）：本地字体 + Google Fonts + 上传 | F-TEXT-02、§8.2 |
@@ -962,7 +962,7 @@ zibel/
 | 22 | Live Object | 正式上位术语，凡 Live Object 必支持 `expand`，Chart 包含在内 | `CONTEXT.md`、F-DOC-03a |
 | 23 | Cloudflare 付费档 | 开发用 Free，M1 上线第一周切 Workers Paid | F-MCP-06 |
 | 24 | 免费 beta 配额 | 50 文档 / 200 MB / 每日 500 render、200 export / 20 MB 文档 / 5 MB 位图 / 20 并发；请求体上限不是配额，见决策 49 | F-MCP-06c |
-| 25 | 域名与账号 | Cloudflare Registrar，首选 `zibel.dev`；M1 前出配置向导 | F-MCP-06d |
+| 25 | 域名与账号 | 产品域名 `kalamo.cc`（2026-09-29 选定，注册与账号见 #173）；M1 前出配置向导 | F-MCP-06d |
 | 26 | 仓库语言 | 代码、标识符、注释、提交信息、ADR、`CLAUDE.md` 用英文；需求文档与术语表现阶段中文，M1 对外宣布前译为英文 | `CLAUDE.md` |
 | 27 | ADR | 补记 0002–0006 | `docs/adr/` |
 | 28 | Agent 基准测试 | `claude -p` + 结构断言，本地 `pnpm bench`（CI 不跑），M0 起 3 个任务 | §9.0 |
@@ -975,30 +975,31 @@ zibel/
 | 35 | 服务端发起交互 | 删除 elicitation，返回 `NEEDS_DECISION`；progress 仅在单请求 SSE 内；>30 秒任务用 `jobId` | F-MCP-17、F-MCP-19 |
 | 36 | 术语 | Session → **Actor** | `CONTEXT.md` |
 | 37 | Agent 身份 | 每个 MCP 客户端一个 token，即一个 Agent Actor | F-COLLAB-07 |
-| 38 | 编辑往返（2026-09-24） | 导入导出是核心功能，以 **Inkscape** 为编辑工具：一个 Inkscape 方言的 SVG 序列化器；打开 / 替换（三方合并）/ 置入三种导入（替换已由决策 45 删除）；Inkscape 能表达而 Zibel 不能的，算 Zibel 缺口并补齐；不保留原始 XML 片段 | ADR-0017、#24 |
+| 38 | 编辑往返（2026-09-24） | 导入导出是核心功能，以 **Inkscape** 为编辑工具：一个 Inkscape 方言的 SVG 序列化器；打开 / 替换（三方合并）/ 置入三种导入（替换已由决策 45 删除）；Inkscape 能表达而 Kalamo 不能的，算 Kalamo 缺口并补齐；不保留原始 XML 片段 | ADR-0017、#24 |
 | 39 | Compound Path（2026-09-24） | 不设 `compound_path` 节点类型：Compound Path 是 `d` 含多个子路径、带 `fillRule` 的 `path`，SVG 中即一个 `<path fill-rule>` | ADR-0018、#30 |
 | 40 | Clipping Mask（2026-09-24） | 不设 `clip_group` 节点类型：Clipping Mask 是含一个 `clipping: true` 的 Live Shape、Path 或文字的 `group` 或 `layer`；`mask_make` / `mask_release` 是写它的唯一入口；SVG 中即 `<g clip-path>` 加内联 `<clipPath>`；带外观的剪切路径（ADR-0051）、文字作剪切路径（ADR-0052）与图层剪切蒙版（ADR-0053）其后落实 | ADR-0021、#31 |
 | 41 | 多行文字与区域文字（2026-09-25） | Point Type 的 `content` 可含硬回车 `\n`；Area Type 是 `kind: "area"` 加矩形框 `width`/`height`；新增 `leading`（缺省即 Auto，字号的 120%）；区域文字的首行基线、换行与溢出按 Inkscape 1.2 实测排版；SVG 中点文字为 `sodipodi:role="line"` 行，区域文字为 `shape-inside` 引用 `<defs>` 中的矩形 | ADR-0022、#33 |
-| 42 | 置入图像（2026-09-25） | 新增 `image` 节点：框、`preserveAspectRatio`（缺省 `none`）与 `src`（文件的 SHA-256）；字节按 id 存 R2、元数据存 DO SQLite（ADR-0046）；PNG / JPEG / GIF，WebP 暂拒；裁切即 Clipping Mask；SVG 中为 `<image xlink:href="data:…">`（Inkscape 1.2 只绘制 `xlink:href`）；`.zibel.json` 顶层 `images` 按 id 内嵌 base64 | ADR-0023、#32 |
+| 42 | 置入图像（2026-09-25） | 新增 `image` 节点：框、`preserveAspectRatio`（缺省 `none`）与 `src`（文件的 SHA-256）；字节按 id 存 R2、元数据存 DO SQLite（ADR-0046）；PNG / JPEG / GIF，WebP 暂拒；裁切即 Clipping Mask；SVG 中为 `<image xlink:href="data:…">`（Inkscape 1.2 只绘制 `xlink:href`）；`.kalamo.json` 顶层 `images` 按 id 内嵌 base64 | ADR-0023、#32 |
 | 43 | 渐变（2026-09-25） | 线性与径向渐变内联在 Fill / Stroke 中，不设 `gradientId` 与 `assets.gradients[]`（几何本就逐个 Fill；渐变色板施加即复制）；位置在 Node 自身坐标中、随 `transform` 移动，改参数不移动；只有 pad；中点随 Gradient 面板加入；SVG 中为元素前 `<defs>` 里自包含的 `userSpaceOnUse` 渐变，导入折叠 `gradientTransform`、`objectBoundingBox` 与 `href` 链，reflect / repeat 展开为色标 | ADR-0026、#22 |
 | 44 | 从 URL 置入图像（2026-09-25） | `image_place` 由 Worker 拉取 http(s) URL（20 MB、10 秒、SSRF 防护、手动重定向逐跳检查），`FETCH_FAILED` 新错误码，`openWorldHint: true`；`embed` 与本地路径去掉；`asTemplate` 在父级 Layer 下方建锁定的 Template Layer，Image 不透明度 50%，不打印待 `template` 标志 | ADR-0027、#61 |
-| 45 | 多文档标签页，删除替换（2026-09-26） | 三方合并的替换（`doc_replace`）复杂度过高，删除：编辑过的文件经打开成为新 Document，在新标签页中显示；一个标签页就是一个 Document（不设 Sheet 容器）；图稿经系统剪贴板以 Node 范围的 Inkscape 方言 SVG 剪切 / 复制 / 粘贴，Zibel 的拷贝粘贴时不包 Group；30 天 Delta Log 与 `zibel:doc` / `zibel:rev` 一并删除 | ADR-0030、#68、#69、#70 |
+| 45 | 多文档标签页，删除替换（2026-09-26） | 三方合并的替换（`doc_replace`）复杂度过高，删除：编辑过的文件经打开成为新 Document，在新标签页中显示；一个标签页就是一个 Document（不设 Sheet 容器）；图稿经系统剪贴板以 Node 范围的 Inkscape 方言 SVG 剪切 / 复制 / 粘贴，Kalamo 的拷贝粘贴时不包 Group；30 天 Delta Log 与 `kalamo:doc` / `kalamo:rev` 一并删除 | ADR-0030、#68、#69、#70 |
 | 46 | 菜单栏（2026-09-27） | 顶部 Illustrator 式菜单栏，在文档标签页之上；菜单项是一张数据表，菜单与快捷键都从中读取；只列已实现的项；浏览器保留快捷键不标；原生 `popover` 实现，不引入菜单库 | ADR-0031、F-VIEW-10 |
-| 47 | 链接图像（2026-09-27） | Image 可链接：可选 `file` 是 SVG 所写的路径或 URL（非 data URL，至多 2048 字符），`embedded` 由 `file` 缺省派生；`src` 变为可选，链接 Image 无 `src` 即缺失链接；`export` SVG 写 `xlink:href="<file>"`，有像素时加 `zibel:src`，从不写像素；`render` 与 PNG 画存下的像素，缺失链接画成灰色细线框加两条对角线；`.zibel.json` 的 `version` 仍为 1；导入链接的 `<image>` 得链接 Image，同一 Document 内粘贴经 `zibel:src` 保留像素，别的 Document 中为缺失链接，警告 `IMAGE_LINK_MISSING` 取代 `LINKED_IMAGE_DROPPED` | ADR-0042、#97、#98、#99 |
-| 48 | 容器外观（2026-09-27） | Layer 与 Group 的 `appearance {fills, strokes, contents}` 按 Illustrator 语义描画后代的轮廓，`contents` 定 Contents 在栈中的位置；缺省为空，`version` 仍为 1；`visibleBounds` 随容器描边增长，`geometricBounds` 不变；`node_transform` 按 √\|det\| 缩放容器描边宽度；SVG 中每层描画是锁定的 `<g zibel:paint>`，内含每个后代轮廓的副本；新错误码 `INVALID_INPUT` | ADR-0043、#17、#103、#106 |
-| 49 | 请求体上限（2026-09-29） | Worker 读取前加上限：打开与置入 32 MiB（即 DO RPC 上限，20 MB 图像的文档仍能从自己的导出重新打开），位图 5 MiB；`Content-Length` 先查，缺失或少报时边读边计数；`/api` 回 400 `LIMIT_EXCEEDED`，`/mcp` 回 413 与 JSON-RPC 错误（#125）；`.zibel.json` 不另设格式上限 | ADR-0049、§6.5、§7.5 |
-| 50 | 严格工具参数（2026-09-29） | 工具参数由 Zibel 自己严格解析，SDK 只校验参数是对象，并经 `.meta()` 公布真实 schema（带 `additionalProperties: false`）；未知键（嵌套的也算）让调用失败，不再被静默丢弃，`meta` 与 `node_update` patch 顶层除外；schema 失败统一为 `INVALID_INPUT`，附 `path` 与 `hint`（最接近的键名、必填、边界、允许值），记入每次调用的日志行；不新增错误码；缺 `arguments` 的请求仍是 SDK 文本 | ADR-0050、#23 |
+| 47 | 链接图像（2026-09-27） | Image 可链接：可选 `file` 是 SVG 所写的路径或 URL（非 data URL，至多 2048 字符），`embedded` 由 `file` 缺省派生；`src` 变为可选，链接 Image 无 `src` 即缺失链接；`export` SVG 写 `xlink:href="<file>"`，有像素时加 `kalamo:src`，从不写像素；`render` 与 PNG 画存下的像素，缺失链接画成灰色细线框加两条对角线；`.kalamo.json` 的 `version` 仍为 1；导入链接的 `<image>` 得链接 Image，同一 Document 内粘贴经 `kalamo:src` 保留像素，别的 Document 中为缺失链接，警告 `IMAGE_LINK_MISSING` 取代 `LINKED_IMAGE_DROPPED` | ADR-0042、#97、#98、#99 |
+| 48 | 容器外观（2026-09-27） | Layer 与 Group 的 `appearance {fills, strokes, contents}` 按 Illustrator 语义描画后代的轮廓，`contents` 定 Contents 在栈中的位置；缺省为空，`version` 仍为 1；`visibleBounds` 随容器描边增长，`geometricBounds` 不变；`node_transform` 按 √\|det\| 缩放容器描边宽度；SVG 中每层描画是锁定的 `<g kalamo:paint>`，内含每个后代轮廓的副本；新错误码 `INVALID_INPUT` | ADR-0043、#17、#103、#106 |
+| 49 | 请求体上限（2026-09-29） | Worker 读取前加上限：打开与置入 32 MiB（即 DO RPC 上限，20 MB 图像的文档仍能从自己的导出重新打开），位图 5 MiB；`Content-Length` 先查，缺失或少报时边读边计数；`/api` 回 400 `LIMIT_EXCEEDED`，`/mcp` 回 413 与 JSON-RPC 错误（#125）；`.kalamo.json` 不另设格式上限 | ADR-0049、§6.5、§7.5 |
+| 50 | 严格工具参数（2026-09-29） | 工具参数由 Kalamo 自己严格解析，SDK 只校验参数是对象，并经 `.meta()` 公布真实 schema（带 `additionalProperties: false`）；未知键（嵌套的也算）让调用失败，不再被静默丢弃，`meta` 与 `node_update` patch 顶层除外；schema 失败统一为 `INVALID_INPUT`，附 `path` 与 `hint`（最接近的键名、必填、边界、允许值），记入每次调用的日志行；不新增错误码；缺 `arguments` 的请求仍是 SDK 文本 | ADR-0050、#23 |
+| 51 | 更名 Kalamo（2026-09-29） | 前一个名字在阿拉伯语、希伯来语中意为"粪、垃圾"，更名为 **Kalamo**（卡拉莫），产品域名 `kalamo.cc`，SVG 命名空间 `https://kalamo.cc/ns/svg`；旧 SVG 命名空间、旧存盘文件与旧浏览器存储键永久可读，MCP 名称不留别名；Cloudflare 资源迁移到 Kalamo 名下并逐字段核对后才删除旧部署；工作树内不留旧名的任何痕迹 | §1.1.1、ADR-0069、#172 |
 
 **剩余开放问题**
 
-1. 商标：USPTO / EUIPO / WIPO 需手工检索 ZIBEL（第 9、42 类）。若冲突，备选 Zibeline / Kolinsky。
+1. 商标：USPTO 第 9、42 类无在册 KALAMO；EUIPO / WIPO / CNIPA 需所有者手工检索 KALAMO（第 9、42 类，#173）。若有阻断商标，改用备选 Kalamos。
 2. 是否已有 Cloudflare 账号（影响 M1 前配置向导的起点）。
 
 ## 附录 A：Illustrator 功能映射表
 
 状态：✅ 复刻 / 🔁 简化或替代 / ⏳ 后续版本 / ❌ 不做。
 
-| Illustrator 功能 | 状态 | Zibel 对应 | 阶段 |
+| Illustrator 功能 | 状态 | Kalamo 对应 | 阶段 |
 |---|---|---|---|
 | Selection / Direct Selection / Group Selection / Lasso / Magic Wand | ✅ | F-SEL-01…05 | M0–M1 |
 | Rectangle / Rounded Rect / Ellipse / Polygon / Star / Line / Arc / Spiral / Grids | ✅ | F-DRAW-01（Live Shapes；Arc 为 Path，Grids 为 Live Shape 组成的 Group） | M0 |
@@ -1045,7 +1046,7 @@ zibel/
 | Place / Links / 裁切 | ✅ | F-IO-02 | M0 |
 | Artboards（≤1000、重排、导出） | ✅ | F-VIEW-06 | M0 |
 | Export for Screens / Asset Export / Export As | ✅ | F-IO-06…09 | M1–M2 |
-| Save AI / EPS / FXG | ❌ | `.zibel.json` 替代；PDF 导出；编辑往返走 Inkscape SVG | — |
+| Save AI / EPS / FXG | ❌ | `.kalamo.json` 替代；PDF 导出；编辑往返走 Inkscape SVG | — |
 | SVG 编辑往返（Inkscape） | ✅ | F-IO-01 / F-IO-06，ADR-0017 | M1 |
 | SVG 保存选项（样式写法、精度、字体） | ✅ | F-IO-06 | M1 |
 | PDF 导出 / 导入 | ✅ 导出 · ⏳ 导入 | F-IO-08 / F-IO-03 | M2 / M4 |

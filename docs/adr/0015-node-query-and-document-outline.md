@@ -5,7 +5,7 @@ date: 2026-09-24
 
 # `node_query` pages by id; `doc_outline` takes a root, types and bounds; `doc_list` reads D1
 
-An Agent finds Documents and Nodes without loading everything (F-SEL-07, REQUIREMENTS §6.1 point 4, §6.4.1, §6.4.2). `zibel_doc_list` lists Documents, `zibel_doc_outline` gives the sparse tree, and `zibel_node_query` finds Nodes by filter. `zibel_doc_get_info` came with #8.
+An Agent finds Documents and Nodes without loading everything (F-SEL-07, REQUIREMENTS §6.1 point 4, §6.4.1, §6.4.2). `kalamo_doc_list` lists Documents, `kalamo_doc_outline` gives the sparse tree, and `kalamo_node_query` finds Nodes by filter. `kalamo_doc_get_info` came with #8.
 
 - **`doc_list`** takes no input and returns `{documents: [{docId, name, createdAt}]}`, newest first, from the D1 `documents` table that `doc_create` writes (#8). The Document Durable Object stays the authority. D1 is only an index, so it lists what D1 holds and reads no DO. Every Actor sees every Document until M1 adds owners.
 - **`node_query` filters.** Every filter given must hold (AND); omitted filters match everything.

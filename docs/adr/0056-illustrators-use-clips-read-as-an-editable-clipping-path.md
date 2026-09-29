@@ -29,7 +29,7 @@ A held `<use>` is read exactly as its target would be if it were copied into the
 A `<g>` read as a Group is the Clip Group itself, with its Clipping Path on top, when:
 
 - it is not an Inkscape layer;
-- it has no `clip-path` of its own and no `<g zibel:clipped>` wrapper, so the Zibel and Inkscape forms keep their rules;
+- it has no `clip-path` of its own and no `<g kalamo:clipped>` wrapper, so the Kalamo and Inkscape forms keep their rules;
 - it has at least one drawn child, and every drawn child names the same holdable `<clipPath>`, inline or through a `<use>`;
 - every such child's own `transform` is identity within Illustrator's rounding: linear terms within 1e-6 and translation within 1e-3 user units. Illustrator writes matrices such as `matrix(1 0 2.980232e-08 1 -3.051758e-05 -3.051758e-05)` on clipped groups.
 
@@ -59,7 +59,7 @@ Illustrator was not run; Adobe's help pages refuse automated fetches. The forms 
 ## Considered Options
 
 - **Keep refusing `<use>` clips.** Every Clipping Mask in an Illustrator SVG would keep spilling its content, and the file would not look as it does in Illustrator.
-- **Resolve `<use>` generally, as a clone Node.** Zibel has no Symbol or clone Node yet (F-LIVE-01). Holding the clip needs only the copy rule.
+- **Resolve `<use>` generally, as a clone Node.** Kalamo has no Symbol or clone Node yet (F-LIVE-01). Holding the clip needs only the copy rule.
 - **The target's id on the Clipping Path.** The target can be drawn, or shared by several clips and paint `<use>`s, so its id would collide.
 - **One Clip Group per clipped child**, as ADR-0021 reads Inkscape's Set Clip. Each Illustrator Clip Group would open as one Clip Group per object, and the designer would edit many masks where Illustrator shows one.
 - **An exact identity test for the merge.** Illustrator's rounding matrices would split its own Clip Groups.
@@ -67,5 +67,5 @@ Illustrator was not run; Adobe's help pages refuse automated fetches. The forms 
 ## Consequences
 
 - Open, Place and SVG paste share the reader, so all three get these clips. Core, render, the canvas, hit testing and export do not change: the result is an ordinary Clip Group or Layer Clipping Mask, and export writes ADR-0021's and ADR-0051's inline form, which reads back as the same Nodes.
-- A `<g>` whose every drawn child names one `<clipPath>`, which opened as one Clip Group per child before, now opens as one Clip Group. Zibel's and Inkscape's own exports never write this form for a Group.
+- A `<g>` whose every drawn child names one `<clipPath>`, which opened as one Clip Group per child before, now opens as one Clip Group. Kalamo's and Inkscape's own exports never write this form for a Group.
 - ADR-0053's note that Illustrator's `<use>` clips import unclipped is replaced by this ADR.

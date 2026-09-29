@@ -1,4 +1,4 @@
-# 调研四：Cloudflare 平台限额与定价（Zibel 托管相关）
+# 调研四：Cloudflare 平台限额与定价（Kalamo 托管相关）
 
 > 事实核查：Sonnet subagent，2026-09-22，仅取 developers.cloudflare.com 官方文档与定价页。未能核实处见文末。数字会随 Cloudflare 调价变化，实施前复核。
 
@@ -13,7 +13,7 @@
 | 环境变量 / Worker | 64 | 128 | [limits](https://developers.cloudflare.com/workers/platform/limits/) |
 | WASM 是否计入脚本大小 | 是，64 MiB 覆盖全部打包模块 | 同 | [limits](https://developers.cloudflare.com/workers/platform/limits/) |
 
-**对 Zibel 的含义**：CanvasKit（约 7 MB 未压缩）+ resvg + HarfBuzz 放进 Worker 完全在 64 MiB 之内，包体不是问题；真正的约束是 **128 MB 内存**与 **Free 档 10 ms CPU**。Headless 渲染必须在 Paid 档运行。
+**对 Kalamo 的含义**：CanvasKit（约 7 MB 未压缩）+ resvg + HarfBuzz 放进 Worker 完全在 64 MiB 之内，包体不是问题；真正的约束是 **128 MB 内存**与 **Free 档 10 ms CPU**。Headless 渲染必须在 Paid 档运行。
 
 ## 2. Durable Objects
 
@@ -28,7 +28,7 @@
 | 时长 | 13,000 GB-s / 天 | 含 400,000 GB-s / 月，之后 $12.50 / M GB-s | 同上 |
 | SQLite 行读 / 写 | 5M 读、100K 写 / 天 | 含 25B 读（$0.001 / M）、50M 写（$1.00 / M） | 同上 |
 
-**对 Zibel 的含义**：每文档一个 DO 的模型在 Free 档就能跑通开发；单键 2 MB 意味着文档 JSON 不能整块存一个键，事务日志按行写 SQLite、快照分片或直接放 R2。
+**对 Kalamo 的含义**：每文档一个 DO 的模型在 Free 档就能跑通开发；单键 2 MB 意味着文档 JSON 不能整块存一个键，事务日志按行写 SQLite、快照分片或直接放 R2。
 
 ## 3. R2
 
@@ -79,7 +79,7 @@
 | 浏览器时长 | 10 min / 天 | 含 10 h / 月，之后 $0.09 / h | 同上 |
 | 速率 | 1 请求 / 10 s | 30 / s（Quick Actions）；3 / s 新实例 | [BR limits](https://developers.cloudflare.com/browser-rendering/platform/limits/) |
 
-**对 Zibel 的含义**：Browser Rendering 只能做低频回退，不能做主渲染路径；主路径必须是 Worker 内的 resvg / CanvasKit WASM。
+**对 Kalamo 的含义**：Browser Rendering 只能做低频回退，不能做主渲染路径；主路径必须是 Worker 内的 resvg / CanvasKit WASM。
 
 ## 8. Workers Paid 基础价
 

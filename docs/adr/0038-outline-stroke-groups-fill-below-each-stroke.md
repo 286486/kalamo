@@ -9,7 +9,7 @@ Object > Path > Outline Stroke (F-PATH-03, #87) turns a Stroke into a filled pat
 
 ## Decision
 
-**`path_op outline_stroke` makes one path per Stroke, filled with the Stroke's paint.** The outline is computed by `@zibel/geometry` (ADR-0034): Skia's stroker with the Stroke's width, cap, join and miter limit, then `simplify`, so the contours do not overlap and fill the same under nonzero and evenodd. The path gets fill rule nonzero.
+**`path_op outline_stroke` makes one path per Stroke, filled with the Stroke's paint.** The outline is computed by `@kalamo/geometry` (ADR-0034): Skia's stroker with the Stroke's width, cap, join and miter limit, then `simplify`, so the contours do not overlap and fill the same under nonzero and evenodd. The path gets fill rule nonzero.
 
 - **One Stroke and no Fill:** the Node becomes the outline in place, keeping its id and everything else.
 - **Otherwise:** a new Group takes the Node's parent, stacking position, opacity and blend mode. The Node moves into it, keeping its id and only its Fills, with opacity 1 and blend mode normal. Above it come the outlined Strokes as new paths, bottom to top as the Appearance paints them. Moving opacity and blend mode to the Group keeps the render the same: two half-transparent children would show the Fill through the inner half of the Stroke.
