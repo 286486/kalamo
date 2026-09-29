@@ -1044,6 +1044,43 @@ it("stores Character Ranges canonical, and a content write clears them (ADR-0029
   expect(await get()).not.toHaveProperty("ranges");
 });
 
+it("returns a text's range overrides from node_get full (ADR-0068)", async () => {
+  const doc = await newDoc();
+  const ranges = [{ start: 1, end: 3, stroke: "#FF000080" }];
+  const created = await call("kalamo_node_create", {
+    docId: doc.docId,
+    nodes: [
+      {
+        type: "text",
+        parentId: doc.defaultLayerId,
+        x: 10,
+        y: 50,
+        content: "Hello",
+        appearance: { fills: [{ color: "#000000" }], strokes: [{ color: "#0000FF", width: 1 }] },
+        ranges,
+      },
+    ],
+  });
+  expect(created.isError).toBeFalsy();
+  const [id] = created.structuredContent.createdIds as string[];
+  const got = await call("kalamo_node_get", { docId: doc.docId, nodeIds: [id], detail: "full" });
+  expect(got.structuredContent.nodes[0]).toMatchObject({ ranges });
+  // A range's missing family warns as the text's own does, naming the face drawn.
+  const updated = await call("kalamo_node_update", {
+    docId: doc.docId,
+    updates: [
+      { nodeId: id, patch: { ranges: [...ranges, { start: 0, end: 1, fontFamily: "Helvetica" }] } },
+    ],
+  });
+  expect(updated.structuredContent.warnings).toEqual([
+    {
+      code: "FONT_MISSING",
+      nodeId: id,
+      message: "Helvetica is not bundled, so it renders in Source Sans 3; the name is kept.",
+    },
+  ]);
+});
+
 it("warns TEXT_OVERFLOW while an Area Type's content does not fit its frame", async () => {
   const doc = await newDoc();
   const created = await call("kalamo_node_create", {

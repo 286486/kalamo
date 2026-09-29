@@ -338,6 +338,34 @@ it("splits a line for resvg where its drawing family changes, each chunk at its 
   expect(line(toSvg(doc))).toBe('H<tspan rotate="5">i 小</tspan>动x');
 });
 
+it("writes a range's family as written, and for resvg the bundled family each chunk draws in (ADR-0068)", () => {
+  const { doc, defaultLayerId: parentId } = newDoc();
+  createNodes(doc, [
+    {
+      type: "text",
+      parentId,
+      x: 0,
+      y: 20,
+      content: "Hi Hi",
+      fontSize: 10,
+      ranges: [
+        { start: 0, end: 2, fontFamily: "Helvetica" },
+        { start: 3, end: 5, fontFamily: "Noto Sans SC" },
+      ],
+    },
+  ]);
+  const line = (svg: string) =>
+    /<tspan sodipodi:role="line"[^>]*>(.*?)<\/tspan><\/text>/.exec(svg)?.[1];
+  expect(line(toSvg(doc))).toBe(
+    '<tspan font-family="Helvetica">Hi</tspan> <tspan font-family="Noto Sans SC">Hi</tspan>',
+  );
+  // Helvetica draws in Source Sans 3, the text's first family; Noto Sans SC in itself, from its x:
+  // H 6.52, i 2.46 and the space 2.
+  expect(line(toSvg(doc, undefined, { resvg: true }))).toBe(
+    'Hi <tspan x="10.98" font-family="Noto Sans SC">Hi</tspan>',
+  );
+});
+
 it("writes a text's style as font-weight and font-style, the stored style and not the face drawn", () => {
   const { doc, defaultLayerId: parentId } = newDoc();
   createNodes(doc, [
@@ -426,6 +454,52 @@ describe("tracking and Character Ranges (ADR-0029)", () => {
     );
   });
 
+  it("writes a range's tracking as its tspan's letter-spacing (ADR-0068)", () => {
+    const svg = svgOf({
+      fontSize: 20,
+      tracking: 100,
+      ranges: [
+        { start: 1, end: 2, tracking: 250 },
+        { start: 2, end: 3, tracking: 0 },
+      ],
+    });
+    expect(svg).toContain(
+      'H<tspan letter-spacing="5">e</tspan><tspan letter-spacing="0">l</tspan>lo</tspan>',
+    );
+  });
+
+  it("writes a range's style as the weight and italic that differ from the text's (ADR-0068)", () => {
+    const svg = svgOf({
+      fontStyle: "Bold",
+      ranges: [
+        { start: 0, end: 1, fontStyle: "Regular" },
+        { start: 1, end: 2, fontStyle: "Bold Italic" },
+        { start: 2, end: 3, fontStyle: "Light Italic" },
+      ],
+    });
+    expect(svg).toContain(
+      '<tspan font-weight="400">H</tspan><tspan font-style="italic">e</tspan><tspan font-weight="300" font-style="italic">l</tspan>lo',
+    );
+  });
+
+  it("writes a range's size, and a resized run's own letter-spacing when it tracks (ADR-0068)", () => {
+    const tracked = svgOf({
+      fontSize: 10,
+      tracking: 100,
+      ranges: [
+        { start: 0, end: 1, fontSize: 20 },
+        { start: 1, end: 2, fontSize: 20, tracking: 0 },
+        { start: 2, end: 3, fontSize: 30, tracking: 50 },
+      ],
+    });
+    expect(tracked).toContain(
+      '<tspan font-size="20" letter-spacing="2">H</tspan><tspan font-size="20" letter-spacing="0">e</tspan><tspan font-size="30" letter-spacing="1.5">l</tspan>lo',
+    );
+    expect(svgOf({ ranges: [{ start: 0, end: 1, fontSize: 20 }] })).toContain(
+      '<tspan font-size="20">H</tspan>ello',
+    );
+  });
+
   it("writes no range fill into an element that paints no Fill", () => {
     const svg = svgOf({
       appearance: { fills: [], strokes: [{ color: "#000000", width: 1 }] },
@@ -453,6 +527,32 @@ describe("tracking and Character Ranges (ADR-0029)", () => {
     });
     expect(svg.match(/<tspan fill="#FF0000">H<\/tspan>/g)).toHaveLength(2);
     expect(svg.match(/<text/g)).toHaveLength(3);
+  });
+
+  it("writes a range stroke in every Stroke's element and no Fill's (ADR-0068)", () => {
+    const svg = svgOf({
+      appearance: {
+        fills: [{ color: "#000000" }],
+        strokes: [
+          { color: "#0000FF80", width: 1 },
+          { color: "#00FF00", width: 2 },
+        ],
+      },
+      ranges: [
+        { start: 0, end: 1, stroke: "#FF0000" },
+        { start: 1, end: 2, stroke: "#FF000080" },
+      ],
+    });
+    expect(svg).toContain(
+      '<tspan stroke="#FF0000" stroke-opacity="1">H</tspan><tspan stroke="#FF0000" stroke-opacity="0.502">e</tspan>',
+    );
+    expect(svg).toContain(
+      '<tspan stroke="#FF0000">H</tspan><tspan stroke="#FF0000" stroke-opacity="0.502">e</tspan>',
+    );
+    expect(svg.match(/<tspan stroke=/g)).toHaveLength(4);
+    expect(svgOf({ ranges: [{ start: 0, end: 1, stroke: "#FF0000" }] })).not.toContain(
+      'stroke="#FF0000"',
+    );
   });
 
   it("splits Area Type's hidden overflow at range boundaries too", () => {
@@ -842,13 +942,18 @@ describe("a text Clipping Path (ADR-0052)", () => {
     expect(svg).not.toContain("clip-rule");
   });
 
-  it("writes its painted copies as <text>, the Fill's with its Range Fills, the Stroke's without", () => {
+  it("writes its painted copies as <text>, the Fill's with its Range Fills, the Stroke's with its Range Strokes", () => {
     const { doc, clip } = textClipped();
     updateNodes(doc, [
       {
         nodeId: clip.id,
         patch: {
           appearance: { fills: [{ color: "#000000" }], strokes: [{ color: "#0000FF", width: 1 }] },
+          ranges: [
+            { start: 0, end: 1, fill: "#FF0000" },
+            { start: 1, end: 2, rotation: 10, stroke: "#FF00FF" },
+            { start: 4, end: 5, fill: "#00FF00" },
+          ],
         },
       },
     ]);
@@ -861,6 +966,8 @@ describe("a text Clipping Path (ADR-0052)", () => {
     const stroke = svg.slice(svg.indexOf('kalamo:paint="clip-stroke"'));
     expect(stroke).toMatch(/^[^>]*><text [^>]*fill="none" stroke="#0000FF"/);
     expect(stroke).not.toContain("#FF0000");
+    expect(stroke).toContain('<tspan stroke="#FF00FF" rotate="10">n</tspan>');
+    expect(fill.slice(0, fill.indexOf("clip-stroke"))).not.toContain("#FF00FF");
     // One frame for the <clipPath> and both copies.
     expect(svg.match(new RegExp(`id="area-z-${clip.id}"`, "g"))).toHaveLength(1);
   });

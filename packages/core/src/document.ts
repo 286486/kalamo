@@ -152,7 +152,7 @@ export function createNodes(
       node = container;
     } else if (input.type === "text") {
       const { ranges, ...parsed } = TextShape.superRefine(textFrame).parse(input);
-      const canonical = canonicalRanges(ranges, `${path}.ranges`);
+      const canonical = canonicalRanges(ranges, `${path}.ranges`, parsed);
       // Measured with its ranges, so a default gradient spans the bounds they give.
       const text = { ...parsed, ...(canonical && { ranges: canonical }) };
       const appearance = paint(

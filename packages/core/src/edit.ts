@@ -304,7 +304,7 @@ function patched(doc: Document, raw: UpdateInput, i: number): Node {
     next.appearance = paint(next.appearance as AppearanceInput, `${at}.appearance`, next);
   }
   if (next.type === "text") {
-    const ranges = canonicalRanges(next.ranges, `${at}.ranges`);
+    const ranges = canonicalRanges(next.ranges, `${at}.ranges`, next);
     if (ranges) next.ranges = ranges;
     else delete next.ranges;
   }

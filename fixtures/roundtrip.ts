@@ -18,8 +18,10 @@ const TIMEOUT_MS = 120_000;
 /** A pixel differs when a channel is off by more than this. */
 const TOLERANCE = 32;
 /** The share of a region's pixels that may differ (ADR-0017): twice the worst measured baseline
- * for vector art, and for a text or Image under what one hidden word differs by. */
-const BUDGET = { vector: 0.007, text: 0.15 };
+ * for vector art, and for a text or Image under what one hidden word differs by. A text whose lines
+ * mix sizes is stacked by Illustrator's leading, which Inkscape's CSS line boxes do not follow, so
+ * its lines land up to a few points apart there: 25% is above the 21% measured (ADR-0068). */
+const BUDGET = { vector: 0.007, text: 0.15, "mixed-size text": 0.25 };
 /** Text and Image bounds grow by this, in pt, to cover antialiasing, besides their Strokes. */
 const MARGIN = 2;
 /** The inkscape fixture's painted Group (ADR-0043), which the edit passes transform in Inkscape. */
@@ -348,9 +350,11 @@ async function main() {
         content?: string;
         src?: string;
         appearance?: { strokes?: { width: number }[] };
+        kind?: string;
+        ranges?: { fontSize?: number }[];
       }[];
       const byId = new Map(views.map((v) => [v.id, v]));
-      const rects: { rect: Rect; subject: string; unchecked: boolean }[] = [];
+      const rects: { rect: Rect; subject: string; unchecked: boolean; mixed: boolean }[] = [];
       for (const v of views) {
         if ((v.type !== "text" && v.type !== "image") || !v.visibleBounds) continue;
         const chain = [];
@@ -375,6 +379,9 @@ async function main() {
           ),
           // Inkscape draws its own icon for a missing link (ADR-0042): no budget covers it.
           unchecked: v.type === "image" && !v.src,
+          mixed:
+            (v.kind === "area" || !!v.content?.includes("\n")) &&
+            !!v.ranges?.some((r) => r.fontSize !== undefined),
         });
       }
       const names = [...doc.artboards.map((a) => String(a.name)), "outside Artboards"];
@@ -398,7 +405,8 @@ async function main() {
             if (i === regions.length) {
               index.set(key, i);
               const name = names[artboard] as string;
-              regions.push({ name, kind: "text", subject: rect.subject, area: 0, differ: 0 });
+              const kind = rect.mixed ? "mixed-size text" : "text";
+              regions.push({ name, kind, subject: rect.subject, area: 0, differ: 0 });
             }
           }
           of[py * docRect.width + px] = i;

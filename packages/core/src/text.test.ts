@@ -4,6 +4,7 @@ import { NOTO_SANS_KR } from "./noto-sans-kr.ts";
 import { NOTO_SANS_SC } from "./noto-sans-sc.ts";
 import { SOURCE_SANS_3 } from "./source-sans-3.ts";
 import {
+  canonicalRanges,
   drawnFamily,
   type FontStyle,
   fileGlyphWarnings,
@@ -195,6 +196,28 @@ it("warns once for each text in a font Kalamo does not bundle", () => {
       code: "FONT_MISSING",
       nodeId: "b",
       message: "Helvetica is not bundled, so it renders in Source Sans 3; the name is kept.",
+    },
+  ]);
+});
+
+it("warns once for each missing face a text's ranges name (ADR-0068)", () => {
+  const text = {
+    id: "a",
+    type: "text",
+    fontFamily: "Source Sans 3",
+    fontStyle: "Bold",
+    ranges: [
+      { start: 0, end: 1, fontStyle: "Semibold" },
+      { start: 1, end: 2, fontStyle: "Regular" },
+      { start: 2, end: 3, fontStyle: "Semibold", rotation: 5 },
+    ],
+  } as unknown as Parameters<typeof fontWarnings>[0][number];
+  expect(fontWarnings([text])).toEqual([
+    {
+      code: "FONT_MISSING",
+      nodeId: "a",
+      message:
+        "Source Sans 3 Semibold is not bundled, so it renders in Source Sans 3 Bold; the name is kept.",
     },
   ]);
 });
@@ -489,6 +512,262 @@ it("places each character at its origin, with its range's overrides", () => {
       rotation: 90,
     }),
   ]);
+});
+
+it("stores a range stroke parsed, the later range winning, and lays out without it (ADR-0068)", () => {
+  expect(
+    canonicalRanges(
+      [
+        { start: 0, end: 3, stroke: "#FF0000", fill: "#0000FF" },
+        { start: 1, end: 2, stroke: "#00FF0080" },
+      ],
+      "ranges",
+      {},
+    ),
+  ).toEqual([
+    { start: 0, end: 1, fill: "#0000FF", stroke: "#FF0000" },
+    { start: 1, end: 2, fill: "#0000FF", stroke: "#00FF0080" },
+    { start: 2, end: 3, fill: "#0000FF", stroke: "#FF0000" },
+  ]);
+  expect(() => canonicalRanges([{ start: 0, end: 1, stroke: "red" }], "ranges", {})).toThrow(
+    expect.objectContaining({ data: expect.objectContaining({ path: "ranges[0].stroke" }) }),
+  );
+  const hi = { x: 0, y: 0, content: "Hi", fontSize: 10 };
+  const stroked = { ...hi, ranges: [{ start: 0, end: 2, stroke: "#FF0000" }] };
+  expect(textBox(stroked)).toEqual(textBox(hi));
+  expect(glyphs(stroked).map((g) => g.stroke)).toEqual(["#FF0000", "#FF0000"]);
+});
+
+it("stores a range's tracking unless it equals the Node's, the later range winning (ADR-0068)", () => {
+  const ranges = [
+    { start: 0, end: 4, tracking: 200 },
+    { start: 1, end: 2, tracking: 50 },
+    { start: 2, end: 3, tracking: 0 },
+  ];
+  expect(canonicalRanges(ranges, "ranges", { tracking: 50 })).toEqual([
+    { start: 0, end: 1, tracking: 200 },
+    { start: 2, end: 3, tracking: 0 },
+    { start: 3, end: 4, tracking: 200 },
+  ]);
+  expect(canonicalRanges(ranges, "ranges", {})).toEqual([
+    { start: 0, end: 1, tracking: 200 },
+    { start: 1, end: 2, tracking: 50 },
+    { start: 3, end: 4, tracking: 200 },
+  ]);
+});
+
+it("tracks each character by its range's tracking, the last one's not counted (ADR-0068)", () => {
+  // "Hi" at 12 pt: H tracks 500 / 1000 em = 6 pt, i's tracking is past the end.
+  const hi = { x: 10, y: 50, content: "Hi", fontSize: 12, tracking: 100 };
+  const tracked = { ...hi, ranges: [{ start: 0, end: 2, tracking: 500 }] };
+  expect(textBox(tracked).width).toBeCloseTo(at12(652 + 246) + 6);
+  expect(glyphs(tracked).map((g) => g.x)).toEqual([10, expect.closeTo(10 + at12(652) + 6, 9)]);
+  // At 40 pt, "HH" is 52.16 wide; a range tracking of 500 on the first H adds 20.
+  const hh = (width: number, ranges?: { start: number; end: number; tracking: number }[]) =>
+    layoutText({
+      kind: "area",
+      x: 0,
+      y: 0,
+      width,
+      height: 100,
+      content: "HH HH",
+      fontSize: 40,
+      ranges,
+    }).lines.map((l) => l.text);
+  expect(hh(53)).toEqual(["HH ", "HH"]);
+  expect(hh(53, [{ start: 0, end: 1, tracking: 500 }])).toEqual([]);
+  expect(hh(75, [{ start: 3, end: 4, tracking: 500 }])).toEqual(["HH ", "HH"]);
+  expect(hh(70, [{ start: 3, end: 4, tracking: 500 }])).toEqual(["HH "]);
+});
+
+it("measures a range's characters in its style's face, its style dropped if the Node's (ADR-0068)", () => {
+  const { Regular, Bold } = SOURCE_SANS_3.faces;
+  const H = "H".codePointAt(0) as unknown as keyof typeof Bold.advances;
+  const hh = { x: 0, y: 0, content: "HH", fontSize: 12 };
+  const bold = { ...hh, ranges: [{ start: 1, end: 2, fontStyle: "Bold" as const }] };
+  expect(textBox(bold).width).toBeCloseTo(at12(Regular.advances[H] + Bold.advances[H]));
+  expect(glyphs(bold).map((g) => g.width)).toEqual([
+    expect.closeTo(at12(Regular.advances[H]), 9),
+    expect.closeTo(at12(Bold.advances[H]), 9),
+  ]);
+  const ranges = [
+    { start: 0, end: 2, fontStyle: "Bold" as const },
+    { start: 1, end: 2, fontStyle: "Italic" as const },
+  ];
+  expect(canonicalRanges(ranges, "ranges", { fontStyle: "Bold" })).toEqual([
+    { start: 1, end: 2, fontStyle: "Italic" },
+  ]);
+  expect(canonicalRanges(ranges, "ranges", {})).toEqual([
+    { start: 0, end: 1, fontStyle: "Bold" },
+    { start: 1, end: 2, fontStyle: "Italic" },
+  ]);
+});
+
+it("draws a range's characters in its family's fallback order, its family kept as written (ADR-0068)", () => {
+  const hi = { x: 0, y: 0, content: "Hi", fontSize: 1000 };
+  const ranged = (fontFamily: string) => ({ ...hi, ranges: [{ start: 0, end: 2, fontFamily }] });
+  // In Noto Sans SC's own Latin, as a text in it measures; an unbundled name in Source Sans 3.
+  expect(textBox(ranged("Noto Sans SC")).width).toBeCloseTo(728 + 275);
+  expect(textBox(ranged("Helvetica"))).toEqual(textBox(hi));
+  expect(glyphs(ranged("Helvetica"))[0]).toMatchObject({ fontFamily: "Helvetica" });
+  const text = (fontFamily: string) =>
+    ({ id: "a", type: "text", fontFamily: "Source Sans 3", ...ranged(fontFamily) }) as never;
+  expect(fontWarnings([text("Noto Sans SC")])).toEqual([]);
+  expect(fontWarnings([text("Helvetica")]).map((w) => w.message)).toEqual([
+    "Helvetica is not bundled, so it renders in Source Sans 3; the name is kept.",
+  ]);
+  expect(
+    canonicalRanges(
+      [
+        { start: 0, end: 2, fontFamily: "Helvetica" },
+        { start: 1, end: 2, fontFamily: "Noto Sans SC" },
+      ],
+      "ranges",
+      { fontFamily: "Noto Sans SC" },
+    ),
+  ).toEqual([{ start: 0, end: 1, fontFamily: "Helvetica" }]);
+});
+
+it("stacks an Area Type line by the families its range characters draw in (ADR-0064, ADR-0068)", () => {
+  const frame = { kind: "area" as const, x: 0, y: 0, width: 200, height: 100, fontSize: 10 };
+  const lines = (ranges?: { start: number; end: number; fontFamily: string }[]) =>
+    layoutText({ ...frame, content: "ab\ncd\nef", ranges }).lines.map((l) => l.y);
+  const latin = lines();
+  const noto = lines([{ start: 3, end: 4, fontFamily: "Noto Sans SC" }]);
+  // The Noto line rises by its em box's ascent over Source Sans 3's, 10 × (0.88 - 1000/1326).
+  const rise = 10 * (0.88 - 1000 / 1326);
+  expect(noto[0]).toBeCloseTo(latin[0] as number);
+  expect(noto[1]).toBeCloseTo((latin[1] as number) + rise);
+  expect(noto[2]).toBeCloseTo((latin[2] as number) + rise);
+});
+
+it("measures a range's characters at its size, its tracking in their em (ADR-0068)", () => {
+  const hi = { x: 0, y: 0, content: "Hi", fontSize: 12, tracking: 100 };
+  const big = { ...hi, ranges: [{ start: 0, end: 1, fontSize: 24 }] };
+  // H at 24 pt, and its tracking of 100 in its own em: 2.4.
+  expect(glyphs(big).map((g) => [g.x, g.width])).toEqual([
+    [0, expect.closeTo((652 * 24) / 1000, 9)],
+    [expect.closeTo((652 * 24) / 1000 + 2.4, 9), expect.closeTo(at12(246), 9)],
+  ]);
+  const ranges = [
+    { start: 0, end: 2, fontSize: 24 },
+    { start: 1, end: 2, fontSize: 12 },
+  ];
+  expect(canonicalRanges(ranges, "ranges", { fontSize: 12 })).toEqual([
+    { start: 0, end: 1, fontSize: 24 },
+  ]);
+});
+
+// 12 pt Source Sans 3 with one 24 pt B, Auto or a 14.4 pt leading (ADR-0068).
+const mixed = (content: string, leading?: number, kind?: "area") =>
+  layoutText({
+    ...(kind ? { kind, width: 300, height: 200 } : {}),
+    x: 10,
+    y: kind ? 40 : 50,
+    content,
+    fontSize: 12,
+    leading,
+    ranges: [{ start: content.indexOf("B"), end: content.indexOf("B") + 1, fontSize: 24 }],
+  }).lines.map((l) => l.y);
+const near = (ys: number[]) => ys.map((y) => expect.closeTo(y, 6));
+/** Source Sans 3's ascent in its em box (ADR-0064). */
+const A = 1000 / 1326;
+
+it("puts a Point Type line holding a larger size 120% of it below the one before (ADR-0068)", () => {
+  // Illustrator's Auto leading is a line's own: 28.8 for the line holding 24 pt, 14.4 for the rest.
+  expect(mixed("HH\nHBH\nHH")).toEqual(near([50, 78.8, 93.2]));
+  expect(mixed("HBH\nHH\nHH")).toEqual(near([50, 64.4, 78.8]));
+  // An explicit leading stays fixed.
+  expect(mixed("HH\nHBH\nHH", 14.4)).toEqual(near([50, 64.4, 78.8]));
+  // A range size on a hard return sets its empty line's leading.
+  const empty = layoutText({
+    x: 0,
+    y: 0,
+    content: "H\n\nH",
+    fontSize: 10,
+    ranges: [{ start: 2, end: 3, fontSize: 20 }],
+  });
+  expect(empty.lines.map((l) => l.y)).toEqual(near([0, 24, 36]));
+  // A text whose ranges set no size lays out as before, CJK one leading apart too.
+  expect(
+    layoutText({ x: 10, y: 50, content: "HH\nH你\nHH", fontSize: 12 }).lines.map((l) => l.y),
+  ).toEqual(near([50, 64.4, 78.8]));
+  // Its box grows to the 24 pt ascender.
+  const box = textBox({
+    x: 10,
+    y: 50,
+    content: "HB",
+    fontSize: 12,
+    ranges: [{ start: 1, end: 2, fontSize: 24 }],
+  });
+  expect(box.y).toBeCloseTo(50 - 24);
+  expect(box.height).toBeCloseTo(24 + (326 * 24) / 1000);
+});
+
+it("stacks Area Type lines by each line's largest size, as Illustrator does (ADR-0068)", () => {
+  // The first baseline is one line-box ascent below the top at that line's size (ADR-0022): half
+  // of 1.2 × 24 − 24 above the ascent.
+  const [a12, a24] = [1.2 + 12 * A, 2.4 + 24 * A];
+  expect(mixed("HH\nHBH\nHH", undefined, "area")).toEqual(
+    near([40 + a12, 40 + a12 + 28.8, 40 + a12 + 43.2]),
+  );
+  expect(mixed("HBH\nHH\nHH", undefined, "area")).toEqual(
+    near([40 + a24, 40 + a24 + 14.4, 40 + a24 + 28.8]),
+  );
+  const a24at14 = -4.8 + 24 * A;
+  expect(mixed("HH\nHBH\nHH", 14.4, "area")).toEqual(near([40 + a12, 54.4 + a12, 68.8 + a12]));
+  expect(mixed("HBH\nHH\nHH", 14.4, "area")).toEqual(
+    near([40 + a24at14, 54.4 + a24at14, 68.8 + a24at14]),
+  );
+  // Wrapping moves a larger word to the next line, and its leading with it: 20 pt × 1.2 = 24.
+  const wrapped = layoutText({
+    kind: "area",
+    x: 0,
+    y: 0,
+    width: 100,
+    height: 200,
+    content: "Area Type with a LARGE word in the middle",
+    fontSize: 11,
+    ranges: [{ start: 17, end: 22, fontSize: 20 }],
+  }).lines.map((l) => [l.text, l.y]);
+  const a11 = 1.1 + 11 * A;
+  expect(wrapped).toEqual([
+    ["Area Type with a ", expect.closeTo(a11, 6)],
+    ["LARGE word in ", expect.closeTo(a11 + 24, 6)],
+    ["the middle", expect.closeTo(a11 + 37.2, 6)],
+  ]);
+});
+
+it("shows an Area Type line holding a larger size while 90% of its own leading fits (ADR-0068)", () => {
+  const shown = (content: string, height: number, size = 24, leading?: number) =>
+    layoutText({
+      kind: "area",
+      x: 0,
+      y: 0,
+      width: 300,
+      height,
+      content,
+      fontSize: 12,
+      leading,
+      ranges: [{ start: content.indexOf("B"), end: content.indexOf("B") + 1, fontSize: size }],
+    }).lines.length;
+  const a12 = 1.2 + 12 * A;
+  // A later line's top is its baseline less its ascent; it shows while 90% of its leading fits.
+  const at = (size: number, leading = 1.2 * size) =>
+    a12 +
+    (leading === 1.2 * size ? leading : 14.4) -
+    ((leading - size) / 2 + size * A) +
+    0.9 * leading;
+  for (const [size, leading] of [[24], [14], [24, 14.4]] as [number, number?][]) {
+    const h = at(size, leading);
+    expect([
+      shown("HH\nHBH", h + 0.01, size, leading),
+      shown("HH\nHBH", h - 0.01, size, leading),
+    ]).toEqual([2, 1]);
+  }
+  // The first line shows while 90% of its line box does: 1.2 × 24, or the 14.4 leading.
+  expect([shown("HBH", 25.93), shown("HBH", 25.91)]).toEqual([1, 0]);
+  expect([shown("HBH", 12.97, 24, 14.4), shown("HBH", 12.95, 24, 14.4)]).toEqual([1, 0]);
 });
 
 it("grows Point Type's box to hold a shifted or rotated character", () => {

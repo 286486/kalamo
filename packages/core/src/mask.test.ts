@@ -74,7 +74,7 @@ describe("makeMask", () => {
     expect(bounds(s.doc, group)).toEqual({ x: 20, y: 20, width: 20, height: 20 });
   });
 
-  it("makes a text the Clipping Path, emptying its Range Fills and keeping their other overrides (ADR-0052)", () => {
+  it("makes a text the Clipping Path, emptying its Range Fills and Strokes and keeping their other overrides (ADR-0052, ADR-0068)", () => {
     const s = scene();
     const text = { ...(s.text as TextNode), content: "Hello" };
     s.doc.nodes.set(text.id, {
@@ -83,7 +83,8 @@ describe("makeMask", () => {
       ranges: [
         { start: 0, end: 1, fill: "#FF0000" },
         { start: 1, end: 2, fill: "#00FF00", rotation: 10 },
-        { start: 2, end: 3, rotation: 10 },
+        { start: 2, end: 3, rotation: 10, stroke: "#0000FF" },
+        { start: 3, end: 4, stroke: "#0000FF" },
       ],
     });
     const { group } = makeMask(s.doc, { clipNodeId: s.text.id, contentIds: [s.a.id] });

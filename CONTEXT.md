@@ -93,7 +93,7 @@ Text 的字符属性 `fontStyle`，Illustrator 字符面板里字体族旁的样
 _Avoid_: Font weight、Bold flag、Typeface
 
 **Leading（行距）**：
-Text 相邻两行基线之间的距离，单位 pt。未设置即 Auto，为字号的 120%，随字号变化。
+Text 相邻两行基线之间的距离，单位 pt，属于下面那一行。未设置即 Auto，为该行最大字号的 120%（与 Illustrator 一致，ADR-0068），随字号变化；设置后每行固定。
 _Avoid_: Line height、Line spacing
 
 **Tracking（字符间距）**：
@@ -101,7 +101,7 @@ Text 的字符属性 `tracking`，每个字符后增加的间距，单位 1/1000
 _Avoid_: Letter spacing、Character spacing、Kerning（Kerning 是字符对之间的调整）
 
 **Character Range（字符区间）**：
-Text 的 `ranges` 中的一项 `{start, end, …}`：按字符（码点）索引 `content` 的 `[start, end)`，为这些字符覆盖 Node 的字符属性，目前是 `fill`（替换每个 Fill 的颜色）、`baselineShift`（pt，向上为正）和 `rotation`（度，顺时针，绕字符基线原点）。存储为规范形式：有序、不重叠、相邻相同合并；写 `content` 而不给 `ranges` 会清空它们（ADR-0029）。
+Text 的 `ranges` 中的一项 `{start, end, …}`：按字符（码点）索引 `content` 的 `[start, end)`，为这些字符覆盖 Node 的字符属性，目前是 `fill`（替换每个 Fill 的颜色）、`stroke`（替换每个 Stroke 的颜色，无 Stroke 的文字不描边）、`baselineShift`（pt，向上为正）和 `rotation`（度，顺时针，绕字符基线原点）、`tracking`（字符自身 em 的千分之一）、`fontStyle`（Illustrator 样式名）、`fontFamily`（任意字体名，原样保存）与 `fontSize`（pt）。存储为规范形式：有序、不重叠、相邻相同合并，等于 Node 自身值的覆盖即无覆盖；写 `content` 而不给 `ranges` 会清空它们（ADR-0029、ADR-0068）。
 _Avoid_: Run、Span、Character style（Character Style 是具名样式，F-TEXT-08）
 
 ## 图像
@@ -194,7 +194,7 @@ _Avoid_: Style preset、Theme
 _Avoid_: Clip、Crop（那是位图操作）、Clip group 作为类型名
 
 **Clipping Path（剪切路径）**：
-Clipping Mask 中做裁切的那个子 Node：一个 `clipping: true` 的 Live Shape、Path 或文字。文字按其排好的字形裁切，且仍可编辑（ADR-0052）。每个 Group 或 Layer 至多一个；它裁切同一容器中的其他 Node（ADR-0053）。建立时其 Appearance 清空（文字的 Character Range fill 一并清空）；重新赋予后，Fill 画在被裁切内容之下，Stroke 画在其上且不被自身裁切（ADR-0051）。Illustrator SVG 把它写成 `<clipPath><use>`，导入时按所指形状复制到原处读出，名称与 id 取自该 `<use>`（ADR-0056）。
+Clipping Mask 中做裁切的那个子 Node：一个 `clipping: true` 的 Live Shape、Path 或文字。文字按其排好的字形裁切，且仍可编辑（ADR-0052）。每个 Group 或 Layer 至多一个；它裁切同一容器中的其他 Node（ADR-0053）。建立时其 Appearance 清空（文字的 Character Range fill 与 stroke 一并清空）；重新赋予后，Fill 画在被裁切内容之下，Stroke 画在其上且不被自身裁切（ADR-0051）。Illustrator SVG 把它写成 `<clipPath><use>`，导入时按所指形状复制到原处读出，名称与 id 取自该 `<use>`（ADR-0056）。
 _Avoid_: Mask path、Clip shape
 
 **Opacity Mask（不透明度蒙版）**：

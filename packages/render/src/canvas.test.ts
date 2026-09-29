@@ -1,5 +1,6 @@
 import {
   bounds,
+  type CharacterRange,
   createDocument,
   createNodes,
   glyphs,
@@ -524,7 +525,7 @@ it("draws Point Type with fillText per Fill and strokeText per Stroke, unkerned"
 });
 
 it("draws a tracked text per character, a turned one about its origin in its range's fill (ADR-0029)", () => {
-  const draw = (strokes: object[]) => {
+  const draw = (strokes: object[], more: CharacterRange[] = []) => {
     const { doc, defaultLayerId: parentId } = newDoc();
     createNodes(doc, [
       {
@@ -534,7 +535,7 @@ it("draws a tracked text per character, a turned one about its origin in its ran
         y: 50,
         content: "Hi",
         tracking: 100,
-        ranges: [{ start: 1, end: 2, fill: "#FF0000", rotation: 90 }],
+        ranges: [{ start: 1, end: 2, fill: "#FF0000", rotation: 90 }, ...more],
         appearance: { fills: [{ color: "#000000" }], strokes } as never,
       },
     ]);
@@ -563,6 +564,57 @@ it("draws a tracked text per character, a turned one about its origin in its ran
   const texts = stroked.filter((l) => /^strokeText/.test(l));
   expect(texts).toEqual(["strokeText H 10 50", "strokeText i 19.024 50"]);
   expect(stroked.slice(stroked.indexOf("strokeStyle=#0000FF"))).not.toContain("fillStyle=#FF0000");
+  // A range stroke recolours only its characters' Stroke (ADR-0068).
+  const ranged = draw([{ color: "#0000FF", width: 1 }], [{ start: 0, end: 1, stroke: "#00FF00" }]);
+  expect(
+    ranged
+      .slice(ranged.indexOf("strokeStyle=#0000FF"))
+      .filter((l) => /^(stroke|fill)(Style|Text)/.test(l)),
+  ).toEqual([
+    "strokeStyle=#0000FF",
+    "strokeStyle=#00FF00",
+    "strokeText H 10 50",
+    "strokeStyle=#0000FF",
+    "strokeText i 19.024 50",
+  ]);
+});
+
+it("draws each character of a range in its own face and size, then goes back to the text's (ADR-0068)", () => {
+  const { doc, defaultLayerId: parentId } = newDoc();
+  createNodes(doc, [
+    {
+      type: "text",
+      parentId,
+      x: 10,
+      y: 50,
+      content: "Hi!",
+      ranges: [
+        { start: 1, end: 2, fontStyle: "Black Italic" },
+        { start: 2, end: 3, fontFamily: "Noto Sans SC", fontSize: 20 },
+      ],
+      appearance: { fills: [{ color: "#000000" }], strokes: [{ color: "#0000FF", width: 1 }] },
+    },
+  ]);
+  const { ctx, log, layer } = recorder();
+  drawDocument(ctx, doc, layer);
+  const plain = 'font=12px "Source Sans 3", "Noto Sans SC", "Noto Sans KR"';
+  const black = 'font=italic 900 12px "Source Sans 3", "Noto Sans SC", "Noto Sans KR"';
+  const noto = 'font=20px "Noto Sans SC", "Source Sans 3", "Noto Sans KR"';
+  expect(log.filter((l) => /^(font=|fillText|strokeText)/.test(l))).toEqual([
+    plain,
+    "fillText H 10 50",
+    black,
+    expect.stringMatching(/^fillText i /),
+    noto,
+    expect.stringMatching(/^fillText ! /),
+    plain,
+    "strokeText H 10 50",
+    black,
+    expect.stringMatching(/^strokeText i /),
+    noto,
+    expect.stringMatching(/^strokeText ! /),
+    plain,
+  ]);
 });
 
 it("draws each line of Point Type, one leading apart", () => {

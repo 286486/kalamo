@@ -942,15 +942,14 @@ it("reads <text> as one Point Type, its Inkscape lines joined by returns, keepin
     fontFamily: "DejaVu Sans",
     fontSize: 11.906,
     appearance: { fills: [{ color: "#FF0000" }] },
+    ranges: [{ start: 3, end: 4, fontStyle: "Bold" }],
   });
   // Half of "Hi"'s advances at 10 pt: (652 + 246) × 10 / 1000 / 2.
   expect(centred).toMatchObject({ x: 95.51, content: "Hi" });
+  // The bold tspan's face is missing too (ADR-0068).
   expect(file.warnings).toEqual([
-    expect.objectContaining({
-      code: "UNSUPPORTED_ATTRIBUTE",
-      message: expect.stringMatching(/font-weight/),
-    }),
     expect.objectContaining({ code: "FONT_MISSING", nodeId: abc?.id }),
+    expect.objectContaining({ code: "FONT_MISSING", message: expect.stringMatching(/Sans Bold/) }),
   ]);
 });
 
@@ -1036,15 +1035,127 @@ describe("tracking and Character Ranges (ADR-0029)", () => {
     ]);
   });
 
+  it("indexes a rotate list by the characters left after whitespace collapses", () => {
+    expect(
+      text('<text rotate="10 20 30">\n  <tspan sodipodi:role="line">abc</tspan>\n</text>').ranges,
+    ).toEqual([
+      { start: 0, end: 1, rotation: 10 },
+      { start: 1, end: 2, rotation: 20 },
+      { start: 2, end: 3, rotation: 30 },
+    ]);
+    expect(text('<text rotate="10 20 30 40">a  b</text>').ranges).toEqual([
+      { start: 0, end: 1, rotation: 10 },
+      { start: 1, end: 2, rotation: 20 },
+      { start: 2, end: 3, rotation: 30 },
+    ]);
+  });
+
+  it("indexes a rotate list by every character where whitespace is preserved", () => {
+    expect(text('<text xml:space="preserve" rotate="10 20 30 40">a  b</text>').ranges).toEqual([
+      { start: 0, end: 1, rotation: 10 },
+      { start: 1, end: 2, rotation: 20 },
+      { start: 2, end: 3, rotation: 30 },
+      { start: 3, end: 4, rotation: 40 },
+    ]);
+  });
+
+  it("counts a nested tspan's characters in its parent's rotate list (SVG 1.1 §10.5)", () => {
+    expect(
+      text('<text rotate="10 20 30 40 50 60"><tspan rotate="0">ab</tspan>cd</text>').ranges,
+    ).toEqual([
+      { start: 2, end: 3, rotation: 30 },
+      { start: 3, end: 4, rotation: 40 },
+    ]);
+  });
+
+  it("reads a tspan's letter-spacing as its characters' tracking, in their em (ADR-0068)", () => {
+    const file = read(
+      '<text font-size="20" letter-spacing="2">a<tspan letter-spacing="5">b</tspan><tspan letter-spacing="0.1em">c</tspan><tspan letter-spacing="normal">d</tspan></text>',
+    );
+    expect(file.warnings).toEqual([]);
+    expect(leaves(file)[0]).toMatchObject({
+      tracking: 100,
+      ranges: [
+        { start: 1, end: 2, tracking: 250 },
+        { start: 3, end: 4, tracking: 0 },
+      ],
+    });
+  });
+
+  it("reads a tspan's font-size as its characters' size, a percentage or em of its parent's (ADR-0068)", () => {
+    const file = read(
+      '<g transform="scale(2)"><text font-size="10" letter-spacing="1">a<tspan font-size="20">b</tspan><tspan font-size="150%">c<tspan font-size="2em">d</tspan></tspan><tspan style="font-size:10pt" letter-spacing="3">e</tspan></text></g>',
+    );
+    expect(file.warnings).toEqual([]);
+    // Tracking in each character's own em: 1 of 20 and of 15 and of 30; 3 of 10.
+    expect(leaves(file)[0]).toMatchObject({
+      fontSize: 20,
+      tracking: 100,
+      ranges: [
+        { start: 1, end: 2, fontSize: 40, tracking: 50 },
+        { start: 2, end: 3, fontSize: 30, tracking: 66.667 },
+        { start: 3, end: 4, fontSize: 60, tracking: 33.333 },
+        { start: 4, end: 5, tracking: 300 },
+      ],
+    });
+  });
+
+  it("warns for a keyword font-size on part of a text, and imports it in the text's size", () => {
+    const file = read('<text font-size="10">a<tspan font-size="larger">b</tspan></text>');
+    expect(file.warnings).toEqual([
+      expect.objectContaining({
+        code: "UNSUPPORTED_ATTRIBUTE",
+        message: expect.stringMatching(/larger/),
+      }),
+    ]);
+    expect(leaves(file)[0]).not.toHaveProperty("ranges");
+  });
+
+  it("reads a tspan's font-family as its characters' family, kept as written (ADR-0068)", () => {
+    const file = read(
+      `<text font-family="Source Sans 3">a<tspan font-family="'Helvetica Neue', Arial">b</tspan><tspan style="font-family:Noto Sans SC">c</tspan><tspan font-family="Source Sans 3, serif">d</tspan></text>`,
+    );
+    expect(file.warnings.map((w) => w.message)).toEqual([
+      "Helvetica Neue is not bundled, so it renders in Source Sans 3; the name is kept.",
+    ]);
+    expect(leaves(file)[0]).toMatchObject({
+      fontFamily: "Source Sans 3",
+      ranges: [
+        { start: 1, end: 2, fontFamily: "Helvetica Neue" },
+        { start: 2, end: 3, fontFamily: "Noto Sans SC" },
+      ],
+    });
+  });
+
+  it("reads a tspan's weight and italic as its characters' style (ADR-0068)", () => {
+    const file = read(
+      '<text font-weight="bold">a<tspan font-weight="normal">b</tspan><tspan font-style="italic">c</tspan><tspan font-weight="300" font-style="oblique">d</tspan><tspan font-weight="700">e</tspan></text>',
+    );
+    expect(file.warnings.map((w) => w.message)).toEqual([
+      "Source Sans 3 Light Italic is not bundled, so it renders in Source Sans 3 Italic; the name is kept.",
+    ]);
+    expect(leaves(file)[0]).toMatchObject({
+      fontStyle: "Bold",
+      ranges: [
+        { start: 1, end: 2, fontStyle: "Regular" },
+        { start: 2, end: 3, fontStyle: "Bold Italic" },
+        { start: 3, end: 4, fontStyle: "Light Italic" },
+      ],
+    });
+  });
+
   it("scales baseline shift with a baked scale, and tracking not at all", () => {
     expect(
       text(
-        '<g transform="scale(2)"><text font-size="20" letter-spacing="2">a<tspan baseline-shift="3">b</tspan></text></g>',
+        '<g transform="scale(2)"><text font-size="20" letter-spacing="2">a<tspan baseline-shift="3">b</tspan><tspan letter-spacing="4">c</tspan></text></g>',
       ),
     ).toMatchObject({
       fontSize: 40,
       tracking: 100,
-      ranges: [{ start: 1, end: 2, baselineShift: 6 }],
+      ranges: [
+        { start: 1, end: 2, baselineShift: 6 },
+        { start: 2, end: 3, tracking: 200 },
+      ],
     });
   });
 
@@ -1067,6 +1178,12 @@ describe("tracking and Character Ranges (ADR-0029)", () => {
     expect(
       text('<text x="100" text-anchor="middle" font-size="10" letter-spacing="1">Hi</text>'),
     ).toMatchObject({ x: 95.01 });
+    // And with a range's: H tracks 3 of 10 pt.
+    expect(
+      text(
+        '<text x="100" text-anchor="middle" font-size="10" letter-spacing="1"><tspan letter-spacing="3">H</tspan>i</text>',
+      ),
+    ).toMatchObject({ x: 94.01 });
   });
 
   it.each([
@@ -1074,10 +1191,29 @@ describe("tracking and Character Ranges (ADR-0029)", () => {
     '<text>a<tspan baseline-shift="super">b</tspan></text>',
     '<text>a<tspan baseline-shift="30%">b</tspan></text>',
     '<text fill="none" stroke="#000">a<tspan fill="#f00">b</tspan></text>',
+    '<text>a<tspan stroke="#f00">b</tspan></text>',
+    '<text stroke="#000" stroke-width="0">a<tspan stroke="#f00">b</tspan></text>',
+    '<defs><linearGradient id="g"><stop offset="0" stop-color="#f00"/></linearGradient></defs><text stroke="#000">a<tspan stroke="url(#g)">b</tspan></text>',
+    '<text stroke="#000">a<tspan stroke="none">b</tspan></text>',
+    '<text stroke="#000">a<tspan stroke-width="3">b</tspan></text>',
+    '<text stroke="#000">a<tspan stroke-dasharray="1 1">b</tspan></text>',
   ])("warns for what a range cannot hold, and makes none: %s", (body) => {
     const file = read(body);
     expect(file.warnings).toEqual([expect.objectContaining({ code: "UNSUPPORTED_ATTRIBUTE" })]);
     expect(leaves(file).find((n) => n.type === "text")).not.toHaveProperty("ranges");
+  });
+
+  it("reads a tspan's stroke on a text with a Stroke as a range stroke (ADR-0068)", () => {
+    const file = read(
+      '<text stroke="#000" stroke-opacity="0.5">a<tspan stroke="#f00">b</tspan><tspan stroke-opacity="1">c</tspan><tspan stroke="#000000">d</tspan></text>',
+    );
+    expect(file.warnings).toEqual([]);
+    expect(leaves(file)[0]).toMatchObject({
+      ranges: [
+        { start: 1, end: 2, stroke: "#FF000080" },
+        { start: 2, end: 3, stroke: "#000000" },
+      ],
+    });
   });
 
   it("reads a none fill under a none fill as no range and no warning", () => {
@@ -1098,17 +1234,28 @@ describe("tracking and Character Ranges (ADR-0029)", () => {
         parentId,
         x: 0,
         y: 20,
-        content: "Hello",
+        content: "Hello!",
         fontSize: 20,
         tracking: 100,
+        appearance: {
+          fills: [{ color: "#000000" }],
+          strokes: [{ color: "#0000FF", width: 1 }],
+        },
         ranges: [
           { start: 0, end: 1, fill: "#FF000080" },
-          { start: 2, end: 4, baselineShift: 3, rotation: -15 },
+          { start: 1, end: 2, stroke: "#00FF00", tracking: -50 },
+          { start: 2, end: 4, baselineShift: 3, rotation: -15, stroke: "#FF000080" },
+          { start: 4, end: 5, tracking: 0, fontStyle: "Bold", fontFamily: "Noto Sans SC" },
+          { start: 5, end: 6, fontSize: 30 },
         ],
       },
     ]).nodes;
-    const back = leaves(parseFile(toSvg(doc)))[0];
-    expect(back).toMatchObject({ tracking: 100, ranges: node && "ranges" in node && node.ranges });
+    const file = parseFile(toSvg(doc));
+    expect(file.warnings).toEqual([]);
+    expect(leaves(file)[0]).toMatchObject({
+      tracking: 100,
+      ranges: node && "ranges" in node && node.ranges,
+    });
   });
 });
 
@@ -1735,7 +1882,7 @@ describe("a painted Clipping Path (ADR-0051)", () => {
   });
 
   describe("a text Clipping Path (ADR-0052)", () => {
-    it("reads back a painted Area Type clip, its ranges, Range Fills and overflow", () => {
+    it("reads back a painted Area Type clip, its ranges, Range Fills and Strokes and overflow", () => {
       const { doc, defaultLayerId: parentId } = createDocument({
         id: "d",
         name: "Doc",
@@ -1760,7 +1907,8 @@ describe("a painted Clipping Path (ADR-0051)", () => {
         transform: [0.9, 0.2, -0.2, 0.9, 5, 0],
         ranges: [
           { start: 0, end: 1, fill: "#FF0000" },
-          { start: 1, end: 2, rotation: 10 },
+          { start: 1, end: 2, rotation: 10, stroke: "#00FF00" },
+          { start: 5, end: 6, fill: "#FF0000", stroke: "#00FF00" },
         ],
         appearance: {
           fills: [{ type: "solid", color: "#000000" }],

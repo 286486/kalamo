@@ -338,6 +338,9 @@ export const CharacterRange = z.strictObject({
   start: z.number().int().min(0),
   end: z.number().int().min(1),
   fill: Color.optional().describe("Replaces every Fill's paint for these characters."),
+  stroke: Color.optional().describe(
+    "Replaces every Stroke's paint for these characters; a text with no Stroke draws none.",
+  ),
   baselineShift: z.number().optional().describe("In pt, positive up."),
   rotation: z
     .number()
@@ -345,9 +348,34 @@ export const CharacterRange = z.strictObject({
     .max(360)
     .optional()
     .describe("Degrees clockwise about each character's baseline origin."),
+  tracking: z
+    .number()
+    .min(-1000)
+    .max(10_000)
+    .optional()
+    .describe("Space after each character in 1/1000 of its own em, -1000 to 10000."),
+  fontStyle: z
+    .enum(FONT_STYLES)
+    .optional()
+    .describe("The style name these characters draw in, as the text's fontStyle."),
+  fontFamily: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("Any font name for these characters, kept as written, as the text's fontFamily."),
+  fontSize: z
+    .number()
+    .positive()
+    .optional()
+    .describe(
+      "In pt, as the text's fontSize. With Auto leading a line is 120% of its largest size below the one before.",
+    ),
 });
-/** A stored Character Range, its fill parsed to `#RRGGBB` or `#RRGGBBAA`. */
-export type CharacterRange = Omit<z.output<typeof CharacterRange>, "fill"> & { fill?: string };
+/** A stored Character Range, its fill and stroke parsed to `#RRGGBB` or `#RRGGBBAA`. */
+export type CharacterRange = Omit<z.output<typeof CharacterRange>, "fill" | "stroke"> & {
+  fill?: string;
+  stroke?: string;
+};
 
 /**
  * A text (ADR-0013, ADR-0022): Point Type from its baseline origin, or Area Type in its frame,
@@ -392,7 +420,9 @@ export const TextShape = z.object({
     .number()
     .positive()
     .optional()
-    .describe("Distance between baselines in pt; omit for Auto, 120% of fontSize."),
+    .describe(
+      "Distance between baselines in pt; omit for Auto, 120% of the largest fontSize on each line.",
+    ),
   tracking: z
     .number()
     .min(-1000)

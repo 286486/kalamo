@@ -3,6 +3,7 @@ import {
   type Artboard,
   applyTo,
   type CharacterRange,
+  characterFont,
   childrenOf,
   clippingPath,
   containerAppearance,
@@ -717,6 +718,12 @@ function containerPaints(
   ];
 }
 
+/** The `font-weight` and `font-style` of a run's face that differ from its text's. */
+const runFace = (run: ReturnType<typeof fontFace>, own: ReturnType<typeof fontFace>): Attrs => ({
+  "font-weight": run.weight === own.weight ? undefined : run.weight,
+  "font-style": run.italic === own.italic ? undefined : run.italic ? "italic" : "normal",
+});
+
 /**
  * One paint of a text, laid out as `layoutText` draws it (ADR-0022): Point Type as Inkscape's line
  * tspans; Area Type as positioned tspans in its frame, each keeping its trailing spaces and return,
@@ -732,18 +739,33 @@ function text(n: TextNode, a: Attrs, extra: (string | false)[], chunked: boolean
   const { lines, overflow } = layoutText(n);
   const area = n.kind === "area";
   const role = area ? {} : { "sodipodi:role": "line" };
-  // A nested tspan for each run of characters with overrides, bare text for the rest (ADR-0029). A range fill
-  // goes only where a Fill paints, opaque where the element's fill-opacity would inherit.
-  // A container paint's copy has no fill of its own and takes none: its Fill paints every glyph.
-  const painted = a.fill !== undefined && a.fill !== "none";
+  // A nested tspan for each run of characters with overrides, bare text for the rest (ADR-0029). A
+  // range fill goes only where a Fill paints, and a range stroke where a Stroke does (ADR-0068),
+  // opaque where the element's opacity would inherit. A container paint's copy has no paint of its
+  // own and takes none: its paint covers every glyph.
   const ranges = n.ranges ?? [];
+  const face = fontFace(n.fontStyle);
+  const paint = (list: "fill" | "stroke", color: string | undefined): Attrs => {
+    if (!color || a[list] === undefined || a[list] === "none") return {};
+    const opaque = color.length === 7 && a[`${list}-opacity`] !== undefined;
+    return { ...paintAttrs(list, color), ...(opaque && { [`${list}-opacity`]: "1" }) };
+  };
+  const spacing = ({ tracking, fontSize }: CharacterRange) => {
+    const t = tracking ?? n.tracking ?? 0;
+    if (tracking === undefined && (fontSize === undefined || t === 0)) return undefined;
+    return formatNumber((t * (fontSize ?? n.fontSize)) / 1000);
+  };
   const overrides = (r: CharacterRange): Attrs => ({
-    ...(painted && r.fill && paintAttrs("fill", r.fill)),
-    ...(painted &&
-      r.fill?.length === 7 &&
-      a["fill-opacity"] !== undefined && { "fill-opacity": "1" }),
+    ...paint("fill", r.fill),
+    ...paint("stroke", r.stroke),
     "baseline-shift": r.baselineShift ? formatNumber(r.baselineShift) : undefined,
     rotate: r.rotation ? formatNumber(r.rotation) : undefined,
+    "font-size": r.fontSize === undefined ? undefined : formatNumber(r.fontSize),
+    // In user units, as on the <text> (ADR-0029, ADR-0068): a length, so a resized run writes its
+    // own whenever it tracks.
+    "letter-spacing": spacing(r),
+    // What sets the range's style apart from the text's (ADR-0028, ADR-0068).
+    ...(r.fontStyle && runFace(fontFace(r.fontStyle), face)),
   });
   // For resvg, each shown character's origin, so a chunk can start at it.
   const [first] = fontFamilies(n);
@@ -763,20 +785,23 @@ function text(n: TextNode, a: Attrs, extra: (string | false)[], chunked: boolean
     for (const char of t) {
       index++;
       while ((ranges[range]?.end ?? Infinity) <= index) range++;
-      const r = ranges[range];
+      const r = (ranges[range]?.start ?? Infinity) <= index ? ranges[range] : undefined;
+      // The character's own font, its range's family and style included (ADR-0068).
+      const font = characterFont(n, r);
       const origin = laidOut ? origins[shown++] : undefined;
-      const drawn = chunked && laidOut && char !== "\n" ? drawnFamily(n, char) : family;
+      const drawn = chunked && laidOut && char !== "\n" ? drawnFamily(font, char) : family;
       const chunk = drawn !== family && origin !== undefined;
       family = drawn;
       let alone = false;
       if (!chunked) {
-        const f = drawnFamily(n, char);
+        const f = drawnFamily(font, char);
         if (char === " " || char === "\u00a0") alone = before !== undefined && f !== before;
         else before = char === "\n" ? undefined : f;
       }
+      // resvg is told the bundled family each chunk draws in; others the range's, as written.
       const own = attrs({
-        ...(r && r.start <= index && overrides(r)),
-        "font-family": family === first ? undefined : family,
+        ...(r && overrides(r)),
+        "font-family": chunked ? (family === first ? undefined : family) : r?.fontFamily,
       });
       const last = runs.at(-1);
       if (!chunk && last?.attrs === own && last.alone === alone) last.text += char;
@@ -806,7 +831,7 @@ function text(n: TextNode, a: Attrs, extra: (string | false)[], chunked: boolean
   // Auto leading is CSS's unitless 1.2, which also follows the font size.
   const leading = n.leading === undefined ? "1.2" : `${formatNumber(n.leading)}px`;
   // The stored style, which Inkscape and resvg each match to a face as Kalamo does (ADR-0028).
-  const { weight, italic } = fontFace(n.fontStyle);
+  const { weight, italic } = face;
   return `<text${attrs({
     ...(!area && num({ x: n.x, y: n.y })),
     "font-family": n.fontFamily,

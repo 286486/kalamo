@@ -9,9 +9,9 @@ ADR-0013 kept Point Type to one line, and ADR-0017's importer split every Inksca
 
 ## The model
 
-- **Point Type** (`kind: "point"`) keeps its fields. `content` may hold hard returns, `\n`, and nothing else breaks a line. Tabs, `\r` and the other control characters are still refused, with a hint to use `\n`. Line *i* starts at `x`, its baseline at `y + i · leading`.
+- **Point Type** (`kind: "point"`) keeps its fields. `content` may hold hard returns, `\n`, and nothing else breaks a line. Tabs, `\r` and the other control characters are still refused, with a hint to use `\n`. Line *i* starts at `x`, its baseline at `y + i · leading`. Amended by ADR-0068: each line is its own leading below the one before, which differs only when Character Ranges set sizes.
 - **Area Type** (`kind: "area"`) adds `width` and `height`: `x, y, width, height` is its frame, a rectangle in the Node's own coordinates, as Illustrator's Type tool drags one. Area Type in any closed path waits for its own issue. Its geometric bounds are the frame, as Illustrator reports an area type object's.
-- **Leading** (`leading`, pt) is the distance between baselines, on both kinds. Absent means Auto, 120 % of `fontSize`, which follows the font size as Illustrator's Auto leading does. `node_update` with `leading: null` returns to Auto. Nodes and files that have no `leading` stay valid and need no migration.
+- **Leading** (`leading`, pt) is the distance between baselines, on both kinds. Absent means Auto, 120 % of `fontSize`, which follows the font size as Illustrator's Auto leading does. Amended by ADR-0068: Auto is 120 % of the largest size on each line, the line's own leading. `node_update` with `leading: null` returns to Auto. Nodes and files that have no `leading` stay valid and need no migration.
 - **Kind is fixed.** `node_update` cannot turn one kind into the other; Illustrator's Convert to Area Type / Point Type is later work. It can write `width` and `height` of Area Type only.
 
 ## One layout, in `core`
