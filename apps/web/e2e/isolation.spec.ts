@@ -68,6 +68,8 @@ test("Isolation Mode enters, edits inside, navigates and leaves a Clip Group", a
     })
   ).structuredContent;
   await page.goto(`/docs/${docId}`);
+  // The tab bar saves the tabs only once it renders; leaving earlier loses this tab (#169).
+  await expect(page.getByRole("tab", { name: "Isolation", exact: true })).toBeVisible();
   await page.goto("/");
   await page.locator(`a[href="/docs/${other}"]`).click();
   await page.getByRole("tab", { name: "Isolation", exact: true }).click();
