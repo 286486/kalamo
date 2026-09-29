@@ -60,7 +60,7 @@
 - **核查**（`docs/research/05-name-conflict-check.md`，2026-09-23）：npm、PyPI、crates.io 均空闲，`zibel.dev` 与 `zibel.app` 未注册，GitHub 无同名项目。商标未查，发布前需手工检索 USPTO / EUIPO / WIPO。
 - **为何不用 Sable**：原名 Sable 的包名与短域名全部被占，且 Sable AI 在同一开发者 / Agent 受众中已有品牌。
 - **备选**：Kolinsky（全部空闲，但属艺术材料通用词，商标有描述性风险）、Zibeline。
-- 仓库：`github.com/286486/kalamo`（由 `sable`、`zibel` 依次更名，旧地址自动重定向）。
+- 仓库：`github.com/286486/kalamo`（旧地址自动重定向）。
 
 ### 1.2 要解决的问题
 
