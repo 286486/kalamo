@@ -403,8 +403,7 @@ interface DragShape<A extends NewArt, O> {
 
 /**
  * A drag draws a Live Shape, the Arc tool's Path or a grid's Group, previewed in its paint until
- * release. The option
- * each drag ends with carries over to the next one in the session.
+ * release. The option each drag ends with carries over to the next one in the session.
  */
 function shapeTool<A extends NewArt, O>(
   tool: Pick<CanvasTool, "title" | "shortcut" | "icon" | "group">,

@@ -62,7 +62,7 @@ export function constrain(from: Point, p: Point): Point {
 /** The notice when newArtNode refuses. */
 export const NOTHING_DRAWN = "The Layer is hidden or locked; nothing was drawn.";
 
-/** What a drawing tool draws, in document coordinates: a path, or a Live Shape dragged out. */
+/** What a drawing tool draws, in document coordinates: a path, a Live Shape dragged out, or a grid's Group. */
 export type NewArt = LeafArt | GroupArt;
 
 type LeafArt =

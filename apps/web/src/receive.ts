@@ -176,18 +176,19 @@ export function receive(
     if (parentId === undefined) return [];
     return parentId && made.has(parentId) ? [parentId] : [id];
   });
+  // What drawn art created, but its inline children: a Group drawn is selected, not its contents.
+  const drawnTop =
+    msg.type === "tx"
+      ? msg.created.filter((n) => !n.parentId || !made.has(n.parentId)).map((n) => n.id)
+      : [];
   const isolated = prune(s.doc, doc, s.isolated);
   // Drawn art leaves its leaf, unless an Esc, a prune or earlier art moved the Isolation meanwhile.
   const leave = drawn?.leave;
   return {
     doc,
     isolated: leave && isolated === leave.from ? prune(s.doc, doc, leave.to) : isolated,
-    // Drawn art becomes the Selection, as in Illustrator: a Group drawn, not its inline children.
-    selection: drawn
-      ? drawn.select && msg.type === "tx"
-        ? msg.created.filter((n) => !n.parentId || !made.has(n.parentId)).map((n) => n.id)
-        : []
-      : [...new Set(selection)],
+    // Drawn art becomes the Selection, as in Illustrator.
+    selection: drawn ? (drawn.select ? drawnTop : []) : [...new Set(selection)],
     ...(answered && { drag: null }),
     anchors,
     segments,

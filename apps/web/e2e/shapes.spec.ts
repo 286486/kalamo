@@ -362,6 +362,7 @@ test("the Rectangular Grid tool drags a Group whose divider counts and skews car
   await expect.poll(async () => (await groups()).length).toBe(1);
   const [first] = await groups();
   const id = first?.id as string;
+  expect(first?.appearance).toMatchObject({ fills: [], strokes: [] });
   expect(await rects()).toMatchObject([
     { parentId: id, x: 20, y: 20, width: 60, appearance: { fills: [], strokes: [{ width: 1 }] } },
   ]);
@@ -396,6 +397,7 @@ test("the Rectangular Grid tool drags a Group whose divider counts and skews car
   await page.keyboard.press("Control+z");
   await expect.poll(async () => (await groups()).map((g) => g.id)).toEqual([id]);
   expect(await lines(second)).toEqual([]);
+  expect((await rects()).map((r) => r.parentId)).toEqual([id]);
 
   // The counts and skews carry over to the next drag.
   await drag([100, 10], [170, 80]);
