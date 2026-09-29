@@ -11,6 +11,7 @@ import {
   queryNodes,
   touches,
   visibleBounds,
+  worldSegments,
 } from "./document.ts";
 import { transformNodes } from "./edit.ts";
 import { KalamoError } from "./errors.ts";
@@ -666,6 +667,29 @@ it("gives each default Appearance its own arrays", () => {
   const [a, b] = createNodes(doc, [rect(defaultLayerId), rect(defaultLayerId)]).nodes;
   if (!a || !b || a.type !== "rect" || b.type !== "rect") throw new Error("setup");
   expect(a.appearance.strokes[0]?.dash).not.toBe(b.appearance.strokes[0]?.dash);
+});
+
+it("gives a rotated text's and a rotated Image's frame corners in document coordinates", () => {
+  const { doc, defaultLayerId } = newDoc();
+  doc.images.set("a".repeat(64), { mime: "image/png", width: 2, height: 2 });
+  const frame = { parentId: defaultLayerId, x: 0, y: 0, width: 20, height: 10 };
+  const nodes = createNodes(doc, [
+    { type: "text", kind: "area", ...frame, content: "Hi" },
+    { type: "image", src: "a".repeat(64), ...frame },
+  ]).nodes;
+  for (const n of nodes) {
+    if (n.type !== "text" && n.type !== "image") throw new Error(`unexpected ${n.type}`);
+    n.transform = compose({ rotate: 90 }, { x: 0, y: 0 });
+    const corners = worldSegments(doc, n)
+      .filter((s) => s.cmd !== "Z")
+      .map((s) => s.args.map((v) => Math.round(v) + 0));
+    expect(corners).toEqual([
+      [0, 0],
+      [0, 20],
+      [-10, 20],
+      [-10, 0],
+    ]);
+  }
 });
 
 describe("bounds honour transform", () => {
