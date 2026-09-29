@@ -9,9 +9,9 @@
   // pathkit-wasm's Emscripten loader takes nodejs_compat's process for Node and reads __dirname,
   // which an ES module Worker lacks. It never loads a file: the wasm is handed over (ADR-0034).
   "define": { "__dirname": "\"/\"" },
-  // The bundled font as bytes (ADR-0013); skill:// documents as text.
+  // The bundled fonts as bytes (ADR-0013, ADR-0063); skill:// documents as text.
   "rules": [
-    { "type": "Data", "globs": ["**/*.ttf"], "fallthrough": true },
+    { "type": "Data", "globs": ["**/*.ttf", "**/*.otf"], "fallthrough": true },
     { "type": "Text", "globs": ["**/*.md"], "fallthrough": true }
   ],
   // The web app (built by `pnpm dev`); the Worker answers /mcp, /api, /auth and OAuth's routes first.

@@ -26,6 +26,6 @@ An Agent creates Point Type (F-TEXT-01) with `node_create` `{type: "text", x, y,
 ## Consequences
 
 - The Worker bundle grows by the 431 KB TTF. Nothing subsets it: a subset would be a modified version and must drop the name "Source".
-- Characters outside the font (CJK, emoji) render as `.notdef` boxes and measure as its advance, and the receipt warns `MISSING_GLYPHS` (ADR-0062); missing fonts are F-TEXT-11.
+- Characters outside the font (CJK, emoji) render as `.notdef` boxes and measure as its advance, and the receipt warns `MISSING_GLYPHS` (ADR-0062); missing fonts are F-TEXT-11. Amended by ADR-0063: Noto Sans SC is bundled, and a character Source Sans 3 lacks draws and measures in it.
 - Ligatures still apply in both renderers, so "fi" can draw narrower than its bounds by a fraction of a character until HarfBuzz.
 - A `text` Node has no `d`, so it is not a Live Shape and not in `shapeSegments`; code that walks leaves handles it as its own case.

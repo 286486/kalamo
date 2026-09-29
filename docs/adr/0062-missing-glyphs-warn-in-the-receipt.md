@@ -18,5 +18,5 @@ MCP stays stateless (ADR-0006): this is a receipt field, nothing is pushed.
 
 ## Consequences
 
-- Bundling a CJK font (#159) removes the warning for the characters it covers without a contract change: the check follows the face tables.
+- Bundling a CJK font (#159) removes the warning for the characters it covers without a contract change: the check follows the face tables. Amended by ADR-0063: the check reads every face a text falls back to, and the message names both bundled families.
 - The browser shows nothing yet; the warning is in the receipt only.

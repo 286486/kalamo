@@ -1145,7 +1145,16 @@ class Reader {
     let x = k * first("x") + tx;
     if (centred) {
       const [top = ""] = content.split("\n");
-      const width = textBox({ x: 0, y: 0, content: top, fontSize, fontStyle, tracking }).width;
+      const { fontFamily } = text;
+      const width = textBox({
+        x: 0,
+        y: 0,
+        content: top,
+        fontSize,
+        fontFamily,
+        fontStyle,
+        tracking,
+      }).width;
       x -= anchor === "middle" ? width / 2 : width;
       if (content.includes("\n")) unaligned();
     }

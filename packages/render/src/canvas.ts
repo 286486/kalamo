@@ -1,6 +1,5 @@
 import {
   applyTo,
-  BUNDLED_FONT,
   bundledStyle,
   childrenOf,
   clippingPath,
@@ -10,6 +9,7 @@ import {
   ellipseMatrix,
   type Fill,
   fontFace,
+  fontFamilies,
   glyphs,
   invert,
   type LeafNode,
@@ -486,9 +486,11 @@ export function drawClipGlyphs(ctx: Canvas2D, t: TextNode, m: Matrix): void {
 
 /** Sets `ctx` to draw the text's glyphs. */
 function font(ctx: Canvas2D, n: TextNode) {
-  // Every font renders in the bundled face its bounds are measured in (ADR-0017, ADR-0028).
+  // Every font renders in the bundled faces its bounds are measured in, each character in the first
+  // family that has it (ADR-0017, ADR-0028, ADR-0063).
   const { weight, italic } = fontFace(bundledStyle(n.fontStyle));
-  ctx.font = [italic && "italic", weight !== 400 && weight, `${n.fontSize}px`, `"${BUNDLED_FONT}"`]
+  const families = fontFamilies(n).map((f) => `"${f}"`);
+  ctx.font = [italic && "italic", weight !== 400 && weight, `${n.fontSize}px`, families.join(", ")]
     .filter(Boolean)
     .join(" ");
   // Unkerned, like the SVG, so the drawn width is the advance sum (ADR-0013).

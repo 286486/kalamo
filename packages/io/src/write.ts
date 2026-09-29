@@ -2,18 +2,22 @@ import {
   type Appearance,
   type Artboard,
   applyTo,
+  type CharacterRange,
   childrenOf,
   clippingPath,
   containerAppearance,
   crossedFrame,
   type Document,
+  drawnFamily,
   ellipseMatrix,
   type Fill,
   fontFace,
+  fontFamilies,
   formatNumber,
   formatPath,
   type Gradient,
   type GroupNode,
+  glyphs,
   grown,
   IDENTITY,
   type ImageSource,
@@ -184,6 +188,8 @@ interface Walk {
   hairline: number;
   /** Inside an isolated `<g>`: a layer of resvg's, so the inner cull rect applies. */
   isolated?: boolean;
+  /** Written for resvg: each line of text splits into chunks of one drawing face (ADR-0063). */
+  chunked: boolean;
   /**
    * resvg's rects (ADR-0054, ADR-0055), the Nodes kept so far, whose copies a container's
    * Appearance paints, and whether some `<g>` uses the bound filter.
@@ -284,6 +290,7 @@ export function toSvg(doc: Document, rect?: Rect, opts: SvgOptions = {}): string
         linked: opts.linked ?? "link",
         hairline: opts.hairline ?? 1,
         resvg,
+        chunked: !!resvg,
       }),
     )
     .join("");
@@ -484,10 +491,12 @@ function node(doc: Document, n: Node, walk: Walk): string {
         `${frame}<clipPath${attrs({ id: clipId(n.id), clipPathUnits: "userSpaceOnUse" })}>${leaf}</clipPath>`;
     }
     const clipPath = clip ? `url(#${clipId(n.id)})` : undefined;
-    const paints = inside ? containerPaints(doc, n, resvg) : [];
+    const paints = inside ? containerPaints(doc, n, resvg, walk.chunked) : [];
     const { contents } = containerAppearance(n);
     const [fills, strokes] =
-      clip && inside ? (["fills", "strokes"] as const).map((l) => clipPaint(clip, l)) : ["", ""];
+      clip && inside
+        ? (["fills", "strokes"] as const).map((l) => clipPaint(clip, l, walk.chunked))
+        : ["", ""];
     const below = [...paints.slice(0, contents), fills, ...kids].join("");
     const above = paints.slice(contents).join("");
     // The bound filter for a layer holding the painted Clipping Path, or only its Fills.
@@ -548,12 +557,12 @@ function node(doc: Document, n: Node, walk: Walk): string {
   }
   // Inside a <clipPath> SVG reads only the geometry and clip-rule (ADR-0051); a text's glyphs clip
   // under nonzero (ADR-0052).
-  if (n.type === "text" && n.clipping) return text(n, { ...own, fill: "none" }, []);
+  if (n.type === "text" && n.clipping) return text(n, { ...own, fill: "none" }, [], walk.chunked);
   if (n.type !== "text" && n.clipping) {
     const rule = n.type === "path" && n.fillRule === "evenodd" ? "evenodd" : undefined;
     return `<${shape(n)}${attrs({ ...own, fill: "none", "clip-rule": rule })}/>`;
   }
-  const { defs, body } = leaf(n, n.appearance, own, looks);
+  const { defs, body } = leaf(n, n.appearance, own, looks, walk.chunked);
   return `${defs}${body}`;
 }
 
@@ -568,11 +577,12 @@ function leaf(
   { fills, strokes }: Appearance,
   own: Attrs,
   looks: readonly (string | false)[],
+  chunked: boolean,
   withFrame = true,
 ): { defs: string; body: string } {
   const element = (a: Attrs, extra: (string | false)[] = []) =>
     n.type === "text"
-      ? text(n, a, extra)
+      ? text(n, a, extra, chunked)
       : `<${shape(n)}${attrs({ ...a, style: style(...extra) })}/>`;
   // Each gradient in the <defs> before the element, in list order (ADR-0026).
   const gradients: string[] = [];
@@ -612,11 +622,11 @@ const areaFrame = (n: TextNode) => `<rect${attrs({ id: areaId(n.id), ...num(text
  * gradients in a `<defs>` just before the group (ADR-0051); a text's copy flows in the frame its
  * `<clipPath>` wrote. Empty when it has none.
  */
-function clipPaint(clip: LeafNode, list: "fills" | "strokes"): string {
+function clipPaint(clip: LeafNode, list: "fills" | "strokes", chunked: boolean): string {
   if (clip.appearance[list].length === 0) return "";
   const appearance = { fills: [], strokes: [], [list]: clip.appearance[list] };
   const own = { transform: transformAttr(clip.transform) };
-  const { defs, body } = leaf(clip, appearance, own, [], false);
+  const { defs, body } = leaf(clip, appearance, own, [], chunked, false);
   const fill = list === "fills";
   return `${defs}<g${attrs({
     [zibel("paint")]: fill ? "clip-fill" : "clip-stroke",
@@ -639,7 +649,12 @@ function clipPaint(clip: LeafNode, list: "fills" | "strokes"): string {
  * For resvg, only the kept leaves get a copy, and a `<g clip-path>` around a far-reaching one is
  * bounded (ADR-0055).
  */
-function containerPaints(doc: Document, n: LayerNode | GroupNode, resvg: Walk["resvg"]): string[] {
+function containerPaints(
+  doc: Document,
+  n: LayerNode | GroupNode,
+  resvg: Walk["resvg"],
+  chunked: boolean,
+): string[] {
   const { fills, strokes } = containerAppearance(n);
   if (fills.length + strokes.length === 0) return [];
   const leaves = paintedLeaves(doc, n).filter((l) => !resvg || resvg.kept.has(l.node.id));
@@ -666,6 +681,7 @@ function containerPaints(doc: Document, n: LayerNode | GroupNode, resvg: Walk["r
             ...(stroke && k !== 1 && strokeStyle(unscaledStroke(stroke, k))),
           },
           [textPaint],
+          chunked,
         );
       } else {
         copy = `<path${attrs({ d: formatPath(l.segments), "fill-rule": l.fillRule === "evenodd" ? "evenodd" : undefined })}/>`;
@@ -706,9 +722,11 @@ function containerPaints(doc: Document, n: LayerNode | GroupNode, resvg: Walk["r
  * tspans; Area Type as positioned tspans in its frame, each keeping its trailing spaces and return,
  * then the overflow, hidden, so the file holds every character. Kerned off: resvg honours
  * font-kerning only as a style, and unkerned the drawn width is the advance sum the bounds report
- * (ADR-0013).
+ * (ADR-0013). `chunked`, for resvg, which picks one face for a whole text chunk, starts a chunk at
+ * the character's own x wherever the bundled family a character draws in changes, naming a family
+ * other than the text's first (ADR-0063); Inkscape and browsers fall back per character themselves.
  */
-function text(n: TextNode, a: Attrs, extra: (string | false)[]): string {
+function text(n: TextNode, a: Attrs, extra: (string | false)[], chunked = false): string {
   const { lines, overflow } = layoutText(n);
   const area = n.kind === "area";
   const role = area ? {} : { "sodipodi:role": "line" };
@@ -716,37 +734,55 @@ function text(n: TextNode, a: Attrs, extra: (string | false)[]): string {
   // goes only where a Fill paints, opaque where the element's fill-opacity would inherit.
   // A container paint's copy has no fill of its own and takes none: its Fill paints every glyph.
   const painted = a.fill !== undefined && a.fill !== "none";
-  const spans = (start: number, t: string) => {
-    const chars = [...t];
-    let out = "";
-    let at = 0;
-    for (const r of n.ranges ?? []) {
-      const from = Math.max(r.start - start, at);
-      const to = Math.min(r.end - start, chars.length);
-      if (from >= to) continue;
-      const span = esc(chars.slice(from, to).join(""));
-      const over: Attrs = {
-        ...(painted && r.fill && paintAttrs("fill", r.fill)),
-        ...(painted &&
-          r.fill?.length === 7 &&
-          a["fill-opacity"] !== undefined && { "fill-opacity": "1" }),
-        "baseline-shift": r.baselineShift && formatNumber(r.baselineShift),
-        rotate: r.rotation && formatNumber(r.rotation),
-      };
-      out += esc(chars.slice(at, from).join(""));
-      out += Object.values(over).some(Boolean) ? `<tspan${attrs(over)}>${span}</tspan>` : span;
-      at = to;
+  const ranges = n.ranges ?? [];
+  const overrides = (r: CharacterRange): Attrs => ({
+    ...(painted && r.fill && paintAttrs("fill", r.fill)),
+    ...(painted &&
+      r.fill?.length === 7 &&
+      a["fill-opacity"] !== undefined && { "fill-opacity": "1" }),
+    "baseline-shift": r.baselineShift ? formatNumber(r.baselineShift) : undefined,
+    rotate: r.rotation ? formatNumber(r.rotation) : undefined,
+  });
+  // For resvg, each shown character's origin, so a chunk can start at it.
+  const [first] = fontFamilies(n);
+  const origins = chunked ? glyphs(n).map((g) => g.x) : [];
+  let shown = 0;
+  /** The characters of `t` from code point `start`, and whether they are laid out, so may chunk. */
+  const spans = (start: number, t: string, laidOut: boolean) => {
+    const runs: { key: string; x?: number; text: string }[] = [];
+    let family = first;
+    let [c, j] = [start - 1, 0];
+    for (const ch of t) {
+      c++;
+      while ((ranges[j]?.end ?? Infinity) <= c) j++;
+      const r = ranges[j];
+      const x = laidOut ? origins[shown++] : undefined;
+      const f = chunked && laidOut && ch !== "\n" ? drawnFamily(n, ch) : family;
+      const chunk = f !== family && x !== undefined;
+      family = f;
+      const key = attrs({
+        ...(r && r.start <= c && overrides(r)),
+        "font-family": family === first ? undefined : family,
+      });
+      const last = runs.at(-1);
+      if (!chunk && last?.key === key) last.text += ch;
+      else runs.push({ key, x: chunk ? x : undefined, text: ch });
     }
-    return out + esc(chars.slice(at).join(""));
+    return runs
+      .map(({ key, x, text }) => {
+        const at = x === undefined ? "" : attrs({ x: formatNumber(x) });
+        return key || at ? `<tspan${at}${key}>${esc(text)}</tspan>` : esc(text);
+      })
+      .join("");
   };
   const tspans = lines.map(
     (l) =>
-      `<tspan${attrs({ ...role, ...num({ x: l.x, y: l.y }) })}>${spans(l.start, l.text)}</tspan>`,
+      `<tspan${attrs({ ...role, ...num({ x: l.x, y: l.y }) })}>${spans(l.start, l.text, true)}</tspan>`,
   );
   const last = lines.at(-1);
   const hidden = last ? last.start + [...last.text].length : 0;
   if (overflow) {
-    tspans.push(`<tspan style="visibility:hidden">${spans(hidden, overflow)}</tspan>`);
+    tspans.push(`<tspan style="visibility:hidden">${spans(hidden, overflow, false)}</tspan>`);
   }
   // Auto leading is CSS's unitless 1.2, which also follows the font size.
   const leading = n.leading === undefined ? "1.2" : `${formatNumber(n.leading)}px`;

@@ -787,36 +787,34 @@ it("keeps a style Zibel lacks and warns FONT_MISSING naming the face it renders 
   expect(updated.structuredContent.warnings).toEqual([]);
 });
 
-it("writes a text with characters Source Sans 3 lacks and warns MISSING_GLYPHS naming them", async () => {
+it("writes a text with characters no bundled font has and warns MISSING_GLYPHS naming them", async () => {
   const doc = await newDoc();
   const text = { type: "text", parentId: doc.defaultLayerId, x: 10, y: 50 };
   const created = await call("zibel_node_create", {
     docId: doc.docId,
-    nodes: [{ ...text, content: "Hi 小动物" }],
+    nodes: [{ ...text, content: "Hi 한국어" }],
   });
   const [id] = created.structuredContent.createdIds as string[];
   expect(created.structuredContent.warnings).toEqual([
     {
       code: "MISSING_GLYPHS",
       nodeId: id,
-      message: expect.stringContaining("no glyphs for 小, 动, 物;"),
+      message: expect.stringContaining("has glyphs for 한, 국, 어;"),
     },
   ]);
   const update = (content: string) =>
     call("zibel_node_update", { docId: doc.docId, updates: [{ nodeId: id, patch: { content } }] });
   expect((await update("Hi")).structuredContent.warnings).toEqual([]);
-  expect((await update("你好")).structuredContent.warnings).toEqual([
+  expect((await update("한국")).structuredContent.warnings).toEqual([
     expect.objectContaining({ code: "MISSING_GLYPHS", nodeId: id }),
   ]);
-  expect((await update("Hi")).structuredContent.warnings).toEqual([]);
+  // Noto Sans SC draws Chinese and is bundled, so neither warns (ADR-0063).
+  expect((await update("你好")).structuredContent.warnings).toEqual([]);
   const other = await call("zibel_node_create", {
     docId: doc.docId,
     nodes: [{ ...text, content: "你好", fontFamily: "Noto Sans SC" }],
   });
-  expect(other.structuredContent.warnings.map((w: { code: string }) => w.code)).toEqual([
-    "FONT_MISSING",
-    "MISSING_GLYPHS",
-  ]);
+  expect(other.structuredContent.warnings).toEqual([]);
 });
 
 it("keeps a font Zibel lacks, warns FONT_MISSING and renders it in Source Sans 3", async () => {
@@ -1602,12 +1600,12 @@ describe("zibel_json", () => {
 
 it("opens and places an SVG set in CJK with one MISSING_GLYPHS for the file", async () => {
   const svg =
-    '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="50"><text x="0" y="10">小动</text><text x="0" y="30">动物</text></svg>';
+    '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="50"><text x="0" y="10">한국</text><text x="0" y="30">국어</text></svg>';
   const glyphs = [
     {
       code: "MISSING_GLYPHS",
       nodeId: expect.any(String),
-      message: expect.stringContaining("no glyphs for 小, 动, 物;"),
+      message: expect.stringContaining("has glyphs for 한, 국, 어;"),
     },
   ];
   expect((await call("zibel_doc_open", { content: svg })).structuredContent.warnings).toEqual(
@@ -1726,16 +1724,16 @@ describe("a Place receipt's warnings name the placed Nodes (#161)", () => {
       const svg = (await call("zibel_export", { docId, format: "svg", scope })).content[0].text;
       return call("zibel_svg_import", { docId, svg, parentId: defaultLayerId });
     };
-    const clip = { fontFamily: "Helvetica", content: "小动" };
+    const clip = { fontFamily: "Helvetica", content: "한국" };
 
-    const pasted = await copyOf(clip, { fontFamily: "Helvetica", content: "物" });
+    const pasted = await copyOf(clip, { fontFamily: "Helvetica", content: "어" });
     const fonts = warned(pasted, "FONT_MISSING");
     const [glyphs] = warned(pasted, "MISSING_GLYPHS");
     expect(fonts).toHaveLength(1);
     expect(fonts[0]?.message).toMatch(/^Helvetica is/);
-    expect(glyphs?.message).toContain("no glyphs for 物;");
+    expect(glyphs?.message).toContain("has glyphs for 어;");
     expect(glyphs?.nodeId).toBe(fonts[0]?.nodeId);
-    expect(await texts(docId, [glyphs?.nodeId])).toMatchObject([{ content: "物" }]);
+    expect(await texts(docId, [glyphs?.nodeId])).toMatchObject([{ content: "어" }]);
 
     const plain = await copyOf(clip, { content: "Kept" });
     expect(plain.structuredContent.warnings).toEqual([]);
@@ -1743,7 +1741,7 @@ describe("a Place receipt's warnings name the placed Nodes (#161)", () => {
 
   it("gives doc_open's warnings, in order, to a full-file Place, on the placed Texts", async () => {
     const svg =
-      '<svg xmlns="http://www.w3.org/2000/svg"><text y="10" font-family="Helvetica">小动</text><text y="30" font-family="Arial">动物</text><text y="50" font-family="Helvetica">物</text></svg>';
+      '<svg xmlns="http://www.w3.org/2000/svg"><text y="10" font-family="Helvetica">한국</text><text y="30" font-family="Arial">국어</text><text y="50" font-family="Helvetica">어</text></svg>';
     const opened = (await call("zibel_doc_open", { content: svg })).structuredContent.warnings;
     const { docId, defaultLayerId } = await newDoc();
     const placed = await call("zibel_svg_import", { docId, svg, parentId: defaultLayerId });
@@ -1755,7 +1753,7 @@ describe("a Place receipt's warnings name the placed Nodes (#161)", () => {
       docId,
       warnings.map((w) => w.nodeId),
     );
-    expect(got.map((n) => n.content)).toEqual(["小动", "动物", "小动"]);
+    expect(got.map((n) => n.content)).toEqual(["한국", "국어", "한국"]);
   });
 
   it("leaves doc_open's warnings on the file's own ids", async () => {

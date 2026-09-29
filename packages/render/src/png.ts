@@ -13,14 +13,28 @@ import regular from "../fonts/SourceSans3-Regular.ttf";
 const ready = initWasm(wasm);
 
 // The bundled faces (ADR-0013, ADR-0028); workerd has no system fonts to fall back on.
-const fonts = {
-  fontBuffers: [regular, italic, bold, boldItalic, black, blackItalic].map(
-    (f) => new Uint8Array(f),
-  ),
-  loadSystemFonts: false,
-  // Also what every family the bundle lacks falls back to (ADR-0017).
-  defaultFontFamily: BUNDLED_FONT,
-};
+const sourceSans3 = [regular, italic, bold, boldItalic, black, blackItalic].map(
+  (f) => new Uint8Array(f),
+);
+// Noto Sans SC's 17 MB load on the first render that draws in it, and only such a render copies
+// them into resvg (ADR-0063): a chunk in it names it, as does a text set in it.
+let noto: Promise<Uint8Array[]> | undefined;
+const notoSansSC = () =>
+  (noto ??= Promise.all([
+    import("../fonts/NotoSansSC-Regular.otf"),
+    import("../fonts/NotoSansSC-Bold.otf"),
+  ]).then((files) => files.map((f) => new Uint8Array(f.default))));
+
+async function fonts(svg: string) {
+  return {
+    fontBuffers: svg.includes("Noto Sans SC")
+      ? [...sourceSans3, ...(await notoSansSC())]
+      : sourceSans3,
+    loadSystemFonts: false,
+    // Also what every family the bundle lacks falls back to (ADR-0017).
+    defaultFontFamily: BUNDLED_FONT,
+  };
+}
 
 async function rasterise<T>(
   svg: string,
@@ -28,8 +42,9 @@ async function rasterise<T>(
   read: (image: { asPng(): Uint8Array; pixels: Uint8Array }) => T,
 ): Promise<{ width: number; height: number } & T> {
   await ready;
+  const font = await fonts(svg);
   // At 72 dpi the root's pt is one pixel per point, so zoom is pixels per point (ADR-0017).
-  const resvg = new Resvg(svg, { fitTo: { mode: "zoom", value: scale }, dpi: 72, font: fonts });
+  const resvg = new Resvg(svg, { fitTo: { mode: "zoom", value: scale }, dpi: 72, font });
   const image = resvg.render();
   try {
     return { ...read(image), width: image.width, height: image.height };

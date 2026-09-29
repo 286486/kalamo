@@ -984,6 +984,14 @@ it("reads font-weight and font-style as the style name, inherited as CSS inherit
   ]);
   // Half of "Hi"'s Bold advances at 10 pt: (674 + 276) × 10 / 1000 / 2.
   expect(read.at(-1)).toMatchObject({ x: 95.25 });
+  // In Noto Sans SC, by its own advances: (728 + 275) × 10 / 1000 / 2 (ADR-0063).
+  const noto = parseFile(
+    svg(
+      'width="300" height="300"',
+      '<text x="100" y="100" text-anchor="middle" font-family="Noto Sans SC" font-size="10">Hi</text>',
+    ),
+  );
+  expect(leaves(noto)[0]).toMatchObject({ x: 94.985, fontFamily: "Noto Sans SC" });
   // Semibold Italic and Thin are not bundled.
   expect(file.warnings.map((w) => w.message)).toEqual([
     "Source Sans 3 Semibold Italic is not bundled, so it renders in Source Sans 3 Bold Italic; the name is kept.",
@@ -3122,7 +3130,7 @@ describe("container Appearance (ADR-0043)", () => {
 
 it("warns MISSING_GLYPHS once for a file, naming the union of its texts' missing characters", () => {
   const file = parseFile(
-    '<svg xmlns="http://www.w3.org/2000/svg"><text x="0" y="10">小动</text><text x="0" y="30">动物 ok</text></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg"><text x="0" y="10">한국</text><text x="0" y="30">국어 ok</text></svg>',
   );
   const texts = file.nodes.filter((n) => n.type === "text");
   expect(file.warnings).toEqual([
@@ -3130,7 +3138,7 @@ it("warns MISSING_GLYPHS once for a file, naming the union of its texts' missing
       code: "MISSING_GLYPHS",
       nodeId: texts[0]?.id,
       message:
-        "Source Sans 3 has no glyphs for 小, 动, 物; they render as .notdef boxes and measure as its width.",
+        "Neither Source Sans 3 nor Noto Sans SC has glyphs for 한, 국, 어; they render as .notdef boxes and measure as the box's width.",
     },
   ]);
 });

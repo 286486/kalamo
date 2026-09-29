@@ -1,0 +1,47 @@
+---
+status: accepted
+date: 2026-09-29
+---
+
+# Noto Sans SC is bundled, and each character falls back to it when Source Sans 3 lacks the glyph
+
+Source Sans 3 is the only bundled family (ADR-0013, ADR-0028), and it has no CJK glyphs, so Chinese and Japanese text drew `.notdef` boxes and warned `MISSING_GLYPHS` (ADR-0062). This ADR bundles a CJK face and makes `render`, export, the canvas, text Clipping Paths and bounds all draw and measure it the same way (#159). It amends ADR-0013's Font and Consequences bullets, ADR-0028's bundled faces, and ADR-0062's message.
+
+## Decision
+
+1. **The face.** Noto Sans SC from `notofonts/noto-cjk`, `Sans/SubsetOTF/SC/`, in two faces, `NotoSansSC-Regular.otf` (8.3 MB) and `NotoSansSC-Bold.otf` (8.5 MB). Both files ship unmodified in `packages/render/fonts/` beside the Source Sans 3 files, with their SIL OFL 1.1 text in `LICENSE-NotoSansSC.txt`. Noto declares no Reserved Font Name. Each face covers the same 30,890 code points: 20,976 CJK Unified Ideographs (many Traditional characters among them), 189 kana, CJK punctuation, full-width forms and Noto's own Latin.
+2. **The Worker bundles both files statically.** They ship in the Worker as Data modules, with `*.otf` added to wrangler's Data rule, and not in R2: Workers limit only the uncompressed script, to 64 MiB (docs/research/04-cloudflare-limits.md), and the Worker fits with room left (see Consequences). `packages/render/src/png.ts` imports them dynamically, on the first render that draws in Noto, and adds them to `fontBuffers` only for an SVG that names `Noto Sans SC`, which `render`'s SVG does wherever a character draws in it (below). A Latin-only render copies only the six Source Sans 3 faces into wasm memory, as before. Imported statically, the two files also loaded into every workerd test isolate, which doubled the Vitest suite from 55 s to 110 s and timed tests out.
+3. **Fallback is per character and automatic, as a browser's font fallback is.** `fontFamily` is not rewritten. `core` defines each bundled family's fallback order once (`fontFamilies`): the text's own family if bundled, else Source Sans 3, then the other bundled family. Each character draws in the first family whose matched face has its glyph, and a character none has draws as the first family's `.notdef`. So a text in Source Sans 3, or in a family Zibel lacks, draws Latin in Source Sans 3 and CJK in Noto Sans SC. `"Noto Sans SC"` is a bundled family too: it does not warn `FONT_MISSING`, and a text in it draws everything Noto has, Latin included, in Noto, and the rest in Source Sans 3.
+4. **Style matching follows CSS, as ADR-0028 does.** Noto has 400 and 700 only. `Thin` to `Medium` match Noto Regular; `Semibold` and heavier, `Black` included, match Noto Bold. CJK has no italic, so an italic text's CJK characters draw upright in all three renderers. resvg does not synthesise an oblique. The browser would by default (`font-synthesis`), so each Noto file is registered as a `FontFace` for both `style: "normal"` and `style: "italic"`, and e2e checks the canvas ink against `render`'s. `FONT_MISSING` still concerns the family and style only: `Noto Sans SC Black` warns that it renders in Noto Sans SC Bold, and per-character fallback never warns it.
+5. **Bounds.** `packages/core/scripts/font-metrics.mjs` also reads the two OTFs (the same hmtx and cmap format 12 parser) and writes `packages/core/src/noto-sans-sc.ts`: each face as sorted runs of `[firstCodePoint, count, advance]`, 849 runs per face, 23 KB as JSON (5 KB gzip). `advancer` looks each character up along the text's fallback order. Vertical metrics stay Source Sans 3's (unitsPerEm 1000, ascender 1000, descender −326), which hold an ideograph's ink; Noto's hhea values (1160 / −288) are not used. The two Noto tables agree on every character Source Sans 3 lacks, so in a Source Sans 3 text the Noto face chosen shows only in the pixels; in a Noto Sans SC text it also shows in the Latin advances.
+6. **Layout stays the advance sum.** Full-width punctuation takes its 1000-unit advance, the default full-width setting of Chinese type, so `你好。` is already right. CJK/Latin auto-spacing and punctuation compression wait for HarfBuzz (F-TEXT-09). Area Type breaking between ideographs is #160; `layoutText`'s break rule does not change here.
+
+`MISSING_GLYPHS` (ADR-0062) now checks the union of the faces a text draws in, and its message names both families: `Neither Source Sans 3 nor Noto Sans SC has glyphs for 한, 국; they render as .notdef boxes and measure as the box's width.`
+
+## resvg picks one face per text chunk
+
+In resvg-wasm 2.6.2 and 2.7.0-alpha.2 (measured during triage, and again here with 2.6.2 by the render tests), font fallback is resolved once per SVG *text chunk*, not per character. If a chunk holds any character Source Sans 3 lacks, resvg draws the whole chunk in Noto Sans SC Regular: its Latin in Noto's Latin, without bold or italic, and its CJK without bold. A `font-family` list or a nested `<tspan font-family>` does not help. A `<tspan>` with an absolute `x` starts a new chunk, which does.
+
+So `render` splits every line where the drawing family changes. `io`'s `toSvg` does it only when `resvg` is set, the option `render` already passes (ADR-0054): each chunk after the first is a `<tspan x>` at its first character's origin, which `core`'s `glyphs` gives exactly because kerning is off, and a chunk in a family other than the text's first names it in `font-family`, so resvg matches its weight in that family. A Character Range and a chunk boundary split one tspan as either would alone. The split applies to the Clipping Path `<clipPath>` copy, a Clipping Path's paint copies and a container's paint copies, as they share the text writer. Export does not split: Inkscape and browsers fall back per character themselves, so an exported file keeps one `<text>` with one run per override as before (ADR-0017), and import does not change.
+
+## Browser
+
+`Viewer.tsx` still loads the six Source Sans 3 faces eagerly. The two Noto files, 17 MB, load lazily and once per page: only after a Document holds a text with a character whose drawing family is Noto Sans SC (`drawnFamily`, answered synchronously from the tables), then the canvas redraws. The Source Sans 3 load does not wait for them, and a Latin-only Document never requests them. Each file is fetched once and registered for both styles. `ctx.font` lists the fallback order, for example `italic 700 48px "Source Sans 3", "Noto Sans SC"`, and the text Clipping Path mask (ADR-0052) uses the same `font()`.
+
+## Considered Options
+
+- **Noto Sans SC in R2, loaded on demand.** The issue's first premise. It is not needed for size, and it would add an async fetch to every render that has CJK.
+- **Source Han Sans, or the full Noto Sans CJK OTC.** The same design; the OTC holds every region's forms at 20+ MB per weight. SC alone covers Chinese and Japanese kana.
+- **Rewriting `fontFamily` to a list, or an explicit CJK family per text.** It changes the stored name (F-TEXT-11) and makes the Agent pick the font per character.
+- **Splitting chunks in export too.** Import would then have to merge adjacent chunks of one line back into one `content`, and Inkscape does not need it.
+- **Noto's own vertical metrics for CJK.** Bounds would change height by character, and an ideograph's ink already fits Source Sans 3's box.
+
+## Consequences
+
+- `wrangler deploy --dry-run` measures the Worker at 23,823 KiB, 16,968 KiB gzip, against 6,523 KiB and 2,365 KiB gzip after ADR-0028. Measured in Node with resvg-wasm 2.6.2, each `new Resvg` copies the font buffers into wasm memory: rendering a CJK line with all eight faces peaks at 33 MB of wasm memory against 23 MB with six, and takes about 8 ms. With the 17 MB of Noto Data modules loaded, the isolate stays well under its 128 MB limit; a Latin-only render never loads them.
+- An SVG given to `svgToPng` that has CJK but does not name `Noto Sans SC`, such as an exported file, draws it as `.notdef` boxes. Only `render`'s own SVG reaches it in the Worker.
+- The browser downloads 17 MB more, only for a Document that draws in Noto. The runs add about 5 KB gzip to the JavaScript bundle.
+- **No Hangul.** Noto Sans SC has none, so Korean still draws `.notdef` boxes and warns `MISSING_GLYPHS`; #164 bundles a Hangul face.
+- **Japanese kanji draw in their SC forms**, which differ from Japanese forms for some characters. TC, JP and KR faces are out of scope.
+- The Inkscape round trip gains a CJK Artboard with a Regular and a Bold Point Type mixed with Latin. Inkscape finds Noto in `packages/render/fonts` through the fixture's `fonts.conf`, and this machine has no system CJK font, so it can fall back only to Noto. The two regions differ by 0.68% and 4.34% against the 15% text budget, and the Document reopens unchanged.
+- The browser draws a character neither bundled family has with a system font if it has one, not `.notdef`; its bounds still count the `.notdef` advance, as before.

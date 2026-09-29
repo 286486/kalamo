@@ -1,8 +1,11 @@
 import { expect, it } from "vitest";
+import { NOTO_SANS_SC } from "./noto-sans-sc.ts";
 import { SOURCE_SANS_3 } from "./source-sans-3.ts";
 import {
+  drawnFamily,
   type FontStyle,
   fileGlyphWarnings,
+  fontFamilies,
   fontWarnings,
   glyphs,
   glyphWarnings,
@@ -26,7 +29,54 @@ it("measures a line by its advance widths, from the ascender to the descender", 
 it("grows by each added character's advance, and counts .notdef for one the font lacks", () => {
   const width = (content: string) => textBox({ x: 0, y: 0, content, fontSize: 12 }).width;
   expect(width("Hi Hi") - width("Hi")).toBeCloseTo(at12(200 + 652 + 246));
-  expect(width("中")).toBeCloseTo(at12(653));
+  expect(width("한")).toBeCloseTo(at12(653));
+});
+
+// Read straight from NotoSansSC-Regular.otf and -Bold.otf: 小 and 。 1000 in both, H 728 and 757,
+// i 275 and 304 (ADR-0063).
+it("measures a character Source Sans 3 lacks by Noto Sans SC's advance (ADR-0063)", () => {
+  const box = textBox({ x: 0, y: 0, content: "Hi 小动物。", fontSize: 10 });
+  expect(box.width).toBeCloseTo(((652 + 246 + 200) * 10) / 1000 + 4 * 10);
+  expect(glyphWarnings([typed("a", "小动物")])).toEqual([]);
+  expect(glyphWarnings([typed("a", "한국")]).map((w) => w.code)).toEqual(["MISSING_GLYPHS"]);
+});
+
+// The two Noto tables agree on every character Source Sans 3 lacks, so the face a style picks
+// shows in the Latin of a text set in Noto Sans SC.
+it("measures in the Noto Sans SC face CSS matches the style to, upright for italic", () => {
+  const width = (fontStyle: FontStyle, content = "Hi") =>
+    textBox({ x: 0, y: 0, content, fontSize: 1000, fontFamily: "Noto Sans SC", fontStyle }).width;
+  expect(width("Bold")).toBeCloseTo(757 + 304);
+  expect(width("Black")).toBeCloseTo(757 + 304);
+  expect(width("Semibold Italic")).toBeCloseTo(757 + 304);
+  expect(width("Italic")).toBeCloseTo(728 + 275);
+  expect(width("Medium")).toBeCloseTo(728 + 275);
+  const cjk = (fontStyle: FontStyle) =>
+    textBox({ x: 0, y: 0, content: "小", fontSize: 10, fontStyle }).width;
+  expect([cjk("Bold"), cjk("Black"), cjk("Italic"), cjk("Black Italic")]).toEqual([10, 10, 10, 10]);
+});
+
+it("draws and measures a text in Noto Sans SC in it, without FONT_MISSING", () => {
+  const noto = { x: 0, y: 0, content: "Hi", fontSize: 1000, fontFamily: "Noto Sans SC" };
+  expect(textBox(noto).width).toBeCloseTo(728 + 275);
+  const text = (fontStyle: FontStyle) => ({ id: "a", type: "text", ...noto, fontStyle }) as never;
+  expect(fontWarnings([text("Regular"), text("Bold")])).toEqual([]);
+  expect(fontWarnings([text("Black")]).map((w) => w.message)).toEqual([
+    "Noto Sans SC Black is not bundled, so it renders in Noto Sans SC Bold; the name is kept.",
+  ]);
+  expect(fontFamilies(noto)).toEqual(["Noto Sans SC", "Source Sans 3"]);
+  expect(drawnFamily(noto, "H")).toBe("Noto Sans SC");
+  expect(drawnFamily(noto, "\u{1F600}")).toBe("Noto Sans SC");
+  expect(fontFamilies({ fontFamily: "Helvetica" })).toEqual(["Source Sans 3", "Noto Sans SC"]);
+  expect(drawnFamily({ fontFamily: "Helvetica" }, "H")).toBe("Source Sans 3");
+  expect(drawnFamily({ fontFamily: "Helvetica" }, "小")).toBe("Noto Sans SC");
+  expect(drawnFamily({ fontFamily: "Helvetica" }, "한")).toBe("Source Sans 3");
+});
+
+it("gives both Noto Sans SC faces the same code points", () => {
+  const points = ({ runs }: (typeof NOTO_SANS_SC.faces)["Regular"]) =>
+    runs.flatMap(([c, n]) => Array.from({ length: n }, (_, i) => c + i)).join();
+  expect(points(NOTO_SANS_SC.faces.Bold)).toBe(points(NOTO_SANS_SC.faces.Regular));
 });
 
 it("carries the font's vertical metrics", () => {
@@ -116,7 +166,7 @@ const typed = (id: string, content: string, fontStyle?: FontStyle) =>
 it("warns MISSING_GLYPHS once per text, naming each missing character once", () => {
   expect(
     glyphWarnings([
-      typed("a", "Hi 小动物小"),
+      typed("a", "Hi 小한국어한"),
       typed("b", "Hi\nthere"),
       { id: "c", type: "rect" } as never,
     ]),
@@ -125,15 +175,15 @@ it("warns MISSING_GLYPHS once per text, naming each missing character once", () 
       code: "MISSING_GLYPHS",
       nodeId: "a",
       message:
-        "Source Sans 3 has no glyphs for 小, 动, 物; they render as .notdef boxes and measure as its width.",
+        "Neither Source Sans 3 nor Noto Sans SC has glyphs for 한, 국, 어; they render as .notdef boxes and measure as the box's width.",
     },
   ]);
 });
 
 it("names at most 20 missing characters and counts the rest", () => {
-  const content = String.fromCodePoint(...Array.from({ length: 23 }, (_, i) => 0x4e00 + i));
+  const content = String.fromCodePoint(...Array.from({ length: 23 }, (_, i) => 0xac00 + i));
   const [w] = glyphWarnings([typed("a", content)]);
-  expect(w?.message).toMatch(/^Source Sans 3 has no glyphs for 一, 丁, .*, 专 and 3 more; /);
+  expect(w?.message).toMatch(/^Neither .* has glyphs for 가, 각, .*, 갓 and 3 more; /);
   expect(w?.message.split(", ")).toHaveLength(20);
 });
 
@@ -141,18 +191,18 @@ it("gives every bundled face the same code points, so any style warns as Regular
   const faces = Object.values(SOURCE_SANS_3.faces).map((f) => Object.keys(f.advances).join());
   expect(new Set(faces).size).toBe(1);
   const styles: FontStyle[] = ["Regular", "Bold", "Black Italic", "Semibold"];
-  const messages = styles.map((s) => glyphWarnings([typed("a", "é 小 ✓", s)])[0]?.message);
+  const messages = styles.map((s) => glyphWarnings([typed("a", "é 小 한", s)])[0]?.message);
   expect(new Set(messages).size).toBe(1);
-  expect(messages[0]).toContain("小");
+  expect(messages[0]).toContain("for 한;");
 });
 
 it("warns once for a file, naming the union of its texts' missing characters", () => {
-  expect(fileGlyphWarnings([typed("a", "ok"), typed("b", "小动"), typed("c", "动物")])).toEqual([
+  expect(fileGlyphWarnings([typed("a", "小"), typed("b", "한국"), typed("c", "국어")])).toEqual([
     {
       code: "MISSING_GLYPHS",
       nodeId: "b",
       message:
-        "Source Sans 3 has no glyphs for 小, 动, 物; they render as .notdef boxes and measure as its width.",
+        "Neither Source Sans 3 nor Noto Sans SC has glyphs for 한, 국, 어; they render as .notdef boxes and measure as the box's width.",
     },
   ]);
   expect(fileGlyphWarnings([typed("a", "ok")])).toEqual([]);

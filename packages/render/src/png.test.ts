@@ -210,6 +210,64 @@ it("draws a font Zibel does not bundle in Source Sans 3", async () => {
   expect(await ink(svg("'DejaVu Serif', serif"))).toEqual(bundled);
 });
 
+/**
+ * One text in `fontStyle` at 100 pt drawn as `render` draws it, and a function giving the pixels of
+ * columns `from` to `to` in pt, row by row.
+ */
+async function drawnText(content: string, fontStyle = "Regular", fontFamily = "Source Sans 3") {
+  const { doc, defaultLayerId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 400, height: 150, background: "#FFFFFF" }],
+  });
+  const [text] = createNodes(doc, [
+    {
+      type: "text",
+      parentId: defaultLayerId,
+      x: 10,
+      y: 110,
+      content,
+      fontSize: 100,
+      fontStyle,
+      fontFamily,
+    },
+  ] as never).nodes;
+  const { pixels, width } = await svgToPixels(renderSvg(doc), 1);
+  const columns = (from: number, to: number) => {
+    const rows: string[] = [];
+    for (let y = 0; y < pixels.length / 4 / width; y++) {
+      rows.push(pixels.subarray((y * width + from) * 4, (y * width + to) * 4).join());
+    }
+    return rows.join("\n");
+  };
+  return { columns, box: text && bounds(doc, text) };
+}
+
+it("draws a character Source Sans 3 lacks in Noto Sans SC, the rest of its line as before (ADR-0063)", async () => {
+  for (const style of ["Regular", "Bold", "Black", "Bold Italic"]) {
+    const mixed = await drawnText("Hi 小", style);
+    const latin = await drawnText("Hi", style);
+    const notdef = await drawnText("Hi 한", style);
+    // "Hi " ends at 小's origin; its ink stays left of it.
+    const at = Math.floor((mixed.box?.width ?? 0) - 100 + 10);
+    expect(mixed.columns(0, at), style).toBe(latin.columns(0, at));
+    expect(mixed.columns(at, 400), style).not.toBe(notdef.columns(at, 400));
+    expect(mixed.columns(at, 400), style).not.toBe(latin.columns(at, 400));
+  }
+  // Noto Sans SC has no italic, so an italic draws its CJK upright, and Bold and heavier in Bold.
+  const cjk = async (style: string) => (await drawnText("小", style)).columns(0, 400);
+  expect(await cjk("Bold Italic")).toBe(await cjk("Bold"));
+  expect(await cjk("Italic")).toBe(await cjk("Regular"));
+  expect(await cjk("Black")).toBe(await cjk("Bold"));
+  expect(await cjk("Bold")).not.toBe(await cjk("Regular"));
+});
+
+it("draws a text in Noto Sans SC in it, and what it lacks in Source Sans 3", async () => {
+  const noto = await drawnText("Hi", "Regular", "Noto Sans SC");
+  expect(noto.columns(0, 400)).not.toBe((await drawnText("Hi")).columns(0, 400));
+  expect(noto.box?.width).toBeCloseTo(72.8 + 27.5);
+});
+
 it("leaves an evenodd hole unpainted, and fills it under nonzero", async () => {
   const { doc, defaultLayerId: parentId } = createDocument({
     id: "d",
@@ -320,9 +378,11 @@ it("draws the fixture Document with known pixels", async () => {
   // #49, an eleventh holding a gradient clipped by turned, stroked, overflowing Area Type and a
   // fill clipped by turned Point Type with a turned, shifted character; by #51, a twelfth holding a
   // Layer clipped by a turned, stroked Path over a gradient, with a sublayer clipped by a text; by
-  // #148, a thirteenth holding a plain, a filled and a mirrored spiral.
+  // #148, a thirteenth holding a plain, a filled and a mirrored spiral; by #159, a fourteenth
+  // holding Chinese mixed with Latin in Regular and Bold (bundling Noto Sans SC moved no pixel). This
+  // export SVG names no Noto chunk, so its Chinese draws as .notdef boxes; render's does not.
   expect(await hash(toSvg(doc, docRect(doc), { images }))).toBe(
-    "3e72046c08e2abd2430385c078001bb3d3eee76c87341689f0fefa68e558b6b6",
+    "7f9bd30b4c860958ef364d97749a9bd313d3e0f3fcf11c20fbe79bff606680f0",
   );
   expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned, images }))).toBe(
     "24c1e7ad8db33f59933a1b355c879cb19bfdfd67d70b11427b196aa646ea4b60",
@@ -346,7 +406,7 @@ it("draws each fixture Artboard by its scope as the whole Document draws it ther
   const { doc, images } = fixtureDoc();
   const all = fit(docRect(doc), 2);
   const whole = await svgToPixels(renderSvg(doc, all.rect, { scale: 2, images }), 2);
-  expect(doc.artboards).toHaveLength(13);
+  expect(doc.artboards).toHaveLength(14);
   for (const a of doc.artboards) {
     const scope = { artboardId: a.id };
     const { rect, pixelSize } = fit(scopeRect(doc, scope), 2);
@@ -451,6 +511,37 @@ it("draws a Clipping Mask's content only inside its Clipping Path", async () => 
   const drawn = await ink(toSvg(doc));
   expect(drawn.some(([x, y]) => x === 50 && y === 50)).toBe(true);
   expect(drawn.every(([x, y]) => x >= 39 && x <= 60 && y >= 39 && y <= 60)).toBe(true);
+});
+
+it("clips by a text's Noto Sans SC glyphs, not by .notdef boxes (ADR-0052, ADR-0063)", async () => {
+  const clipped = async (content: string) => {
+    const { doc, defaultLayerId: parentId } = createDocument({
+      id: "d",
+      name: "Doc",
+      artboards: [{ width: 120, height: 120, background: "#FFFFFF" }],
+    });
+    const [content_, clip] = createNodes(doc, [
+      {
+        type: "rect",
+        parentId,
+        x: 0,
+        y: 0,
+        width: 120,
+        height: 120,
+        appearance: { fills: [{ color: "#FF0000" }] },
+      },
+      { type: "text", parentId, x: 10, y: 100, content, fontSize: 100 },
+    ]).nodes;
+    if (!content_ || !clip) throw new Error("setup");
+    makeMask(doc, { clipNodeId: clip.id, contentIds: [content_.id] });
+    return ink(renderSvg(doc));
+  };
+  const [cjk, notdef] = [await clipped("小"), await clipped("한")];
+  // 小's vertical stroke runs down the middle of its em square, above where a .notdef box starts.
+  const at = (drawn: [number, number][], x: number, y: number) =>
+    drawn.some(([px, py]) => px === x && py === y);
+  expect(at(cjk, 60, 30)).toBe(true);
+  expect(at(notdef, 60, 30)).toBe(false);
 });
 
 it("draws an Image's pixels in its frame and nowhere else", async () => {
