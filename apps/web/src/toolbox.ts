@@ -2,11 +2,13 @@ import type { Document, Node } from "@zibel/core";
 import { addAnchorTool, anchorPointTool, deleteAnchorTool } from "./anchorTools.ts";
 import { curvatureTool } from "./curvatureTool.ts";
 import { directTool } from "./directTool.ts";
+import { exitIsolation, keysOf } from "./menu.ts";
 import { pencilTool } from "./pencilTool.ts";
 import { penTool } from "./penTool.ts";
 import { selectionTool } from "./selectionTool.ts";
-import { ellipseTool, rectangleTool } from "./shapeTool.ts";
+import { ellipseTool, rectangleTool, roundedRectangleTool } from "./shapeTool.ts";
 import { useStore } from "./store.ts";
+import { fillStrokeKey, setTool } from "./tools.ts";
 import type { Viewport } from "./viewport.ts";
 import { zoomTool } from "./zoomTool.ts";
 
@@ -41,6 +43,14 @@ export interface ToolEvent {
 /** The modifiers a key can change mid-drag. */
 export type KeyMods = Pick<ToolEvent, "shift" | "alt" | "space">;
 
+/** A key pressed, repeated or released while a tool holds the pointer, and the modifiers now held. */
+export interface ToolKey extends KeyMods {
+  /** The key without its modifiers, as keysOf names it: `ArrowUp`, `C`. */
+  key: string;
+  /** True for a keydown, each auto-repeat included. */
+  down: boolean;
+}
+
 /** A touch or pen press, in client px and ms, and its click count. */
 export interface Tap {
   x: number;
@@ -73,7 +83,7 @@ export type ToolGroup = "pen" | "rectangle";
  */
 export interface CanvasTool {
   title: string;
-  /** Its key (ADR-0031). */
+  /** Its key (ADR-0031), empty where Illustrator gives it none. */
   shortcut: string;
   /** The Tools panel group it shares one button with, as in Illustrator's default toolbar. */
   group?: ToolGroup;
@@ -89,8 +99,11 @@ export interface CanvasTool {
   /** Drops the press; also when its release comes after the Document went. */
   cancel?(redraw: () => void): void;
   leave?(e: ToolEvent): void;
-  /** Any key pressed or released while the tool holds the pointer, with the modifiers now held. */
-  keyChange?(mods: KeyMods, redraw: () => void): void;
+  /**
+   * Any key pressed or released while the tool holds the pointer. True when the tool took the key:
+   * it then switches no tool and reaches neither the menu bar nor `onKey`.
+   */
+  keyChange?(key: ToolKey, redraw: () => void): boolean;
   /** Its options dialog, opened by double-clicking the tool. */
   options?(): void;
   /** A key that is neither a tool's nor the Fill and Stroke boxes'; true when it took the key. */
@@ -115,6 +128,7 @@ export const TOOLS = {
   anchorPoint: anchorPointTool,
   curvature: curvatureTool,
   rectangle: rectangleTool,
+  roundedRectangle: roundedRectangleTool,
   ellipse: ellipseTool,
   pencil: pencilTool,
 } satisfies Record<string, CanvasTool>;
@@ -130,9 +144,48 @@ useStore.subscribe((s, prev) => {
 });
 
 export const TOOL_KEYS: Record<string, Tool> = Object.fromEntries(
-  // keysOf reports + as =, the key it is on.
-  (Object.keys(TOOLS) as Tool[]).map((name) => [TOOLS[name].shortcut.replace(/^\+$/, "="), name]),
+  (Object.keys(TOOLS) as Tool[])
+    .filter((name) => TOOLS[name].shortcut)
+    // keysOf reports + as =, the key it is on.
+    .map((name) => [TOOLS[name].shortcut.replace(/^\+$/, "="), name]),
 );
+
+/**
+ * Hands a key on the page to the tool holding the pointer, if any; true when it took the key.
+ * Viewer asks before anything else hears the key (ADR-0031).
+ */
+export function pressedKey(
+  e: Pick<KeyboardEvent, "type" | "key" | "code" | "ctrlKey" | "metaKey" | "shiftKey" | "altKey">,
+  pressed: CanvasTool | null,
+  space: boolean,
+  redraw: () => void,
+): boolean {
+  const keys = keysOf(e);
+  const key = keys.slice(keys.lastIndexOf("+") + 1);
+  const down = e.type === "keydown";
+  return !!pressed?.keyChange?.({ key, down, shift: e.shiftKey, alt: e.altKey, space }, redraw);
+}
+
+/**
+ * A key no pressed tool took. A keydown without Ctrl, not typed into a text field, is a tool's
+ * shortcut, a Fill and Stroke box key, the active tool's `onKey`, or Escape leaving Isolation.
+ */
+export function canvasKey(
+  e: Pick<
+    KeyboardEvent,
+    "type" | "key" | "code" | "ctrlKey" | "metaKey" | "shiftKey" | "altKey" | "target"
+  >,
+) {
+  // The Fill and Stroke boxes' color inputs are not text.
+  const typing = (e.target as Element | null)?.matches?.("input:not([type=color])");
+  if (e.type !== "keydown" || e.code === "Space" || e.ctrlKey || e.metaKey || typing) return;
+  const keys = keysOf(e);
+  const tool = TOOL_KEYS[keys];
+  const fillStroke = fillStrokeKey(useStore.getState().fillStroke, keys);
+  if (tool) setTool(tool);
+  else if (fillStroke) useStore.setState({ fillStroke });
+  else if (!TOOLS[useStore.getState().tool].onKey?.(keys) && keys === "Escape") exitIsolation();
+}
 
 /** A Tools panel button: its tools, in the panel's order, and the one it shows. */
 export interface ToolSlot {

@@ -15,14 +15,21 @@ import { IsolationBar } from "./IsolationBar.tsx";
 import { imageCache } from "./images.ts";
 import { Layers } from "./Layers.tsx";
 import { keysTaken } from "./MenuBar.tsx";
-import { exitIsolation, keysOf } from "./menu.ts";
 import { pastedArt, place, placeable } from "./place.ts";
 import { preview, previewEdit, previewOp } from "./receive.ts";
 import { editable } from "./selection.ts";
 import { canEdit, connect, send, useStore } from "./store.ts";
 import { Tools } from "./Tools.tsx";
-import { type CanvasTool, nextTap, type Tap, TOOL_KEYS, TOOLS, type ToolEvent } from "./toolbox.ts";
-import { fillStrokeKey, finishPen, setTool } from "./tools.ts";
+import {
+  type CanvasTool,
+  canvasKey,
+  nextTap,
+  pressedKey,
+  type Tap,
+  TOOLS,
+  type ToolEvent,
+} from "./toolbox.ts";
+import { finishPen } from "./tools.ts";
 import { artboardsRect, fit, toDoc, type Viewport, zoomAt } from "./viewport.ts";
 
 const PASTEBOARD = "#E6E6E6";
@@ -268,40 +275,42 @@ export function Viewer({ docId }: { docId: string }) {
 
   // Tool keys only; menu commands and their shortcuts are in menu.ts (ADR-0031).
   useEffect(() => {
+    // A menu, or the menu bar with focus, takes the keys it handles.
+    const menus = (e: KeyboardEvent) =>
+      e.type === "keydown" && (keysTaken() || !!(e.target as Element).closest?.("[role=menubar]"));
+    // The tool holding the pointer hears a key before the menu bar and the Tools panel, and before
+    // Simplify's bar, whose listener comes later; a key it took stops here. Space is counted here,
+    // for it, even when a focused Tools panel button then takes it.
+    const toPressed = (e: KeyboardEvent) => {
+      if (menus(e)) return;
+      if (e.code === "Space") spaceHeld.current = e.type === "keydown";
+      if (pressedKey(e, pressed.current, spaceHeld.current, redraw)) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
     const onKey = (e: KeyboardEvent) => {
+      if (menus(e)) return;
       const down = e.type === "keydown";
-      // A menu, or the menu bar with focus, takes the keys it handles.
-      if (down && (keysTaken() || (e.target as Element).closest?.("[role=menubar]"))) return;
       setAlt(e.altKey);
-      if (e.code === "Space") spaceHeld.current = down;
-      pressed.current?.keyChange?.(
-        { shift: e.shiftKey, alt: e.altKey, space: spaceHeld.current },
-        redraw,
-      );
       if (e.code === "Space") {
         e.preventDefault();
         setHand(down);
-        return;
       }
-      const mod = e.ctrlKey || e.metaKey;
-      const key = e.key.toLowerCase();
       // Its paste event comes between keydown and keyup.
-      if (key === "v") inPlace.current = down && mod && e.shiftKey;
-      // Typing in a text field is not a tool key; the Fill and Stroke boxes' color inputs are not text.
-      const t = e.target;
-      if (!down || mod || (t instanceof HTMLInputElement && t.type !== "color")) return;
-      const keys = keysOf(e);
-      const tool = TOOL_KEYS[keys];
-      const fillStroke = fillStrokeKey(useStore.getState().fillStroke, keys);
-      if (tool) setTool(tool);
-      else if (fillStroke) useStore.setState({ fillStroke });
-      else if (!TOOLS[useStore.getState().tool].onKey?.(keys) && keys === "Escape") exitIsolation();
+      if (e.key.toLowerCase() === "v")
+        inPlace.current = down && (e.ctrlKey || e.metaKey) && e.shiftKey;
+      canvasKey(e);
     };
-    addEventListener("keydown", onKey);
-    addEventListener("keyup", onKey);
+    for (const type of ["keydown", "keyup"] as const) {
+      addEventListener(type, toPressed, true);
+      addEventListener(type, onKey);
+    }
     return () => {
-      removeEventListener("keydown", onKey);
-      removeEventListener("keyup", onKey);
+      for (const type of ["keydown", "keyup"] as const) {
+        removeEventListener(type, toPressed, true);
+        removeEventListener(type, onKey);
+      }
     };
   }, []);
 

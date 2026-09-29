@@ -341,3 +341,4 @@ Source: https://helpx.adobe.com/illustrator/using/default-keyboard-shortcuts.htm
 4. The Pencil option defaults (15 px close, 12 px edit, Keep selected on).
 5. How the Curvature tool closes a path (clicking the first point?).
 6. Where Offset Path puts the new object in the stacking order. Not verified live; Zibel puts it directly below the original, as Inkscape's Linked Offset does (ADR-0039).
+7. The Rounded Rectangle tool's Corner Radius default (Preferences > General), which Zibel takes as 12 pt (#143). Also: do Up and Down step from the radius drawn or from the stored one when the box is too small for it, and after Right, is the fully rounded radius what the next drag starts from? Not verified live; Zibel steps from the radius drawn and keeps the one Right drew.

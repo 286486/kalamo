@@ -58,7 +58,11 @@ test("a group's flyout opens by hold, right-click or keyboard, and fronts the ch
   await expect(tool("Ellipse Tool (L)")).toHaveAttribute("aria-pressed", "true");
   await expect(tool("Rectangle Tool (M)")).toHaveCount(0);
   await tool("Ellipse Tool (L)").click({ button: "right" });
-  await expect(menu.getByRole("menuitemradio")).toHaveText(["Rectangle ToolM", "Ellipse ToolL"]);
+  await expect(menu.getByRole("menuitemradio")).toHaveText([
+    "Rectangle ToolM",
+    "Rounded Rectangle Tool",
+    "Ellipse ToolL",
+  ]);
   await page.getByTestId("overlay").click({ position: { x: 600, y: 600 } });
   await expect(menu).toHaveCount(0);
   await expect(tool("Ellipse Tool (L)")).toHaveAttribute("aria-pressed", "true");
