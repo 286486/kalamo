@@ -219,6 +219,14 @@ describe("write tools pass the write and its options apart", () => {
     ]);
   });
 
+  it.each([1, 1000])("node_reparent: %i moves, the bounds, reach the service", async (n) => {
+    const { service, call } = await harness({ reparentNodes: async () => receipt });
+    const moves = Array.from({ length: n }, (_, i) => ({ nodeId: `n${i}`, parentId: "g" }));
+    const result = await call("kalamo_node_reparent", { docId: "d", moves });
+    expect(result.isError).toBeFalsy();
+    expect(service.reparentNodes.mock.calls[0]?.[1]).toStrictEqual(moves);
+  });
+
   it.each(writeOptions)(
     "mask_make: kind defaults to clip, with %s write options as given",
     async (_, write) => {
@@ -681,6 +689,17 @@ describe("arguments are parsed strictly: a bad one is INVALID_INPUT and nothing 
   ])("%s %j: %s, with a hint on what to send", async (name, args, path, hint) => {
     const { call, called } = await harness();
     expect(errorOf(await call(name, args))).toMatchObject({ code: "INVALID_INPUT", path, hint });
+    expect(called()).toEqual([]);
+  });
+
+  it.each([
+    [0, "moves must be at least 1 item."],
+    [1001, "moves must be at most 1000 items."],
+  ])("kalamo_node_reparent refuses %i moves: %s", async (n, hint) => {
+    const { call, called } = await harness();
+    const moves = Array(n).fill({ nodeId: "a", parentId: null });
+    const result = await call("kalamo_node_reparent", { docId: "d", moves });
+    expect(errorOf(result)).toMatchObject({ code: "INVALID_INPUT", path: "moves", hint });
     expect(called()).toEqual([]);
   });
 
