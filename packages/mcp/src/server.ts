@@ -387,7 +387,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
     {
       title: "Delete Nodes",
       description:
-        "Delete Nodes and everything inside them. The receipt's deletedIds lists every removed id, descendants included; bounds is where they were.",
+        "Delete Nodes and everything inside them. The receipt's deletedIds lists every removed id, descendants included; bounds is where they were. A Document keeps at least one top-level Layer: a delete that would remove the last one fails with LAST_LAYER and changes nothing (with partial, only that entry fails). To clear a Document, delete the Layer's contents, or create another top-level Layer first.",
       inputSchema: {
         docId,
         nodeIds: z.array(z.string()).min(1).max(1000),
@@ -815,7 +815,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       title: "Commit Transaction",
       description: [
         "Apply every write of the Transaction at once: rev goes up by one and the receipt lists every created, updated and deleted id.",
-        "Properties someone else changed meanwhile are kept unless the Transaction changed the same property. If someone deleted a Node the Transaction edited, or a Layer or Group it created Nodes in, the commit fails with NODE_GONE listing them and the Transaction stays open for kalamo_tx_rollback. If the merge would break a tree rule (a cycle with moves someone committed meanwhile, a Layer in a Group, two Clipping Paths in one Layer or Group), it fails the same way with TREE_CONFLICT. A Node created on top of a parent someone else also added to meanwhile goes above theirs.",
+        "Properties someone else changed meanwhile are kept unless the Transaction changed the same property. If someone deleted a Node the Transaction edited, or a Layer or Group it created Nodes in, the commit fails with NODE_GONE listing them and the Transaction stays open for kalamo_tx_rollback. If the merge would break a tree rule (a cycle with moves someone committed meanwhile, a Layer in a Group, two Clipping Paths in one Layer or Group, or no top-level Layer left once deletes meet deletes made meanwhile), it fails the same way with TREE_CONFLICT. A Node created on top of a parent someone else also added to meanwhile goes above theirs.",
       ].join(" "),
       inputSchema: { docId, txId, ifRev, intent },
       outputSchema: WriteReceipt.shape,

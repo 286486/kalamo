@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createDocument, createNodes } from "./document.ts";
+import { createDocument, createNodes, isTopLayer } from "./document.ts";
 import { deleteNodes, reparentNodes, transformNodes, updateNodes } from "./edit.ts";
 import { KalamoError } from "./errors.ts";
 import { parseDocument, serializeDocument } from "./file.ts";
@@ -538,6 +538,86 @@ describe("tree rules at commit, undo and redo (ADR-0072)", () => {
     reopens(doc);
   });
 
+  it("refuses a staged delete of one Layer committed after a direct delete of the other", () => {
+    const { doc, l, m } = tree();
+    const rows: TxRow[] = [];
+    stage(doc, rows, (v) => deleteNodes(v, [l]));
+    expect(nodeGone(() => stage(doc, rows, (v) => deleteNodes(v, [m])))).toMatchObject({
+      code: "LAST_LAYER",
+      nodeIds: [m],
+    });
+    deleteNodes(doc, [m]);
+    const before = copy(doc);
+    expect(nodeGone(() => commitTransaction(doc, rows))).toMatchObject({
+      code: "TREE_CONFLICT",
+      nodeIds: [l],
+      message: expect.stringMatching(new RegExp(`: ${l}: No top-level Layer would remain\\.$`)),
+      hint: expect.stringContaining("kalamo_tx_rollback"),
+    });
+    expect(doc.nodes).toEqual(before.nodes);
+    reopens(doc);
+  });
+
+  it("names every Layer a commit removes in one entry of the last-Layer conflict", () => {
+    const { doc, l, m } = tree();
+    const n = createNodes(doc, [{ type: "layer" }]).nodes[0]?.id as string;
+    const rows: TxRow[] = [];
+    stage(doc, rows, (v) => deleteNodes(v, [l, m]));
+    deleteNodes(doc, [n]);
+    const e = nodeGone(() => commitTransaction(doc, rows));
+    expect(e).toMatchObject({ code: "TREE_CONFLICT", nodeIds: [l, m] });
+    expect(e.message.split("No top-level Layer would remain.")).toHaveLength(2);
+    expect(e.message).toContain(`${l}, ${m}: No top-level Layer would remain.`);
+    reopens(doc);
+  });
+
+  it("skips an undone Layer create, or a redone Layer delete, that would leave no top-level Layer", () => {
+    const { doc, l, m } = tree();
+    const made = write(doc, (d) => createNodes(d, [{ type: "layer" }]));
+    const n = made[0]?.id as string;
+    deleteNodes(doc, [l, m]);
+    const undo = revert(doc, made);
+    expect(undo.skipped).toEqual([n]);
+    expect(undo.deletedIds).toEqual([]);
+    reopens(doc);
+
+    const gone = write(doc, (d) => createNodes(d, [{ type: "layer" }]));
+    const o = gone[0]?.id as string;
+    const del = write(doc, (d) => deleteNodes(d, [n]));
+    revert(doc, del);
+    revert(doc, gone);
+    // Redo applies the delete again, onto a Document whose only other Layer went meanwhile.
+    const redo = revert(
+      doc,
+      del.map(({ id, before, after }) => ({ id, before: after, after: before })),
+    );
+    expect(redo.skipped).toEqual([n]);
+    expect(doc.nodes.has(n)).toBe(true);
+    expect(doc.nodes.has(o)).toBe(false);
+    reopens(doc);
+  });
+
+  it("skips the last of several undone Layer creates until one Layer stays", () => {
+    const { doc, l, m } = tree();
+    const made = write(doc, (d) => createNodes(d, [{ type: "layer" }, { type: "layer" }]));
+    const [a, b] = made.map((r) => r.id) as [string, string];
+    deleteNodes(doc, [l, m]);
+    const { skipped, deletedIds } = revert(doc, made);
+    expect(skipped).toEqual([b]);
+    expect(deletedIds).toEqual([a]);
+    reopens(doc);
+  });
+
+  it("lets a Document with no top-level Layer take one from a commit", () => {
+    const { doc, l, m } = tree();
+    const rows: TxRow[] = [];
+    stage(doc, rows, (v) => createNodes(v, [{ type: "layer" }]));
+    for (const id of [...doc.nodes.keys()]) doc.nodes.delete(id);
+    expect(commitTransaction(doc, rows).created).toHaveLength(1);
+    expect([l, m].some((id) => doc.nodes.has(id))).toBe(false);
+    reopens(doc);
+  });
+
   it("keeps every committed Document valid through random staged and direct edits and undos", () => {
     let seed = 189;
     const random = () => {
@@ -582,9 +662,12 @@ describe("tree rules at commit, undo and redo (ADR-0072)", () => {
         deleteNodes(d, [
           any(d, (n) => n.type !== "layer" && (n.type !== "group" || random() < 0.2)),
         ]),
+      // Top-level Layers go and come, so commits and undos meet the last-Layer rule (ADR-0073).
+      (d) => deleteNodes(d, [any(d, isTopLayer)]),
+      (d) => createNodes(d, [{ type: "layer" }]),
     ];
     /** How often each path ADR-0072 adds ran, so the test fails if the edits stop reaching one. */
-    const seen = { refused: 0, skipped: 0, rekeyed: 0 };
+    const seen = { refused: 0, skipped: 0, rekeyed: 0, lastLayerRefused: 0, lastLayerSkipped: 0 };
     /** Nodes stored with another key than the row set; a row that left `index` alone merges none. */
     const rekeyed = (change: { created: Node[]; updated: Node[] }, rows: TxRow[]) =>
       [...change.created, ...change.updated].filter((n) => {
@@ -617,8 +700,13 @@ describe("tree rules at commit, undo and redo (ADR-0072)", () => {
             const there = (r: TxRow) =>
               (!r.base || doc.nodes.has(r.id)) &&
               (!r.working?.parentId || doc.nodes.has(r.working.parentId));
+            const layers = [...doc.nodes.values()].filter(isTopLayer).length;
             const change = revert(doc, delta);
             seen.skipped += rows.filter((r) => change.skipped.includes(r.id) && there(r)).length;
+            // Only the last-Layer rule skips a row that deletes a top-level Layer (ADR-0073).
+            const deletesLayer = (r: TxRow) => !r.working && !!r.base && isTopLayer(r.base);
+            if (layers > 0 && rows.some((r) => deletesLayer(r) && change.skipped.includes(r.id)))
+              seen.lastLayerSkipped++;
             seen.rekeyed += rekeyed(change, rows);
           } else if (roll < 0.18) {
             const rows = pick(txs);
@@ -628,6 +716,8 @@ describe("tree rules at commit, undo and redo (ADR-0072)", () => {
               deltas.push(diff(before, doc));
             } catch (e) {
               if (e instanceof KalamoError && e.data.code === "TREE_CONFLICT") seen.refused++;
+              if (e instanceof KalamoError && e.data.message.includes("No top-level Layer"))
+                seen.lastLayerRefused++;
               throw e;
             } finally {
               rows.length = 0;
@@ -643,5 +733,7 @@ describe("tree rules at commit, undo and redo (ADR-0072)", () => {
     expect(seen.refused).toBeGreaterThan(0);
     expect(seen.skipped).toBeGreaterThan(0);
     expect(seen.rekeyed).toBeGreaterThan(0);
+    expect(seen.lastLayerRefused).toBeGreaterThan(0);
+    expect(seen.lastLayerSkipped).toBeGreaterThan(0);
   });
 });

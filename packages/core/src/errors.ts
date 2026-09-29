@@ -17,6 +17,7 @@ export type ErrorCode =
   | "REV_CONFLICT"
   | "NODE_GONE"
   | "TREE_CONFLICT"
+  | "LAST_LAYER"
   | "TX_NOT_FOUND"
   | "TX_EXPIRED"
   | "NOTHING_TO_UNDO"
@@ -31,7 +32,7 @@ export interface ErrorData {
   path?: string;
   /** REV_CONFLICT: the committed rev. */
   rev?: number;
-  /** REV_CONFLICT: Nodes changed since `ifRev`. NODE_GONE: the deleted Nodes. TREE_CONFLICT: the conflicting Nodes. */
+  /** REV_CONFLICT: Nodes changed since `ifRev`. NODE_GONE: the deleted Nodes. TREE_CONFLICT: the conflicting Nodes. LAST_LAYER: the top-level Layers the delete names. */
   nodeIds?: string[];
   /** LIMIT_EXCEEDED of a beta Quota (ADR-0048): which one, and its numbers. */
   limit?: QuotaLimit;

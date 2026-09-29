@@ -593,7 +593,7 @@ flowchart LR
 | 工具 | 输入要点 | 输出 | 注 |
 |---|---|---|---|
 | `node_update` | `docId`, `updates[]`：`{nodeId, patch}`，patch 为 JSON Merge Patch（RFC 7396）作用于节点可写属性（name、visible、locked、opacity、blendMode、appearance、几何参数、text 属性、meta）；image 另可写 `src`（data URL 或已有图像 id，只换像素，即 Relink）与 `file`（字符串链接或重新链接，`null` 即 Embed，无 `src` 时 `INVALID_IMAGE`；`src: null` 为 `INVALID_PATCH`，ADR-0042） | 回执 | D（覆盖属性） |
-| `node_delete` | `docId`, `nodeIds[]` | 回执 | D |
+| `node_delete` | `docId`, `nodeIds[]`；删掉最后一个顶层 Layer 的删除以 `LAST_LAYER` 拒绝（ADR-0073） | 回执 | D |
 | `node_duplicate` | `docId`, `nodeIds[]`, `offset?`, `count?`, `targetParentId?` | 新 id 映射 | |
 | `node_reparent` | `docId`, `moves[]`：`{nodeId, parentId, index | before | after}`；`index` 自下而上数父级的其余子节点，`before` 落在该兄弟之下，`after` 之上，缺省置顶；同一 `parentId` 即重排；按序施加，一个事务；Clipping Path 移出原父级即失去 `clipping`（ADR-0071） | 回执 | |
 | `node_reorder` | `docId`, `nodeIds[]`, `op`: front / forward / backward / back | 回执 | |
@@ -712,7 +712,7 @@ flowchart LR
 
 ### 6.7 错误处理、并发与长任务
 
-- **F-MCP-15** 错误码枚举：`REV_CONFLICT`（附当前 `rev` 与冲突节点）、`NEEDS_DECISION`（需要人类决定，附选项）、`DOC_NOT_FOUND`、`NODE_NOT_FOUND`、`NODE_GONE`（并发删除）、`TREE_CONFLICT`（并发移动使提交后出现环或一个容器两条剪切路径；ADR-0072）、`LOCKED_BY_USER`、`INVALID_COLOR`、`INVALID_PATH`、`INVALID_PARENT`（如把节点放进 path）、`INVALID_INPUT`（参数不合工具的输入 schema：未知键、类型不对、缺失、越界、不在允许值中，或合乎 schema 但违反 schema 表达不了的规则，如容器 `appearance.contents`；ADR-0043、ADR-0050）、`INVALID_PATCH`（patch 含只读键、该类型没有的键或删除了必填键）、`INVALID_MASK`（`mask_make` / `mask_release` 的对象不合规则；ADR-0021）、`INVALID_DOCUMENT`（`.kalamo.json` 或 SVG 不合法，附文件内 `path`；ADR-0017）、`INVALID_IMAGE`（图像不是 PNG / JPEG / GIF、是 WebP，或 `src` 指向文档里没有的图像；ADR-0023）、`TX_NOT_FOUND`、`TX_EXPIRED`、`LIMIT_EXCEEDED`、`BOOLEAN_FAILED`（含几何诊断）、`FONT_MISSING`、`SCRIPT_ERROR`（含行号）、`PERMISSION_DENIED`。每条附 `hint`。（P0）
+- **F-MCP-15** 错误码枚举：`REV_CONFLICT`（附当前 `rev` 与冲突节点）、`NEEDS_DECISION`（需要人类决定，附选项）、`DOC_NOT_FOUND`、`NODE_NOT_FOUND`、`NODE_GONE`（并发删除）、`TREE_CONFLICT`（并发移动使提交后出现环或一个容器两条剪切路径，或并发删除使提交后没有顶层 Layer；ADR-0072、ADR-0073）、`LAST_LAYER`（删除会删掉最后一个顶层 Layer；ADR-0073）、`LOCKED_BY_USER`、`INVALID_COLOR`、`INVALID_PATH`、`INVALID_PARENT`（如把节点放进 path）、`INVALID_INPUT`（参数不合工具的输入 schema：未知键、类型不对、缺失、越界、不在允许值中，或合乎 schema 但违反 schema 表达不了的规则，如容器 `appearance.contents`；ADR-0043、ADR-0050）、`INVALID_PATCH`（patch 含只读键、该类型没有的键或删除了必填键）、`INVALID_MASK`（`mask_make` / `mask_release` 的对象不合规则；ADR-0021）、`INVALID_DOCUMENT`（`.kalamo.json` 或 SVG 不合法，附文件内 `path`；ADR-0017）、`INVALID_IMAGE`（图像不是 PNG / JPEG / GIF、是 WebP，或 `src` 指向文档里没有的图像；ADR-0023）、`TX_NOT_FOUND`、`TX_EXPIRED`、`LIMIT_EXCEEDED`、`BOOLEAN_FAILED`（含几何诊断）、`FONT_MISSING`、`SCRIPT_ERROR`（含行号）、`PERMISSION_DENIED`。每条附 `hint`。（P0）
 - **F-MCP-16** 批量工具的部分失败：默认**原子**（任一失败整批回滚）；可选 `partial: true` 返回逐项结果。（P0）
 - **F-MCP-17** 长任务（`export_batch`、`image_trace`、大 `svg_import`）：单个请求内可经 SSE 响应流发送 progress；预计超过 30 秒的任务一律返回 `jobId`，由 Queues 执行，用 `job_status / job_cancel` 轮询。（P1）
 - **F-MCP-18** 幂等：读工具与 `doc_save`、`tx_rollback` 幂等；`node_create` 通过 `clientKey` + `txId` 去重（同一事务内重复提交同 key 不重复创建）。（P1）
@@ -992,6 +992,7 @@ kalamo/
 | 52 | 逐字符属性（2026-09-29） | Character Range 在 `fill`、`baselineShift`、`rotation` 之外还可覆盖 `stroke`（替换每个 Stroke 的颜色）、`tracking`（按字符自身字号）、`fontStyle`、`fontFamily` 与 `fontSize`（Auto 行距为该行最大字号的 120%，同 Illustrator；Inkscape 按 CSS 行框排，往返中混合字号的多行文字另有 25% 像素预算）；等于 Node 自身值的覆盖即无覆盖，存储时丢弃；Inkscape 在行内 tspan 上写的这些属性导入为 Character Range，不再警告 | ADR-0068、#67 |
 | 53 | 批量变换（2026-09-30） | `node_transform` 另收 `transforms[]`：每项是单个变换的全部字段，按序施加，每项的 pivot 取自前面各项之后的 bounds；整次调用一个事务、一个回执、一次撤销；`partial` 按项跳过；不新增工具，也不在 `node_create` 上加 `transform` | ADR-0070、#21 |
 | 54 | 换父级（2026-09-30） | `node_reparent` 把 Node 连同其后代移到另一 Layer 或 Group，或在原父级内重排：`index` 为父级其余子节点中自下而上的位置，`before` / `after` 落在该兄弟之下 / 之上，缺省置顶，至多给一个；按序施加，一个事务、一个回执、一次撤销，`partial` 按项跳过；Clipping Path 移到别的父级即失去 `clipping`、保留 Appearance，原父级内重排则保留；移空的 Group 保留；不检查锁定；`node_reorder` 仍暂缺 | ADR-0071、#54 |
+| 55 | 至少一个顶层 Layer（2026-09-30） | 已提交的 Document 至少保留一个顶层 Layer，同 Illustrator：`node_delete`（含事务内暂存与浏览器 `delete` 命令）删掉最后一个时以新错误码 `LAST_LAYER` 拒绝、不改任何东西，`partial` 下按序拒绝使其清空的那一项；提交合并后没有顶层 Layer 时整体以 `TREE_CONFLICT` 拒绝，事务保持打开；撤销与重做按行序从后往前跳过删除顶层 Layer 的行，直到留下一个；只拒绝把数目从至少一个降到零的写入，已存的无 Layer 文档仍可写、可用 `node_create` 修复 | ADR-0073、#192 |
 
 **剩余开放问题**
 

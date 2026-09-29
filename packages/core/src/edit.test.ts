@@ -10,9 +10,10 @@ import {
 } from "./document.ts";
 import { deleteNodes, reparentNodes, transformNodes, updateNodes } from "./edit.ts";
 import { KalamoError } from "./errors.ts";
+import { parseDocument, serializeDocument } from "./file.ts";
 import { makeMask } from "./mask.ts";
 import { applyTo, compose, IDENTITY, invert } from "./matrix.ts";
-import type { Gradient, Node, ShapeNode } from "./schema.ts";
+import type { Document, Gradient, Node, ShapeNode } from "./schema.ts";
 
 const newDoc = () => {
   const { doc, defaultLayerId } = createDocument({
@@ -611,21 +612,83 @@ describe("deleteNodes", () => {
     expect([...doc.nodes.keys()]).not.toContain(b.id);
   });
 
-  it("allows deleting the last Layer; a new top-level Layer can follow", () => {
+  /** The Nodes of `doc` after a `.kalamo.json` round trip; throws if the file does not open. */
+  const reopened = (doc: Document) =>
+    new Map(parseDocument(serializeDocument(doc)).nodes.map((n) => [n.id, n]));
+
+  it("refuses deleting the only top-level Layer with LAST_LAYER and changes nothing", () => {
     const { doc, defaultLayerId } = newDoc();
-    deleteNodes(doc, [defaultLayerId]);
-    expect(outline(doc)).toEqual([]);
+    expect(errorOf(() => deleteNodes(doc, [defaultLayerId]))).toEqual({
+      code: "LAST_LAYER",
+      message: "A Document keeps at least one top-level Layer.",
+      hint: expect.stringContaining("create another top-level Layer first"),
+      path: "nodeIds[0]",
+      nodeIds: [defaultLayerId],
+    });
+    expect(outline(doc)).toMatchObject([{ id: defaultLayerId }]);
+    expect(reopened(doc)).toEqual(doc.nodes);
+  });
+
+  it("deletes top-level Layers while one is left; all of them only with partial, less the last", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const [l2, l3] = createNodes(doc, [{ type: "layer" }, { type: "layer" }]).nodes;
+    if (!l2 || !l3) throw new Error("setup");
+    const all = [defaultLayerId, l2.id, l3.id];
+    const refused = structuredClone(doc);
+    expect(errorOf(() => deleteNodes(refused, all))).toMatchObject({
+      code: "LAST_LAYER",
+      path: "nodeIds[2]",
+      nodeIds: all,
+    });
+    expect(reopened(refused)).toEqual(doc.nodes);
+    expect(deleteNodes(structuredClone(doc), all.slice(0, 2)).deletedIds).toEqual(all.slice(0, 2));
+    const { deletedIds, failed } = deleteNodes(doc, all, { partial: true });
+    expect(deletedIds).toEqual(all.slice(0, 2));
+    expect(failed).toMatchObject([{ index: 2, code: "LAST_LAYER", nodeIds: [l3.id] }]);
+    expect(outline(doc)).toMatchObject([{ id: l3.id }]);
+  });
+
+  it("deletes a sub-Layer and the contents of the last Layer, down to one blank Layer", () => {
+    const { doc, defaultLayerId, rect } = newDoc();
+    const [sub, a] = createNodes(doc, [
+      { type: "layer", parentId: defaultLayerId },
+      rect(0, 0),
+    ]).nodes;
+    if (!sub || !a) throw new Error("setup");
+    expect(deleteNodes(doc, [sub.id, a.id]).deletedIds).toEqual([sub.id, a.id]);
+    expect(outline(doc)).toEqual([expect.objectContaining({ id: defaultLayerId, childCount: 0 })]);
+  });
+
+  it("counts Layers after the whole delete, whichever order the Layer and its children come in", () => {
+    for (const first of [true, false]) {
+      const { doc, defaultLayerId, rect } = newDoc();
+      const [a] = createNodes(doc, [rect(0, 0)]).nodes;
+      if (!a) throw new Error("setup");
+      const ids = first ? [defaultLayerId, a.id] : [a.id, defaultLayerId];
+      expect(errorOf(() => deleteNodes(doc, ids))).toMatchObject({ code: "LAST_LAYER" });
+      expect(doc.nodes.has(a.id)).toBe(true);
+      const { deletedIds, failed } = deleteNodes(doc, ids, { partial: true });
+      expect(deletedIds).toEqual([a.id]);
+      expect(failed).toMatchObject([{ index: ids.indexOf(defaultLayerId), code: "LAST_LAYER" }]);
+    }
+  });
+
+  it("leaves a Document with no top-level Layer writable: a top-level Layer can be created", () => {
+    const { doc, defaultLayerId } = newDoc();
+    doc.nodes.delete(defaultLayerId);
     createNodes(doc, [{ type: "layer" }]);
     expect(outline(doc)).toHaveLength(1);
   });
 
   it("returns NODE_NOT_FOUND for an unknown id and deletes nothing", () => {
-    const { doc, defaultLayerId } = newDoc();
-    expect(errorOf(() => deleteNodes(doc, [defaultLayerId, "nope"]))).toMatchObject({
+    const { doc, rect } = newDoc();
+    const [a] = createNodes(doc, [rect(0, 0)]).nodes;
+    if (!a) throw new Error("setup");
+    expect(errorOf(() => deleteNodes(doc, [a.id, "nope"]))).toMatchObject({
       code: "NODE_NOT_FOUND",
       path: "nodeIds[1]",
     });
-    expect(doc.nodes.has(defaultLayerId)).toBe(true);
+    expect(doc.nodes.has(a.id)).toBe(true);
   });
 });
 

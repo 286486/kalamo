@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { parseColor } from "./color.ts";
-import { checkTree, paint, paintContainer } from "./document.ts";
+import { checkTree, isTopLayer, paint, paintContainer } from "./document.ts";
 import { zodPath } from "./edit.ts";
 import { KalamoError } from "./errors.ts";
 import {
@@ -304,7 +304,7 @@ export function parseDocument(
   checkTree(doc, nodes, (e) => {
     throw e;
   });
-  if (!nodes.some((n) => n.type === "layer" && n.parentId === null)) {
+  if (!nodes.some(isTopLayer)) {
     throw invalid(
       "nodes",
       "No top-level Layer.",

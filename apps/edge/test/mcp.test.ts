@@ -1505,6 +1505,7 @@ it("returns a non-empty hint with every error code a tool can return", async () 
       await call("kalamo_node_reparent", { docId, moves: [{ nodeId: g2, parentId: g1 }] });
       return tool("kalamo_tx_commit", { txId });
     },
+    LAST_LAYER: () => tool("kalamo_node_delete", { nodeIds: [defaultLayerId] }),
     TX_NOT_FOUND: () => tool("kalamo_tx_commit", { txId: "nope" }),
     TX_EXPIRED: async () => {
       const { txId } = (await call("kalamo_tx_begin", { docId })).structuredContent;
@@ -2120,5 +2121,67 @@ describe("kalamo_node_reparent (ADR-0071)", () => {
       path: `updates[0].patch.${key}`,
       hint: expect.stringMatching(hint),
     });
+  });
+});
+
+describe("the last top-level Layer (ADR-0073)", () => {
+  /** Exports `docId` as `.kalamo.json` and opens it, as an Agent would; throws if it does not open. */
+  const reopens = async (docId: string) => {
+    const text = (await call("kalamo_export", { docId, format: "kalamo_json" })).content[0].text;
+    const opened = await call("kalamo_doc_open", { content: text });
+    expect(errorOf(opened)).toBeNull();
+  };
+  const layers = async (docId: string) =>
+    (await call("kalamo_doc_outline", { docId, depth: 1 })).structuredContent.nodes.map(
+      (n: { id: string }) => n.id,
+    );
+
+  it("refuses kalamo_node_delete of the last Layer, changing nothing; with partial deletes the rest", async () => {
+    const { docId, defaultLayerId: l1 } = await newDoc();
+    const [l2] = (await call("kalamo_node_create", { docId, nodes: [{ type: "layer" }] }))
+      .structuredContent.createdIds;
+    const { rev } = (await call("kalamo_doc_get_info", { docId })).structuredContent;
+    expect(errorOf(await call("kalamo_node_delete", { docId, nodeIds: [l1, l2] }))).toEqual({
+      code: "LAST_LAYER",
+      message: "A Document keeps at least one top-level Layer.",
+      hint: expect.stringContaining("create another top-level Layer first"),
+      path: "nodeIds[1]",
+      nodeIds: [l1, l2],
+    });
+    expect((await call("kalamo_doc_get_info", { docId })).structuredContent.rev).toBe(rev);
+    expect(
+      (await call("kalamo_doc_changes", { docId, sinceRev: rev })).structuredContent.changes,
+    ).toEqual([]);
+    const partial = await call("kalamo_node_delete", { docId, nodeIds: [l1, l2], partial: true });
+    expect(partial.structuredContent).toMatchObject({
+      rev: rev + 1,
+      deletedIds: [l1],
+      failed: [{ index: 1, code: "LAST_LAYER", nodeIds: [l2] }],
+    });
+    expect(await layers(docId)).toEqual([l2]);
+    await reopens(docId);
+  });
+
+  it("refuses the same delete staged in a Transaction, and a commit that meets a delete made meanwhile", async () => {
+    const { docId, defaultLayerId: l1 } = await newDoc();
+    const [l2] = (await call("kalamo_node_create", { docId, nodes: [{ type: "layer" }] }))
+      .structuredContent.createdIds;
+    const { txId } = (await call("kalamo_tx_begin", { docId })).structuredContent;
+    expect(errorOf(await call("kalamo_node_delete", { docId, txId, nodeIds: [l1] }))).toBeNull();
+    expect(errorOf(await call("kalamo_node_delete", { docId, txId, nodeIds: [l2] }))).toMatchObject(
+      { code: "LAST_LAYER", nodeIds: [l2] },
+    );
+    expect(errorOf(await call("kalamo_node_delete", { docId, nodeIds: [l2] }))).toBeNull();
+    const { rev } = (await call("kalamo_doc_get_info", { docId })).structuredContent;
+    expect(errorOf(await call("kalamo_tx_commit", { docId, txId }))).toMatchObject({
+      code: "TREE_CONFLICT",
+      nodeIds: [l1],
+      message: expect.stringContaining(`${l1}: No top-level Layer would remain.`),
+      hint: expect.stringContaining("kalamo_tx_rollback"),
+    });
+    expect((await call("kalamo_doc_get_info", { docId })).structuredContent.rev).toBe(rev);
+    expect(errorOf(await call("kalamo_tx_rollback", { docId, txId }))).toBeNull();
+    expect(await layers(docId)).toEqual([l1]);
+    await reopens(docId);
   });
 });

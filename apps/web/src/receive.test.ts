@@ -76,6 +76,29 @@ it("snaps back and shows a notice when its command is rejected", () => {
   expect(next).toMatchObject({ drag: null, notice: expect.stringContaining("deleted") });
 });
 
+it("shows a LAST_LAYER rejection's message and keeps the Selection (ADR-0073)", () => {
+  const { doc, a } = fixture();
+  const state = {
+    doc,
+    selection: [a.id, a.parentId as string],
+    drag: null,
+    pen: null,
+    pending: [],
+    opPreview: null,
+    notice: null,
+    edit: null,
+    anchors: [],
+    segments: [],
+    isolated: null,
+  };
+  const message = "A Document keeps at least one top-level Layer.";
+  const error = { code: "LAST_LAYER" as const, message, hint: "", nodeIds: [a.parentId as string] };
+  const next = { ...state, ...receive(state, { type: "rejected", id: "c1", error }, "d") };
+  expect(next.notice).toBe(message);
+  expect(next.selection).toEqual(state.selection);
+  expect(next.doc).toBe(doc);
+});
+
 it("drops deleted Nodes from the Selection", () => {
   const { doc, a, b } = fixture();
   const state = {

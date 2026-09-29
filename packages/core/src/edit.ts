@@ -6,6 +6,7 @@ import {
   checkFile,
   childrenOf,
   imageInfo,
+  isTopLayer,
   mapPaint,
   paint,
   paintContainer,
@@ -450,15 +451,33 @@ export function reparentNodes(
   return { nodes, failed };
 }
 
-/** Deletes the Nodes and everything beneath them. */
+/**
+ * Deletes the Nodes and everything beneath them. Refuses, with LAST_LAYER, the delete that would
+ * remove the last top-level Layer (ADR-0073): the whole call, or with `partial` the first such
+ * target in order, so its Layer stays and the targets before it go. It counts the top-level Layers
+ * left per target rather than calling `lostLastLayer`, which only sees the whole delete.
+ */
 export function deleteNodes(
   doc: Document,
   nodeIds: string[],
   { partial = false } = {},
 ): { deletedIds: string[]; failed: Failed[] } {
-  const { ok: targets, failed } = collect(nodeIds, partial, (id, i) =>
-    lookup(doc, id, `nodeIds[${i}]`),
-  );
+  const layers = new Set([...doc.nodes.values()].filter(isTopLayer).map((n) => n.id));
+  const named = [...new Set(nodeIds.filter((id) => layers.has(id)))];
+  const { ok: targets, failed } = collect(nodeIds, partial, (id, i) => {
+    const node = lookup(doc, id, `nodeIds[${i}]`);
+    if (layers.has(id) && layers.size === 1) {
+      throw new KalamoError({
+        code: "LAST_LAYER",
+        message: "A Document keeps at least one top-level Layer.",
+        hint: "Delete the Layer's contents instead, or create another top-level Layer first with kalamo_node_create and no parentId.",
+        path: `nodeIds[${i}]`,
+        nodeIds: partial ? [id] : named,
+      });
+    }
+    layers.delete(id);
+    return node;
+  });
   const { kept } = outermost(doc, targets);
   const gone = kept.flatMap((n) => subtree(doc, n));
   for (const n of gone) doc.nodes.delete(n.id);
