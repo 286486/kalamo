@@ -402,7 +402,7 @@ describe("container Appearance (ADR-0043)", () => {
     expect(log.slice(from).filter((l) => !/^(save|restore)$/.test(l))).toEqual([
       "fillStyle=#CCCCCC",
       "transform 2 0 0 2 0 0",
-      'font=12px "Source Sans 3"',
+      'font=12px "Source Sans 3", "Noto Sans SC"',
       "fontKerning=none",
       "fillText H 10 50",
       expect.stringMatching(/^fillText i /),
@@ -413,7 +413,7 @@ describe("container Appearance (ADR-0043)", () => {
       "miterLimit=10",
       "setLineDash ",
       "transform 2 0 0 2 0 0",
-      'font=12px "Source Sans 3"',
+      'font=12px "Source Sans 3", "Noto Sans SC"',
       "fontKerning=none",
       "strokeStyle=#DDDDDD",
       "lineWidth=2",
@@ -508,7 +508,7 @@ it("draws Point Type with fillText per Fill and strokeText per Stroke, unkerned"
   expect(body).toEqual([
     "fillStyle=#FFFFFF",
     "fillRect 0 0 200 100",
-    'font=12px "Source Sans 3"',
+    'font=12px "Source Sans 3", "Noto Sans SC"',
     "fontKerning=none",
     "fillStyle=#FF0000",
     "fillText Hi 10 50",
@@ -546,7 +546,7 @@ it("draws a tracked text per character, a turned one about its origin in its ran
   const numbers = (l = "") => l.split(" ").slice(1).map(Number);
   const filled = draw([]);
   expect(filled.filter((l) => !l.startsWith("transform"))).toEqual([
-    'font=12px "Source Sans 3"',
+    'font=12px "Source Sans 3", "Noto Sans SC"',
     "fontKerning=none",
     "fillStyle=#000000",
     "fillText H 10 50",
@@ -620,7 +620,17 @@ it("draws a font Zibel does not bundle in Source Sans 3, as render does", () => 
   ]);
   const { ctx, log, layer } = recorder();
   drawDocument(ctx, doc, layer);
-  expect(log).toContain('font=12px "Source Sans 3"');
+  expect(log).toContain('font=12px "Source Sans 3", "Noto Sans SC"');
+});
+
+it("draws a text in Noto Sans SC in it first, then in Source Sans 3 (ADR-0063)", () => {
+  const { doc, defaultLayerId: parentId } = newDoc();
+  createNodes(doc, [
+    { type: "text", parentId, x: 10, y: 50, content: "Hi", fontFamily: "Noto Sans SC" },
+  ]);
+  const { ctx, log, layer } = recorder();
+  drawDocument(ctx, doc, layer);
+  expect(log).toContain('font=12px "Noto Sans SC", "Source Sans 3"');
 });
 
 it("draws a style in the bundled face it is measured in (ADR-0028)", () => {
@@ -632,8 +642,8 @@ it("draws a style in the bundled face it is measured in (ADR-0028)", () => {
   const { ctx, log, layer } = recorder();
   drawDocument(ctx, doc, layer);
   expect(log.filter((l) => l.startsWith("font="))).toEqual([
-    'font=italic 700 12px "Source Sans 3"',
-    'font=900 12px "Source Sans 3"',
+    'font=italic 700 12px "Source Sans 3", "Noto Sans SC"',
+    'font=900 12px "Source Sans 3", "Noto Sans SC"',
   ]);
 });
 
@@ -797,6 +807,12 @@ describe("a text Clipping Path (ADR-0052)", () => {
     drawDocument(ctx, doc, layer);
     return log;
   };
+
+  it("masks by CJK glyphs in the same fallback order as the text draws (ADR-0063)", () => {
+    const log = clippedByText("小");
+    expect(log).toContain('> font=12px "Source Sans 3", "Noto Sans SC"');
+    expect(log).toContain("> fillText 小 5 30");
+  });
 
   it("draws the content in a layer masked by the glyphs, and the Strokes after, unclipped", () => {
     const log = clippedByText("Hi", {

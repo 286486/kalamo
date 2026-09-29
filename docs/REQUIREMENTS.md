@@ -332,7 +332,7 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 ### 5.9 文字
 
 - **F-TEXT-01** 三种文本对象：Point Type（T 点击）、Area Type（T 拖框或点击闭合路径内）、Type on a Path（点击路径）；纵排（P2）。（P0 点 / 区域；P1 路径文字）
-- **F-TEXT-02** 字符属性：字体族 / 样式（系统字体 + Google Fonts + 上传 TTF / OTF / WOFF2）、字号、行距、字距（kerning：metrics / optical / 手动）、字符间距（tracking）、水平 / 垂直缩放、基线偏移、旋转、大小写、上下标、下划线 / 删除线、颜色（fill / stroke 独立）。（P0 常用项；P1 全部）字体样式 `fontStyle` 为 Illustrator 样式名，内置 Source Sans 3 的 Regular、Italic、Bold、Bold Italic、Black、Black Italic（ADR-0028）。字符间距 `tracking` 在 Node 上；逐字符的颜色、基线偏移与旋转是 `ranges` 中的 Character Range（ADR-0029）。
+- **F-TEXT-02** 字符属性：字体族 / 样式（系统字体 + Google Fonts + 上传 TTF / OTF / WOFF2）、字号、行距、字距（kerning：metrics / optical / 手动）、字符间距（tracking）、水平 / 垂直缩放、基线偏移、旋转、大小写、上下标、下划线 / 删除线、颜色（fill / stroke 独立）。（P0 常用项；P1 全部）字体样式 `fontStyle` 为 Illustrator 样式名，内置 Source Sans 3 的 Regular、Italic、Bold、Bold Italic、Black、Black Italic（ADR-0028），以及 Noto Sans SC 的 Regular、Bold，Source Sans 3 缺字形的字符逐字回退到它（ADR-0063）。字符间距 `tracking` 在 Node 上；逐字符的颜色、基线偏移与旋转是 `ranges` 中的 Character Range（ADR-0029）。
 - **F-TEXT-03** 段落属性：左 / 中 / 右 / 两端对齐、缩进、段前后距、连字符（P2）、制表符（P2）。（P0 对齐缩进）
 - **F-TEXT-04** 区域文字：自动换行、溢出标记、串接文本框（threading，P2）、行列分栏（P2）、Auto Size。（P0 基础）矩形框、自动换行与溢出警告见 ADR-0022；任意闭合路径内的区域文字、点 / 区域互转暂缓。
 - **F-TEXT-05** 路径文字：沿路径起止滑块、翻转、对齐基线 / 上 / 下 / 中、效果（Rainbow / Skew / 3D Ribbon / Stair / Gravity，P2）。（P1）
@@ -341,7 +341,7 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 - **F-TEXT-08** 字符 / 段落样式。（P1）
 - **F-TEXT-09** 整形引擎：使用 HarfBuzz（WASM）做整形与字形定位，保证 CJK、阿拉伯语、天城文正确；渲染与导出用同一套字形轮廓，保证 WYSIWYG。（P0）
 - **F-TEXT-10** 文本绕排（Text Wrap）。（P2）
-- **F-TEXT-11** 字体缺失处理：提示替换、记录原字体名、导出时可选转曲或嵌入子集。`fontFamily` 接受任意字体名并原样保存与导出，缺失时用内置字体渲染并警告（ADR-0017）。内置字体没有字形的字符（中日韩文字、emoji）画成 `.notdef` 方框，回执警告 `MISSING_GLYPHS` 并列出这些字符；尚未内置 CJK 字体（ADR-0062）。（P0）
+- **F-TEXT-11** 字体缺失处理：提示替换、记录原字体名、导出时可选转曲或嵌入子集。`fontFamily` 接受任意字体名并原样保存与导出，缺失时用内置字体渲染并警告（ADR-0017）。中文、日文由内置的 Noto Sans SC 绘制（ADR-0063）；内置字体都没有字形的字符（韩文、emoji）画成 `.notdef` 方框，回执警告 `MISSING_GLYPHS` 并列出这些字符（ADR-0062），韩文字体见 #164。（P0）
 
 ### 5.10 遮罩
 
@@ -851,7 +851,7 @@ flowchart TD
 | 托管平台 | Cloudflare（Workers + DO + R2 + D1 + KV + Queues） | 用户决策；每文档一个 DO 天然契合"服务端权威 + 广播"模型；R2 无出站费；全球边缘 | AWS / Fly.io（运维更重） |
 | 开源许可 | Apache-2.0（全仓库） | 用户决策开源；Apache-2.0 含专利授权、对商业集成方友好，与 Skia（BSD）/ HarfBuzz（MIT）/ resvg（MPL）兼容 | MIT（无专利条款）；AGPL（保护托管业务但降低采用率） |
 | 图表工具粒度 | 每类型一个工具（`chart_create_column` …） | 参照 Illustrator 9 个 Graph 工具与 antvis 模式；可发现性高 | 单工具 + 枚举（若工具数成问题再合并） |
-| 字体来源 | 本地字体（Local Font Access API）+ Google Fonts + 上传 | 参照 Illustrator 的"系统字体 + Adobe Fonts" | 仅上传 |
+| 字体来源 | 本地字体（Local Font Access API）+ Google Fonts + 上传；内置 Source Sans 3，中日文逐字回退到内置 Noto Sans SC，随 Worker 静态打包、浏览器按需加载（ADR-0063） | 参照 Illustrator 的"系统字体 + Adobe Fonts" | 仅上传 |
 | Headless 渲染（Worker） | resvg-wasm 为主，CanvasKit 补齐效果 | 体积小、启动快 | Browser Rendering（贵、慢，作回退） |
 
 ### 8.3 仓库结构建议

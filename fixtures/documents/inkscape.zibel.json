@@ -97,6 +97,11 @@
       },
       "id": "01M38T29T1SP1RA1SARTB0ARD0",
       "name": "Spirals"
+    },
+    {
+      "frame": { "height": 120, "width": 200, "x": 600, "y": 130 },
+      "id": "01M38T29SCJKARTB0ARD00000Z",
+      "name": "CJK"
     }
   ],
   "nodes": [
@@ -2545,6 +2550,65 @@
       "transform": [-1, 0, 0, 1, 2200, 0],
       "type": "spiral",
       "visible": true
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#000000",
+            "type": "solid"
+          }
+        ],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "content": "Hi 你好，世界。",
+      "fontFamily": "Source Sans 3",
+      "fontSize": 20,
+      "id": "01M38T29SCJKTEXT00000000R0",
+      "index": "an",
+      "kind": "point",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "text",
+      "visible": true,
+      "x": 610,
+      "y": 180
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#000000",
+            "type": "solid"
+          }
+        ],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "content": "Bold 小动物 Zibel",
+      "fontFamily": "Source Sans 3",
+      "fontSize": 20,
+      "fontStyle": "Bold",
+      "id": "01M38T29SCJKTEXT00000000B0",
+      "index": "ao",
+      "kind": "point",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "text",
+      "visible": true,
+      "x": 610,
+      "y": 225
     }
   ],
   "images": {

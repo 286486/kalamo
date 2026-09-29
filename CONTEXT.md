@@ -89,7 +89,7 @@ _Avoid_: Point text、Label、Single-line text
 _Avoid_: Text box、Paragraph text、Flowed text
 
 **Font Style（字体样式）**：
-Text 的字符属性 `fontStyle`，Illustrator 字符面板里字体族旁的样式名：字重名（Thin、ExtraLight、Light、Regular、Medium、Semibold、Bold、ExtraBold、Black）加可选的 ` Italic`，单独的 `Italic` 即 Regular Italic，缺省 `Regular`。内置 Source Sans 3 的 Regular、Italic、Bold、Bold Italic、Black、Black Italic；其他样式按 CSS 字体匹配规则以最近的内置字面绘制，回执警告 `FONT_MISSING`（ADR-0028）。内置字面没有字形的字符（如中日韩文字）画成 `.notdef` 方框，回执警告 `MISSING_GLYPHS` 并列出这些字符（ADR-0062）。
+Text 的字符属性 `fontStyle`，Illustrator 字符面板里字体族旁的样式名：字重名（Thin、ExtraLight、Light、Regular、Medium、Semibold、Bold、ExtraBold、Black）加可选的 ` Italic`，单独的 `Italic` 即 Regular Italic，缺省 `Regular`。内置 Source Sans 3 的 Regular、Italic、Bold、Bold Italic、Black、Black Italic；其他样式按 CSS 字体匹配规则以最近的内置字面绘制，回执警告 `FONT_MISSING`（ADR-0028）。Source Sans 3 没有字形的字符逐字回退到内置的 Noto Sans SC（Regular、Bold；斜体中的中日文字直立），中文与日文因此画出真实字形；两者都没有字形的字符（如韩文、emoji）画成 `.notdef` 方框，回执警告 `MISSING_GLYPHS` 并列出这些字符（ADR-0062、ADR-0063）。
 _Avoid_: Font weight、Bold flag、Typeface
 
 **Leading（行距）**：

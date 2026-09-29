@@ -311,6 +311,31 @@ it("writes Point Type as one <text> in its font family, a line tspan per line", 
   );
 });
 
+it("splits a line for resvg where its drawing family changes, each chunk at its x (ADR-0063)", () => {
+  const { doc, defaultLayerId: parentId } = newDoc();
+  createNodes(doc, [
+    {
+      type: "text",
+      parentId,
+      x: 0,
+      y: 20,
+      content: "Hi 小动x",
+      fontSize: 10,
+      tracking: 100,
+      ranges: [{ start: 1, end: 4, rotation: 5 }],
+    },
+  ]);
+  const line = (svg: string) =>
+    /<tspan sodipodi:role="line"[^>]*>(.*?)<\/tspan><\/text>/.exec(svg)?.[1];
+  // Origins: H 6.52 + 1 of tracking, i 2.46 + 1, space 2 + 1, 小 10 + 1, 动 10 + 1.
+  expect(line(toSvg(doc, undefined, { resvg: true }))).toBe(
+    'H<tspan rotate="5">i </tspan><tspan x="13.98" rotate="5" font-family="Noto Sans SC">小</tspan>' +
+      '<tspan font-family="Noto Sans SC">动</tspan><tspan x="35.98">x</tspan>',
+  );
+  // Export keeps one run per override, as Inkscape and browsers fall back per character.
+  expect(line(toSvg(doc))).toBe('H<tspan rotate="5">i 小</tspan>动x');
+});
+
 it("writes a text's style as font-weight and font-style, the stored style and not the face drawn", () => {
   const { doc, defaultLayerId: parentId } = newDoc();
   createNodes(doc, [

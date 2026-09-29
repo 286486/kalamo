@@ -1,4 +1,5 @@
 import { parseColor } from "./color.ts";
+import { NOTO_SANS_SC } from "./noto-sans-sc.ts";
 import type { CharacterRange, Node, Rect, Warning } from "./schema.ts";
 import { SOURCE_SANS_3 } from "./source-sans-3.ts";
 
@@ -18,6 +19,7 @@ type WeightName = keyof typeof FONT_WEIGHTS;
 /** A style name: a weight name, optionally followed by " Italic"; "Italic" alone is Regular Italic. */
 export type FontStyle = WeightName | "Italic" | `${Exclude<WeightName, "Regular">} Italic`;
 type BundledStyle = keyof typeof SOURCE_SANS_3.faces;
+type NotoStyle = keyof typeof NOTO_SANS_SC.faces;
 
 const italicOf = (name: WeightName): FontStyle =>
   name === "Regular" ? "Italic" : `${name} Italic`;
@@ -46,6 +48,95 @@ export function bundledStyle(style?: FontStyle): BundledStyle {
   // ponytail: CSS matching over the bundled weights 400, 700 and 900 only; generalise it when a face
   // of another weight ships.
   return fontStyleName(weight <= 500 ? 400 : weight <= 700 ? 700 : 900, italic) as BundledStyle;
+}
+
+/** A face's advance by code point in font units, undefined where it has no glyph, and its `.notdef`'s. */
+type Face = { advance: (codePoint: number) => number | undefined; notdef: number };
+
+/** The advance of `codePoint` in sorted runs of `[first, count, advance]`, by binary search. */
+function runAdvance(runs: [number, number, number][], codePoint: number) {
+  let [lo, hi] = [0, runs.length - 1];
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const [first, count, advance] = runs[mid] as [number, number, number];
+    if (codePoint < first) hi = mid - 1;
+    else if (codePoint >= first + count) lo = mid + 1;
+    else return advance;
+  }
+}
+
+const sourceSans3 = Object.fromEntries(
+  Object.entries(SOURCE_SANS_3.faces).map(([style, f]) => {
+    const advances: Record<number, number> = f.advances;
+    return [style, { advance: (c: number) => advances[c], notdef: f.notdef }];
+  }),
+) as Record<BundledStyle, Face>;
+const notoSansSC = Object.fromEntries(
+  Object.entries(NOTO_SANS_SC.faces).map(([style, f]) => [
+    style,
+    { advance: (c: number) => runAdvance(f.runs, c), notdef: f.notdef },
+  ]),
+) as Record<NotoStyle, Face>;
+
+/**
+ * The bundled families, each with the style names of its faces and the face a style draws in, by
+ * CSS matching (ADR-0028, ADR-0063). Noto Sans SC has Regular and Bold only, and no italic: weights
+ * to 500 draw in Regular, heavier in Bold, and an italic draws upright.
+ */
+const FAMILIES = {
+  "Source Sans 3": { face: (style?: FontStyle) => bundledStyle(style), faces: sourceSans3 },
+  "Noto Sans SC": {
+    face: (style?: FontStyle): NotoStyle => (fontFace(style).weight <= 500 ? "Regular" : "Bold"),
+    faces: notoSansSC,
+  },
+} as const;
+export type BundledFamily = keyof typeof FAMILIES;
+
+/** The one family every family Zibel lacks renders in (ADR-0013). */
+export const BUNDLED_FONT = "Source Sans 3";
+
+/** What picks a text's faces: its family, Source Sans 3 if none, and style. */
+type TextFont = { fontFamily?: string | undefined; fontStyle?: FontStyle | undefined };
+
+const isBundled = (family: string): family is BundledFamily => Object.hasOwn(FAMILIES, family);
+
+/**
+ * The bundled families a text draws in, in fallback order (ADR-0063): its own family if bundled,
+ * else Source Sans 3, then the other bundled families. Each character draws in the first that has
+ * its glyph, as a browser's font fallback picks, and else as the first's `.notdef`.
+ */
+export function fontFamilies(text: TextFont): [BundledFamily, ...BundledFamily[]] {
+  const { fontFamily = BUNDLED_FONT } = text;
+  const own = isBundled(fontFamily) ? fontFamily : BUNDLED_FONT;
+  return [own, ...(Object.keys(FAMILIES) as BundledFamily[]).filter((f) => f !== own)];
+}
+
+type DrawnFace = { family: BundledFamily; face: Face };
+
+/** A text's faces in fallback order, each with its family. */
+const facesOf = (text: TextFont) =>
+  fontFamilies(text).map((family) => {
+    const { face, faces } = FAMILIES[family];
+    return { family, face: (faces as Record<string, Face>)[face(text.fontStyle)] as Face };
+  }) as [DrawnFace, ...DrawnFace[]];
+
+/** The face a character draws in: the first in fallback order that has it, else the first's `.notdef`. */
+function faceFor(faces: [DrawnFace, ...DrawnFace[]], char: string) {
+  const c = char.codePointAt(0) as number;
+  return faces.find((f) => f.face.advance(c) !== undefined) ?? faces[0];
+}
+
+/** The bundled family a character of a text draws in (ADR-0063). */
+export const drawnFamily = (text: TextFont, char: string): BundledFamily =>
+  faceFor(facesOf(text), char).family;
+
+/** A text's advance of a character in font units, in the face it draws in. */
+function advancer(text: TextFont): (char: string) => number {
+  const faces = facesOf(text);
+  return (char) => {
+    const { face } = faceFor(faces, char);
+    return face.advance(char.codePointAt(0) as number) ?? face.notdef;
+  };
 }
 
 type Overrides = Omit<CharacterRange, "start" | "end">;
@@ -103,7 +194,7 @@ export const unfilledRanges = (ranges: CharacterRange[] | undefined) =>
   );
 
 /** What lays out a text: its kind, anchor or frame, content and character attributes. */
-interface TextLayout {
+interface TextLayout extends TextFont {
   kind?: "point" | "area";
   x: number;
   y: number;
@@ -112,7 +203,6 @@ interface TextLayout {
   height?: number;
   content: string;
   fontSize: number;
-  fontStyle?: FontStyle | undefined;
   leading?: number | undefined;
   tracking?: number | undefined;
   ranges?: CharacterRange[] | undefined;
@@ -127,22 +217,22 @@ export interface TextLine {
   start: number;
 }
 
-type Face = { advances: Record<number, number>; notdef: number };
-
-const advanceOf = (ch: string, { advances, notdef }: Face) =>
-  advances[ch.codePointAt(0) as number] ?? notdef;
-
 /**
  * A line's width in pt: its advance sum plus the tracking between its characters, but not after
  * the last (ADR-0029). An empty line is 0 wide.
  */
-function lineWidth(text: string, face: Face, fontSize: number, tracking = 0) {
+function lineWidth(
+  text: string,
+  advance: (char: string) => number,
+  fontSize: number,
+  tracking = 0,
+) {
   // ponytail: advance sum, no shaping or kerning; HarfBuzz (F-TEXT-09, M1) replaces this with
   // shaped glyph positions.
   let units = 0;
   let count = 0;
   for (const ch of text) {
-    units += advanceOf(ch, face);
+    units += advance(ch);
     count++;
   }
   const { unitsPerEm } = SOURCE_SANS_3;
@@ -158,7 +248,7 @@ function lineWidth(text: string, face: Face, fontSize: number, tracking = 0) {
 export function layoutText(text: TextLayout): { lines: TextLine[]; overflow: string } {
   const { x, y, content, fontSize, tracking } = text;
   const leading = text.leading ?? 1.2 * fontSize;
-  const face: Face = SOURCE_SANS_3.faces[bundledStyle(text.fontStyle)];
+  const advance = advancer(text);
   let start = 0;
   const line = (t: string, lineY: number) => {
     const l = { text: t, x, y: lineY, start };
@@ -176,7 +266,7 @@ export function layoutText(text: TextLayout): { lines: TextLine[]; overflow: str
   const { ascender, descender } = SOURCE_SANS_3;
   const { width = 0, height = 0 } = text;
   // Trailing spaces and the return hang past the frame's edge.
-  const fits = (l: string) => lineWidth(l.trimEnd(), face, fontSize, tracking) <= width;
+  const fits = (l: string) => lineWidth(l.trimEnd(), advance, fontSize, tracking) <= width;
   // ponytail: Inkscape's thresholds, measured rather than specified: a line shows while 90% of its
   // leading lies in the frame, and a word wider than the frame overflows with all that follows.
   const max = Math.max(0, Math.floor(height / leading - 0.9 + 1e-9) + 1);
@@ -221,7 +311,7 @@ export interface Glyph extends Omit<CharacterRange, "start" | "end"> {
  * one before, with the overrides of the Character Range that holds it (ADR-0029).
  */
 export function glyphs(text: TextLayout): Glyph[] {
-  const face: Face = SOURCE_SANS_3.faces[bundledStyle(text.fontStyle)];
+  const advance = advancer(text);
   const s = text.fontSize / SOURCE_SANS_3.unitsPerEm;
   const tracking = ((text.tracking ?? 0) * text.fontSize) / 1000;
   const ranges = text.ranges ?? [];
@@ -231,7 +321,7 @@ export function glyphs(text: TextLayout): Glyph[] {
     return [...line.text].map((char, k) => {
       const c = line.start + k;
       while ((ranges[j]?.end ?? Infinity) <= c) j++;
-      const width = advanceOf(char, face) * s;
+      const width = advance(char) * s;
       const glyph: Glyph = { char, x, y: line.y, width };
       const r = ranges[j];
       if (r && r.start <= c) {
@@ -256,7 +346,7 @@ export function textBox(text: TextLayout): Rect {
   }
   const { unitsPerEm, ascender, descender } = SOURCE_SANS_3;
   const s = text.fontSize / unitsPerEm;
-  const face: Face = SOURCE_SANS_3.faces[bundledStyle(text.fontStyle)];
+  const advance = advancer(text);
   let [left, top, right, bottom] = [Infinity, Infinity, -Infinity, -Infinity];
   const add = (x: number, y: number) => {
     [left, top] = [Math.min(left, x), Math.min(top, y)];
@@ -265,7 +355,7 @@ export function textBox(text: TextLayout): Rect {
   for (const l of layoutText(text).lines) {
     add(l.x, l.y - ascender * s);
     add(
-      l.x + Math.max(0, lineWidth(l.text, face, text.fontSize, text.tracking)),
+      l.x + Math.max(0, lineWidth(l.text, advance, text.fontSize, text.tracking)),
       l.y - descender * s,
     );
   }
@@ -282,24 +372,25 @@ export function textBox(text: TextLayout): Rect {
   return { x: left, y: top, width: right - left, height: bottom - top };
 }
 
-/** The one family Zibel bundles (ADR-0013); every other `fontFamily` renders in it. */
-export const BUNDLED_FONT = "Source Sans 3";
-
 const faceName = (family: string, style: FontStyle) =>
   style === "Regular" ? family : `${family} ${style}`;
 
-/** A `FONT_MISSING` warning for each text whose family or style is not bundled (ADR-0017, ADR-0028). */
+/**
+ * A `FONT_MISSING` warning for each text whose family or style is not bundled (ADR-0017, ADR-0028).
+ * The family and style decide, not the faces other characters fall back to (ADR-0063).
+ */
 export function fontWarnings(nodes: Node[]): Warning[] {
   return nodes.flatMap((n) => {
     if (n.type !== "text") return [];
     const style = n.fontStyle ?? "Regular";
-    const drawn = bundledStyle(style);
-    return n.fontFamily !== BUNDLED_FONT || drawn !== style
+    const [family] = fontFamilies(n);
+    const drawn = FAMILIES[family].face(style);
+    return n.fontFamily !== family || drawn !== style
       ? [
           {
             code: "FONT_MISSING",
             nodeId: n.id,
-            message: `${faceName(n.fontFamily, style)} is not bundled, so it renders in ${faceName(BUNDLED_FONT, drawn)}; the name is kept.`,
+            message: `${faceName(n.fontFamily, style)} is not bundled, so it renders in ${faceName(family, drawn)}; the name is kept.`,
           },
         ]
       : [];
@@ -316,12 +407,13 @@ export function fileFontWarnings(nodes: Node[]): Warning[] {
   return [...faces.values()];
 }
 
-/** The distinct characters of `content` the face a text draws in lacks, in order; `\n` is a hard return. */
+/** The distinct characters of `content` no face a text draws in has, in order; `\n` is a hard return. */
 function missingGlyphs(text: Extract<Node, { type: "text" }>): string[] {
-  const { advances }: Face = SOURCE_SANS_3.faces[bundledStyle(text.fontStyle)];
-  return [...new Set(text.content)].filter(
-    (ch) => ch !== "\n" && advances[ch.codePointAt(0) as number] === undefined,
-  );
+  const faces = facesOf(text);
+  return [...new Set(text.content)].filter((ch) => {
+    const c = ch.codePointAt(0) as number;
+    return ch !== "\n" && faces.every((f) => f.face.advance(c) === undefined);
+  });
 }
 
 const MISSING_GLYPHS_NAMED = 20;
@@ -332,13 +424,13 @@ const missingGlyphsWarning = (nodeId: string, chars: string[]): Warning => {
   return {
     code: "MISSING_GLYPHS",
     nodeId,
-    message: `${BUNDLED_FONT} has no glyphs for ${named}; they render as .notdef boxes and measure as its width.`,
+    message: `Neither Source Sans 3 nor Noto Sans SC has glyphs for ${named}; they render as .notdef boxes and measure as the box's width.`,
   };
 };
 
 /**
- * A `MISSING_GLYPHS` warning for each text with characters the face it draws in lacks (ADR-0062). The
- * face, not `fontFamily`, decides: every text draws in Source Sans 3.
+ * A `MISSING_GLYPHS` warning for each text with characters none of the faces it draws in has
+ * (ADR-0062, ADR-0063). The faces, not `fontFamily`, decide: every text draws in the bundled fonts.
  */
 export function glyphWarnings(nodes: Node[]): Warning[] {
   return nodes.flatMap((n) => {
