@@ -16,7 +16,7 @@ Such a Document passed every later write, but `doc_outline` and the canvas loope
 
 ## The rule
 
-A committed Document always passes the checks file validation runs on each Node. `checkTree` in core is those checks, and `parseDocument` and every merge call it, so the two cannot drift. It checks, in order: the parent exists and may hold the Node (`assertParent`: tree rules and cycles, ADR-0005), the `index` is a valid key that no earlier sibling holds, and a Clipping Path is the one visible clipping child of a Layer or Group. The file-level rule "at least one top-level Layer" is not one of them: `node_delete` may delete the last Layer.
+A committed Document always passes the checks file validation runs on each Node. `checkTree` in core is those checks, and `parseDocument` and every merge call it, so the two cannot drift. It checks, in order: the parent exists and may hold the Node (`assertParent`: tree rules and cycles, ADR-0005), the `index` is a valid key that no earlier sibling holds, and a Clipping Path is the one visible clipping child of a Layer or Group. The file-level rule "at least one top-level Layer" is not one of them here; ADR-0073 adds it to every write.
 
 `commitTransaction` and `applyRows` (undo and redo) merge the rows into a copy of the Document, then:
 

@@ -225,6 +225,19 @@ export function createNodes(
   };
 }
 
+/** A Layer at the root. A committed Document keeps at least one (ADR-0073). */
+export const isTopLayer = (n: Node): boolean => n.type === "layer" && n.parentId === null;
+
+/**
+ * The top-level Layers of `before` that are not top-level in `after`, when `after` has none left:
+ * the rule that a committed Document keeps at least one top-level Layer (ADR-0073). Empty when it
+ * holds, and when `before` had none either (a Document stored before the rule stays writable).
+ */
+export function lostLastLayer(before: Document, after: Document): string[] {
+  if ([...after.nodes.values()].some(isTopLayer)) return [];
+  return [...before.nodes.values()].filter(isTopLayer).map((n) => n.id);
+}
+
 /**
  * The tree rules (ADR-0005): a Layer's parent is the root or a Layer; every other Node's parent is a
  * Layer or Group; an Artboard is never a parent; no Node is its own ancestor.

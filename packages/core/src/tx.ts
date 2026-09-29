@@ -1,5 +1,5 @@
 import { generateKeyBetween } from "fractional-indexing";
-import { checkTree } from "./document.ts";
+import { checkTree, lostLastLayer } from "./document.ts";
 import { subtree } from "./edit.ts";
 import { KalamoError } from "./errors.ts";
 import { type Document, type Node, SHAPES } from "./schema.ts";
@@ -15,6 +15,13 @@ export interface TxRow {
 }
 
 const ROLL_BACK = "Roll back with kalamo_tx_rollback and redo the work in a new Transaction.";
+
+/** A top-level Layer the rows remove when no other is left (ADR-0073). */
+const NO_LAYER = new KalamoError({
+  code: "TREE_CONFLICT",
+  message: "no top-level Layer would remain.",
+  hint: ROLL_BACK,
+});
 
 /**
  * The committed Document as the Transaction sees it. Leaves `doc` untouched. Throws TREE_CONFLICT
@@ -46,7 +53,8 @@ type Change = { created: Node[]; updated: Node[]; deletedIds: string[] };
  * Applies the Transaction to the committed Document (per-key last-writer-wins, ADR-0004), or throws,
  * changing nothing: NODE_GONE when a Node it edited, or a parent it created or moved Nodes into, was
  * deleted meanwhile; TREE_CONFLICT when the merged Document would break a tree rule or hold two
- * Clipping Paths in one container (ADR-0072). A key a sibling took meanwhile is rekeyed.
+ * Clipping Paths in one container (ADR-0072), or have no top-level Layer left (ADR-0073). A key a
+ * sibling took meanwhile is rekeyed.
  */
 export function commitTransaction(doc: Document, rows: TxRow[]): Change {
   const createdIds = new Set(rows.filter((r) => !r.base && r.working).map((r) => r.id));
@@ -68,6 +76,7 @@ export function commitTransaction(doc: Document, rows: TxRow[]): Change {
   const next = { ...doc, nodes: new Map(doc.nodes) };
   const change = apply(next, rows);
   const broken = conflicts(next, change);
+  for (const id of lostLastLayer(doc, next)) broken.set(id, NO_LAYER);
   if (broken.size > 0) {
     throw new KalamoError({
       code: "TREE_CONFLICT",
@@ -197,7 +206,8 @@ export function revert(doc: Document, delta: DeltaRow[]): Change & { skipped: st
  * `commitTransaction` that skips instead of failing (delete beats edit, ADR-0004): an update of a
  * Node deleted since, a create or update whose parent is gone and not created here, and a row whose
  * Node would break a tree rule or be a second Clipping Path (ADR-0072) are left out and reported in
- * `skipped`, until what is left applies.
+ * `skipped`, until what is left applies. Of the rows that would leave no top-level Layer, the last
+ * is left out, until one Layer stays (ADR-0073).
  */
 export function applyRows(doc: Document, rows: TxRow[]): Change & { skipped: string[] } {
   const skipped: string[] = [];
@@ -219,6 +229,11 @@ export function applyRows(doc: Document, rows: TxRow[]): Change & { skipped: str
     const next = { ...doc, nodes: new Map(doc.nodes) };
     const change = apply(next, kept);
     const broken = conflicts(next, change);
+    if (broken.size === 0) {
+      const lost = lostLastLayer(doc, next);
+      const last = kept.findLast((r) => lost.includes(r.id));
+      if (last) broken.set(last.id, NO_LAYER);
+    }
     skipped.push(...gone, ...broken.keys());
     if (broken.size === 0) return { ...settle(doc, change), skipped };
     kept = kept.filter((r) => !broken.has(r.id));

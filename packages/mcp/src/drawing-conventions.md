@@ -32,6 +32,7 @@ Read this once before your first write. Tool descriptions cover each call; this 
 ## Structure
 
 - A Document holds Artboards and Layers. Layers hold Groups and shapes; Groups hold Groups and shapes.
+- A Document keeps at least one top-level Layer. `kalamo_node_delete` of the last one fails with `LAST_LAYER` and changes nothing; to start over, delete the Layer's contents, or create another top-level Layer first.
 - Every Node you create needs `parentId`, the id of a Layer or Group, never an Artboard. A Layer's parent is the root (omit `parentId`) or another Layer. `kalamo_doc_create` returns `defaultLayerId` for your first Nodes.
 - Build Layers first, one per part of the picture (background, content, labels), then Groups inside them, then shapes. A `group` can carry its `children` inline in the same `kalamo_node_create` call.
 - Ids come from the server. Give each item a `clientKey` and read its new id from the receipt's `keyMap`.
@@ -60,7 +61,7 @@ Read this once before your first write. Tool descriptions cover each call; this 
 - Use one when several writes should land and undo as one step, or when `kalamo_doc_get_info` shows `browsers` above 0 and a person should not watch a half-built drawing.
 - `kalamo_tx_begin` returns a `txId`. Pass it to every write and to the reads (`kalamo_node_get`, `kalamo_node_query`, `kalamo_doc_outline`, `kalamo_render`, `kalamo_export`) to see your uncommitted work. Nobody else sees it until `kalamo_tx_commit`; put `intent` there. `kalamo_tx_rollback` discards it.
 - A Transaction rolls back after 5 minutes without a call carrying its `txId`.
-- If someone deleted a Node you edited meanwhile, the commit fails with `NODE_GONE` and the Transaction stays open: roll it back and redo the work. It fails the same way with `TREE_CONFLICT` when the merge would break a tree rule: a cycle with someone's moves meanwhile, a Layer in a Group, or two Clipping Paths in one Layer or Group. Once someone's moves make your Transaction's view a cycle, its reads and writes fail with `TREE_CONFLICT` too.
+- If someone deleted a Node you edited meanwhile, the commit fails with `NODE_GONE` and the Transaction stays open: roll it back and redo the work. It fails the same way with `TREE_CONFLICT` when the merge would break a tree rule: a cycle with someone's moves meanwhile, a Layer in a Group, two Clipping Paths in one Layer or Group, or no top-level Layer left once your deletes meet someone else's. Once someone's moves make your Transaction's view a cycle, its reads and writes fail with `TREE_CONFLICT` too.
 
 ## Checking what you drew
 

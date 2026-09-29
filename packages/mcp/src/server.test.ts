@@ -1048,6 +1048,8 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
   }
   expect(described("kalamo_node_create")).not.toContain("origin top-left");
   expect(described("kalamo_node_transform")).toContain("transforms: [{nodeIds, rotate, ...}, ...]");
+  expect(described("kalamo_node_delete")).toContain("LAST_LAYER");
+  expect(described("kalamo_tx_commit")).toContain("no top-level Layer left");
   expect(described("kalamo_node_reparent")).toContain("stops clipping");
   expect(described("kalamo_node_reparent")).toContain("one Transaction");
   expect(described("kalamo_node_update")).toContain("kalamo_node_reparent");
@@ -1160,6 +1162,7 @@ it("serves skill://kalamo/drawing-conventions and points at it in the instructio
     "aspectRatio",
     "kalamo_image_place",
     "Template Layer",
+    "LAST_LAYER",
   ]) {
     expect(text).toContain(fact);
   }

@@ -1,3 +1,4 @@
+import { runInDurableObject } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
 import { imageId, LEGACY_NAME, MIGRATIONS, readImage } from "@kalamo/core";
 import type { ServerMessage } from "@kalamo/sync";
@@ -396,6 +397,46 @@ it("rejects a mask_make naming a Node deleted meanwhile with NODE_GONE", async (
   ws.send(command("m3", { type: "mask_make", input: { clipNodeId: clip, contentIds: [art] } }));
   const [, , rejected] = await received(3);
   expect(rejected).toMatchObject({ type: "rejected", id: "m3", error: { code: "NODE_GONE" } });
+});
+
+it("rejects a delete command naming the last top-level Layer with LAST_LAYER, changing nothing (ADR-0073)", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const [id] = (await call("kalamo_node_create", { docId, nodes: [rect(defaultLayerId)] }))
+    .structuredContent.createdIds;
+  const { ws, received } = await subscribe(docId);
+  await received(1);
+  ws.send(command("d1", { type: "delete", nodeIds: [id, defaultLayerId] }));
+  const [, rejected] = await received(2);
+  expect(rejected).toMatchObject({
+    type: "rejected",
+    id: "d1",
+    error: { code: "LAST_LAYER", nodeIds: [defaultLayerId] },
+  });
+  const { nodes } = (await call("kalamo_node_get", { docId, nodeIds: [id] })).structuredContent;
+  expect(nodes).toHaveLength(1);
+});
+
+it("skips an undo that would remove the last top-level Layer, in the broadcast and doc_changes (ADR-0073)", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const { createdIds, rev } = (
+    await call("kalamo_node_create", { docId, nodes: [{ type: "layer" }] })
+  ).structuredContent;
+  const [layer] = createdIds;
+  // A delete of the first Layer that is not on the undo stack, as another Actor's would be with
+  // per-Actor undo (ADR-0011); a linear stack cannot reach this yet.
+  await runInDurableObject(env.DOCUMENT.get(env.DOCUMENT.idFromName(docId)), (_, state) => {
+    state.storage.sql.exec("DELETE FROM nodes WHERE id = ?", defaultLayerId);
+  });
+  const { ws, received } = await subscribe(docId);
+  await received(1);
+  ws.send(command("u1", { type: "undo" }));
+  const [, undo] = await received(2);
+  expect(undo).toMatchObject({ type: "tx", deletedIds: [], skippedIds: [layer] });
+  const { changes } = (await call("kalamo_doc_changes", { docId, sinceRev: rev }))
+    .structuredContent;
+  expect(changes[0].summary).toContain(`skipped, deleted or moved since: ${layer}`);
+  const text = (await call("kalamo_export", { docId, format: "kalamo_json" })).content[0].text;
+  expect(errorOf(await call("kalamo_doc_open", { content: text }))).toBeNull();
 });
 
 it("closes the socket with 1007 on a message that is not a command", async () => {

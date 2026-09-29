@@ -17,7 +17,7 @@ Document 中任何可寻址的图稿对象，有稳定 ID 与父级。Layer、Gr
 _Avoid_: Element、Object、Item、Shape（泛指时）
 
 **Layer（图层）**：
-组织图稿的容器 Node，带颜色、锁定、模板等管理属性。Layer 的父级只能是 Document 根或另一个 Layer；Group 不能包含 Layer。
+组织图稿的容器 Node，带颜色、锁定、模板等管理属性。Layer 的父级只能是 Document 根或另一个 Layer；Group 不能包含 Layer。已提交的 Document 至少保留一个顶层 Layer，删掉最后一个的写入被拒绝（`LAST_LAYER`，ADR-0073）。
 _Avoid_: Folder、Sublayer 作为独立类型（嵌套 Layer 就叫 Layer）
 
 **Template Layer（模板图层）**：
