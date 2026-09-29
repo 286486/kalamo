@@ -98,7 +98,7 @@ export function scopeRect(doc: Document, scope?: RenderScope): Rect {
     throw new KalamoError({
       code: "ARTBOARD_NOT_FOUND",
       message: `No Artboard with id ${scope.artboardId}.`,
-      hint: "zibel_doc_get_info lists the Artboards with their ids.",
+      hint: "kalamo_doc_get_info lists the Artboards with their ids.",
       path: "scope.artboardId",
     });
   }
@@ -569,7 +569,7 @@ function node(doc: Document, n: Node, walk: Walk): string {
 /**
  * A leaf painted with `appearance`, and the `<defs>` of its gradients and Area Type frame, which go
  * before it (ADR-0026). One Fill and one Stroke are one element, so Inkscape selects one object; a
- * longer Appearance is a <g zibel:stack> painting each Fill, then each Stroke: Illustrator's default
+ * longer Appearance is a <g kalamo:stack> painting each Fill, then each Stroke: Illustrator's default
  * stacking.
  */
 function leaf(
@@ -617,7 +617,7 @@ function leaf(
 const areaFrame = (n: TextNode) => `<rect${attrs({ id: areaId(n.id), ...num(textBox(n)) })}/>`;
 
 /**
- * A Clipping Path's Fills or its Strokes as a locked `<g zibel:paint>` in its opacity and mode,
+ * A Clipping Path's Fills or its Strokes as a locked `<g kalamo:paint>` in its opacity and mode,
  * holding one copy of it without an id painted as a leaf is, in its own transform, with the copy's
  * gradients in a `<defs>` just before the group (ADR-0051); a text's copy flows in the frame its
  * `<clipPath>` wrote. Empty when it has none.
@@ -640,7 +640,7 @@ function clipPaint(clip: LeafNode, list: "fills" | "strokes", chunked: boolean):
 }
 
 /**
- * Each Fill, then each Stroke, of a container's Appearance as a locked `<g zibel:paint>` holding a
+ * Each Fill, then each Stroke, of a container's Appearance as a locked `<g kalamo:paint>` holding a
  * bare copy of every leaf it paints, in document coordinates (ADR-0043): a shape's outline, or a
  * text laid out in its own transform, each in a `<g clip-path>` per inner Clipping Mask it is in.
  * A gradient is in a `<defs>` just before the group: Inkscape 1.2.2 never finishes updating a group

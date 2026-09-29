@@ -15,14 +15,14 @@ const LOCAL: Principal = { userId: "local", actor: "user", access: "write" };
  * The headers that carry the Worker's Actor, User and Role to the Document DO on a WebSocket
  * upgrade; a client's copies are replaced.
  */
-export const ACTOR_HEADER = "x-zibel-actor";
-export const USER_HEADER = "x-zibel-user";
-export const ROLE_HEADER = "x-zibel-role";
+export const ACTOR_HEADER = "x-kalamo-actor";
+export const USER_HEADER = "x-kalamo-user";
+export const ROLE_HEADER = "x-kalamo-role";
 /** GitHub mode: the most sockets the Document DO keeps open (ADR-0048); absent means no limit. */
-export const CONNECTION_LIMIT_HEADER = "x-zibel-connection-limit";
+export const CONNECTION_LIMIT_HEADER = "x-kalamo-connection-limit";
 
-const SESSION_COOKIE = "__Host-zibel_session";
-const STATE_COOKIE = "__Host-zibel_oauth";
+const SESSION_COOKIE = "__Host-kalamo_session";
+const STATE_COOKIE = "__Host-kalamo_oauth";
 const DAY = 86_400_000;
 /** A session ends after this long unused; its last-seen time moves at most once a day. */
 const IDLE = 30 * DAY;
@@ -219,7 +219,7 @@ async function githubUser(env: Env, code: string) {
     headers: {
       authorization: `Bearer ${access_token}`,
       accept: "application/vnd.github+json",
-      "user-agent": "zibel",
+      "user-agent": "kalamo",
     },
   });
   if (!res.ok) return null;
@@ -271,8 +271,8 @@ export const signInRequired = () =>
 export const foreignOrigin = () =>
   denied(
     403,
-    "This request did not come from Zibel's own pages.",
-    "Use Zibel from its own address.",
+    "This request did not come from Kalamo's own pages.",
+    "Use Kalamo from its own address.",
   );
 
 export const permissionDenied = () =>

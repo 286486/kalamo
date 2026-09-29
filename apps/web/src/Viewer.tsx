@@ -129,7 +129,7 @@ export function Viewer({ docId }: { docId: string }) {
   }, [docId]);
 
   useEffect(() => {
-    if (doc) document.title = `${doc.name} – Zibel`;
+    if (doc) document.title = `${doc.name} – Kalamo`;
   }, [doc]);
 
   // Track the canvas size in CSS px.

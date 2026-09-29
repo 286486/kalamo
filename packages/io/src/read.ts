@@ -72,14 +72,14 @@ export interface OpenedFile {
   /** The file of every Image `src` names, by that key (ADR-0023). */
   images: Map<string, ImageFile>;
   warnings: Warning[];
-  /** The Render Scope a Kalamo SVG export was written at, from `zibel:scope`; absent at doc scope. */
+  /** The Render Scope a Kalamo SVG export was written at, from `kalamo:scope`; absent at doc scope. */
   scope?: RenderScope;
-  /** Each linked Image's `zibel:src`, by Node id, until `resolveLinks` (ADR-0042). */
+  /** Each linked Image's `kalamo:src`, by Node id, until `resolveLinks` (ADR-0042). */
   links?: Map<string, Link>;
 }
 
 /**
- * The pixels a linked `<image>` names by `zibel:src`, which the target Document may hold. `size` is
+ * The pixels a linked `<image>` names by `kalamo:src`, which the target Document may hold. `size` is
  * there when `width` or `height` was absent: the frame then takes the pixel size, so the Image's
  * frame is a placeholder until then.
  */
@@ -92,7 +92,7 @@ const invalid = (message: string) =>
   new KalamoError({
     code: "INVALID_DOCUMENT",
     message,
-    hint: "Pass the text of a well-formed SVG file, as Inkscape or zibel_export writes it.",
+    hint: "Pass the text of a well-formed SVG file, as Inkscape or kalamo_export writes it.",
     path: "content",
   });
 
@@ -306,7 +306,7 @@ interface HeldClip {
 }
 
 /**
- * One paint of a Clipping Path, from a `<g zibel:paint>` copy (ADR-0051) or an Illustrator paint
+ * One paint of a Clipping Path, from a `<g kalamo:paint>` copy (ADR-0051) or an Illustrator paint
  * `<use>` (ADR-0056): the copy read as a leaf, in `style` and `matrix`, and the style its opacity
  * and blend mode come from.
  */
@@ -349,20 +349,22 @@ const CLIP_USE_PAINT =
   "A <use> painting a Clipping Path out of Illustrator's order was dropped: its Fills come before the clipped content, its Strokes after it (ADR-0056).";
 
 const CLIP_PAINT_ORPHAN =
-  "A Clipping Path's <g zibel:paint> outside a Clipping Mask was dropped: it paints the Clipping Path of the Group it sits in.";
+  "A Clipping Path's <g kalamo:paint> outside a Clipping Mask was dropped: it paints the Clipping Path of the Group it sits in.";
 
-/** A `<g zibel:stack>`'s Appearance: every paint's Fills, then every paint's Strokes. */
+/** A `<g kalamo:stack>`'s Appearance: every paint's Fills, then every paint's Strokes. */
 const stacked = (paints: { look: Appearance }[]): Appearance => ({
   fills: paints.flatMap((p) => p.look.fills),
   strokes: paints.flatMap((p) => p.look.strokes),
 });
 
 const MISSING =
-  "Some linked images came in as missing links, drawn as crossed frames: Zibel fetches nothing, so it has no pixels for them. Place or embed the image files to see them.";
+  "Some linked images came in as missing links, drawn as crossed frames: Kalamo fetches nothing, so it has no pixels for them. Place or embed the image files to see them.";
 const UNSIZED =
   "An <image> was dropped: a linked image without width and height has no size until its file is read.";
 
-const kalamoAttr = (e: Element, name: KalamoAttr) => e.getAttributeNS(NS.kalamo, name);
+/** Kalamo's attribute `name`, or the same one in the former name's namespace (ADR-0069). */
+const kalamoAttr = (e: Element, name: KalamoAttr) =>
+  e.getAttributeNS(NS.kalamo, name) ?? e.getAttributeNS(NS.legacy, name);
 /** One paint of a container's Appearance, as export writes it (ADR-0043). */
 const isPaint = (e: Element) => kalamoAttr(e, "paint") === "true";
 /** A Clipping Path's Fills or Strokes, as export writes them (ADR-0051). */
@@ -441,7 +443,7 @@ class Reader {
     return id;
   }
 
-  /** `zibel:tags` and `zibel:meta` as export writes them, or empty with a warning. */
+  /** `kalamo:tags` and `kalamo:meta` as export writes them, or empty with a warning. */
   private tagsAndMeta(e: Element | null) {
     const read = (name: "tags" | "meta", ok: (v: unknown) => boolean) => {
       const raw = e && kalamoAttr(e, name);
@@ -453,7 +455,7 @@ class Reader {
       this.warn(
         "INVALID_TAGS_META",
         "",
-        `zibel:${name} is not the JSON export writes; it was dropped.`,
+        `kalamo:${name} is not the JSON export writes; it was dropped.`,
       );
       return undefined;
     };
@@ -505,9 +507,9 @@ class Reader {
     if (isPaint(e) || isClipPaint(e)) {
       this.warn(
         "UNSUPPORTED_ELEMENT",
-        "zibel:paint",
+        "kalamo:paint",
         isPaint(e)
-          ? "A <g zibel:paint> outside a Layer or Group was dropped: it is the paint of the container it sits in."
+          ? "A <g kalamo:paint> outside a Layer or Group was dropped: it is the paint of the container it sits in."
           : CLIP_PAINT_ORPHAN,
       );
       return;
@@ -534,7 +536,7 @@ class Reader {
       // A container's mask or filter is lost like a leaf's.
       this.unsupported(e, style);
       const layer = ctx.layerLevel && e.getAttributeNS(NS.inkscape, "groupmode") === "layer";
-      // A Layer's or Group's <g zibel:clipped> is not a Node: its children are the container's, and
+      // A Layer's or Group's <g kalamo:clipped> is not a Node: its children are the container's, and
       // its clip-path the container's Clipping Mask, written so its Clipping Path's Strokes draw
       // unclipped (ADR-0051, ADR-0053).
       const wrapped = (c: Element) => tag === "g" && kalamoAttr(c, "clipped") === "true";
@@ -561,7 +563,7 @@ class Reader {
       const clip = merged?.clip ?? this.clipOf(clips[0]);
       const clipPaints = kids.filter(isClipPaint);
       if (clipPaints.length > 0 && !clip) {
-        this.warn("UNSUPPORTED_ELEMENT", "zibel:paint", CLIP_PAINT_ORPHAN);
+        this.warn("UNSUPPORTED_ELEMENT", "kalamo:paint", CLIP_PAINT_ORPHAN);
       }
       const appearance = this.containerAppearance(kids, matrix, style);
       const node = this.add({
@@ -630,7 +632,7 @@ class Reader {
   }
 
   /**
-   * The paints of a `<g zibel:stack>`, one Node painted several times: its geometry from the first
+   * The paints of a `<g kalamo:stack>`, one Node painted several times: its geometry from the first
    * paint, its Fills, then its Strokes, in order (ADR-0017).
    */
   private stack(e: Element, style: Style, matrix: Matrix) {
@@ -679,7 +681,7 @@ class Reader {
   }
 
   /**
-   * A Layer's or Group's Appearance from its direct `<g zibel:paint>` children (ADR-0043): each one
+   * A Layer's or Group's Appearance from its direct `<g kalamo:paint>` children (ADR-0043): each one
    * Fill, else one Stroke, resolved like a leaf's paint; Contents is how many come before the first
    * other child. The outline copies inside are derived from the children and ignored.
    */
@@ -760,7 +762,7 @@ class Reader {
     this.warn(
       "UNSUPPORTED_ATTRIBUTE",
       "clip-path",
-      "A clip-path Zibel cannot hold (a missing reference, objectBoundingBox units, anything but one shape, path or text inside, or a <use> that does not point to one shape, path or text in this file) was dropped; the artwork imports unclipped.",
+      "A clip-path Kalamo cannot hold (a missing reference, objectBoundingBox units, anything but one shape, path or text inside, or a <use> that does not point to one shape, path or text in this file) was dropped; the artwork imports unclipped.",
     );
     return undefined;
   }
@@ -897,7 +899,7 @@ class Reader {
     this.add({ ...base, ...shape, appearance, clipping: true } as Node);
   }
 
-  /** A `<g zibel:paint="clip-fill">` or `"clip-stroke"` as the paint its copy gives (ADR-0051). */
+  /** A `<g kalamo:paint="clip-fill">` or `"clip-stroke"` as the paint its copy gives (ADR-0051). */
   private clipPaint(p: Element, style: Style, matrix: Matrix): ClipPaint[] {
     const s = computeStyle(p, style, this.rules);
     const own = this.own(p);
@@ -1445,7 +1447,7 @@ class Reader {
       this.warn(
         "STAR_AS_PATH",
         "",
-        "A star with parameters Zibel cannot hold imports as the Path its d draws.",
+        "A star with parameters Kalamo cannot hold imports as the Path its d draws.",
       );
       return undefined;
     }
@@ -1471,7 +1473,7 @@ class Reader {
       this.warn(
         "ARC_AS_PATH",
         "",
-        "An arc with parameters Zibel cannot hold imports as the Path its d draws.",
+        "An arc with parameters Kalamo cannot hold imports as the Path its d draws.",
       );
       return undefined;
     }
@@ -1521,7 +1523,7 @@ class Reader {
       this.warn(
         "SPIRAL_AS_PATH",
         "",
-        "A spiral with parameters Zibel cannot hold imports as the Path its d draws.",
+        "A spiral with parameters Kalamo cannot hold imports as the Path its d draws.",
       );
       return undefined;
     }
@@ -1541,7 +1543,7 @@ class Reader {
 
   /**
    * An `<image>`'s parameters: its frame, baked as a rect's, and an embedded file under a key of
-   * this read (ADR-0023), or a linked file's href and `zibel:src` (ADR-0042). One Kalamo cannot hold
+   * this read (ADR-0023), or a linked file's href and `kalamo:src` (ADR-0042). One Kalamo cannot hold
    * is dropped with a warning.
    */
   private image(e: Element, m: Matrix): { shape: Record<string, unknown>; link?: Link } | null {
@@ -1804,10 +1806,10 @@ export function parseSvg(text: string, nameHint?: string): OpenedFile {
     .find((e) => e.localName === "title")
     ?.textContent?.trim();
   const docname = root.getAttributeNS(NS.sodipodi, "docname")?.replace(/\.svg$/i, "");
-  const hint = nameHint?.replace(/\.(svg|zibel\.json)$/i, "");
+  const hint = nameHint?.replace(/\.(svg|kalamo\.json)$/i, "");
   const name = hint || docname || title || "Untitled";
 
-  // Checked like any .zibel.json, so an importer bug fails the Open instead of storing a corrupt
+  // Checked like any .kalamo.json, so an importer bug fails the Open instead of storing a corrupt
   // Document.
   const file = parseDocument(
     JSON.stringify({ version: MIGRATIONS.length + 1, name, artboards, nodes: reader.nodes }),
@@ -1824,7 +1826,7 @@ export function parseSvg(text: string, nameHint?: string): OpenedFile {
 }
 
 /**
- * `file` with each linked Image's `zibel:src` kept when `lookup` finds that image, the Document it
+ * `file` with each linked Image's `kalamo:src` kept when `lookup` finds that image, the Document it
  * goes into holding it (ADR-0042). The rest are missing links; one without a size is dropped, with
  * the Clipping Mask made for it.
  */

@@ -1,13 +1,13 @@
 // The facts of Kalamo's Inkscape SVG dialect (ADR-0017) that export writes and import reads back,
 // each defined once with both directions. No XML parser here: the browser's writer imports it.
-import { formatNumber, type RenderScope, type ShapeNode } from "@kalamo/core";
+import { formatNumber, LEGACY_SVG_NS, type RenderScope, type ShapeNode } from "@kalamo/core";
 
 export const NS = {
   svg: "http://www.w3.org/2000/svg",
   inkscape: "http://www.inkscape.org/namespaces/inkscape",
   sodipodi: "http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd",
-  // Still the old URI until #175 renames the SVG surface (ADR-0069).
-  kalamo: "https://zibel.dev/ns/svg",
+  kalamo: "https://kalamo.cc/ns/svg",
+  legacy: LEGACY_SVG_NS,
   // Inkscape 1.2 draws an <image> only through xlink:href, not SVG 2's href (ADR-0023).
   xlink: "http://www.w3.org/1999/xlink",
 };
@@ -17,11 +17,11 @@ export const XMLNS = {
   xmlns: NS.svg,
   "xmlns:inkscape": NS.inkscape,
   "xmlns:sodipodi": NS.sodipodi,
-  "xmlns:zibel": NS.kalamo,
+  "xmlns:kalamo": NS.kalamo,
   "xmlns:xlink": NS.xlink,
 };
 
-/** Kalamo's own attributes, written as `zibel:<name>`. */
+/** Kalamo's own attributes, written as `kalamo:<name>`. */
 export type KalamoAttr =
   | "scope"
   | "stack"
@@ -33,7 +33,7 @@ export type KalamoAttr =
   | "meta"
   | "src";
 
-export const kalamo = (name: KalamoAttr) => `zibel:${name}` as const;
+export const kalamo = (name: KalamoAttr) => `kalamo:${name}` as const;
 
 /** Numbers in an attribute, split at spaces and commas. */
 export const numbers = (s: string | null) =>
@@ -59,7 +59,7 @@ export const gradientId = (list: "fill" | "stroke", i: number, nodeId: string) =
 export const idOf = (value: string | null | undefined) =>
   /^z-([0-9A-HJKMNP-TV-Z]{26})$/.exec(value ?? "")?.[1];
 
-/** A Render Scope as `zibel:scope`: `doc`, `artboard:<id>`, `nodes:<id,…>` or `rect:<x,y,w,h>`. */
+/** A Render Scope as `kalamo:scope`: `doc`, `artboard:<id>`, `nodes:<id,…>` or `rect:<x,y,w,h>`. */
 export const scopeAttr = (scope?: RenderScope) =>
   !scope
     ? "doc"

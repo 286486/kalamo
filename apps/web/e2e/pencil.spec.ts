@@ -7,7 +7,7 @@ test("the Pencil draws a stroke, redraws part of it, and closes a loop with its 
   request,
 }) => {
   const { docId, rev } = (
-    await call(request, "zibel_doc_create", {
+    await call(request, "kalamo_doc_create", {
       name: "Pencil",
       artboards: [{ width: 200, height: 100 }],
     })
@@ -21,11 +21,11 @@ test("the Pencil draws a stroke, redraws part of it, and closes a loop with its 
   const at = (x: number, y: number) =>
     [box.x + box.width / 2 + x - 100, box.y + box.height / 2 + y - 50] as const;
   const paths = async () => {
-    const found = (await call(request, "zibel_node_query", { docId, types: ["path"] }))
+    const found = (await call(request, "kalamo_node_query", { docId, types: ["path"] }))
       .structuredContent.nodes as { id: string }[];
     if (found.length === 0) return [];
     const nodeIds = found.map((n) => n.id);
-    return (await call(request, "zibel_node_get", { docId, nodeIds, detail: "full" }))
+    return (await call(request, "kalamo_node_get", { docId, nodeIds, detail: "full" }))
       .structuredContent.nodes as {
       id: string;
       d: string;
@@ -33,7 +33,7 @@ test("the Pencil draws a stroke, redraws part of it, and closes a loop with its 
     }[];
   };
   const changes = async () =>
-    (await call(request, "zibel_doc_changes", { docId, sinceRev: rev })).structuredContent
+    (await call(request, "kalamo_doc_changes", { docId, sinceRev: rev })).structuredContent
       .changes as unknown[];
   /** A drag through the points in document coordinates. */
   const drag = async (points: [number, number][]) => {

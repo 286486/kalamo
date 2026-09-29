@@ -3,17 +3,17 @@ import { RED_2x2_PNG } from "../../../fixtures/images.ts";
 import { call } from "./mcp.ts";
 import { choose } from "./menubar.ts";
 
-test("File > Save a Copy… saves the .zibel.json that export returns and doc_open accepts", async ({
+test("File > Save a Copy… saves the .kalamo.json that export returns and doc_open accepts", async ({
   page,
   request,
 }) => {
   const { docId, defaultLayerId } = (
-    await call(request, "zibel_doc_create", {
+    await call(request, "kalamo_doc_create", {
       name: "E2E",
       artboards: [{ width: 200, height: 100 }],
     })
   ).structuredContent;
-  await call(request, "zibel_node_create", {
+  await call(request, "kalamo_node_create", {
     docId,
     nodes: [{ type: "rect", parentId: defaultLayerId, x: 75, y: 25, width: 50, height: 50 }],
   });
@@ -24,13 +24,13 @@ test("File > Save a Copy… saves the .zibel.json that export returns and doc_op
     page.waitForEvent("download"),
     choose(page, "File", "Save a Copy…"),
   ]);
-  expect(download.suggestedFilename()).toBe("E2E.zibel.json");
+  expect(download.suggestedFilename()).toBe("E2E.kalamo.json");
   let text = "";
   for await (const chunk of await download.createReadStream()) text += chunk;
-  const exported = await call(request, "zibel_export", { docId, format: "zibel_json" });
+  const exported = await call(request, "kalamo_export", { docId, format: "kalamo_json" });
   expect(text).toBe(exported.content[0].text);
 
-  const opened = await call(request, "zibel_doc_open", { content: text });
+  const opened = await call(request, "kalamo_doc_open", { content: text });
   expect(opened.structuredContent).toMatchObject({ name: "E2E", rev: 1 });
 });
 
@@ -39,7 +39,7 @@ test("File > Export > Export As SVG saves the Inkscape SVG that export returns a
   request,
 }) => {
   const { docId, defaultLayerId } = (
-    await call(request, "zibel_doc_create", {
+    await call(request, "kalamo_doc_create", {
       name: "E2E",
       artboards: [
         { width: 200, height: 100 },
@@ -47,7 +47,7 @@ test("File > Export > Export As SVG saves the Inkscape SVG that export returns a
       ],
     })
   ).structuredContent;
-  await call(request, "zibel_node_create", {
+  await call(request, "kalamo_node_create", {
     docId,
     nodes: [
       { type: "rect", parentId: defaultLayerId, x: 75, y: 25, width: 50, height: 50, radius: 5 },
@@ -73,7 +73,7 @@ test("File > Export > Export As SVG saves the Inkscape SVG that export returns a
   expect(download.suggestedFilename()).toBe("E2E.svg");
   let text = "";
   for await (const chunk of await download.createReadStream()) text += chunk;
-  const exported = await call(request, "zibel_export", { docId, format: "svg" });
+  const exported = await call(request, "kalamo_export", { docId, format: "svg" });
   expect(text).toBe(exported.content[0].text);
 });
 
@@ -82,12 +82,12 @@ test("the canvas draws an Image, and both downloads embed its file as export doe
   request,
 }) => {
   const { docId, defaultLayerId } = (
-    await call(request, "zibel_doc_create", {
+    await call(request, "kalamo_doc_create", {
       name: "E2E",
       artboards: [{ width: 200, height: 100 }],
     })
   ).structuredContent;
-  await call(request, "zibel_node_create", {
+  await call(request, "kalamo_node_create", {
     docId,
     nodes: [
       {
@@ -114,12 +114,12 @@ test("the canvas draws an Image, and both downloads embed its file as export doe
 
   for (const [path, format] of [
     [["File", "Export", "Export As SVG"], "svg"],
-    [["File", "Save a Copy…"], "zibel_json"],
+    [["File", "Save a Copy…"], "kalamo_json"],
   ] as const) {
     const [download] = await Promise.all([page.waitForEvent("download"), choose(page, ...path)]);
     let text = "";
     for await (const chunk of await download.createReadStream()) text += chunk;
-    const exported = await call(request, "zibel_export", { docId, format });
+    const exported = await call(request, "kalamo_export", { docId, format });
     expect(text).toBe(exported.content[0].text);
   }
 });

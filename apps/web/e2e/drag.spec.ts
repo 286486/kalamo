@@ -7,13 +7,13 @@ test("a rectangle an Agent drew can be dragged, undone, redone and deleted in th
   request,
 }) => {
   const { docId, defaultLayerId } = (
-    await call(request, "zibel_doc_create", {
+    await call(request, "kalamo_doc_create", {
       name: "E2E",
       artboards: [{ width: 200, height: 100 }],
     })
   ).structuredContent;
   // Centred on the Artboard, which the viewer fits to the centre of the page.
-  const created = await call(request, "zibel_node_create", {
+  const created = await call(request, "kalamo_node_create", {
     docId,
     nodes: [{ type: "rect", parentId: defaultLayerId, x: 75, y: 25, width: 50, height: 50 }],
   });
@@ -33,16 +33,16 @@ test("a rectangle an Agent drew can be dragged, undone, redone and deleted in th
 
   const bounds = async () =>
     // Undefined while the Node is gone: poll callbacks must not throw.
-    (await call(request, "zibel_node_get", { docId, nodeIds: [id] })).structuredContent?.nodes[0]
+    (await call(request, "kalamo_node_get", { docId, nodeIds: [id] })).structuredContent?.nodes[0]
       .geometricBounds;
   await expect.poll(async () => (await bounds())?.x).toBeGreaterThan(75);
   expect((await bounds())?.y).toBe(25);
-  const { changes } = (await call(request, "zibel_doc_changes", { docId, sinceRev: rev }))
+  const { changes } = (await call(request, "kalamo_doc_changes", { docId, sinceRev: rev }))
     .structuredContent;
   expect(changes).toMatchObject([{ actor: "user", updatedIds: [id] }]);
 
   const gone = async () => {
-    const result = await call(request, "zibel_node_get", { docId, nodeIds: [id] });
+    const result = await call(request, "kalamo_node_get", { docId, nodeIds: [id] });
     return result.isError && JSON.parse(result.content[0].text).code;
   };
   // Undo the drag, then the Agent's create; redo brings the rectangle back (#11).
@@ -65,19 +65,19 @@ test("the Layers panel shows, hides, locks and selects an Agent's rectangle", as
   request,
 }) => {
   const { docId, defaultLayerId } = (
-    await call(request, "zibel_doc_create", {
+    await call(request, "kalamo_doc_create", {
       name: "Layers",
       artboards: [{ width: 200, height: 100 }],
     })
   ).structuredContent;
   const [id] = (
-    await call(request, "zibel_node_create", {
+    await call(request, "kalamo_node_create", {
       docId,
       nodes: [{ type: "rect", parentId: defaultLayerId, x: 75, y: 25, width: 50, height: 50 }],
     })
   ).structuredContent.createdIds;
   const node = async () =>
-    (await call(request, "zibel_node_get", { docId, nodeIds: [id] })).structuredContent?.nodes[0];
+    (await call(request, "kalamo_node_get", { docId, nodeIds: [id] })).structuredContent?.nodes[0];
   const button = (name: string) => page.getByRole("button", { name, exact: true });
 
   await page.goto(`/docs/${docId}`);
@@ -87,7 +87,7 @@ test("the Layers panel shows, hides, locks and selects an Agent's rectangle", as
 
   // An Agent's rename reaches the panel live.
   const { rev } = (
-    await call(request, "zibel_node_update", {
+    await call(request, "kalamo_node_update", {
       docId,
       updates: [{ nodeId: id, patch: { name: "Box" } }],
     })
@@ -96,7 +96,7 @@ test("the Layers panel shows, hides, locks and selects an Agent's rectangle", as
 
   await button("Hide Box").click();
   await expect.poll(async () => (await node())?.visible).toBe(false);
-  const { changes } = (await call(request, "zibel_doc_changes", { docId, sinceRev: rev }))
+  const { changes } = (await call(request, "kalamo_doc_changes", { docId, sinceRev: rev }))
     .structuredContent;
   expect(changes).toMatchObject([{ actor: "user", updatedIds: [id] }]);
   expect(changes).toHaveLength(1);
@@ -128,12 +128,12 @@ test("the Layers panel shows, hides, locks and selects an Agent's rectangle", as
 // #4: an Agent's Point Type draws in the bundled font, and the Layers panel names it by content.
 test("an Agent's text draws in Source Sans 3", async ({ page, request }) => {
   const { docId, defaultLayerId } = (
-    await call(request, "zibel_doc_create", {
+    await call(request, "kalamo_doc_create", {
       name: "Text",
       artboards: [{ width: 200, height: 100 }],
     })
   ).structuredContent;
-  await call(request, "zibel_node_create", {
+  await call(request, "kalamo_node_create", {
     docId,
     nodes: [
       { type: "text", parentId: defaultLayerId, x: 40, y: 70, content: "Hello", fontSize: 48 },

@@ -6,6 +6,7 @@ export * from "./errors.ts";
 export * from "./file.ts";
 export * from "./fit.ts";
 export * from "./image.ts";
+export * from "./legacy.ts";
 export * from "./mask.ts";
 export * from "./matrix.ts";
 export * from "./path.ts";

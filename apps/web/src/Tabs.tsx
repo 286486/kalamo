@@ -58,7 +58,7 @@ export function useTabs(docId: string) {
 
 /**
  * Document Tabs, as Illustrator's (F-VIEW-09): the Document list, one tab per open Document, and Open
- * file, which also takes an .svg or .zibel.json dropped on the bar. `docId` is the active tab.
+ * file, which also takes an .svg or .kalamo.json dropped on the bar. `docId` is the active tab.
  */
 export function Tabs({
   state: { docId, tabs, names, message, setMessage, open, close },

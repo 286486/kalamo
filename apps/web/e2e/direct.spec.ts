@@ -7,12 +7,12 @@ test("Direct Selection moves an Anchor, converts a rect, breaks a Handle and del
   request,
 }) => {
   const { docId, defaultLayerId: parentId } = (
-    await call(request, "zibel_doc_create", {
+    await call(request, "kalamo_doc_create", {
       name: "Direct",
       artboards: [{ width: 200, height: 100 }],
     })
   ).structuredContent;
-  const created = await call(request, "zibel_node_create", {
+  const created = await call(request, "kalamo_node_create", {
     docId,
     nodes: [
       { type: "rect", parentId, x: 20, y: 10, width: 40, height: 40 },
@@ -23,7 +23,7 @@ test("Direct Selection moves an Anchor, converts a rect, breaks a Handle and del
   });
   const [rect, curve, line] = created.structuredContent.createdIds as [string, string, string];
   const get = async (id: string) =>
-    (await call(request, "zibel_node_get", { docId, nodeIds: [id], detail: "full" }))
+    (await call(request, "kalamo_node_get", { docId, nodeIds: [id], detail: "full" }))
       .structuredContent?.nodes[0];
 
   await page.goto(`/docs/${docId}`);
@@ -52,7 +52,7 @@ test("Direct Selection moves an Anchor, converts a rect, breaks a Handle and del
   const { rev } = created.structuredContent;
   await dragFrom([190, 20], [190, 10]);
   await expect.poll(async () => (await get(line))?.d).toBe("M 150 20 L 190 10 L 190 80 L 150 80");
-  const { changes } = (await call(request, "zibel_doc_changes", { docId, sinceRev: rev }))
+  const { changes } = (await call(request, "kalamo_doc_changes", { docId, sinceRev: rev }))
     .structuredContent;
   expect(changes).toMatchObject([{ actor: "user", updatedIds: [line] }]);
 
@@ -81,12 +81,12 @@ test("Direct Selection moves an Anchor, converts a rect, breaks a Handle and del
 // #114: Direct Selection selects segments and Delete removes only them.
 test("Direct Selection deletes selected segments, then the path", async ({ page, request }) => {
   const { docId, defaultLayerId: parentId } = (
-    await call(request, "zibel_doc_create", {
+    await call(request, "kalamo_doc_create", {
       name: "Segments",
       artboards: [{ width: 200, height: 100 }],
     })
   ).structuredContent;
-  const created = await call(request, "zibel_node_create", {
+  const created = await call(request, "kalamo_node_create", {
     docId,
     nodes: [
       { type: "rect", parentId, x: 20, y: 60, width: 40, height: 30 },
@@ -95,7 +95,7 @@ test("Direct Selection deletes selected segments, then the path", async ({ page,
   });
   const [rect, line] = created.structuredContent.createdIds as [string, string];
   const get = async (id: string) => {
-    const result = await call(request, "zibel_node_get", { docId, nodeIds: [id], detail: "full" });
+    const result = await call(request, "kalamo_node_get", { docId, nodeIds: [id], detail: "full" });
     return result.isError
       ? JSON.parse(result.content[0].text).code
       : result.structuredContent.nodes[0];
@@ -125,7 +125,7 @@ test("Direct Selection deletes selected segments, then the path", async ({ page,
     .poll(async () => await get(rect))
     .toMatchObject({ id: rect, type: "path", d: "M 60 60 L 60 90 L 20 90 L 20 60" });
   // One Transaction per path.
-  const { changes } = (await call(request, "zibel_doc_changes", { docId, sinceRev: rev }))
+  const { changes } = (await call(request, "kalamo_doc_changes", { docId, sinceRev: rev }))
     .structuredContent;
   expect(changes).toMatchObject([{ updatedIds: [line] }, { updatedIds: [rect] }]);
 
@@ -141,12 +141,12 @@ test("the Anchors bar converts selected segments to smooth and corner", async ({
   request,
 }) => {
   const { docId, defaultLayerId: parentId } = (
-    await call(request, "zibel_doc_create", {
+    await call(request, "kalamo_doc_create", {
       name: "Convert",
       artboards: [{ width: 200, height: 100 }],
     })
   ).structuredContent;
-  const created = await call(request, "zibel_node_create", {
+  const created = await call(request, "kalamo_node_create", {
     docId,
     nodes: [
       { type: "rect", parentId, x: 20, y: 60, width: 40, height: 30 },
@@ -155,10 +155,10 @@ test("the Anchors bar converts selected segments to smooth and corner", async ({
   });
   const [rect, curve] = created.structuredContent.createdIds as [string, string];
   const get = async (id: string) =>
-    (await call(request, "zibel_node_get", { docId, nodeIds: [id], detail: "full" }))
+    (await call(request, "kalamo_node_get", { docId, nodeIds: [id], detail: "full" }))
       .structuredContent?.nodes[0];
   const changesSince = async (sinceRev: number) =>
-    (await call(request, "zibel_doc_changes", { docId, sinceRev })).structuredContent;
+    (await call(request, "kalamo_doc_changes", { docId, sinceRev })).structuredContent;
 
   await page.goto(`/docs/${docId}`);
   await expect(page.getByTestId("status-bar")).toContainText(/\d+%/);

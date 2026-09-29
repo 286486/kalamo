@@ -24,7 +24,7 @@ export async function checkDocuments(env: Env, principal: Principal) {
   throw new KalamoError({
     code: "LIMIT_EXCEEDED",
     message: `You own ${used} of ${limit} Documents, the beta's limit.`,
-    hint: "Delete a Document you no longer need, with zibel_doc_delete or from the Document list, then retry. Documents shared with you do not count.",
+    hint: "Delete a Document you no longer need, with kalamo_doc_delete or from the Document list, then retry. Documents shared with you do not count.",
     limit: { name: "documents", limit, used: used ?? 0 },
   });
 }
@@ -49,7 +49,7 @@ export async function countCall(env: Env, principal: Principal, kind: "render" |
   ).toISOString();
   throw new KalamoError({
     code: "LIMIT_EXCEEDED",
-    message: `You have used all ${limit} zibel_${kind} calls of today (UTC), the beta's daily limit.`,
+    message: `You have used all ${limit} kalamo_${kind} calls of today (UTC), the beta's daily limit.`,
     hint: `The count resets at ${resetsAt}; retry then.${kind === "render" ? " Render a smaller scope less often to make the calls last." : ""}`,
     limit: { name: kind, limit, used: limit, resetsAt },
   });

@@ -7,7 +7,7 @@ test("the Curvature tool closes a curve through four clicks, toggles, moves and 
   request,
 }) => {
   const { docId, rev } = (
-    await call(request, "zibel_doc_create", {
+    await call(request, "kalamo_doc_create", {
       name: "Curvature",
       artboards: [{ width: 200, height: 100 }],
     })
@@ -21,14 +21,14 @@ test("the Curvature tool closes a curve through four clicks, toggles, moves and 
   const at = (x: number, y: number) =>
     [box.x + box.width / 2 + x - 100, box.y + box.height / 2 + y - 50] as const;
   const path = async () => {
-    const [n] = (await call(request, "zibel_node_query", { docId, types: ["path"] }))
+    const [n] = (await call(request, "kalamo_node_query", { docId, types: ["path"] }))
       .structuredContent.nodes as { id: string }[];
     if (!n) return null;
-    return (await call(request, "zibel_node_get", { docId, nodeIds: [n.id], detail: "full" }))
+    return (await call(request, "kalamo_node_get", { docId, nodeIds: [n.id], detail: "full" }))
       .structuredContent.nodes[0] as { id: string; d: string };
   };
   const changes = async () =>
-    (await call(request, "zibel_doc_changes", { docId, sinceRev: rev })).structuredContent
+    (await call(request, "kalamo_doc_changes", { docId, sinceRev: rev })).structuredContent
       .changes as unknown[];
 
   await page.keyboard.press("Shift+~");

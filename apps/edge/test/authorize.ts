@@ -51,7 +51,7 @@ export const authorizeQuery = (
     code_challenge: challenge,
     code_challenge_method: "S256",
     state: "client-state",
-    scope: "zibel:read zibel:write offline_access",
+    scope: "kalamo:read kalamo:write offline_access",
     resource: `${mcpOrigin(e)}/mcp`,
   }).toString();
 

@@ -13,7 +13,7 @@ export default defineConfig({
   webServer: {
     command: [
       "pnpm --filter @kalamo/web build",
-      `wrangler d1 migrations apply zibel --local ${STATE}`,
+      `wrangler d1 migrations apply DB --local ${STATE}`,
       `wrangler dev ${STATE} ${VARS} --port ${PORT}`,
     ].join(" && "),
     url: `http://localhost:${PORT}/api/docs`,

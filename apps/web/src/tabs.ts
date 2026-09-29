@@ -1,11 +1,13 @@
 /** Document Tabs (ADR-0030): browser state only, the active tab is the URL. */
 
-const KEY = "zibel:tabs";
+import { getItem } from "./storage.ts";
+
+const KEY = "kalamo:tabs" as const;
 
 /** The open tabs' docIds, remembered per browser; empty when storage is blocked or cleared. */
 export function loadTabs(): string[] {
   try {
-    const tabs: unknown = JSON.parse(localStorage.getItem(KEY) ?? "[]");
+    const tabs: unknown = JSON.parse(getItem(KEY) ?? "[]");
     return Array.isArray(tabs) ? tabs.filter((id) => typeof id === "string") : [];
   } catch {
     return [];
@@ -50,7 +52,7 @@ export const OPENABLE = ".svg,.json,image/svg+xml,application/json";
 export const openable = (file: File) =>
   /\.(svg|json)$/i.test(file.name) || /^(image\/svg\+xml|application\/json)$/.test(file.type);
 
-/** Open: a new Document from an .svg or .zibel.json, sent over HTTP and parsed in the Worker, like zibel_doc_open (ADR-0017). */
+/** Open: a new Document from an .svg or .kalamo.json, sent over HTTP and parsed in the Worker, like kalamo_doc_open (ADR-0017). */
 export async function openFile(file: File): Promise<Opened> {
   const res = await fetch(`/api/docs?name=${encodeURIComponent(file.name)}`, {
     method: "POST",

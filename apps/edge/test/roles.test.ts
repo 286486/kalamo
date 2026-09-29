@@ -24,7 +24,7 @@ const cast = () => {
 /** The owner's new Document, shared with the viewer and the editor, holding one Image. */
 async function sharedDoc() {
   const p = await cast();
-  const { ok } = await tool(p.owner, "zibel_doc_create", {
+  const { ok } = await tool(p.owner, "kalamo_doc_create", {
     name: "Shared",
     artboards: [{ width: 100, height: 100 }],
   });
@@ -41,7 +41,7 @@ async function sharedDoc() {
   );
   const { createdIds } = (await placed.json()) as { createdIds: string[] };
   const imageId = createdIds[0] as string;
-  const got = await tool(p.owner, "zibel_node_get", {
+  const got = await tool(p.owner, "kalamo_node_get", {
     docId,
     nodeIds: [imageId],
     detail: "full",
@@ -57,11 +57,11 @@ const FAMILIES: Record<
   (who: Person, doc: Awaited<ReturnType<typeof sharedDoc>>) => Promise<Outcome>
 > = {
   "MCP read": async (who, { docId }) => {
-    const { error } = await tool(who, "zibel_doc_get_info", { docId });
+    const { error } = await tool(who, "kalamo_doc_get_info", { docId });
     return error?.code ?? "ok";
   },
   "MCP write": async (who, { docId, layerId }) => {
-    const { error } = await tool(who, "zibel_node_create", {
+    const { error } = await tool(who, "kalamo_node_create", {
       docId,
       nodes: [{ type: "rect", parentId: layerId, x: 0, y: 0, width: 5, height: 5 }],
     });
@@ -170,14 +170,14 @@ describe("a read-only token", () => {
     const { docId, layerId } = await sharedDoc();
     const { tokens } = await authorizeMcp(owner.cookie, { readOnly: true });
     const reader = { ...owner, token: tokens.access_token };
-    expect((await tool(reader, "zibel_render", { docId })).error).toBeNull();
+    expect((await tool(reader, "kalamo_render", { docId })).error).toBeNull();
     for (const [name, args] of [
       [
-        "zibel_node_create",
+        "kalamo_node_create",
         { docId, nodes: [{ type: "rect", parentId: layerId, x: 0, y: 0, width: 1, height: 1 }] },
       ],
-      ["zibel_tx_begin", { docId }],
-      ["zibel_doc_create", { name: "D", artboards: [{ width: 1, height: 1 }] }],
+      ["kalamo_tx_begin", { docId }],
+      ["kalamo_doc_create", { name: "D", artboards: [{ width: 1, height: 1 }] }],
     ] as const) {
       const { error } = await tool(reader, name, args);
       expect(error).toMatchObject({
@@ -185,7 +185,7 @@ describe("a read-only token", () => {
         hint: expect.stringContaining("viewer"),
       });
     }
-    const { ok } = await tool(reader, "zibel_doc_list", {});
+    const { ok } = await tool(reader, "kalamo_doc_list", {});
     expect(ok.documents.find((d: { docId: string }) => d.docId === docId)?.role).toBe("viewer");
   });
 });
@@ -194,14 +194,14 @@ describe("listing", () => {
   it("shows only the caller's own and shared Documents, each with the caller's Role", async () => {
     const p = await cast();
     const { docId } = await sharedDoc();
-    const mine = await tool(p.none, "zibel_doc_create", {
+    const mine = await tool(p.none, "kalamo_doc_create", {
       name: "Nora's",
       artboards: [{ width: 1, height: 1 }],
     });
     const listed = async (who: Person) => {
       const res = await browser(who, "/api/docs");
       const { documents } = (await res.json()) as { documents: { docId: string; role: string }[] };
-      const viaMcp = (await tool(who, "zibel_doc_list", {})).ok.documents;
+      const viaMcp = (await tool(who, "kalamo_doc_list", {})).ok.documents;
       expect(viaMcp).toEqual(documents);
       return documents;
     };
@@ -278,7 +278,7 @@ describe("sharing", () => {
     const { owner } = await cast();
     const { docId } = await sharedDoc();
     for (const [login, role, hint] of [
-      ["never-signed-in", "editor", "sign in to Zibel"],
+      ["never-signed-in", "editor", "sign in to Kalamo"],
       ["Olive", "editor", "someone else"],
       ["vic", "owner", "viewer"],
     ]) {
@@ -295,9 +295,9 @@ describe("sharing", () => {
     const p = await cast();
     const { docId, imageId } = await sharedDoc();
     const s = await socket(p.viewer, docId, {
-      "x-zibel-actor": "forged",
-      "x-zibel-user": "forged",
-      "x-zibel-role": "owner",
+      "x-kalamo-actor": "forged",
+      "x-kalamo-user": "forged",
+      "x-kalamo-role": "owner",
     });
     expect(await s.next?.()).toMatchObject({ type: "document", role: "viewer" });
     s.send?.("f1", { type: "update", nodeId: imageId, patch: { visible: false } });
@@ -310,23 +310,23 @@ describe("sharing", () => {
   });
 });
 
-describe("zibel_doc_delete", () => {
+describe("kalamo_doc_delete", () => {
   it("by the owner removes the Document for every member; by an editor it is PERMISSION_DENIED", async () => {
     const p = await cast();
     const { docId, src } = await sharedDoc();
-    expect((await tool(p.editor, "zibel_doc_delete", { docId })).error).toMatchObject({
+    expect((await tool(p.editor, "kalamo_doc_delete", { docId })).error).toMatchObject({
       code: "PERMISSION_DENIED",
       hint: expect.stringContaining("editor"),
     });
     const watching = await socket(p.viewer, docId);
     await watching.next?.();
-    expect((await tool(p.owner, "zibel_doc_delete", { docId })).ok).toEqual({
+    expect((await tool(p.owner, "kalamo_doc_delete", { docId })).ok).toEqual({
       docId,
       deleted: true,
     });
     expect((await watching.closed)?.code).toBe(4004);
     for (const role of ["viewer", "editor", "owner"] as const) {
-      expect((await tool(p[role], "zibel_doc_get_info", { docId })).error?.code).toBe(
+      expect((await tool(p[role], "kalamo_doc_get_info", { docId })).error?.code).toBe(
         "DOC_NOT_FOUND",
       );
     }
@@ -344,7 +344,7 @@ describe("zibel_doc_delete", () => {
 describe("dev mode", () => {
   it("keeps every existing Document visible and editable as the local User", async () => {
     const { docId, defaultLayerId } = (
-      await call("zibel_doc_create", { name: "Old", artboards: [{ width: 10, height: 10 }] })
+      await call("kalamo_doc_create", { name: "Old", artboards: [{ width: 10, height: 10 }] })
     ).structuredContent;
     // Owned by someone else, as a hosted row would be: dev mode still owns it.
     await env.DB.prepare("UPDATE documents SET owner_id = 'someone' WHERE id = ?")
@@ -353,7 +353,7 @@ describe("dev mode", () => {
     const res = await exports.default.fetch("http://kalamo/api/docs");
     const { documents } = (await res.json()) as { documents: { docId: string; role: string }[] };
     expect(documents.find((d) => d.docId === docId)?.role).toBe("owner");
-    const created = await call("zibel_node_create", {
+    const created = await call("kalamo_node_create", {
       docId,
       nodes: [{ type: "rect", parentId: defaultLayerId, x: 0, y: 0, width: 1, height: 1 }],
     });

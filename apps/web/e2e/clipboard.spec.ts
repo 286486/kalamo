@@ -5,7 +5,7 @@ test.use({ permissions: ["clipboard-read", "clipboard-write"] });
 
 async function create(request: APIRequestContext, name: string) {
   return (
-    await call(request, "zibel_doc_create", { name, artboards: [{ width: 200, height: 100 }] })
+    await call(request, "kalamo_doc_create", { name, artboards: [{ width: 200, height: 100 }] })
   ).structuredContent as { docId: string; defaultLayerId: string };
 }
 
@@ -16,11 +16,12 @@ async function show(page: Page, docId: string) {
 
 /** The Layer's children in full, without what a paste changes: id, index and parent. */
 async function children(request: APIRequestContext, docId: string, layerId: string) {
-  const { nodes } = (await call(request, "zibel_doc_outline", { docId, rootId: layerId, depth: 1 }))
-    .structuredContent as { nodes: { id: string }[] };
+  const { nodes } = (
+    await call(request, "kalamo_doc_outline", { docId, rootId: layerId, depth: 1 })
+  ).structuredContent as { nodes: { id: string }[] };
   if (nodes.length === 0) return [];
   const full = (
-    await call(request, "zibel_node_get", {
+    await call(request, "kalamo_node_get", {
       docId,
       nodeIds: nodes.map((n) => n.id),
       detail: "full",
@@ -35,7 +36,7 @@ test("cut, copy and paste move Nodes between Document tabs, ungrouped, as one Tr
 }) => {
   const a = await create(request, "Copy from");
   const b = await create(request, "Paste into");
-  await call(request, "zibel_node_create", {
+  await call(request, "kalamo_node_create", {
     docId: a.docId,
     nodes: [
       {

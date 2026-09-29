@@ -7,7 +7,7 @@ test("the Pen draws a triangle, and an open path that undo takes back", async ({
   request,
 }) => {
   const { docId, defaultLayerId, rev } = (
-    await call(request, "zibel_doc_create", {
+    await call(request, "kalamo_doc_create", {
       name: "Pen",
       artboards: [{ width: 200, height: 100 }],
     })
@@ -17,11 +17,11 @@ test("the Pen draws a triangle, and an open path that undo takes back", async ({
   const size = page.viewportSize() ?? { width: 0, height: 0 };
   const [cx, cy] = [size.width / 2, size.height / 2];
   const paths = async () => {
-    const found = (await call(request, "zibel_node_query", { docId, types: ["path"] }))
+    const found = (await call(request, "kalamo_node_query", { docId, types: ["path"] }))
       .structuredContent.nodes as { id: string }[];
     if (found.length === 0) return [];
     const nodeIds = found.map((n) => n.id);
-    return (await call(request, "zibel_node_get", { docId, nodeIds, detail: "full" }))
+    return (await call(request, "kalamo_node_get", { docId, nodeIds, detail: "full" }))
       .structuredContent.nodes;
   };
 
@@ -46,7 +46,7 @@ test("the Pen draws a triangle, and an open path that undo takes back", async ({
     },
   });
   expect(triangle.d).toMatch(/^M [\d.]+ [\d.]+ L [\d.]+ [\d.]+ L [\d.]+ [\d.]+ Z$/);
-  const { changes } = (await call(request, "zibel_doc_changes", { docId, sinceRev: rev }))
+  const { changes } = (await call(request, "kalamo_doc_changes", { docId, sinceRev: rev }))
     .structuredContent;
   expect(changes).toMatchObject([{ actor: "user", createdIds: [triangle.id] }]);
   // The new path is the Selection.
@@ -74,7 +74,7 @@ test("the Pen draws a triangle, and an open path that undo takes back", async ({
 // #78: a drag places a Smooth Anchor, so the path commits as curves.
 test("the Pen drags out Smooth Anchors into one curved path", async ({ page, request }) => {
   const { docId } = (
-    await call(request, "zibel_doc_create", {
+    await call(request, "kalamo_doc_create", {
       name: "Curves",
       artboards: [{ width: 200, height: 100 }],
     })
@@ -98,14 +98,14 @@ test("the Pen drags out Smooth Anchors into one curved path", async ({ page, req
   await page.keyboard.press("Enter");
   await expect
     .poll(async () => {
-      const { nodes } = (await call(request, "zibel_node_query", { docId, types: ["path"] }))
+      const { nodes } = (await call(request, "kalamo_node_query", { docId, types: ["path"] }))
         .structuredContent;
       return nodes.length;
     })
     .toBe(1);
-  const [{ id }] = (await call(request, "zibel_node_query", { docId, types: ["path"] }))
+  const [{ id }] = (await call(request, "kalamo_node_query", { docId, types: ["path"] }))
     .structuredContent.nodes;
-  const [path] = (await call(request, "zibel_node_get", { docId, nodeIds: [id], detail: "full" }))
+  const [path] = (await call(request, "kalamo_node_get", { docId, nodeIds: [id], detail: "full" }))
     .structuredContent.nodes;
   expect(path.d).toMatch(/^M [\d.-]+ [\d.-]+ C( [\d.-]+){6} C( [\d.-]+){6}$/);
 });

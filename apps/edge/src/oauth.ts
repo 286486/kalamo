@@ -16,8 +16,8 @@ import { type Principal, sessionUser, signInRequired, type User } from "./auth.t
  * `/authorize`, the consent page, and the Agent Actor each approved client becomes.
  */
 
-const READ = "zibel:read";
-const WRITE = "zibel:write";
+const READ = "kalamo:read";
+const WRITE = "kalamo:write";
 const OFFLINE = "offline_access";
 
 type Handler = Required<Pick<ExportedHandler<Env>, "fetch">>;
@@ -48,7 +48,7 @@ export function oauthProvider(env: Env, app: Handler, api: Handler): OAuthProvid
         resource: `${mcpOrigin(env)}/mcp`,
         authorization_servers: [env.APP_ORIGIN],
         scopes_supported: [READ, WRITE],
-        resource_name: "Zibel",
+        resource_name: "Kalamo",
       },
     });
     providers.set(key, provider);
@@ -104,7 +104,7 @@ async function consent(request: Request, env: Env) {
     });
   }
   const client = await oauth.lookupClient(authRequest.clientId);
-  if (!client) return errorPage("This app is not registered with Zibel. Connect it again.");
+  if (!client) return errorPage("This app is not registered with Kalamo. Connect it again.");
   const { handle, headers } = await oauth.beginConsent(authRequest);
   headers.set("content-type", "text/html; charset=utf-8");
   return new Response(consentPage(client, authRequest, handle, user), { headers });
@@ -298,13 +298,13 @@ function consentPage(client: ClientInfo, authRequest: AuthRequest, handle: strin
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Connect ${name} to Zibel</title>
+<title>Connect ${name} to Kalamo</title>
 <style>
   body { font: 15px/1.5 system-ui, sans-serif; max-width: 30rem; margin: 3rem auto; padding: 0 16px; }
   .warn { background: #fff4d6; padding: 8px 12px; border-radius: 4px; }
   button { font: inherit; padding: 6px 16px; margin-right: 8px; }
 </style>
-<h1>Connect ${name} to Zibel?</h1>
+<h1>Connect ${name} to Kalamo?</h1>
 <p>${origin} Its access goes to <strong>${escapeHtml(host)}</strong>.</p>
 ${loopback ? '<p class="warn">This sends access to an app on your computer. Continue only if you just started connecting from it.</p>' : ""}
 <p>It becomes an Agent of <strong>${escapeHtml(user.login)}</strong>, named after the app, that can read your Documents and, unless you choose read only, edit them. You can revoke it at any time.</p>

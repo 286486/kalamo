@@ -79,7 +79,7 @@ export interface CreatedDocument {
   rev: number;
 }
 
-/** A Document made from a `.zibel.json` file: `nodes` is the Layer list (ADR-0016). */
+/** A Document made from a `.kalamo.json` file: `nodes` is the Layer list (ADR-0016). */
 export interface OpenedDocument {
   docId: string;
   name: string;
@@ -100,7 +100,7 @@ export interface DocumentService {
     artboards: ArtboardInput[];
     intent?: string;
   }): Promise<CreatedDocument>;
-  /** A new Document from `.zibel.json` text, keeping its Node and Artboard ids (ADR-0016). */
+  /** A new Document from `.kalamo.json` text, keeping its Node and Artboard ids (ADR-0016). */
   /** `name` is the file's name, for an SVG that names no Document. */
   open(input: { content: string; name?: string; intent?: string }): Promise<OpenedDocument>;
   /**
@@ -173,7 +173,7 @@ export interface DocumentService {
   png(docId: string, req: RasterRequest): Promise<{ png: Uint8Array; viewport: Viewport }>;
   /** The SVG of the scope, the artwork only. */
   svg(docId: string, req: RenderRequest): Promise<{ svg: string; docRect: Rect }>;
-  /** The whole Document as `.zibel.json` text (ADR-0016). */
+  /** The whole Document as `.kalamo.json` text (ADR-0016). */
   file(docId: string, txId?: string): Promise<{ text: string }>;
   begin(docId: string, label?: string): Promise<{ txId: string; rev: number }>;
   commitTx(

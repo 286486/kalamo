@@ -41,7 +41,7 @@ const usage = async (who: Person, kind: string, day = today()) =>
     .first<number>("n");
 
 async function newDoc(who: Person) {
-  const { ok } = await tool(who, "zibel_doc_create", {
+  const { ok } = await tool(who, "kalamo_doc_create", {
     name: "Mine",
     artboards: [{ width: 10, height: 10 }],
   });
@@ -60,7 +60,7 @@ describe("50 owned Documents", () => {
     expect((await shareWith(other, shared.docId, "ann", "editor")).status).toBe(200);
     await seedDocuments(ann, 49);
     expect(
-      (await tool(ann, "zibel_doc_create", { name: "50th", artboards: [{ width: 1, height: 1 }] }))
+      (await tool(ann, "kalamo_doc_create", { name: "50th", artboards: [{ width: 1, height: 1 }] }))
         .error,
     ).toBeNull();
 
@@ -71,13 +71,13 @@ describe("50 owned Documents", () => {
       hint: expect.stringContaining("Delete a Document"),
       limit,
     };
-    const created = await tool(ann, "zibel_doc_create", {
+    const created = await tool(ann, "kalamo_doc_create", {
       name: "51st",
       artboards: [{ width: 1, height: 1 }],
     });
     expect(created.error).toEqual(refused);
     const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>';
-    expect((await tool(ann, "zibel_doc_open", { content: svg })).error).toEqual(refused);
+    expect((await tool(ann, "kalamo_doc_open", { content: svg })).error).toEqual(refused);
     const open = await browser(ann, "/api/docs?name=a.svg", { method: "POST", body: svg });
     expect(await open.json()).toEqual(refused);
     const owned = await env.DB.prepare("SELECT COUNT(*) AS n FROM documents WHERE owner_id = ?")
@@ -93,11 +93,11 @@ describe("daily render and export calls", () => {
     const { docId } = await newDoc(bea);
     await seedUsage(bea, "render", 500, "2020-01-01");
     await seedUsage(bea, "render", 499);
-    expect((await tool(bea, "zibel_render", { docId })).error).toBeNull();
-    const { error } = await tool(bea, "zibel_render", { docId });
+    expect((await tool(bea, "kalamo_render", { docId })).error).toBeNull();
+    const { error } = await tool(bea, "kalamo_render", { docId });
     expect(error).toEqual({
       code: "LIMIT_EXCEEDED",
-      message: expect.stringContaining("500 zibel_render calls"),
+      message: expect.stringContaining("500 kalamo_render calls"),
       hint: expect.stringContaining(nextMidnight()),
       limit: { name: "render", limit: 500, used: 500, resetsAt: nextMidnight() },
     });
@@ -109,11 +109,11 @@ describe("daily render and export calls", () => {
     const cy = await person("cy");
     const { docId } = await newDoc(cy);
     await seedUsage(cy, "export", 197);
-    for (const format of ["png", "svg", "zibel_json"]) {
-      expect((await tool(cy, "zibel_export", { docId, format })).error).toBeNull();
+    for (const format of ["png", "svg", "kalamo_json"]) {
+      expect((await tool(cy, "kalamo_export", { docId, format })).error).toBeNull();
     }
     expect(await usage(cy, "render")).toBeNull();
-    const { error } = await tool(cy, "zibel_export", { docId, format: "zibel_json" });
+    const { error } = await tool(cy, "kalamo_export", { docId, format: "kalamo_json" });
     expect(error).toMatchObject({
       code: "LIMIT_EXCEEDED",
       limit: { name: "export", limit: 200, used: 200, resetsAt: nextMidnight() },
@@ -124,7 +124,7 @@ describe("daily render and export calls", () => {
     const [owner, viewer] = [await person("dee"), await person("vee")];
     const { docId } = await newDoc(owner);
     expect((await shareWith(owner, docId, "vee", "viewer")).status).toBe(200);
-    expect((await tool(viewer, "zibel_render", { docId })).error).toBeNull();
+    expect((await tool(viewer, "kalamo_render", { docId })).error).toBeNull();
     expect(await usage(viewer, "render")).toBe(1);
     expect(await usage(owner, "render")).toBeNull();
   });
@@ -183,7 +183,7 @@ describe("200 MB stored per owner", () => {
     );
     expect(await placed.json()).toEqual(refused);
     const image = { type: "image", parentId: defaultLayerId, src: BLUE_1x1_PNG, x: 0, y: 0 };
-    const created = await tool(editor, "zibel_node_create", { docId, nodes: [image] });
+    const created = await tool(editor, "kalamo_node_create", { docId, nodes: [image] });
     expect(created.error).toEqual(refused);
     expect((await env.IMAGES.list({ prefix: imageKey(docId, "") })).objects).toEqual([]);
     const stub = env.DOCUMENT.get(env.DOCUMENT.idFromName(docId));
@@ -195,7 +195,7 @@ describe("200 MB stored per owner", () => {
       .bind(200 * MB - red, await userId(owner), docId)
       .run();
     const fits = { ...image, src: RED_2x2_PNG };
-    expect((await tool(editor, "zibel_node_create", { docId, nodes: [fits] })).error).toBeNull();
+    expect((await tool(editor, "kalamo_node_create", { docId, nodes: [fits] })).error).toBeNull();
     const row = await env.DB.prepare("SELECT stored_bytes FROM documents WHERE id = ?")
       .bind(docId)
       .first<number>("stored_bytes");
@@ -205,7 +205,7 @@ describe("200 MB stored per owner", () => {
   it("gives an opened Document's row its images' bytes", async () => {
     const hal = await person("hal");
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1" height="1"><image width="1" height="1" xlink:href="${BLUE_1x1_PNG}"/></svg>`;
-    const { ok } = await tool(hal, "zibel_doc_open", { content: svg });
+    const { ok } = await tool(hal, "kalamo_doc_open", { content: svg });
     const row = await env.DB.prepare("SELECT stored_bytes FROM documents WHERE id = ?")
       .bind(ok.docId)
       .first<number>("stored_bytes");
@@ -221,9 +221,9 @@ describe("dev mode", () => {
       .bind(today())
       .run();
     const { docId } = (
-      await call("zibel_doc_create", { name: "D", artboards: [{ width: 1, height: 1 }] })
+      await call("kalamo_doc_create", { name: "D", artboards: [{ width: 1, height: 1 }] })
     ).structuredContent;
-    expect(errorOf(await call("zibel_render", { docId }))).toBeNull();
+    expect(errorOf(await call("kalamo_render", { docId }))).toBeNull();
     const n = await env.DB.prepare("SELECT n FROM usage WHERE user_id = 'local' AND day = ?")
       .bind(today())
       .first<number>("n");

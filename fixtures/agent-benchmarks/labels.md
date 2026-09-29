@@ -1,6 +1,6 @@
 ## Prompt
 
-Using the zibel tools, create a Document named exactly `{{name}}` with one 600×200 pt Artboard at the origin.
+Using the kalamo tools, create a Document named exactly `{{name}}` with one 600×200 pt Artboard at the origin.
 
 Draw three shapes in a row, each about 60 pt across, with room between them: a red circle, a green square and a blue triangle. To the right of each shape, within 40 pt of it, place a text label naming it, `Circle`, `Square` or `Triangle`, vertically centred on its shape and not overlapping any shape. Draw nothing else.
 

@@ -14,12 +14,12 @@ interface Entry {
 for (const c of COMPOSITING) {
   test(`the canvas matches render: ${c.name}`, async ({ page, request }) => {
     const { docId, defaultLayerId: parentId } = (
-      await call(request, "zibel_doc_create", {
+      await call(request, "kalamo_doc_create", {
         name: "Compositing",
         artboards: [{ width: 200, height: 100 }],
       })
     ).structuredContent;
-    await call(request, "zibel_node_create", {
+    await call(request, "kalamo_node_create", {
       docId,
       nodes: c.nodes.map((n) => ({ ...n, parentId })),
     });
@@ -31,12 +31,12 @@ for (const c of COMPOSITING) {
       }
     };
     walk(
-      (await call(request, "zibel_doc_outline", { docId, rootId: parentId, depth: 9 }))
+      (await call(request, "kalamo_doc_outline", { docId, rootId: parentId, depth: 9 }))
         .structuredContent.nodes,
     );
     for (const m of c.masks ?? []) {
       const { createdIds } = (
-        await call(request, "zibel_mask_make", {
+        await call(request, "kalamo_mask_make", {
           docId,
           clipNodeId: ids.get(m.clip),
           contentIds: m.content.map((k) => ids.get(k)),
@@ -45,14 +45,14 @@ for (const c of COMPOSITING) {
       ids.set(m.name, createdIds[0]);
     }
     for (const [k, t] of Object.entries(c.transforms ?? {})) {
-      await call(request, "zibel_node_transform", { docId, nodeIds: [ids.get(k)], ...t });
+      await call(request, "kalamo_node_transform", { docId, nodeIds: [ids.get(k)], ...t });
     }
     await page.goto(`/docs/${docId}`);
     await expect(page.getByTestId("status-bar")).toContainText(/\d+%/);
     await page.keyboard.press("Control+1");
     await expect(page.getByTestId("status-bar")).toContainText("100%");
     // Patched once the canvas is open, so each case also reaches it through the broadcast.
-    await call(request, "zibel_node_update", {
+    await call(request, "kalamo_node_update", {
       docId,
       updates: Object.entries(c.patches).map(([k, patch]) => ({ nodeId: ids.get(k), patch })),
     });

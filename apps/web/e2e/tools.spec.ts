@@ -7,7 +7,7 @@ test("a group's flyout opens by hold, right-click or keyboard, and fronts the ch
   request,
 }) => {
   const { docId } = (
-    await call(request, "zibel_doc_create", {
+    await call(request, "kalamo_doc_create", {
       name: "Tools",
       artboards: [{ width: 200, height: 100 }],
     })

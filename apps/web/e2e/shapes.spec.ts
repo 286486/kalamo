@@ -10,10 +10,10 @@ import { choose } from "./menubar.ts";
  */
 async function openShapes(page: Page, request: Parameters<typeof call>[0], name: string) {
   const { docId, defaultLayerId: parentId } = (
-    await call(request, "zibel_doc_create", { name, artboards: [{ width: 200, height: 100 }] })
+    await call(request, "kalamo_doc_create", { name, artboards: [{ width: 200, height: 100 }] })
   ).structuredContent;
   const create = (...nodes: object[]) =>
-    call(request, "zibel_node_create", { docId, nodes: nodes.map((n) => ({ ...n, parentId })) });
+    call(request, "kalamo_node_create", { docId, nodes: nodes.map((n) => ({ ...n, parentId })) });
   await page.goto(`/docs/${docId}`);
   await expect(page.getByTestId("status-bar")).toContainText(/\d+%/);
   await page.keyboard.press("Control+1");
@@ -23,11 +23,11 @@ async function openShapes(page: Page, request: Parameters<typeof call>[0], name:
   const at = (x: number, y: number) =>
     [box.x + box.width / 2 + x - 100, box.y + box.height / 2 + y - 50] as const;
   const nodes = async <N>(...types: string[]): Promise<N[]> => {
-    const found = (await call(request, "zibel_node_query", { docId, types })).structuredContent
+    const found = (await call(request, "kalamo_node_query", { docId, types })).structuredContent
       .nodes as { id: string }[];
     if (found.length === 0) return [];
     const nodeIds = found.map((n) => n.id);
-    return (await call(request, "zibel_node_get", { docId, nodeIds, detail: "full" }))
+    return (await call(request, "kalamo_node_get", { docId, nodeIds, detail: "full" }))
       .structuredContent.nodes;
   };
   const drag = async (from: [number, number], ...steps: ([number, number] | string)[]) => {

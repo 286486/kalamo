@@ -27,7 +27,7 @@ interface Run {
 async function agent(task: string, prompt: string): Promise<Run> {
   const mcpConfig = {
     mcpServers: {
-      zibel: { type: "http", url: MCP, headers: { Authorization: `Bearer ${TOKEN}` } },
+      kalamo: { type: "http", url: MCP, headers: { Authorization: `Bearer ${TOKEN}` } },
     },
   };
   // Without an API key --bare cannot authenticate; no setting sources then keeps user and
@@ -43,7 +43,7 @@ async function agent(task: string, prompt: string): Promise<Run> {
     "--tools",
     "ListMcpResourcesTool,ReadMcpResourceTool",
     "--allowedTools",
-    "mcp__zibel,ListMcpResourcesTool,ReadMcpResourceTool",
+    "mcp__kalamo,ListMcpResourcesTool,ReadMcpResourceTool",
     "--verbose",
     "--output-format",
     "stream-json",
@@ -55,7 +55,7 @@ async function agent(task: string, prompt: string): Promise<Run> {
     ),
   );
   const child = spawn("claude", args, {
-    cwd: mkdtempSync(join(tmpdir(), `zibel-bench-${task}-`)),
+    cwd: mkdtempSync(join(tmpdir(), `kalamo-bench-${task}-`)),
     env,
     stdio: ["pipe", "pipe", "inherit"],
     timeout: TIMEOUT_MS,
@@ -75,12 +75,12 @@ async function agent(task: string, prompt: string): Promise<Run> {
     const event = JSON.parse(line);
     if (event.type === "system" && event.subtype === "init") {
       run.model = event.model;
-      const server = event.mcp_servers.find((s: { name: string }) => s.name === "zibel");
-      if (server?.status !== "connected") run.error = `zibel MCP server ${server?.status}`;
+      const server = event.mcp_servers.find((s: { name: string }) => s.name === "kalamo");
+      if (server?.status !== "connected") run.error = `kalamo MCP server ${server?.status}`;
     }
     if (event.type === "assistant")
       for (const block of event.message.content)
-        if (block.type === "tool_use") run.tools.push(block.name.replace(/^mcp__zibel__/, ""));
+        if (block.type === "tool_use") run.tools.push(block.name.replace(/^mcp__kalamo__/, ""));
     if (event.type === "result") {
       run.turns = event.num_turns;
       run.ms = event.duration_ms;
@@ -118,7 +118,7 @@ try {
     let error = run.error;
     if (!error) {
       try {
-        const { documents } = (await call("zibel_doc_list", {})).structuredContent as {
+        const { documents } = (await call("kalamo_doc_list", {})).structuredContent as {
           documents: { docId: string; name: string }[];
         };
         const docs = documents.filter((d) => d.name === name);

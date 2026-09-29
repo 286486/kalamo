@@ -778,7 +778,7 @@ export class DocumentObject extends DurableObject<Env> {
   }
 
   /**
-   * The image files `doc`'s Images name, fetched from R2 in parallel, for the SVG and .zibel.json
+   * The image files `doc`'s Images name, fetched from R2 in parallel, for the SVG and .kalamo.json
    * writers, which read them synchronously.
    * ponytail: fetches every Image's file, in scope or not; collect from the scope if that bites.
    */
@@ -1049,7 +1049,7 @@ export class DocumentObject extends DurableObject<Env> {
     });
   }
 
-  /** The whole Document as `.zibel.json` text, as `export` returns it (ADR-0016). */
+  /** The whole Document as `.kalamo.json` text, as `export` returns it (ADR-0016). */
   async file(actor: string, txId?: string): Promise<Result<{ text: string }>> {
     const doc = guard(() => this.view(this.load(), actor, txId));
     if ("error" in doc) return doc;
@@ -1366,7 +1366,7 @@ export class DocumentObject extends DurableObject<Env> {
     throw new KalamoError({
       code: "REV_CONFLICT",
       message: `The Document is at rev ${doc.rev}, not ${ifRev}.`,
-      hint: `Call zibel_doc_changes with sinceRev: ${ifRev} to see what changed, then retry with ifRev: ${doc.rev}.`,
+      hint: `Call kalamo_doc_changes with sinceRev: ${ifRev} to see what changed, then retry with ifRev: ${doc.rev}.`,
       path: "ifRev",
       rev: doc.rev,
       nodeIds,
@@ -1413,7 +1413,7 @@ export class DocumentObject extends DurableObject<Env> {
       throw new KalamoError({
         code: "TX_NOT_FOUND",
         message: `No Transaction ${txId} of yours in this Document.`,
-        hint: "Use the txId from your zibel_tx_begin on this Document, or begin a new one.",
+        hint: "Use the txId from your kalamo_tx_begin on this Document, or begin a new one.",
         path: "txId",
       });
     }
@@ -1431,7 +1431,7 @@ export class DocumentObject extends DurableObject<Env> {
       throw new KalamoError({
         code: "TX_EXPIRED",
         message: `Transaction ${txId} has ended.`,
-        hint: `It was ${how}. Begin a new Transaction with zibel_tx_begin, or write without txId.`,
+        hint: `It was ${how}. Begin a new Transaction with kalamo_tx_begin, or write without txId.`,
         path: "txId",
       });
     }
@@ -1500,7 +1500,7 @@ export class DocumentObject extends DurableObject<Env> {
       throw new KalamoError({
         code: "DOC_NOT_FOUND",
         message: "Document not found.",
-        hint: "Create one with zibel_doc_create, or check the docId.",
+        hint: "Create one with kalamo_doc_create, or check the docId.",
         path: "docId",
       });
     }

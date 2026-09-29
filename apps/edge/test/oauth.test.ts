@@ -62,7 +62,7 @@ describe("discovery", () => {
     expect(resource).toMatchObject({
       resource: `${APP_ORIGIN}/mcp`,
       authorization_servers: [APP_ORIGIN],
-      scopes_supported: ["zibel:read", "zibel:write"],
+      scopes_supported: ["kalamo:read", "kalamo:write"],
     });
     const server = await (await hosted("/.well-known/oauth-authorization-server")).json();
     expect(server).toMatchObject({
@@ -71,7 +71,7 @@ describe("discovery", () => {
       token_endpoint: `${APP_ORIGIN}/oauth/token`,
       registration_endpoint: `${APP_ORIGIN}/oauth/register`,
       code_challenge_methods_supported: ["S256"],
-      scopes_supported: ["zibel:read", "zibel:write", "offline_access"],
+      scopes_supported: ["kalamo:read", "kalamo:write", "offline_access"],
     });
   });
 
@@ -93,24 +93,28 @@ describe("authorization", () => {
   it("yields a token that acts as a new Agent Actor of the User", async () => {
     const { cookie } = await signIn({ id: 201, login: "ada" });
     const { tokens } = await authorizeMcp(cookie);
-    expect(tokens.scope.split(" ").sort()).toEqual(["offline_access", "zibel:read", "zibel:write"]);
+    expect(tokens.scope.split(" ").sort()).toEqual([
+      "kalamo:read",
+      "kalamo:write",
+      "offline_access",
+    ]);
 
     const { res } = await hostedRpc(tokens.access_token, "ping");
     expect(res.status).toBe(200);
     const created = await hostedRpc(tokens.access_token, "tools/call", {
-      name: "zibel_doc_create",
+      name: "kalamo_doc_create",
       arguments: { name: "Doc", artboards: [{ width: 10, height: 10 }] },
     });
     const { docId, defaultLayerId } = created.body.result.structuredContent;
     await hostedRpc(tokens.access_token, "tools/call", {
-      name: "zibel_node_create",
+      name: "kalamo_node_create",
       arguments: {
         docId,
         nodes: [{ type: "rect", parentId: defaultLayerId, x: 0, y: 0, width: 1, height: 1 }],
       },
     });
     const changes = await hostedRpc(tokens.access_token, "tools/call", {
-      name: "zibel_doc_changes",
+      name: "kalamo_doc_changes",
       arguments: { docId, sinceRev: 0 },
     });
 
@@ -154,7 +158,7 @@ describe("authorization", () => {
   it("starts read-only for a client that asked only to read", async () => {
     const { cookie } = await signIn({ id: 213, login: "max" });
     const query = new URLSearchParams(authorizeQuery(await register(), (await pkce()).challenge));
-    query.set("scope", "zibel:read");
+    query.set("scope", "kalamo:read");
     const { html } = await openConsent(cookie, query.toString());
     expect(html).toContain('<input type="checkbox" name="readonly" checked>');
   });
@@ -162,7 +166,7 @@ describe("authorization", () => {
   it("records a read-only choice as read access and scope", async () => {
     const { cookie } = await signIn({ id: 204, login: "dee" });
     const { tokens } = await authorizeMcp(cookie, { name: "Cursor", readOnly: true });
-    expect(tokens.scope.split(" ")).not.toContain("zibel:write");
+    expect(tokens.scope.split(" ")).not.toContain("kalamo:write");
     expect(await agentRows(204)).toMatchObject([{ name: "Cursor (dee)", access: "read" }]);
     expect((await hostedRpc(tokens.access_token, "ping")).res.status).toBe(200);
   });
@@ -355,12 +359,12 @@ describe("Connected Agents", () => {
 
     expect((await hostedRpc(fresh.tokens.access_token, "ping")).res.status).toBe(200);
     const created = await hostedRpc(fresh.tokens.access_token, "tools/call", {
-      name: "zibel_doc_create",
+      name: "kalamo_doc_create",
       arguments: { name: "Doc", artboards: [{ width: 10, height: 10 }] },
     });
     const { docId } = created.body.result.structuredContent;
     const changes = await hostedRpc(fresh.tokens.access_token, "tools/call", {
-      name: "zibel_doc_changes",
+      name: "kalamo_doc_changes",
       arguments: { docId, sinceRev: 0 },
     });
     const actors = changes.body.result.structuredContent.changes.map(

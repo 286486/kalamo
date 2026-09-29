@@ -41,7 +41,7 @@ export function commitTransaction(
     throw new KalamoError({
       code: "NODE_GONE",
       message: `Someone deleted ${[...gone].join(", ")} after this Transaction used them.`,
-      hint: "Roll back with zibel_tx_rollback and redo the work in a new Transaction.",
+      hint: "Roll back with kalamo_tx_rollback and redo the work in a new Transaction.",
       nodeIds: [...gone],
     });
   }

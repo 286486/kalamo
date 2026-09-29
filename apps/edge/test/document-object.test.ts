@@ -161,7 +161,7 @@ it("rejects a write whose ifRev is stale with REV_CONFLICT, changing nothing", a
       rev: 2,
       nodeIds: [id],
       path: "ifRev",
-      hint: expect.stringContaining("zibel_doc_changes"),
+      hint: expect.stringContaining("kalamo_doc_changes"),
     },
   });
   expect(await stub("d4").info()).toMatchObject({ rev: 2 });

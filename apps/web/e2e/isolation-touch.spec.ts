@@ -9,13 +9,13 @@ test("A touch double-tap enters and leaves Isolation Mode as a mouse double-clic
   request,
 }) => {
   const { docId, defaultLayerId: layer } = (
-    await call(request, "zibel_doc_create", {
+    await call(request, "kalamo_doc_create", {
       name: "Isolation touch",
       artboards: [{ width: 200, height: 100 }],
     })
   ).structuredContent;
   // G holds H, which holds Red (20–180 × 20–80); below it the Artboard is empty.
-  await call(request, "zibel_node_create", {
+  await call(request, "kalamo_node_create", {
     docId,
     nodes: [
       {

@@ -1,7 +1,7 @@
 import { assert, type Check } from "./mcp.ts";
 
 const check: Check = async (call, docId, tools) => {
-  const { changes } = (await call("zibel_doc_changes", { docId, sinceRev: 1 }))
+  const { changes } = (await call("kalamo_doc_changes", { docId, sinceRev: 1 }))
     .structuredContent as {
     changes: { createdIds: string[] }[];
   };
@@ -11,14 +11,14 @@ const check: Check = async (call, docId, tools) => {
 
   const count = (name: string) => tools.filter((t) => t === name).length;
   assert(
-    count("zibel_tx_begin") === 1 && count("zibel_tx_commit") === 1,
-    `${count("zibel_tx_begin")} tx_begin and ${count("zibel_tx_commit")} tx_commit, want 1 and 1`,
+    count("kalamo_tx_begin") === 1 && count("kalamo_tx_commit") === 1,
+    `${count("kalamo_tx_begin")} tx_begin and ${count("kalamo_tx_commit")} tx_commit, want 1 and 1`,
   );
-  const begin = tools.indexOf("zibel_tx_begin");
-  const commit = tools.indexOf("zibel_tx_commit");
-  const inside = tools.slice(begin, commit).filter((t) => t === "zibel_node_create").length;
+  const begin = tools.indexOf("kalamo_tx_begin");
+  const commit = tools.indexOf("kalamo_tx_commit");
+  const inside = tools.slice(begin, commit).filter((t) => t === "kalamo_node_create").length;
   assert(inside >= 2, `${inside} node_create calls inside the Transaction, want at least 2`);
-  assert(tools.lastIndexOf("zibel_render") > commit, "no zibel_render after zibel_tx_commit");
+  assert(tools.lastIndexOf("kalamo_render") > commit, "no kalamo_render after kalamo_tx_commit");
 };
 
 export default check;

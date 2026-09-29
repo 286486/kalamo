@@ -11,12 +11,13 @@ test("Relink fills a missing link from a file, then Embed embeds it, each as one
   request,
 }) => {
   const { docId } = await (await request.post("/api/docs?name=linked.svg", { data: SVG })).json();
-  const [layer] = (await call(request, "zibel_doc_outline", { docId, depth: 2 })).structuredContent
+  const [layer] = (await call(request, "kalamo_doc_outline", { docId, depth: 2 })).structuredContent
     .nodes as { id: string }[];
-  const [image] = (await call(request, "zibel_doc_outline", { docId, rootId: layer?.id, depth: 1 }))
-    .structuredContent.nodes as { id: string }[];
+  const [image] = (
+    await call(request, "kalamo_doc_outline", { docId, rootId: layer?.id, depth: 1 })
+  ).structuredContent.nodes as { id: string }[];
   const node = async () =>
-    (await call(request, "zibel_node_get", { docId, nodeIds: [image?.id], detail: "full" }))
+    (await call(request, "kalamo_node_get", { docId, nodeIds: [image?.id], detail: "full" }))
       .structuredContent.nodes[0];
   expect(await node()).not.toHaveProperty("src");
 
@@ -47,7 +48,7 @@ test("Relink fills a missing link from a file, then Embed embeds it, each as one
   await choose(page, "Object", "Embed");
   await expect.poll(async () => Object.hasOwn(await node(), "file")).toBe(false);
   await expect(page.getByRole("button", { name: "<Image>", exact: true })).toBeVisible();
-  const { changes } = (await call(request, "zibel_doc_changes", { docId, sinceRev: 1 }))
+  const { changes } = (await call(request, "kalamo_doc_changes", { docId, sinceRev: 1 }))
     .structuredContent;
   expect(changes).toMatchObject([
     { actor: "user", summary: expect.stringContaining("Relink"), updatedIds: [image?.id] },

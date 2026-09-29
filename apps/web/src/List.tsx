@@ -6,7 +6,7 @@ import { OPENABLE, type Opened, openFile } from "./tabs.ts";
 
 /**
  * The Documents the User owns or was shared, newest first, with Delete on owned ones, and Open file
- * for an .svg or .zibel.json.
+ * for an .svg or .kalamo.json.
  */
 export function List() {
   const [docs, setDocs] = useState<DocSummary[] | null>(null);
@@ -69,7 +69,7 @@ export function List() {
         ) : docs === null ? (
           <p>Loading…</p>
         ) : docs.length === 0 ? (
-          <p>No Documents yet. Ask an Agent to call zibel_doc_create.</p>
+          <p>No Documents yet. Ask an Agent to call kalamo_doc_create.</p>
         ) : (
           <ul>
             {docs.map((d) => (
