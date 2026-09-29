@@ -6,6 +6,7 @@ export const NS = {
   svg: "http://www.w3.org/2000/svg",
   inkscape: "http://www.inkscape.org/namespaces/inkscape",
   sodipodi: "http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd",
+  // Still the old URI until #175 renames the SVG surface (ADR-0069).
   kalamo: "https://zibel.dev/ns/svg",
   // Inkscape 1.2 draws an <image> only through xlink:href, not SVG 2's href (ADR-0023).
   xlink: "http://www.w3.org/1999/xlink",

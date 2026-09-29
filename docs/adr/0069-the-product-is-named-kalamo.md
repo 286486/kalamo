@@ -32,7 +32,15 @@ The product was named Zibel. Arabic زِبْل *zibl* means "manure, dung", said
 
 **Cloudflare moves to Kalamo, and the old deployment is deleted only after a verified migration.** The owner decided on 2026-09-29 that the Worker, its Durable Object namespace, the D1 database and the R2 bucket all take Kalamo names. A D1 database cannot be renamed and Durable Object storage belongs to its Worker, so the Kalamo resources are created and the live Documents are moved into them. Writes on `zibel` are frozen, a final copy of both Documents and their state is taken, and both are verified field for field against that copy before traffic switches (#180). Only then is the old `zibel` deployment deleted, from an explicit target list checked before and after, with a report of what can still be recovered (#181). The owner authorized that deletion but not any loss of data. Resources of other projects on the same account, including the KV namespace `OAUTH_KV`, are never touched.
 
-**The old-name guard.** `fixtures/old-name.test.ts`, part of `pnpm check`, fails on any case-insensitive `zibel` in a tracked file's content or path that no allowlist entry covers. Each entry states why the hit stays and which rename ticket removes it, and the test also fails on an entry that covers nothing, so each ticket deletes the entries it empties. When the rename is done, only the entries for the read-both rules above, the `zibel_json` rejection test, research note 05, the new research note, this ADR and the Cloudflare migration records remain.
+**The old-name guard.** `fixtures/old-name.test.ts`, part of `pnpm check`, fails on any case-insensitive `zibel` in a tracked file's content or path that no allowlist entry covers. Each entry states why the hit stays and which rename ticket removes it, and the test also fails on an entry that covers nothing, so each ticket deletes the entries it empties. When the rename is done, only the entries for the read-both rules above, the `zibel_json` rejection test, research note 05, the research note on the rename (`docs/research/07-…`, added in #177), this ADR and the Cloudflare migration records remain.
+
+## Considered Options
+
+- **Keep Zibel.** Rejected: the meaning is not a niche reading but the everyday word in Arabic and Hebrew.
+- **Duktus**, the stroke order of a letterform. The cleanest registry and trademark profile, but obscure and harder to say and remember.
+- **Pennel**, "a little pen". The best domains, but one letter from PENTEL, a famous pen brand in this product space.
+- **Kalamos**, the Greek word itself. It shares Kalamo's neighbours and adds a crates.io conflict and a transcription app at `kalamos.app`; it stays the fallback.
+- Lineva, Calamo and Kresba were eliminated for near-identical drawing apps or taken domains, and a longer list at the screen; #172 has the evidence for each.
 
 ## Consequences
 

@@ -107,7 +107,7 @@ const ALLOWLIST: Entry[] = [
   },
 ];
 
-type Hit = { path: string; text: string };
+type Hit = { path: string; line?: number; text: string };
 
 /** The hits no entry covers, and the entries that covered nothing. */
 function check(hits: Hit[], allowlist: Entry[]) {
