@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { PathNode } from "./anchor.ts";
 import { editPath, fromAnchors, type PathOp, toAnchors } from "./anchor.ts";
 import { createDocument, createNodes } from "./document.ts";
-import { ZibelError } from "./errors.ts";
+import { KalamoError } from "./errors.ts";
 import { formatPath, parsePath, type Segment } from "./path.ts";
 
 const roundTrip = (d: string) => formatPath(fromAnchors(toAnchors(parsePath(d, "d"))));
@@ -11,10 +11,10 @@ const errorOf = (fn: () => unknown) => {
   try {
     fn();
   } catch (e) {
-    if (e instanceof ZibelError) return e.data;
+    if (e instanceof KalamoError) return e.data;
     throw e;
   }
-  throw new Error("expected a ZibelError");
+  throw new Error("expected a KalamoError");
 };
 
 describe("toAnchors and fromAnchors", () => {

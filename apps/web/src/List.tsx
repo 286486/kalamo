@@ -1,4 +1,4 @@
-import type { DocSummary } from "@zibel/sync";
+import type { DocSummary } from "@kalamo/sync";
 import { useCallback, useEffect, useState } from "react";
 import { MenuBar } from "./MenuBar.tsx";
 import { listMenus } from "./menu.ts";

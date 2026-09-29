@@ -8,8 +8,8 @@ import {
   type PathOpInput,
   pathOp,
   transformNodes,
-} from "@zibel/core";
-import { applyBroadcast, type ServerMessage } from "@zibel/sync";
+} from "@kalamo/core";
+import { applyBroadcast, type ServerMessage } from "@kalamo/sync";
 import type { CurveAnchor } from "./curvature.ts";
 import { inRange, parseKey, segmentInRange } from "./direct.ts";
 import { prune } from "./isolation.ts";

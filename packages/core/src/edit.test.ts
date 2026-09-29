@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { bounds, createDocument, createNodes, ellipseMatrix, outline } from "./document.ts";
 import { deleteNodes, transformNodes, updateNodes } from "./edit.ts";
-import { ZibelError } from "./errors.ts";
+import { KalamoError } from "./errors.ts";
 import { applyTo, compose, IDENTITY, invert } from "./matrix.ts";
 import type { Gradient, Node, ShapeNode } from "./schema.ts";
 
@@ -20,10 +20,10 @@ const errorOf = (fn: () => unknown) => {
   try {
     fn();
   } catch (e) {
-    if (e instanceof ZibelError) return e.data;
+    if (e instanceof KalamoError) return e.data;
     throw e;
   }
-  throw new Error("expected a ZibelError");
+  throw new Error("expected a KalamoError");
 };
 
 const near = (r: ReturnType<typeof bounds>) =>

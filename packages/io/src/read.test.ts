@@ -4,6 +4,7 @@ import {
   createNodes,
   type Fill,
   type ImageNode,
+  KalamoError,
   type Matrix,
   makeMask,
   type Node,
@@ -13,8 +14,7 @@ import {
   serializeDocument,
   shapeSegments,
   transformNodes,
-  ZibelError,
-} from "@zibel/core";
+} from "@kalamo/core";
 import { describe, expect, it } from "vitest";
 import { RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
 import reference from "../../core/src/spiral.inkscape.json" with { type: "json" };
@@ -24,10 +24,10 @@ const errorOf = (fn: () => unknown) => {
   try {
     fn();
   } catch (e) {
-    if (e instanceof ZibelError) return e.data;
+    if (e instanceof KalamoError) return e.data;
     throw e;
   }
-  throw new Error("expected a ZibelError");
+  throw new Error("expected a KalamoError");
 };
 
 const NS = [
@@ -390,7 +390,7 @@ it("scales Stroke widths and dashes with the user unit", () => {
   });
 });
 
-it("reads Inkscape layers, labels, locks and pages, and Zibel's tags, meta, stacks and backgrounds", () => {
+it("reads Inkscape layers, labels, locks and pages, and Kalamo's tags, meta, stacks and backgrounds", () => {
   const kept = "01M38T29S8GTJN2S1004N4Q1BH";
   const file = parseFile(
     svg(
@@ -614,7 +614,7 @@ it("opens an Inkscape arc of each type as an ellipse with the same angles and ty
   expect(moved("rotate(30)")?.transform[1]).toBeCloseTo(0.5, 6);
 });
 
-it("reads an arc Zibel cannot hold as the Path its d draws", () => {
+it("reads an arc Kalamo cannot hold as the Path its d draws", () => {
   for (const attrs of [{ "sodipodi:rx": -5 }, { "sodipodi:cx": "abc" }] as Record<
     string,
     string | number
@@ -887,9 +887,9 @@ it("opens a star and a polygon drawn in Inkscape as Live Shapes that draw Inksca
 
 it.each([
   [{ "inkscape:rounded": 11 }],
-  // Inkscape jitters a polygon by max(r1, r2); Zibel's polygon has no r2.
+  // Inkscape jitters a polygon by max(r1, r2); Kalamo's polygon has no r2.
   [{ "inkscape:flatsided": "true", "sodipodi:r2": 50, "inkscape:randomized": 0.1 }],
-])("reads a star whose parameters Zibel cannot hold as its Path: %j", (attrs) => {
+])("reads a star whose parameters Kalamo cannot hold as its Path: %j", (attrs) => {
   const file = parseFile(svg("", star(attrs)));
   expect(leaves(file)[0]?.type).toBe("path");
   expect(file.warnings.map((w) => w.code)).toEqual(["STAR_AS_PATH"]);
@@ -1235,7 +1235,7 @@ it("keeps fill-rule on what becomes a Path, and drops it without a warning elsew
         '<g fill-rule="evenodd"><polygon points="0 0 9 0 9 9"/></g>' +
         `<g zibel:stack="true" style="fill-rule:evenodd"><path d="${d}" fill="#FF0000"/><path d="${d}" fill="#0000FF"/></g>` +
         `<path d="${d}"/><rect fill-rule="evenodd" width="1" height="1"/>` +
-        // Zibel's own export of a two-Fill evenodd Path: the rule on each paint.
+        // Kalamo's own export of a two-Fill evenodd Path: the rule on each paint.
         `<g zibel:stack="true"><path d="${d}" fill-rule="evenodd" fill="#FF0000"/><path d="${d}" fill-rule="evenodd" fill="#0000FF"/></g>`,
     ),
   );
@@ -1252,7 +1252,7 @@ it("keeps fill-rule on what becomes a Path, and drops it without a warning elsew
   expect(file.warnings).toEqual([]);
 });
 
-it("opens a file with content Zibel cannot hold, with one warning per kind", () => {
+it("opens a file with content Kalamo cannot hold, with one warning per kind", () => {
   const id = "z-01M38T29SBZ873XP2NBD2K6CYR";
   const file = parseFile(
     svg(
@@ -1448,7 +1448,7 @@ describe("Clipping Masks (ADR-0021)", () => {
     });
   });
 
-  it("reads Zibel's inline <clipPath> where it sits, with its id and clip-rule", () => {
+  it("reads Kalamo's inline <clipPath> where it sits, with its id and clip-rule", () => {
     const file = parseFile(
       svg(
         "",
@@ -1483,7 +1483,7 @@ describe("Clipping Masks (ADR-0021)", () => {
     ]);
   });
 
-  it("imports unclipped, warning once, a clip Zibel cannot hold", () => {
+  it("imports unclipped, warning once, a clip Kalamo cannot hold", () => {
     const clip = (inner: string, attrs = "") =>
       parseFile(
         svg(

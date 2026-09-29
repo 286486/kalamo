@@ -1,4 +1,4 @@
-import { ZibelError } from "./errors.ts";
+import { KalamoError } from "./errors.ts";
 import type { Rect, Shape } from "./schema.ts";
 import { spiralSegments } from "./spiral.ts";
 
@@ -14,7 +14,7 @@ const TOKEN = /[\s,]*([A-Za-z]|[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)/y;
 /** Parses SVG `d` limited to absolute M, L, C, Q and Z (REQUIREMENTS §6.5). */
 export function parsePath(d: string, path: string): Segment[] {
   const fail = (message: string, hint: string): never => {
-    throw new ZibelError({ code: "INVALID_PATH", message, hint, path });
+    throw new KalamoError({ code: "INVALID_PATH", message, hint, path });
   };
   const tokens: string[] = [];
   let end = 0;
@@ -76,7 +76,7 @@ const COMMAND = /[\s,]*([MmLlHhVvCcSsQqTtAaZz])/y;
  */
 export function normalizePath(d: string, path: string): Segment[] {
   const fail = (message: string, hint = "d is SVG path data starting with M."): never => {
-    throw new ZibelError({ code: "INVALID_PATH", message, hint, path });
+    throw new KalamoError({ code: "INVALID_PATH", message, hint, path });
   };
   let at = 0;
   const read = (re: RegExp) => {

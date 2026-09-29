@@ -6,12 +6,12 @@ import {
   type ShapeNode,
   shapeSegments,
   type Warning,
-} from "@zibel/core";
+} from "@kalamo/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import exported from "../../../fixtures/documents/inkscape.svg?raw";
 import { BLUE_1x1_PNG, RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
 import { decodePng } from "../../../fixtures/png.ts";
-import { counted, fullZibelFile, MiB } from "./bodies.ts";
+import { counted, fullKalamoFile, MiB } from "./bodies.ts";
 import { call, errorOf, rpc } from "./rpc.ts";
 
 const newDoc = async () =>
@@ -754,7 +754,7 @@ it("creates a missing link from file and a frame (ADR-0042)", async () => {
   expect(result.structuredContent.createdIds).toHaveLength(1);
 });
 
-it("keeps a style Zibel lacks and warns FONT_MISSING naming the face it renders in", async () => {
+it("keeps a style Kalamo lacks and warns FONT_MISSING naming the face it renders in", async () => {
   const doc = await newDoc();
   const created = await call("zibel_node_create", {
     docId: doc.docId,
@@ -817,7 +817,7 @@ it("writes a text with characters no bundled font has and warns MISSING_GLYPHS n
   expect(other.structuredContent.warnings).toEqual([]);
 });
 
-it("keeps a font Zibel lacks, warns FONT_MISSING and renders it in Source Sans 3", async () => {
+it("keeps a font Kalamo lacks, warns FONT_MISSING and renders it in Source Sans 3", async () => {
   const doc = await newDoc();
   const created = await call("zibel_node_create", {
     docId: doc.docId,
@@ -1151,7 +1151,7 @@ it("reports name, Artboards, node count, rev and no browsers with doc_get_info",
 
 it("answers GET and DELETE with 405: no standalone stream and no sessions (ADR-0006)", async () => {
   for (const method of ["GET", "DELETE"]) {
-    const res = await exports.default.fetch("http://zibel/mcp", {
+    const res = await exports.default.fetch("http://kalamo/mcp", {
       method,
       headers: { accept: "text/event-stream", authorization: "Bearer dev-token-a" },
     });
@@ -1681,7 +1681,7 @@ describe("a Place receipt's warnings name the placed Nodes (#161)", () => {
     for (const [i, w] of fonts.entries()) expect(w.message).toContain(got[i]?.fontFamily);
   });
 
-  it("drops a warning on a Clipping Path a Zibel copy leaves behind, keeping a listed Text's", async () => {
+  it("drops a warning on a Clipping Path a Kalamo copy leaves behind, keeping a listed Text's", async () => {
     const { docId, defaultLayerId } = await newDoc();
     const text = { type: "text", parentId: defaultLayerId, fontFamily: "Helvetica" };
     const { keyMap } = (
@@ -1717,7 +1717,7 @@ describe("a Place receipt's warnings name the placed Nodes (#161)", () => {
     expect(await texts(docId, [fonts[0]?.nodeId])).toMatchObject([{ content: "Kept" }]);
   });
 
-  it("counts a Zibel copy's per-file text warnings over the Texts it places (#162)", async () => {
+  it("counts a Kalamo copy's per-file text warnings over the Texts it places (#162)", async () => {
     const { docId, defaultLayerId } = await newDoc();
     const copyOf = async (clip: object, kept: object) => {
       const text = { type: "text", parentId: defaultLayerId, x: 0 };
@@ -1851,7 +1851,7 @@ it("places an SVG as one Group under the parent, and refuses a .zibel.json", asy
 
 describe("request body capped before the SDK reads it (ADR-0049)", () => {
   const post = (body: ReadableStream, length?: number, token: string | null = "dev-token-a") =>
-    exports.default.fetch("http://zibel/mcp", {
+    exports.default.fetch("http://kalamo/mcp", {
       method: "POST",
       body,
       headers: {
@@ -1895,7 +1895,7 @@ describe("request body capped before the SDK reads it (ADR-0049)", () => {
 
   it("opens a .zibel.json whose images fill the 20 MB Document cap", async () => {
     const { docId, defaultLayerId } = await newDoc();
-    const content = await fullZibelFile(docId, defaultLayerId);
+    const content = await fullKalamoFile(docId, defaultLayerId);
     const opened = await call("zibel_doc_open", { content });
     expect(opened.isError).toBeFalsy();
     expect(opened.structuredContent).toMatchObject({ docId: expect.any(String) });

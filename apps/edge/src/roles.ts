@@ -1,5 +1,5 @@
-import { ZibelError } from "@zibel/core";
-import type { DocSummary, Role } from "@zibel/sync";
+import { KalamoError } from "@kalamo/core";
+import type { DocSummary, Role } from "@kalamo/sync";
 import { githubMode, type Principal } from "./auth.ts";
 
 /** What a call needs of its caller's Role (ADR-0047). */
@@ -41,7 +41,7 @@ export async function authorize(
 }
 
 export const docNotFound = () =>
-  new ZibelError({
+  new KalamoError({
     code: "DOC_NOT_FOUND",
     message: "Document not found.",
     hint: "Check the docId against zibel_doc_list, which lists the Documents you own or that are shared with you.",
@@ -50,20 +50,20 @@ export const docNotFound = () =>
 
 function denied(role: Role, userRole: Role, need: Need) {
   if (role !== userRole) {
-    return new ZibelError({
+    return new KalamoError({
       code: "PERMISSION_DENIED",
       message: "This Agent's token is read-only, so it is a viewer of every Document.",
       hint: "As a viewer, read tools still work. To edit, connect the Agent again without choosing read only.",
     });
   }
   if (need === "own") {
-    return new ZibelError({
+    return new KalamoError({
       code: "PERMISSION_DENIED",
       message: `You are ${article(role)} of this Document; only its owner can share or delete it.`,
       hint: `As ${article(role)}, you can ${role === "editor" ? "edit it" : "read it"}; ask the owner to share or delete it.`,
     });
   }
-  return new ZibelError({
+  return new KalamoError({
     code: "PERMISSION_DENIED",
     message: "You are a viewer of this Document: you can read it but not change it.",
     hint: "As a viewer, read tools still work. Ask the owner to make you an editor to change it.",
@@ -75,7 +75,7 @@ const article = (role: Role) => (role === "editor" ? "an editor" : "a viewer");
 /** A read-only Principal makes nothing: creating a Document is a write. */
 export function assertWrites(principal: Principal) {
   if (principal.access === "read") {
-    throw new ZibelError({
+    throw new KalamoError({
       code: "PERMISSION_DENIED",
       message: "This Agent's token is read-only, so it cannot create Documents.",
       hint: "As a viewer, read tools still work. To create, connect the Agent again without choosing read only.",
@@ -136,7 +136,7 @@ async function share(
   await authorize(env, principal, docId, "own");
   const { role } = await request.json<{ role?: unknown }>().catch(() => ({ role: undefined }));
   if (role !== "editor" && role !== "viewer") {
-    throw new ZibelError({
+    throw new KalamoError({
       code: "INVALID_INPUT",
       message: "role must be editor or viewer.",
       hint: 'Send { "role": "editor" } or { "role": "viewer" }.',
@@ -173,7 +173,7 @@ async function member(env: Env, docId: string, login: string) {
     .bind(login, docId)
     .first<{ id: string; login: string; owns: number }>();
   if (!user) {
-    throw new ZibelError({
+    throw new KalamoError({
       code: "INVALID_INPUT",
       message: `${login} has never signed in to Zibel.`,
       hint: `Ask ${login} to sign in to Zibel with GitHub once, then share again.`,
@@ -181,7 +181,7 @@ async function member(env: Env, docId: string, login: string) {
     });
   }
   if (user.owns) {
-    throw new ZibelError({
+    throw new KalamoError({
       code: "INVALID_INPUT",
       message: `${user.login} owns this Document; the owner is never a member.`,
       hint: "Share it with someone else's GitHub login.",

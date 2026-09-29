@@ -3,7 +3,7 @@ import { z } from "zod";
 import { parseColor } from "./color.ts";
 import { assertParent, paint, paintContainer } from "./document.ts";
 import { zodPath } from "./edit.ts";
-import { ZibelError } from "./errors.ts";
+import { KalamoError } from "./errors.ts";
 import {
   fileProblem,
   IMAGE_ID,
@@ -60,7 +60,7 @@ export function serializeDocument(doc: Document, images?: ImageSource): string {
   const files = ids.map((id) => {
     const url = images?.(id);
     if (url !== undefined) return [id, url];
-    throw new ZibelError({
+    throw new KalamoError({
       code: "INVALID_IMAGE",
       message: `The file of image ${id} was not given to the .zibel.json writer.`,
       hint: "Pass every Image's file through serializeDocument's images.",
@@ -161,7 +161,7 @@ const FileSchema = z.strictObject({
 
 const HINT = "A .zibel.json file is what zibel_export returns with format zibel_json.";
 const invalid = (path: string, message: string, hint = HINT) =>
-  new ZibelError({ code: "INVALID_DOCUMENT", message, hint, path });
+  new KalamoError({ code: "INVALID_DOCUMENT", message, hint, path });
 
 /**
  * One Node of a file, checked as `parseDocument` checks each and stored canonical; `at` is its path
@@ -273,7 +273,7 @@ export function parseDocument(
         try {
           return [id, readImage(url, at)];
         } catch (e) {
-          if (!(e instanceof ZibelError)) throw e;
+          if (!(e instanceof KalamoError)) throw e;
           throw invalid(at, e.data.message);
         }
       }),

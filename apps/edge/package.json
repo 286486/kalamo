@@ -1,16 +1,16 @@
 {
-  "name": "@zibel/edge",
+  "name": "@kalamo/edge",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "1.1.0",
     "@modelcontextprotocol/sdk": "1.30.0",
-    "@zibel/core": "workspace:*",
-    "@zibel/geometry": "workspace:*",
-    "@zibel/io": "workspace:*",
-    "@zibel/mcp": "workspace:*",
-    "@zibel/render": "workspace:*",
-    "@zibel/sync": "workspace:*"
+    "@kalamo/core": "workspace:*",
+    "@kalamo/geometry": "workspace:*",
+    "@kalamo/io": "workspace:*",
+    "@kalamo/mcp": "workspace:*",
+    "@kalamo/render": "workspace:*",
+    "@kalamo/sync": "workspace:*"
   }
 }

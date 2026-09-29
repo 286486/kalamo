@@ -1,5 +1,5 @@
-import { childrenOf, clippingPath, type Document, lockedIn, type Node } from "@zibel/core";
-import type { Command } from "@zibel/sync";
+import { childrenOf, clippingPath, type Document, lockedIn, type Node } from "@kalamo/core";
+import type { Command } from "@kalamo/sync";
 import { inScope, isolatable } from "./isolation.ts";
 import { editable, placeParent } from "./selection.ts";
 

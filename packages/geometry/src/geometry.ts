@@ -1,6 +1,6 @@
 /// <reference path="./pathkit.d.ts" />
-import type { Filled, Geometry, OffsetStyle, Segment, StrokeStyle } from "@zibel/core";
-import { ZibelError } from "@zibel/core";
+import type { Filled, Geometry, OffsetStyle, Segment, StrokeStyle } from "@kalamo/core";
+import { KalamoError } from "@kalamo/core";
 import type { PathKit, SkPath } from "pathkit-wasm/bin/pathkit.js";
 
 /** The ops on a loaded PathKit, for the Worker's loader and the browser's. */
@@ -102,7 +102,7 @@ function dash(pk: PathKit, path: SkPath, pattern: number[], owned: SkPath[]): Sk
 }
 
 const failed = (what: string) =>
-  new ZibelError({
+  new KalamoError({
     code: "BOOLEAN_FAILED",
     message: `Skia PathOps could not ${what} this path.`,
     hint: "Check d for non-finite numbers or degenerate segments.",

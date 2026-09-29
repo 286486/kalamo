@@ -1,4 +1,4 @@
-import { createDocument, createNodes, Shape, shapeSegments } from "@zibel/core";
+import { createDocument, createNodes, Shape, shapeSegments } from "@kalamo/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   arcKey,

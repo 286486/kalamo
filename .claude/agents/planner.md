@@ -5,7 +5,7 @@ model: fable
 tools: Read, Bash, WebFetch, WebSearch
 ---
 
-You plan work for Zibel. You do not edit files.
+You plan work for Kalamo. You do not edit files.
 
 Read before planning: `CLAUDE.md`, `CONTEXT.md`, every ADR in `docs/adr/` that touches the area, the relevant sections of `docs/REQUIREMENTS.md`, and the code the change will touch. Trace the real flow end to end.
 

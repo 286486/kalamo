@@ -1,4 +1,3 @@
-import { DOMParser, type Element } from "@xmldom/xmldom";
 import {
   type Appearance,
   type Artboard,
@@ -19,6 +18,7 @@ import {
   type ImageFile,
   type ImageInfo,
   invert,
+  KalamoError,
   type Matrix,
   MIGRATIONS,
   mapGradient,
@@ -43,13 +43,14 @@ import {
   unfilledRanges,
   union,
   type Warning,
-  ZibelError,
-} from "@zibel/core";
+} from "@kalamo/core";
+import { DOMParser, type Element } from "@xmldom/xmldom";
 import { generateKeyBetween } from "fractional-indexing";
 import {
   alpha,
   arcOf,
   idOf,
+  type KalamoAttr,
   MITER_LIMIT,
   NS,
   numbers,
@@ -59,7 +60,6 @@ import {
   starOf,
   withAlpha,
   xmlId,
-  type ZibelAttr,
 } from "./dialect.ts";
 import { asGradient, type Geometry, unroll } from "./gradient.ts";
 import { computeStyle, type Rule, type Style, stylesheet } from "./style.ts";
@@ -72,7 +72,7 @@ export interface OpenedFile {
   /** The file of every Image `src` names, by that key (ADR-0023). */
   images: Map<string, ImageFile>;
   warnings: Warning[];
-  /** The Render Scope a Zibel SVG export was written at, from `zibel:scope`; absent at doc scope. */
+  /** The Render Scope a Kalamo SVG export was written at, from `zibel:scope`; absent at doc scope. */
   scope?: RenderScope;
   /** Each linked Image's `zibel:src`, by Node id, until `resolveLinks` (ADR-0042). */
   links?: Map<string, Link>;
@@ -89,7 +89,7 @@ interface Link {
 }
 
 const invalid = (message: string) =>
-  new ZibelError({
+  new KalamoError({
     code: "INVALID_DOCUMENT",
     message,
     hint: "Pass the text of a well-formed SVG file, as Inkscape or zibel_export writes it.",
@@ -290,7 +290,7 @@ interface Context {
 }
 
 /**
- * The deepest Layer and Group nesting Zibel reads. Deeper files are refused: the walk, and core's
+ * The deepest Layer and Group nesting Kalamo reads. Deeper files are refused: the walk, and core's
  * walks after it, recurse (REQUIREMENTS §6.7).
  */
 export const MAX_DEPTH = 256;
@@ -362,11 +362,11 @@ const MISSING =
 const UNSIZED =
   "An <image> was dropped: a linked image without width and height has no size until its file is read.";
 
-const zibelAttr = (e: Element, name: ZibelAttr) => e.getAttributeNS(NS.zibel, name);
+const kalamoAttr = (e: Element, name: KalamoAttr) => e.getAttributeNS(NS.kalamo, name);
 /** One paint of a container's Appearance, as export writes it (ADR-0043). */
-const isPaint = (e: Element) => zibelAttr(e, "paint") === "true";
+const isPaint = (e: Element) => kalamoAttr(e, "paint") === "true";
 /** A Clipping Path's Fills or Strokes, as export writes them (ADR-0051). */
-const isClipPaint = (e: Element) => /^clip-(fill|stroke)$/.test(zibelAttr(e, "paint") ?? "");
+const isClipPaint = (e: Element) => /^clip-(fill|stroke)$/.test(kalamoAttr(e, "paint") ?? "");
 /** Opacity and blend mode from resolved style. */
 const looksOf = (style: Style) => {
   const blend = BlendMode.safeParse(style["mix-blend-mode"]);
@@ -444,7 +444,7 @@ class Reader {
   /** `zibel:tags` and `zibel:meta` as export writes them, or empty with a warning. */
   private tagsAndMeta(e: Element | null) {
     const read = (name: "tags" | "meta", ok: (v: unknown) => boolean) => {
-      const raw = e && zibelAttr(e, name);
+      const raw = e && kalamoAttr(e, name);
       if (!raw) return undefined;
       try {
         const v = JSON.parse(raw);
@@ -501,7 +501,7 @@ class Reader {
       );
       return;
     }
-    // Its container reads it (containerAppearance); anywhere else it paints nothing Zibel can hold.
+    // Its container reads it (containerAppearance); anywhere else it paints nothing Kalamo can hold.
     if (isPaint(e) || isClipPaint(e)) {
       this.warn(
         "UNSUPPORTED_ELEMENT",
@@ -518,13 +518,13 @@ class Reader {
     const computed = computeStyle(e, ctx.style, this.rules);
     const style = this.unclipped.has(e) ? { ...computed, "clip-path": "none" } : computed;
     const tag = e.localName;
-    const stack = zibelAttr(e, "stack") === "true";
+    const stack = kalamoAttr(e, "stack") === "true";
     if (e.getAttributeNS(NS.sodipodi, "type") === "inkscape:box3d") {
       this.warn("BOX3D_AS_PATHS", "", "3D boxes import as a Group of their side Paths.");
     }
     if ((tag === "g" && !stack) || tag === "a" || tag === "switch") {
       if (ctx.depth >= MAX_DEPTH) {
-        throw new ZibelError({
+        throw new KalamoError({
           code: "LIMIT_EXCEEDED",
           message: `Groups in the file nest deeper than ${MAX_DEPTH} levels.`,
           hint: "Ungroup the innermost levels in the editor that made the file, then try again.",
@@ -537,7 +537,7 @@ class Reader {
       // A Layer's or Group's <g zibel:clipped> is not a Node: its children are the container's, and
       // its clip-path the container's Clipping Mask, written so its Clipping Path's Strokes draw
       // unclipped (ADR-0051, ADR-0053).
-      const wrapped = (c: Element) => tag === "g" && zibelAttr(c, "clipped") === "true";
+      const wrapped = (c: Element) => tag === "g" && kalamoAttr(c, "clipped") === "true";
       const named = (s: Style) =>
         s["clip-path"] && s["clip-path"] !== "none" ? [s["clip-path"]] : [];
       const inner = elements(e)
@@ -552,7 +552,7 @@ class Reader {
         );
       }
       const parentId = layer ? ctx.parentId : this.parent(ctx);
-      // Zibel supports no SVG extension, so a <switch> never renders a child that requires one, such
+      // Kalamo supports no SVG extension, so a <switch> never renders a child that requires one, such
       // as Illustrator's private-data <foreignObject>.
       const kids = elements(e)
         .flatMap((c) => (wrapped(c) ? elements(c) : [c]))
@@ -589,14 +589,14 @@ class Reader {
       return;
     }
     // An Artboard's background, or the export's background option: not artwork.
-    const artboardId = zibelAttr(e, "artboard");
+    const artboardId = kalamoAttr(e, "artboard");
     if (artboardId) {
       const artboard = this.artboards.find((a) => a.id === artboardId);
       const fill = this.color(style.fill ?? "black", style, style["fill-opacity"]);
       if (artboard && fill) artboard.background = fill;
       return;
     }
-    if (zibelAttr(e, "background")) return;
+    if (kalamoAttr(e, "background")) return;
     let shape: Record<string, unknown> | null;
     let appearance: Appearance | undefined;
     let link: Link | undefined;
@@ -668,7 +668,7 @@ class Reader {
       parseNode({ ...PLACED, ...own }, "element");
       return true;
     } catch (error) {
-      if (!(error instanceof ZibelError)) throw error;
+      if (!(error instanceof KalamoError)) throw error;
       this.warn(
         "INVALID_ELEMENT",
         error.data.path ?? "",
@@ -728,7 +728,7 @@ class Reader {
   }
 
   /**
-   * The clip a `clip-path` names when Zibel can hold it as a Clipping Path (ADR-0021, ADR-0053):
+   * The clip a `clip-path` names when Kalamo can hold it as a Clipping Path (ADR-0021, ADR-0053):
    * one Live Shape, Path or text in the referencing element's user space, inline or through one
    * `<use>` of it (ADR-0056). Otherwise the content imports unclipped, with a warning.
    */
@@ -843,7 +843,7 @@ class Reader {
         ? unfilled(this.text(e, style, m)?.shape)
         : this.shape(e, m, { ...style, "fill-rule": style["clip-rule"] ?? "nonzero" });
     if (!shape) {
-      // ponytail: Zibel clips a text of only spaces everything away, but import holds no such
+      // ponytail: Kalamo clips a text of only spaces everything away, but import holds no such
       // text; keep it as a Clipping Path if files with one turn up.
       if (e.localName === "text") {
         this.warn(
@@ -859,7 +859,7 @@ class Reader {
     let rangeFills: CharacterRange[] | undefined;
     for (const { fill, looks: s, copy, style: cs, matrix: cm, fromUse } of paints) {
       const look =
-        zibelAttr(copy, "stack") === "true"
+        kalamoAttr(copy, "stack") === "true"
           ? stacked(this.stack(copy, cs, cm))
           : this.appearance(cs, copy, cm);
       if (fromUse && (fill ? look.strokes : look.fills).length) {
@@ -907,7 +907,7 @@ class Reader {
     if (!at) return [];
     return [
       {
-        fill: zibelAttr(p, "paint") === "clip-fill",
+        fill: kalamoAttr(p, "paint") === "clip-fill",
         looks: s,
         copy,
         style: computeStyle(copy, s, this.rules),
@@ -939,7 +939,7 @@ class Reader {
     ];
   }
 
-  /** What a leaf's style asks for that Zibel draws without: warned, then left out. */
+  /** What a leaf's style asks for that Kalamo draws without: warned, then left out. */
   private unsupported(e: Element, style: Style) {
     for (const p of ["mask", "filter", "marker-start", "marker-mid", "marker-end"]) {
       if (style[p] && style[p] !== "none") {
@@ -1084,7 +1084,7 @@ class Reader {
       ...(tracking && { tracking }),
       transform: bake ? [...IDENTITY] : round(m),
     };
-    // Returns are kept where white-space keeps them; control characters and separators Zibel cannot
+    // Returns are kept where white-space keeps them; control characters and separators Kalamo cannot
     // lay out draw as spaces, as SVG draws them. Collapsed, a run of whitespace keeps its first
     // character, and with it that character's attributes.
     const pre = /^(pre|pre-wrap|pre-line|break-spaces)$/.test(style["white-space"] ?? "");
@@ -1541,7 +1541,7 @@ class Reader {
 
   /**
    * An `<image>`'s parameters: its frame, baked as a rect's, and an embedded file under a key of
-   * this read (ADR-0023), or a linked file's href and `zibel:src` (ADR-0042). One Zibel cannot hold
+   * this read (ADR-0023), or a linked file's href and `zibel:src` (ADR-0042). One Kalamo cannot hold
    * is dropped with a warning.
    */
   private image(e: Element, m: Matrix): { shape: Record<string, unknown>; link?: Link } | null {
@@ -1556,7 +1556,7 @@ class Reader {
       y: n3(k * (length(e.getAttribute("y")) ?? 0) + ty),
       width: n3(k * width),
       height: n3(k * height),
-      // Absent, SVG's default, not Zibel's none.
+      // Absent, SVG's default, not Kalamo's none.
       preserveAspectRatio:
         preserveAspectRatio(e.getAttribute("preserveAspectRatio") ?? "") ?? "xMidYMid meet",
       transform: bake ? [...IDENTITY] : round(m),
@@ -1570,7 +1570,7 @@ class Reader {
       if (problem) return drop(problem);
       // SVG draws nothing for an image with no area.
       if ((w ?? 1) <= 0 || (h ?? 1) <= 0) return null;
-      const src = zibelAttr(e, "src") ?? "";
+      const src = kalamoAttr(e, "src") ?? "";
       const offered = IMAGE_ID.test(src);
       const sized = w !== undefined && h !== undefined;
       if (!sized && !offered) {
@@ -1588,7 +1588,7 @@ class Reader {
     try {
       file = readImage(href, "src");
     } catch (err) {
-      if (!(err instanceof ZibelError)) throw err;
+      if (!(err instanceof KalamoError)) throw err;
       return drop(err.data.message);
     }
     const width = w ?? file.width;
@@ -1694,7 +1694,7 @@ class Reader {
           try {
             return path(normalizePath(e.getAttribute("d") ?? "", "d"));
           } catch (error) {
-            if (!(error instanceof ZibelError)) throw error;
+            if (!(error instanceof KalamoError)) throw error;
             this.warn("INVALID_PATH", "", `A path was dropped: ${error.message}`);
             return null;
           }
@@ -1748,7 +1748,7 @@ export function parseSvg(text: string, nameHint?: string): OpenedFile {
   const vb = numbers(root.getAttribute("viewBox"));
   const [vx = 0, vy = 0, vw = 0, vh = 0] = vb;
   const hasViewBox = vb.length === 4 && vw > 0 && vh > 0;
-  // User units to pt; the viewBox origin stays where it is, so a Zibel export's coordinates come
+  // User units to pt; the viewBox origin stays where it is, so a Kalamo export's coordinates come
   // back unchanged.
   const scale = hasViewBox
     ? width !== undefined
@@ -1814,7 +1814,7 @@ export function parseSvg(text: string, nameHint?: string): OpenedFile {
     MIGRATIONS,
     reader.images,
   );
-  const scope = scopeOf(zibelAttr(root, "scope"));
+  const scope = scopeOf(kalamoAttr(root, "scope"));
   return {
     ...file,
     warnings: [...reader.warnings.values()],

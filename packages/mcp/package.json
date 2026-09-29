@@ -1,5 +1,5 @@
 {
-  "name": "@zibel/mcp",
+  "name": "@kalamo/mcp",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -8,8 +8,8 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",
-    "@zibel/core": "workspace:*",
-    "@zibel/sync": "workspace:*",
+    "@kalamo/core": "workspace:*",
+    "@kalamo/sync": "workspace:*",
     "zod": "^4.4.3"
   }
 }

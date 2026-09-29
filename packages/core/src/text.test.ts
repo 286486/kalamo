@@ -166,7 +166,7 @@ it("wraps Area Type by the advances of its style", () => {
   expect([lines("Regular"), lines("Bold")]).toEqual([1, 2]);
 });
 
-it("warns for a style Zibel does not bundle, naming the face it renders in", () => {
+it("warns for a style Kalamo does not bundle, naming the face it renders in", () => {
   const text = (id: string, fontFamily: string, fontStyle: string) =>
     ({ id, type: "text", fontFamily, fontStyle }) as Parameters<typeof fontWarnings>[0][number];
   expect(
@@ -181,7 +181,7 @@ it("warns for a style Zibel does not bundle, naming the face it renders in", () 
   ]);
 });
 
-it("warns once for each text in a font Zibel does not bundle", () => {
+it("warns once for each text in a font Kalamo does not bundle", () => {
   const text = (id: string, fontFamily: string) =>
     ({ id, type: "text", fontFamily }) as Parameters<typeof fontWarnings>[0][number];
   expect(

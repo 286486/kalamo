@@ -1,6 +1,6 @@
+import { BUNDLED_FONT, type BundledFamily } from "@kalamo/core";
 import { initWasm, Resvg } from "@resvg/resvg-wasm";
 import wasm from "@resvg/resvg-wasm/index_bg.wasm";
-import { BUNDLED_FONT, type BundledFamily } from "@zibel/core";
 import black from "../fonts/SourceSans3-Black.ttf";
 import blackItalic from "../fonts/SourceSans3-BlackIt.ttf";
 import bold from "../fonts/SourceSans3-Bold.ttf";

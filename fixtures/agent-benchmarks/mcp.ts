@@ -6,7 +6,7 @@ export interface ToolResult {
   content: { type: string; text?: string }[];
 }
 
-/** Calls one zibel tool; the runner's is `httpCall`, the unit test's goes through the Worker. */
+/** Calls one Kalamo tool; the runner's is `httpCall`, the unit test's goes through the Worker. */
 export type Call = (name: string, args: unknown) => Promise<ToolResult>;
 
 /** A task's assertions: throw an Error naming what is wrong. `tools` are the Agent's calls, in order. */

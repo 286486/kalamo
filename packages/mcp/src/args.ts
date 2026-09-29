@@ -1,4 +1,4 @@
-import { type ErrorData, ZibelError, zodPath } from "@zibel/core";
+import { type ErrorData, KalamoError, zodPath } from "@kalamo/core";
 import { z } from "zod";
 
 /**
@@ -13,7 +13,7 @@ export function parseArgs<T extends z.ZodType>(tool: string, schema: T, raw: unk
   const issue = issues.find((i) => i.code === "unrecognized_keys") ?? issues[0];
   if (!issue) throw parsed.error;
   const { path, message, hint } = explain(tool, schema, raw, issue);
-  throw new ZibelError({ code: "INVALID_INPUT", message, hint, ...(path && { path }) });
+  throw new KalamoError({ code: "INVALID_INPUT", message, hint, ...(path && { path }) });
 }
 
 const dotted = (path: PropertyKey[]) => zodPath(path).replace(/^\./, "");

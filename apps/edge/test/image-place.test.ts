@@ -1,4 +1,4 @@
-import { readImage } from "@zibel/core";
+import { readImage } from "@kalamo/core";
 import { afterEach, expect, it, vi } from "vitest";
 import { RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
 import { call, errorOf } from "./rpc.ts";

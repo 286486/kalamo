@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Anchor } from "./anchor.ts";
-import { ZibelError } from "./errors.ts";
+import { KalamoError } from "./errors.ts";
 import { formatPath, type Segment } from "./path.ts";
 import { AppearanceInput } from "./schema.ts";
 
@@ -373,7 +373,7 @@ export function freehandPath(raw: FreehandStrokeInput) {
   const { parentId, points, fidelity, appearance } = FreehandStrokeInput.parse(raw);
   const ink = points.map(({ x, y }): Point => [x, y]);
   if (ink.every((p) => dist(p, ink[0] as Point) <= 1e-9)) {
-    throw new ZibelError({
+    throw new KalamoError({
       code: "INVALID_PATH",
       message: "The Ink has no two distinct points.",
       hint: "Give at least two points apart.",

@@ -31,7 +31,7 @@ import {
   transformSegments,
   unscaledStroke,
   worldTransform,
-} from "@zibel/core";
+} from "@kalamo/core";
 
 type Stroke = LeafNode["appearance"]["strokes"][number];
 

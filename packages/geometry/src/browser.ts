@@ -1,5 +1,5 @@
 /// <reference path="./pathkit.d.ts" />
-import type { Geometry } from "@zibel/core";
+import type { Geometry } from "@kalamo/core";
 import PathKitInit from "pathkit-wasm/bin/pathkit.js";
 import wasm from "pathkit-wasm/bin/pathkit.wasm?url";
 import { geometryOf } from "./geometry.ts";

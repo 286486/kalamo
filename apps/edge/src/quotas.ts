@@ -1,4 +1,4 @@
-import { ZibelError } from "@zibel/core";
+import { KalamoError } from "@kalamo/core";
 import { githubMode, type Principal } from "./auth.ts";
 
 /** The free beta's Quotas (F-MCP-06c, ADR-0048), enforced in GitHub mode only. */
@@ -21,7 +21,7 @@ export async function checkDocuments(env: Env, principal: Principal) {
     .first<number>("n");
   const limit = QUOTAS.documents;
   if ((used ?? 0) < limit) return;
-  throw new ZibelError({
+  throw new KalamoError({
     code: "LIMIT_EXCEEDED",
     message: `You own ${used} of ${limit} Documents, the beta's limit.`,
     hint: "Delete a Document you no longer need, with zibel_doc_delete or from the Document list, then retry. Documents shared with you do not count.",
@@ -47,7 +47,7 @@ export async function countCall(env: Env, principal: Principal, kind: "render" |
   const resetsAt = new Date(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1),
   ).toISOString();
-  throw new ZibelError({
+  throw new KalamoError({
     code: "LIMIT_EXCEEDED",
     message: `You have used all ${limit} zibel_${kind} calls of today (UTC), the beta's daily limit.`,
     hint: `The count resets at ${resetsAt}; retry then.${kind === "render" ? " Render a smaller scope less often to make the calls last." : ""}`,

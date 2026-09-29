@@ -6,7 +6,7 @@ import {
   fromAnchors,
   type PathEditInput,
   type PathOp,
-} from "@zibel/core";
+} from "@kalamo/core";
 import {
   anchorKey,
   anchorsOf,

@@ -1,4 +1,4 @@
-import type { ServerMessage } from "@zibel/sync";
+import type { ServerMessage } from "@kalamo/sync";
 import { authorizeMcp, hostedRpc } from "./authorize.ts";
 import { errorOf } from "./rpc.ts";
 import { APP_ORIGIN, hosted, signIn } from "./signin.ts";
@@ -30,7 +30,7 @@ export async function tool(who: Person, name: string, args: object) {
 export const bytes = (url: string) =>
   Uint8Array.from(atob(url.split(",")[1] ?? ""), (c) => c.charCodeAt(0));
 
-/** A cookie-authenticated browser request from Zibel's own page. */
+/** A cookie-authenticated browser request from Kalamo's own page. */
 export const browser = (who: Person, path: string, init: RequestInit = {}) =>
   hosted(path, {
     ...init,

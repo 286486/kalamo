@@ -9,7 +9,7 @@ import {
   type PathEditInput,
   type Shape,
   worldTransform,
-} from "@zibel/core";
+} from "@kalamo/core";
 import { addAnchorAt, deleteAnchorAt } from "./anchorTools.ts";
 import { curveThrough } from "./curvature.ts";
 import { anchorsOf, editableShapes, hasAnchors, localAnchors } from "./direct.ts";

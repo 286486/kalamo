@@ -24,8 +24,8 @@ import {
   touches,
   transformSegments,
   worldTransform,
-} from "@zibel/core";
-import { drawClipGlyphs } from "@zibel/render/canvas";
+} from "@kalamo/core";
+import { drawClipGlyphs } from "@kalamo/render/canvas";
 import { inScope } from "./isolation.ts";
 
 /**

@@ -1,5 +1,5 @@
 {
-  "name": "@zibel/geometry",
+  "name": "@kalamo/geometry",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -8,10 +8,10 @@
     "./browser": "./src/browser.ts"
   },
   "dependencies": {
-    "@zibel/core": "workspace:*",
+    "@kalamo/core": "workspace:*",
     "pathkit-wasm": "1.0.0"
   },
   "devDependencies": {
-    "@zibel/render": "workspace:*"
+    "@kalamo/render": "workspace:*"
   }
 }

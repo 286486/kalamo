@@ -19,6 +19,7 @@ import {
   type ImageInfo,
   type ImageSource,
   imageId,
+  KalamoError,
   lockedIn,
   type MaskInput,
   makeMask,
@@ -51,11 +52,10 @@ import {
   union,
   updateNodes,
   type WriteReceipt,
-  ZibelError,
-} from "@zibel/core";
-import { loadGeometry } from "@zibel/geometry";
-import { type OpenedFile, resolveLinks, scopeRect, svgRect, toSvg } from "@zibel/io";
-import { fit, renderSvg } from "@zibel/render";
+} from "@kalamo/core";
+import { loadGeometry } from "@kalamo/geometry";
+import { type OpenedFile, resolveLinks, scopeRect, svgRect, toSvg } from "@kalamo/io";
+import { fit, renderSvg } from "@kalamo/render";
 import {
   ACCESS_CHANGED,
   type ChangeEntry,
@@ -76,7 +76,7 @@ import {
   type TxMessage,
   type Viewport,
   type WriteOptions,
-} from "@zibel/sync";
+} from "@kalamo/sync";
 import { ACTOR_HEADER, CONNECTION_LIMIT_HEADER, ROLE_HEADER, USER_HEADER } from "./auth.ts";
 import type { OwnerStorage } from "./quotas.ts";
 
@@ -627,7 +627,7 @@ export class DocumentObject extends DurableObject<Env> {
         ready.push(await ingest(item, `${key}[${i}]`));
         kept.push(i);
       } catch (e) {
-        if (!(e instanceof ZibelError)) throw e;
+        if (!(e instanceof KalamoError)) throw e;
         if (!opts.partial) return { error: e.data };
         refused.push({ index: i, ...e.data });
       }
@@ -740,7 +740,7 @@ export class DocumentObject extends DurableObject<Env> {
     const undo = `A deleted Image's file keeps counting while undo history holds it: until ${UNDO_DEPTH} more Transactions push it out, or an edit after an undo clears the redo stack.`;
     if (storage && storage.used + total > storage.limit) {
       const used = storage.used + total - adding;
-      throw new ZibelError({
+      throw new KalamoError({
         code: "LIMIT_EXCEEDED",
         message: `Your Documents store ${used} bytes of image files; ${adding} more would pass your storage limit of ${storage.limit} (${mb(storage.limit)} MB) across the Documents you own.`,
         hint: `Delete Images, or Documents, you no longer need. ${undo}`,
@@ -748,7 +748,7 @@ export class DocumentObject extends DurableObject<Env> {
       });
     }
     if (total <= MAX_DOCUMENT_IMAGE_BYTES) return;
-    throw new ZibelError({
+    throw new KalamoError({
       code: "LIMIT_EXCEEDED",
       message: `The Document stores ${total - adding} bytes of image files; ${adding} more would pass its limit of ${MAX_DOCUMENT_IMAGE_BYTES} (${mb(MAX_DOCUMENT_IMAGE_BYTES)} MB).`,
       hint: `Delete Images the Document no longer needs. ${undo}`,
@@ -1000,7 +1000,7 @@ export class DocumentObject extends DurableObject<Env> {
       const nodes = nodeIds.map((id, i) => {
         const node = doc.nodes.get(id);
         if (!node) {
-          throw new ZibelError({
+          throw new KalamoError({
             code: "NODE_NOT_FOUND",
             message: `No Node with id ${id}.`,
             hint: "Use doc_outline or the ids from a WriteReceipt.",
@@ -1160,7 +1160,7 @@ export class DocumentObject extends DurableObject<Env> {
     return this.writeFiles(files, actor, opts, "Relink", (doc) => {
       const node = doc.nodes.get(opts.nodeId);
       const refuse = (message: string, hint: string) =>
-        new ZibelError({ code: "INVALID_IMAGE", message, hint, path: "nodeId" });
+        new KalamoError({ code: "INVALID_IMAGE", message, hint, path: "nodeId" });
       if (node && node.type !== "image") {
         throw refuse(`${opts.nodeId} is a ${node.type}, not an Image.`, "Select one Image.");
       }
@@ -1173,7 +1173,7 @@ export class DocumentObject extends DurableObject<Env> {
   }
 
   /**
-   * Place (ADR-0017): an SVG's Nodes as one new Group under `opts.parentId`, or a Zibel copy's Nodes
+   * Place (ADR-0017): an SVG's Nodes as one new Group under `opts.parentId`, or a Kalamo copy's Nodes
    * directly there (ADR-0030), all with new ids, in one Transaction. `nodes` is the outline of what
    * was put in the parent, to depth 2; the file's warnings name the new ids.
    */
@@ -1189,7 +1189,7 @@ export class DocumentObject extends DurableObject<Env> {
   ): Promise<Result<WriteReceipt & { nodes: OutlineNode[] }>> {
     let nodes: OutlineNode[] = [];
     const receipt = await this.writeFiles(file.images, actor, opts, "Place", (doc) => {
-      // A Zibel copy's linked Images keep their pixels only in the Document that holds them.
+      // A Kalamo copy's linked Images keep their pixels only in the Document that holds them.
       const resolved = resolveLinks(file, (id) => doc.images.get(id));
       const { placedIds, created, warnings } = placeNodes(doc, resolved, opts);
       const placed = new Set(placedIds);
@@ -1363,7 +1363,7 @@ export class DocumentObject extends DurableObject<Env> {
         this.log(ifRev, -1).flatMap((c) => [...c.createdIds, ...c.updatedIds, ...c.deletedIds]),
       ),
     ];
-    throw new ZibelError({
+    throw new KalamoError({
       code: "REV_CONFLICT",
       message: `The Document is at rev ${doc.rev}, not ${ifRev}.`,
       hint: `Call zibel_doc_changes with sinceRev: ${ifRev} to see what changed, then retry with ifRev: ${doc.rev}.`,
@@ -1410,7 +1410,7 @@ export class DocumentObject extends DurableObject<Env> {
       )
       .toArray()[0];
     if (!tx || tx.actor !== actor) {
-      throw new ZibelError({
+      throw new KalamoError({
         code: "TX_NOT_FOUND",
         message: `No Transaction ${txId} of yours in this Document.`,
         hint: "Use the txId from your zibel_tx_begin on this Document, or begin a new one.",
@@ -1428,7 +1428,7 @@ export class DocumentObject extends DurableObject<Env> {
         const log = this.sql.exec<{ rev: number }>("SELECT rev FROM tx_log WHERE tx_id = ?", txId);
         how += ` at rev ${log.one().rev}`;
       }
-      throw new ZibelError({
+      throw new KalamoError({
         code: "TX_EXPIRED",
         message: `Transaction ${txId} has ended.`,
         hint: `It was ${how}. Begin a new Transaction with zibel_tx_begin, or write without txId.`,
@@ -1497,7 +1497,7 @@ export class DocumentObject extends DurableObject<Env> {
       .exec<{ id: string; name: string; rev: number; artboards: string }>("SELECT * FROM doc")
       .toArray()[0];
     if (!row) {
-      throw new ZibelError({
+      throw new KalamoError({
         code: "DOC_NOT_FOUND",
         message: "Document not found.",
         hint: "Create one with zibel_doc_create, or check the docId.",
@@ -1637,7 +1637,7 @@ function guard<T>(fn: () => T): Result<T> {
   try {
     return fn();
   } catch (e) {
-    if (e instanceof ZibelError) return { error: e.data };
+    if (e instanceof KalamoError) return { error: e.data };
     throw e;
   }
 }

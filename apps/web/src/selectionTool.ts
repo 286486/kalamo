@@ -1,4 +1,4 @@
-import type { Rect } from "@zibel/core";
+import type { Rect } from "@kalamo/core";
 import {
   ARROW,
   cancelDrag,

@@ -1,4 +1,4 @@
-import { type PathOpInput, pathOp } from "@zibel/core";
+import { type PathOpInput, pathOp } from "@kalamo/core";
 import { send, useStore } from "./store.ts";
 
 /**

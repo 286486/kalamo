@@ -5,7 +5,7 @@ import {
   editPath,
   parsePath,
   toAnchors,
-} from "@zibel/core";
+} from "@kalamo/core";
 import { beforeEach, expect, it, vi } from "vitest";
 import { addAnchorTool, anchorPointTool, deleteAnchorTool } from "./anchorTools.ts";
 import { nearestSegment } from "./direct.ts";

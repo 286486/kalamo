@@ -1,11 +1,11 @@
 import { childrenOf, clippingPath, createNodes } from "./document.ts";
 import { lookup } from "./edit.ts";
-import { collect, ZibelError } from "./errors.ts";
+import { collect, KalamoError } from "./errors.ts";
 import type { Document, GroupNode, LeafNode, MaskInput, Node } from "./schema.ts";
 import { unfilledRanges } from "./text.ts";
 
 const invalid = (path: string, message: string, hint: string) =>
-  new ZibelError({ code: "INVALID_MASK", message, hint, path });
+  new KalamoError({ code: "INVALID_MASK", message, hint, path });
 
 /**
  * Illustrator's Object > Clipping Mask > Make (ADR-0021): a new Group at the topmost member's place

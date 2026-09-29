@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { toAnchors } from "./anchor.ts";
-import type { ZibelError } from "./errors.ts";
+import type { KalamoError } from "./errors.ts";
 import { FreehandStrokeInput, fidelityTolerance, fitInk, freehandPath } from "./fit.ts";
 import { formatPath, parsePath, type Segment } from "./path.ts";
 
@@ -246,7 +246,7 @@ describe("freehandPath", () => {
       freehandPath({ parentId: "p", points, tool: "pencil" });
       expect.unreachable();
     } catch (e) {
-      expect((e as ZibelError).data).toMatchObject({ code: "INVALID_PATH", path: "points" });
+      expect((e as KalamoError).data).toMatchObject({ code: "INVALID_PATH", path: "points" });
     }
   });
 });

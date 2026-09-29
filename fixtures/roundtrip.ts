@@ -1,4 +1,4 @@
-// `pnpm roundtrip`: each fixture Document goes Zibel → SVG → Inkscape → Zibel through a local
+// `pnpm roundtrip`: each fixture Document goes Kalamo → SVG → Inkscape → Kalamo through a local
 // `wrangler dev` and must come back equal (ADR-0017, REQUIREMENTS §7.2); a painted Group transformed
 // in Inkscape must come back as zibel_node_transform leaves it (ADR-0043). Needs `inkscape` ≥ 1.2.
 import { spawnSync } from "node:child_process";
@@ -155,7 +155,7 @@ function matrixOn(svg: string, id: string): number[] {
  * its `shape-inside` names, in document order: the original and every paint copy (a stack's,
  * a container's, a text Clipping Path's), none of which but one has the Node's id. A line is the
  * text of a line tspan whose baseline lies in the frame. Inkscape writes its overflow one ascent
- * below the frame, and Zibel's has no `y`.
+ * below the frame, and Kalamo's has no `y`.
  */
 function areaLines(svg: string): Map<string, string[][]> {
   const attr = (tag: string, name: string) =>

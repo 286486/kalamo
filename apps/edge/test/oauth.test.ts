@@ -76,14 +76,14 @@ describe("discovery", () => {
   });
 
   it("names MCP_ORIGIN as the resource and APP_ORIGIN as its authorization server", async () => {
-    const e = { ...githubEnv, MCP_ORIGIN: "https://mcp.zibel.test" };
+    const e = { ...githubEnv, MCP_ORIGIN: "https://mcp.kalamo.test" };
     const res = await hosted(
-      "https://mcp.zibel.test/.well-known/oauth-protected-resource/mcp",
+      "https://mcp.kalamo.test/.well-known/oauth-protected-resource/mcp",
       {},
       e,
     );
     expect(await res.json()).toMatchObject({
-      resource: "https://mcp.zibel.test/mcp",
+      resource: "https://mcp.kalamo.test/mcp",
       authorization_servers: [APP_ORIGIN],
     });
   });
@@ -258,14 +258,14 @@ describe("tokens", () => {
   it("refuses a token issued for another resource", async () => {
     const { cookie } = await signIn({ id: 210, login: "jo" });
     const { tokens } = await authorizeMcp(cookie);
-    const e = { ...githubEnv, MCP_ORIGIN: "https://mcp.zibel.test" };
+    const e = { ...githubEnv, MCP_ORIGIN: "https://mcp.kalamo.test" };
     const { res } = await hostedRpc(
       tokens.access_token,
       "ping",
       {},
       {
         e,
-        url: "https://mcp.zibel.test/mcp",
+        url: "https://mcp.kalamo.test/mcp",
       },
     );
     expect(res.status).toBe(401);

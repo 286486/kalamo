@@ -12,7 +12,7 @@ export default defineConfig({
   use: { baseURL: `http://localhost:${PORT}`, ...devices["Desktop Chrome"] },
   webServer: {
     command: [
-      "pnpm --filter @zibel/web build",
+      "pnpm --filter @kalamo/web build",
       `wrangler d1 migrations apply zibel --local ${STATE}`,
       `wrangler dev ${STATE} ${VARS} --port ${PORT}`,
     ].join(" && "),

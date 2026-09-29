@@ -25,7 +25,7 @@ function artboardOf(doc: Document, node: Node): Artboard | undefined {
  * Groups, every id is new, and the Group is centred on `position`, by default the parent's
  * Artboard, after `fit` scales it to that Artboard; `inPlace` keeps the file's coordinates.
  *
- * A Zibel copy, whose `scope` lists Nodes it holds, pastes without the Group (ADR-0030): its Nodes
+ * A Kalamo copy, whose `scope` lists Nodes it holds, pastes without the Group (ADR-0030): its Nodes
  * land directly in the parent, in stacking order, less the Layers and Groups that only lead to a
  * listed Node. `placedIds` are the Nodes put in the parent, the Group or those, and `created`
  * starts with them. `warnings` are the file's, each `nodeId` renamed to its copy's id; one on a Node

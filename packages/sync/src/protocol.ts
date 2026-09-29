@@ -9,7 +9,7 @@ import {
   PathOpInput,
   TransformInput,
   Writable,
-} from "@zibel/core";
+} from "@kalamo/core";
 import { z } from "zod";
 import type { Role } from "./index.ts";
 

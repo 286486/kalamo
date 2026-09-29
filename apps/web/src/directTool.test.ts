@@ -1,4 +1,4 @@
-import { createDocument, createNodes, type Document } from "@zibel/core";
+import { createDocument, createNodes, type Document } from "@kalamo/core";
 import { expect, it } from "vitest";
 import { anchorKey } from "./direct.ts";
 import { directTool } from "./directTool.ts";

@@ -3,13 +3,13 @@ import {
   type Document,
   formatNumber,
   type ImageSource,
+  KalamoError,
   type Node,
   type Rect,
   type RenderOverlay,
   type RenderScope,
-  ZibelError,
-} from "@zibel/core";
-import { attrs, esc, svgRect, toSvg } from "@zibel/io/write";
+} from "@kalamo/core";
+import { attrs, esc, svgRect, toSvg } from "@kalamo/io/write";
 
 /** The longest side `render` and `export` rasterise (REQUIREMENTS §7). */
 export const MAX_RENDER_SIDE = 4096;
@@ -27,7 +27,7 @@ export function fit(rect: Rect, scale: number, maxSize?: number) {
   if (px(long) > MAX_RENDER_SIDE) {
     const fits = Math.floor((MAX_RENDER_SIDE / long) * 100) / 100;
     const viaMaxSize = maxSize !== undefined && maxSize > MAX_RENDER_SIDE;
-    throw new ZibelError({
+    throw new KalamoError({
       code: "LIMIT_EXCEEDED",
       message: `The image would be ${px(long)} px on its longest side; the limit is ${MAX_RENDER_SIDE}.`,
       hint: viaMaxSize

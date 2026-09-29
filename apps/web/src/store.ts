@@ -1,4 +1,4 @@
-import { newId } from "@zibel/core";
+import { newId } from "@kalamo/core";
 import {
   ACCESS_CHANGED,
   type ClientMessage,
@@ -7,7 +7,7 @@ import {
   type Role,
   type ServerMessage,
   TOO_MANY_CONNECTIONS,
-} from "@zibel/sync";
+} from "@kalamo/sync";
 import { create } from "zustand";
 import { parseKey } from "./direct.ts";
 import type { ImageCache } from "./images.ts";

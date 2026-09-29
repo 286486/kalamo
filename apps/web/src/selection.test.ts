@@ -13,7 +13,7 @@ import {
   type TextNode,
   textBox,
   worldTransform,
-} from "@zibel/core";
+} from "@kalamo/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { boxContext, polygonContext } from "./boxContext.ts";
 import { marqueeAnchors, parseKey, pick } from "./direct.ts";

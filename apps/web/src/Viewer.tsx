@@ -1,6 +1,6 @@
-import { BUNDLED_FONT, type BundledFamily, bounds, formatPath, fromAnchors } from "@zibel/core";
-import { toSvg } from "@zibel/io/write";
-import { drawDocument } from "@zibel/render/canvas";
+import { BUNDLED_FONT, type BundledFamily, bounds, formatPath, fromAnchors } from "@kalamo/core";
+import { toSvg } from "@kalamo/io/write";
+import { drawDocument } from "@kalamo/render/canvas";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { AnchorsBar } from "./AnchorsBar.tsx";
 import { drawPending, SELECTION } from "./canvas.ts";

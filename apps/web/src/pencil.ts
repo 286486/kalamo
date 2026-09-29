@@ -10,7 +10,7 @@ import {
   type PathEditInput,
   toAnchors,
   worldTransform,
-} from "@zibel/core";
+} from "@kalamo/core";
 import { anchorsOf, hasAnchors, localAnchors, nearestSegment } from "./direct.ts";
 import { editable } from "./selection.ts";
 import { send, useStore } from "./store.ts";

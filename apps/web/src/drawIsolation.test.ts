@@ -5,8 +5,8 @@ import {
   type Document,
   makeMask,
   type NodeInput,
-} from "@zibel/core";
-import type { ServerMessage } from "@zibel/sync";
+} from "@kalamo/core";
+import type { ServerMessage } from "@kalamo/sync";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { drawPending } from "./canvas.ts";
 import { curvatureDown, curvatureUp } from "./curvature.ts";

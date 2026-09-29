@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { newId, readImage } from "@zibel/core";
+import { newId, readImage } from "@kalamo/core";
 import { describe, expect, it } from "vitest";
 import { BLUE_1x1_PNG, RED_2x2_PNG } from "../../../fixtures/images.ts";
 import { imageKey } from "../src/document-object.ts";

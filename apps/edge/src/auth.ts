@@ -1,5 +1,5 @@
-import type { ErrorData } from "@zibel/core";
-import { newId } from "@zibel/core";
+import type { ErrorData } from "@kalamo/core";
+import { newId } from "@kalamo/core";
 
 /** Who a request acts as (ADR-0047): its User, the Actor its edits record, and what it may do. */
 export interface Principal {
@@ -140,7 +140,7 @@ async function me(request: Request, env: Env) {
 function signIn(env: Env, url: URL) {
   const state = hex(crypto.getRandomValues(new Uint8Array(16)));
   const back = encodeURIComponent(returnPath(url.searchParams.get("return")));
-  // No `scope`: the public profile is all Zibel reads.
+  // No `scope`: the public profile is all Kalamo reads.
   const github = new URL("https://github.com/login/oauth/authorize");
   github.search = new URLSearchParams({
     client_id: env.GITHUB_CLIENT_ID,

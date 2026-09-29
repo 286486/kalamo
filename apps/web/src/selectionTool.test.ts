@@ -1,4 +1,4 @@
-import { createDocument, createNodes, type Document, makeMask, type Node } from "@zibel/core";
+import { createDocument, createNodes, type Document, makeMask, type Node } from "@kalamo/core";
 import { beforeEach, expect, it } from "vitest";
 import { boxContext } from "./boxContext.ts";
 import { selectionTool } from "./selectionTool.ts";

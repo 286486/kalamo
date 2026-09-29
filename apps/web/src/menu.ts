@@ -4,8 +4,8 @@ import {
   PATH_OP_TEXT,
   type PathOpInput,
   serializeDocument,
-} from "@zibel/core";
-import { toSvg } from "@zibel/io/write";
+} from "@kalamo/core";
+import { toSvg } from "@kalamo/io/write";
 import { sendAnchorEdits } from "./anchorTools.ts";
 import { cleanUpDialog } from "./cleanUp.ts";
 import { curvatureClearInputs, removeCurveAnchor } from "./curvature.ts";

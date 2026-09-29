@@ -64,7 +64,7 @@ export const placeable = (file: File) => isSvg(file) || file.type.startsWith("im
 /**
  * Place at the centre of the canvas, or pasted text where it was with `inPlace`, in placeParent's
  * Layer or isolated Group or sub-Layer, an isolated leaf left once it succeeds (ADR-0058): an SVG
- * as a Group (ADR-0017), or a Zibel copy's Nodes as they were (ADR-0030), any other file as an
+ * as a Group (ADR-0017), or a Kalamo copy's Nodes as they were (ADR-0030), any other file as an
  * Image, which the Worker checks (ADR-0023).
  */
 export function place(file: File | string, inPlace = false) {

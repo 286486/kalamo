@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { PathNode } from "./anchor.ts";
 import { toAnchors } from "./anchor.ts";
 import { childrenOf, createDocument, createNodes } from "./document.ts";
-import { ZibelError } from "./errors.ts";
+import { KalamoError } from "./errors.ts";
 import { formatPath, parsePath, type Segment, shapeSegments } from "./path.ts";
 import {
   closestEnds,
@@ -19,10 +19,10 @@ const errorOf = (fn: () => unknown) => {
   try {
     fn();
   } catch (e) {
-    if (e instanceof ZibelError) return e.data;
+    if (e instanceof KalamoError) return e.data;
     throw e;
   }
-  throw new Error("expected a ZibelError");
+  throw new Error("expected a KalamoError");
 };
 
 const setup = (d: string) => {

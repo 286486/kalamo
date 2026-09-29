@@ -1,4 +1,4 @@
-import type { ZibelError } from "@zibel/core";
+import type { KalamoError } from "@kalamo/core";
 
 /** The most any request body is read: the Durable Object RPC limit ADR-0016 names (ADR-0049). */
 export const MAX_REQUEST_BYTES = 32 * 1024 * 1024;
@@ -11,7 +11,7 @@ export const MAX_REQUEST_BYTES = 32 * 1024 * 1024;
 export async function readCapped(
   message: Request | Response,
   cap: number,
-  refuse: (declared?: number) => ZibelError,
+  refuse: (declared?: number) => KalamoError,
 ): Promise<Uint8Array<ArrayBuffer>> {
   const header = message.headers.get("content-length");
   const declared = header && /^\d+$/.test(header) ? Number(header) : undefined;

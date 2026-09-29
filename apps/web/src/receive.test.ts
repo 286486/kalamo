@@ -1,5 +1,5 @@
-import { createDocument, createNodes, type Document, type Node } from "@zibel/core";
-import type { TxMessage } from "@zibel/sync";
+import { createDocument, createNodes, type Document, type Node } from "@kalamo/core";
+import type { TxMessage } from "@kalamo/sync";
 import { expect, it } from "vitest";
 import { anchorKey } from "./direct.ts";
 import { afterProbe, preview, previewEdit, previewOp, receive } from "./receive.ts";

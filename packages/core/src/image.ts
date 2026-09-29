@@ -1,5 +1,5 @@
 /// <reference path="./base64.d.ts" />
-import { ZibelError } from "./errors.ts";
+import { KalamoError } from "./errors.ts";
 import type { Segment } from "./path.ts";
 import type { Rect } from "./schema.ts";
 
@@ -57,7 +57,7 @@ export type ImageSource = (id: string) => string | undefined;
 const HINT =
   "src is a data: URL of a PNG, JPEG or GIF, or the id of an image already in the Document; WebP is not drawn yet, convert it to PNG.";
 const invalid = (message: string, path: string, hint = HINT) =>
-  new ZibelError({ code: "INVALID_IMAGE", message, hint, path });
+  new KalamoError({ code: "INVALID_IMAGE", message, hint, path });
 
 function decode(src: string, path: string): Uint8Array<ArrayBuffer> {
   const match = /^data:([^,]*),/.exec(src);
@@ -112,7 +112,7 @@ export const readImage = (src: string, path: string): ImageFile =>
 /** A PNG, JPEG or GIF of at most 5 MB, typed by its bytes (ADR-0023). */
 export function checkImage(bytes: Uint8Array<ArrayBuffer>, path: string): ImageFile {
   if (bytes.length > MAX_IMAGE_BYTES) {
-    throw new ZibelError({
+    throw new KalamoError({
       code: "LIMIT_EXCEEDED",
       message: `The image is ${bytes.length} bytes; the limit is ${MAX_IMAGE_BYTES} (5 MB).`,
       hint: "Scale the image down or compress it before placing it.",

@@ -1,10 +1,11 @@
 // Test harness: createMcpServer over an in-memory MCP transport against a recording
 // DocumentService stub (ADR-0020). Only the methods a test hands in answer; every other call
 // rejects, so the stub never grows into a fake Document.
+
+import type { DocumentService } from "@kalamo/sync";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { jsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/types.js";
-import type { DocumentService } from "@zibel/sync";
 import { type Mock, vi } from "vitest";
 import { createMcpServer } from "./server.ts";
 

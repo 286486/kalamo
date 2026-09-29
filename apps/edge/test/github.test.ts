@@ -1,5 +1,5 @@
 import { env, exports } from "cloudflare:workers";
-import type { ServerMessage } from "@zibel/sync";
+import type { ServerMessage } from "@kalamo/sync";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { call } from "./rpc.ts";
 import { APP_ORIGIN, GITHUB_TOKEN, githubEnv, hosted, signIn } from "./signin.ts";
@@ -206,7 +206,7 @@ describe("the Origin check", () => {
     expect((await me(cookie)).status).toBe(200);
   });
 
-  it("lets Zibel's own pages POST", async () => {
+  it("lets Kalamo's own pages POST", async () => {
     const { cookie } = await signIn({ id: 108, login: "gus" });
     const res = await hosted("/api/docs?name=a.svg", {
       method: "POST",
@@ -269,13 +269,13 @@ describe("MCP in GitHub mode", () => {
 
 describe("dev mode", () => {
   it("is the local User, with no sign-in routes", async () => {
-    const res = await exports.default.fetch("http://zibel/api/me");
+    const res = await exports.default.fetch("http://kalamo/api/me");
     expect(await res.json()).toEqual({
       userId: "local",
       login: "local",
       avatarUrl: null,
       mode: "dev",
     });
-    expect((await exports.default.fetch("http://zibel/auth/github")).status).toBe(404);
+    expect((await exports.default.fetch("http://kalamo/auth/github")).status).toBe(404);
   });
 });

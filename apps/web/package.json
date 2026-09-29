@@ -1,5 +1,5 @@
 {
-  "name": "@zibel/web",
+  "name": "@kalamo/web",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -7,11 +7,11 @@
     "build": "vite build"
   },
   "dependencies": {
-    "@zibel/core": "workspace:*",
-    "@zibel/geometry": "workspace:*",
-    "@zibel/io": "workspace:*",
-    "@zibel/render": "workspace:*",
-    "@zibel/sync": "workspace:*",
+    "@kalamo/core": "workspace:*",
+    "@kalamo/geometry": "workspace:*",
+    "@kalamo/io": "workspace:*",
+    "@kalamo/render": "workspace:*",
+    "@kalamo/sync": "workspace:*",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "zustand": "5.0.15"

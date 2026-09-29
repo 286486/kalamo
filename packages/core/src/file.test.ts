@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
 import { createDocument, createNodes } from "./document.ts";
-import { ZibelError } from "./errors.ts";
+import { KalamoError } from "./errors.ts";
 import { type Migration, parseDocument, resolveImages, serializeDocument } from "./file.ts";
 import { imageId, readImage } from "./image.ts";
 import type { Document, Node } from "./schema.ts";
@@ -70,10 +70,10 @@ const errorOf = (fn: () => unknown) => {
   try {
     fn();
   } catch (e) {
-    if (e instanceof ZibelError) return e.data;
+    if (e instanceof KalamoError) return e.data;
     throw e;
   }
-  throw new Error("expected a ZibelError");
+  throw new Error("expected a KalamoError");
 };
 
 it("parses what it serialises back to the same Document, and the same text", () => {

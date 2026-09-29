@@ -2,7 +2,7 @@ import { exports } from "cloudflare:workers";
 import { expect, it } from "vitest";
 
 const post = (token?: string) =>
-  exports.default.fetch("http://zibel/mcp", {
+  exports.default.fetch("http://kalamo/mcp", {
     method: "POST",
     headers: {
       "content-type": "application/json",

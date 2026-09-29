@@ -199,43 +199,43 @@ importers:
       '@cloudflare/workers-oauth-provider':
         specifier: 1.1.0
         version: 1.1.0
+      '@kalamo/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@kalamo/geometry':
+        specifier: workspace:*
+        version: link:../../packages/geometry
+      '@kalamo/io':
+        specifier: workspace:*
+        version: link:../../packages/io
+      '@kalamo/mcp':
+        specifier: workspace:*
+        version: link:../../packages/mcp
+      '@kalamo/render':
+        specifier: workspace:*
+        version: link:../../packages/render
+      '@kalamo/sync':
+        specifier: workspace:*
+        version: link:../../packages/sync
       '@modelcontextprotocol/sdk':
         specifier: 1.30.0
         version: 1.30.0(supports-color@10.2.2)(zod@4.4.3)
-      '@zibel/core':
-        specifier: workspace:*
-        version: link:../../packages/core
-      '@zibel/geometry':
-        specifier: workspace:*
-        version: link:../../packages/geometry
-      '@zibel/io':
-        specifier: workspace:*
-        version: link:../../packages/io
-      '@zibel/mcp':
-        specifier: workspace:*
-        version: link:../../packages/mcp
-      '@zibel/render':
-        specifier: workspace:*
-        version: link:../../packages/render
-      '@zibel/sync':
-        specifier: workspace:*
-        version: link:../../packages/sync
 
   apps/web:
     dependencies:
-      '@zibel/core':
+      '@kalamo/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@zibel/geometry':
+      '@kalamo/geometry':
         specifier: workspace:*
         version: link:../../packages/geometry
-      '@zibel/io':
+      '@kalamo/io':
         specifier: workspace:*
         version: link:../../packages/io
-      '@zibel/render':
+      '@kalamo/render':
         specifier: workspace:*
         version: link:../../packages/render
-      '@zibel/sync':
+      '@kalamo/sync':
         specifier: workspace:*
         version: link:../../packages/sync
       react:
@@ -275,59 +275,59 @@ importers:
 
   packages/geometry:
     dependencies:
-      '@zibel/core':
+      '@kalamo/core':
         specifier: workspace:*
         version: link:../core
       pathkit-wasm:
         specifier: 1.0.0
         version: 1.0.0
     devDependencies:
-      '@zibel/render':
+      '@kalamo/render':
         specifier: workspace:*
         version: link:../render
 
   packages/io:
     dependencies:
+      '@kalamo/core':
+        specifier: workspace:*
+        version: link:../core
       '@xmldom/xmldom':
         specifier: 0.9.12
         version: 0.9.12
-      '@zibel/core':
-        specifier: workspace:*
-        version: link:../core
       fractional-indexing:
         specifier: ^4.0.0
         version: 4.0.0
 
   packages/mcp:
     dependencies:
+      '@kalamo/core':
+        specifier: workspace:*
+        version: link:../core
+      '@kalamo/sync':
+        specifier: workspace:*
+        version: link:../sync
       '@modelcontextprotocol/sdk':
         specifier: 1.30.0
         version: 1.30.0(supports-color@10.2.2)(zod@4.4.3)
-      '@zibel/core':
-        specifier: workspace:*
-        version: link:../core
-      '@zibel/sync':
-        specifier: workspace:*
-        version: link:../sync
       zod:
         specifier: ^4.4.3
         version: 4.4.3
 
   packages/render:
     dependencies:
+      '@kalamo/core':
+        specifier: workspace:*
+        version: link:../core
+      '@kalamo/io':
+        specifier: workspace:*
+        version: link:../io
       '@resvg/resvg-wasm':
         specifier: 2.6.2
         version: 2.6.2
-      '@zibel/core':
-        specifier: workspace:*
-        version: link:../core
-      '@zibel/io':
-        specifier: workspace:*
-        version: link:../io
 
   packages/sync:
     dependencies:
-      '@zibel/core':
+      '@kalamo/core':
         specifier: workspace:*
         version: link:../core
       zod:

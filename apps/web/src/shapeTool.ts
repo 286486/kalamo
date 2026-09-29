@@ -5,7 +5,7 @@ import {
   MIN_COUNT,
   parsePath,
   pathBounds,
-} from "@zibel/core";
+} from "@kalamo/core";
 import { dragged, drawDrawing, type Press, shapePath } from "./canvas.ts";
 import type { ShapeBox } from "./receive.ts";
 import { useStore } from "./store.ts";

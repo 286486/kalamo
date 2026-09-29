@@ -8,7 +8,7 @@ import {
   type ShapeNode,
   shapeSegments,
   visibleBounds,
-} from "@zibel/core";
+} from "@kalamo/core";
 import { describe, expect, it } from "vitest";
 import { type Canvas2D, drawDocument, imagePlacement } from "./canvas.ts";
 
@@ -614,7 +614,7 @@ it("draws only the lines of Area Type that fit its frame", () => {
   ]);
 });
 
-it("draws a font Zibel does not bundle in Source Sans 3, as render does", () => {
+it("draws a font Kalamo does not bundle in Source Sans 3, as render does", () => {
   const { doc, defaultLayerId: parentId } = newDoc();
   createNodes(doc, [
     { type: "text", parentId, x: 10, y: 50, content: "Hi", fontFamily: "Helvetica" },

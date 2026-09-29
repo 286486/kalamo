@@ -1,12 +1,13 @@
-// The facts of Zibel's Inkscape SVG dialect (ADR-0017) that export writes and import reads back,
+// The facts of Kalamo's Inkscape SVG dialect (ADR-0017) that export writes and import reads back,
 // each defined once with both directions. No XML parser here: the browser's writer imports it.
-import { formatNumber, type RenderScope, type ShapeNode } from "@zibel/core";
+import { formatNumber, type RenderScope, type ShapeNode } from "@kalamo/core";
 
 export const NS = {
   svg: "http://www.w3.org/2000/svg",
   inkscape: "http://www.inkscape.org/namespaces/inkscape",
   sodipodi: "http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd",
-  zibel: "https://zibel.dev/ns/svg",
+  // Still the old URI until #175 renames the SVG surface (ADR-0069).
+  kalamo: "https://zibel.dev/ns/svg",
   // Inkscape 1.2 draws an <image> only through xlink:href, not SVG 2's href (ADR-0023).
   xlink: "http://www.w3.org/1999/xlink",
 };
@@ -16,12 +17,12 @@ export const XMLNS = {
   xmlns: NS.svg,
   "xmlns:inkscape": NS.inkscape,
   "xmlns:sodipodi": NS.sodipodi,
-  "xmlns:zibel": NS.zibel,
+  "xmlns:zibel": NS.kalamo,
   "xmlns:xlink": NS.xlink,
 };
 
-/** Zibel's own attributes, written as `zibel:<name>`. */
-export type ZibelAttr =
+/** Kalamo's own attributes, written as `zibel:<name>`. */
+export type KalamoAttr =
   | "scope"
   | "stack"
   | "paint"
@@ -32,7 +33,7 @@ export type ZibelAttr =
   | "meta"
   | "src";
 
-export const zibel = (name: ZibelAttr) => `zibel:${name}` as const;
+export const kalamo = (name: KalamoAttr) => `zibel:${name}` as const;
 
 /** Numbers in an attribute, split at spaces and commas. */
 export const numbers = (s: string | null) =>
@@ -106,7 +107,7 @@ export function withAlpha(hex: string, a: number): string {
 /**
  * SVG's Stroke defaults, which export leaves unwritten and import assumes. SVG's miter limit is 4,
  * Illustrator's 10, so export always writes it for a miter join, where it shows, and import takes
- * Zibel's for the other joins.
+ * Kalamo's for the other joins.
  */
 export const SVG_STROKE = { cap: "butt", join: "miter", miterLimit: 4 } as const;
 export const MITER_LIMIT = 10;
@@ -211,7 +212,7 @@ export function starOf(p: {
 
 /**
  * The `sodipodi:` parameters of an Inkscape spiral, from which Inkscape rebuilds it on load
- * (ADR-0060): Zibel's own, at full precision, with `argument` in radians.
+ * (ADR-0060): Kalamo's own, at full precision, with `argument` in radians.
  */
 export function spiralAttrs(n: Extract<ShapeNode, { type: "spiral" }>) {
   return {

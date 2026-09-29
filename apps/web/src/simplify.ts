@@ -1,4 +1,4 @@
-import { bounds, type Document, fidelityTolerance, union } from "@zibel/core";
+import { bounds, type Document, fidelityTolerance, union } from "@kalamo/core";
 import { hasAnchors, localAnchors } from "./direct.ts";
 import { previewOp } from "./receive.ts";
 import { pathTargets } from "./selection.ts";

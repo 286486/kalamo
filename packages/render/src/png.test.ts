@@ -11,8 +11,8 @@ import {
   parseDocument,
   pathOp,
   transformNodes,
-} from "@zibel/core";
-import { docRect, scopeRect, toSvg } from "@zibel/io";
+} from "@kalamo/core";
+import { docRect, scopeRect, toSvg } from "@kalamo/io";
 import { expect, it } from "vitest";
 import { COMPOSITING, near } from "../../../fixtures/compositing.ts";
 import fixture from "../../../fixtures/documents/inkscape.zibel.json?raw";
@@ -202,7 +202,7 @@ it("keeps runs of spaces, so the drawn width follows the advance sum", async () 
   expect((await right("a    b")) - (await right("a  b"))).toBeCloseTo(40, -0.5);
 });
 
-it("draws a font Zibel does not bundle in Source Sans 3", async () => {
+it("draws a font Kalamo does not bundle in Source Sans 3", async () => {
   const svg = (family: string) =>
     `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><rect width="200" height="100" fill="#FFFFFF"/>` +
     `<text x="0" y="80" font-family="${family}" font-size="60">Hi</text></svg>`;

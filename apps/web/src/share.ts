@@ -16,7 +16,7 @@ function roleSelect(role: Member["role"], label: string) {
 
 /**
  * File > Share… (owner only): share the Document with a GitHub login that has signed in to
- * Zibel, as an editor or a viewer, and change or remove its members.
+ * Kalamo, as an editor or a viewer, and change or remove its members.
  */
 export function shareDialog(docId: string) {
   const dialog = Object.assign(document.createElement("dialog"), { ariaLabel: "Share" });
