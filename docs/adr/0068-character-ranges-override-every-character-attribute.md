@@ -17,6 +17,8 @@ A Character Range is `{start, end, fill?, stroke?, baselineShift?, rotation?}`, 
 - **`fontFamily`** is any font name, kept and exported as written, as the Node's is (F-TEXT-11). These characters draw in its fallback order (ADR-0063): the family itself if bundled, else Source Sans 3, then the other bundled families. #67 said a range family would not change layout, since one family was bundled when it was written. Since ADR-0063 and ADR-0066 three are, so a range naming Noto Sans SC measures and draws its Latin in Noto Sans SC, as a text in that family does, and an Area Type line holding it stacks by Noto's em box (ADR-0064). A range naming an unbundled family lays out as the text's own characters do when the text's family is Source Sans 3. A family or style that is not bundled warns `FONT_MISSING` as the Node's does.
 - **`fontSize`** is in pt and positive, as the Node's. A character's advance, its cell from ascender to descender, and its tracking scale with its own size. Point Type's box grows to hold each character's cell, so a 24 pt range on a 12 pt text reaches the 24 pt ascender. A Node `fontSize` write does not rescale range sizes, and a whole-`content` write still clears the ranges.
 
+**An override equal to the Node's own value is no override.** For the overrides that repeat a Node attribute (tracking, font style, family and size, below), `canonicalRanges` drops a value equal to the Node's, as it drops a `baselineShift` or `rotation` of 0. So a later range can clear an earlier one by writing the Node's value, and every stored override changes what is drawn. It is dropped against the Node's attributes after the write, so a `node_update` that sets the Node's `fontSize` to a range's `fontSize` also removes that range's override. A `fill` or `stroke` equal to the text's own solid paint is still kept, as ADR-0029 keeps it: the Node has no single colour to compare it with, since its Appearance can hold several paints.
+
 ## Lines follow Illustrator's leading
 
 Illustrator's leading belongs to a line: it is that line's baseline's distance below the previous line's. Auto leading is 120 % of the largest font size on the line. An explicit Node `leading` stays fixed for every line, whatever sizes the line holds. Kalamo lays lines out this way:
@@ -26,10 +28,6 @@ Illustrator's leading belongs to a line: it is that line's baseline's distance b
 - A text whose ranges set no `fontSize` lays out exactly as before, byte for byte in the SVG export.
 
 **Inkscape does not follow this.** It lays out `sodipodi:role="line"` tspans, and flowed text, with CSS line boxes (ADR-0064): each inline box is 1.2 × its own size tall around its em box, and a baseline sits the previous line's descent plus its own ascent below the one before. Inkscape ignores a line tspan's written `y` when it draws, and keeps it as written on save. Kalamo still writes each line's `y` as laid out here, so resvg, browsers and any reader that honours `y` draw Illustrator's lines. A mixed-size text reads back field for field, since import takes `leading` from `line-height`, not from line positions. Only its pixels in Inkscape differ, and by how much is measured below.
-
-## Drawing
-
-**An override equal to the Node's own value is no override.** For the overrides that repeat a Node attribute (tracking, font style, family and size, below), `canonicalRanges` drops a value equal to the Node's, as it drops a `baselineShift` or `rotation` of 0. So a later range can clear an earlier one by writing the Node's value, and every stored override changes what is drawn. It is dropped against the Node's attributes after the write, so a `node_update` that sets the Node's `fontSize` to a range's `fontSize` also removes that range's override. A `fill` or `stroke` equal to the text's own solid paint is still kept, as ADR-0029 keeps it: the Node has no single colour to compare it with, since its Appearance can hold several paints.
 
 ## Drawing
 

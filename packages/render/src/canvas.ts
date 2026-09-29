@@ -523,9 +523,10 @@ function pen(ctx: Canvas2D, s: Stroke) {
  * Fills or strokes a text's shown lines, so overflowing Area Type is not drawn (ADR-0022). With
  * tracking or ranges each character paints on its own at its origin, raised by its baseline shift
  * and turned about the origin by its rotation, in its range's fill or stroke when `paint` is the
- * Fill's or the Stroke's style, and in its own face and size (ADR-0029, ADR-0068). A character no bundled face has paints as the first face's `.notdef` box at its
- * origin, traced, since `fillText` would draw it in a system font (ADR-0065); a line holding one
- * paints the characters around it in runs from their first character's origin.
+ * Fill's or the Stroke's style, and in its own face and size (ADR-0029, ADR-0068). A character no
+ * bundled face has paints as the first face's `.notdef` box at its origin, traced, since `fillText`
+ * would draw it in a system font (ADR-0065); a line holding one paints the characters around it in
+ * runs from their first character's origin.
  */
 function text(ctx: Canvas2D, n: TextNode, how: "fill" | "stroke", paint?: unknown) {
   const draw = (t: string, x: number, y: number) =>
@@ -572,11 +573,11 @@ function text(ctx: Canvas2D, n: TextNode, how: "fill" | "stroke", paint?: unknow
       face = css;
       ctx.font = css;
     }
-    const own = (how === "fill" ? g.fill : g.stroke) ?? paint;
-    if (paint !== undefined && own !== style) {
-      style = own;
-      if (how === "fill") ctx.fillStyle = own;
-      else ctx.strokeStyle = own;
+    const color = (how === "fill" ? g.fill : g.stroke) ?? paint;
+    if (paint !== undefined && color !== style) {
+      style = color;
+      if (how === "fill") ctx.fillStyle = color;
+      else ctx.strokeStyle = color;
     }
     const turned = g.rotation || g.baselineShift;
     if (turned) {

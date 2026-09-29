@@ -760,7 +760,7 @@ function text(n: TextNode, a: Attrs, extra: (string | false)[], chunked: boolean
     ...paint("stroke", r.stroke),
     "baseline-shift": r.baselineShift ? formatNumber(r.baselineShift) : undefined,
     rotate: r.rotation ? formatNumber(r.rotation) : undefined,
-    "font-size": r.fontSize,
+    "font-size": r.fontSize === undefined ? undefined : formatNumber(r.fontSize),
     // In user units, as on the <text> (ADR-0029, ADR-0068): a length, so a resized run writes its
     // own whenever it tracks.
     "letter-spacing": spacing(r),

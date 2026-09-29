@@ -1059,6 +1059,15 @@ describe("tracking and Character Ranges (ADR-0029)", () => {
     ]);
   });
 
+  it("counts a nested tspan's characters in its parent's rotate list (SVG 1.1 §10.5)", () => {
+    expect(
+      text('<text rotate="10 20 30 40 50 60"><tspan rotate="0">ab</tspan>cd</text>').ranges,
+    ).toEqual([
+      { start: 2, end: 3, rotation: 30 },
+      { start: 3, end: 4, rotation: 40 },
+    ]);
+  });
+
   it("reads a tspan's letter-spacing as its characters' tracking, in their em (ADR-0068)", () => {
     const file = read(
       '<text font-size="20" letter-spacing="2">a<tspan letter-spacing="5">b</tspan><tspan letter-spacing="0.1em">c</tspan><tspan letter-spacing="normal">d</tspan></text>',

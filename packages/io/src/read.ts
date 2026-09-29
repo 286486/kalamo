@@ -194,7 +194,11 @@ interface Char {
  */
 function rotate(chars: Char[]) {
   for (const c of chars) {
-    for (const l of c.lists) c.rotate ??= l.angles[Math.min(l.next++, l.angles.length - 1)];
+    // Every list around a character counts it, an inner one's angle winning (SVG 1.1 §10.5).
+    for (const l of c.lists) {
+      const angle = l.angles[Math.min(l.next++, l.angles.length - 1)];
+      c.rotate ??= angle;
+    }
   }
 }
 
@@ -1064,11 +1068,11 @@ class Reader {
     const unpainted =
       ownPaint.trim() === "none" || (list === "stroke" && (length(own["stroke-width"]) ?? 1) <= 0);
     if (!color || unpainted) {
-      const [name, List] = list === "fill" ? ["fill", "Fill"] : ["stroke", "Stroke"];
+      const List = list === "fill" ? "Fill" : "Stroke";
       this.warn(
         "UNSUPPORTED_ATTRIBUTE",
-        `tspan ${name}`,
-        `A gradient or none as the ${name} of part of a text, or any ${name} on part of a text with no ${List}, is not supported yet; those characters import in the text's own paint.`,
+        `tspan ${list}`,
+        `A gradient or none as the ${list} of part of a text, or any ${list} on part of a text with no ${List}, is not supported yet; those characters import in the text's own paint.`,
       );
       return undefined;
     }
