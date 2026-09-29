@@ -32,7 +32,7 @@ import {
   type ToolAnnotations,
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { parseArgs } from "./args.ts";
+import { exclusive, parseArgs } from "./args.ts";
 import conventions from "./drawing-conventions.md";
 import {
   ChangesOutput,
@@ -421,17 +421,13 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       },
     },
     async ({ docId, intent, partial, txId, ifRev, ...input }) => {
-      const single = Object.keys(input).find(
-        (k) => k !== "transforms" && input[k as keyof typeof input] !== undefined,
+      exclusive(
+        "kalamo_node_transform",
+        input,
+        "transforms",
+        Object.keys(TransformInput.shape),
+        (k) => `Put ${k} inside each entry of transforms that needs it.`,
       );
-      if (input.transforms && single) {
-        throw new KalamoError({
-          code: "INVALID_INPUT",
-          message: `kalamo_node_transform takes transforms or ${single}, not both.`,
-          hint: `Put ${single} inside each entry of transforms that needs it.`,
-          path: single,
-        });
-      }
       const schema = input.transforms ? TransformBatchInput : TransformInput;
       const transform = parseArgs("kalamo_node_transform", schema, input);
       return json(await service.transformNodes(docId, transform, { intent, partial, txId, ifRev }));
@@ -488,6 +484,13 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
     },
     async (args) => {
       const [id, input, opts] = splitTxWrite(args);
+      exclusive(
+        "kalamo_mask_make",
+        input,
+        "layerId",
+        ["clipNodeId", "contentIds"],
+        () => "Send layerId alone, or clipNodeId and contentIds without it.",
+      );
       const mask = parseArgs("kalamo_mask_make", MaskInput, input);
       return json(await service.makeMask(id, mask, opts));
     },
