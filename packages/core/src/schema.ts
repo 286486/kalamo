@@ -274,6 +274,9 @@ export const StarShape = z.object({
     .default(0)
     .describe("Degrees the inner vertices turn clockwise off the half step."),
 });
+/** The most turns a spiral can have, Inkscape's bound. */
+export const MAX_REVOLUTION = 1024;
+
 /** Inkscape's spiral (ADR-0060): r = radius·t^expansion at 2π·revolution·t + argument, t0 ≤ t ≤ 1. */
 export const SpiralShape = z.object({
   type: z.literal("spiral"),
@@ -283,7 +286,7 @@ export const SpiralShape = z.object({
   revolution: z
     .number()
     .min(0.05)
-    .max(1024)
+    .max(MAX_REVOLUTION)
     .default(3)
     .describe("Turns from the center to the outer end, 0.05 to 1024."),
   expansion: z
