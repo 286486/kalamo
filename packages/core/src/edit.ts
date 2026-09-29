@@ -63,7 +63,7 @@ export function lookup(doc: Document, id: string, path: string): Node {
 }
 
 /** Drops targets that sit inside another target, so nothing is edited twice. */
-function outermost(doc: Document, targets: Node[]): { kept: Node[]; nested: Node[] } {
+export function outermost(doc: Document, targets: Node[]): { kept: Node[]; nested: Node[] } {
   const ids = new Set(targets.map((n) => n.id));
   const inside = (n: Node) => {
     for (let p = n.parentId; p; p = doc.nodes.get(p)?.parentId ?? null) {

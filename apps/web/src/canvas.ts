@@ -111,12 +111,12 @@ export function commitDrag() {
     // is closed with 1007 by the DO; chunk the command or lift the max when Documents grow.
     const translate = { x: drag.dx, y: drag.dy };
     const s = useStore.getState();
-    const commandId =
-      drag.copy && s.doc
-        ? send({ type: "duplicate", input: copyInput(s.doc, drag) })
-        : send({ type: "transform", input: { nodeIds: drag.nodeIds, translate } });
+    const doc = drag.copy ? s.doc : null;
+    const commandId = doc
+      ? send({ type: "duplicate", input: copyInput(doc, drag) })
+      : send({ type: "transform", input: { nodeIds: drag.nodeIds, translate } });
     // An isolated leaf's copies land beside it, so the Isolation goes up a level, as for new art.
-    const leave = drag.copy && s.doc ? leaving(s.isolated, forNewArt(s.doc, s)) : undefined;
+    const leave = doc ? leaving(s.isolated, forNewArt(doc, s)) : undefined;
     useStore.setState({ drag: { ...drag, commandId, ...(leave && { leave }) } });
   }
 }

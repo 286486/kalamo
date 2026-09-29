@@ -431,6 +431,36 @@ it("previews an Alt-drag as copies above the topmost dragged Node, originals lef
   expect(doc.nodes.size).toBe(3);
 });
 
+it("copies the outermost Nodes a plain drag moves, and a Layer above its own original", () => {
+  const { doc, a } = fixture();
+  const layer = a.parentId as string;
+  const [g, x] = createNodes(doc, [
+    {
+      type: "group",
+      parentId: layer,
+      children: [{ type: "rect", x: 0, y: 0, width: 5, height: 5 }],
+    },
+  ]).nodes as [Node, Node];
+  // A Group with its own child: the Group's parent takes the block, above the Group.
+  expect(copyInput(doc, drag([g.id, x.id], null))).toMatchObject({
+    targetParentId: layer,
+    after: g.id,
+  });
+  expect(preview(doc, { ...drag([g.id, x.id], null), copy: true }).nodes.size).toBe(
+    doc.nodes.size + 2,
+  );
+  // A Layer with art from another Layer: each copy above its own original, the Layer's at the top level.
+  const [other] = createNodes(doc, [{ type: "layer" }]).nodes as [Node];
+  const input = copyInput(doc, drag([other.id, a.id], null));
+  expect(input).toEqual({ nodeIds: [other.id, a.id], offset: { x: 5, y: 0 } });
+  const shown = preview(doc, { ...drag([other.id, a.id], null), copy: true });
+  const layers = [...shown.nodes.values()].filter((n) => n.parentId === null);
+  layers.sort((p, q) => (p.index < q.index ? -1 : 1));
+  expect(layers.map((n) => n.type)).toEqual(["layer", "layer", "layer"]);
+  expect(layers.map((n) => n.id).slice(0, 2)).toEqual([layer, other.id]);
+  expect([...shown.nodes.values()].filter((n) => n.parentId === layer)).toHaveLength(4);
+});
+
 it("selects an Alt-drag's copies once its own answer creates them, and only then", () => {
   const { doc, a } = fixture();
   const state = {

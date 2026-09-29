@@ -6,6 +6,7 @@ import {
   editPath,
   type Geometry,
   type NodeInput,
+  outermost,
   type PathEditInput,
   type PathOpInput,
   paintOrder,
@@ -199,7 +200,7 @@ export function receive(
     doc,
     isolated: leave && isolated === leave.from ? prune(s.doc, doc, leave.to) : isolated,
     // Drawn art becomes the Selection, as in Illustrator.
-    selection: drawn && !drawn.select ? [] : drawn || copied ? drawnTop : [...new Set(selection)],
+    selection: drawn ? (drawn.select ? drawnTop : []) : copied ? drawnTop : [...new Set(selection)],
     ...(answered && { drag: null }),
     anchors,
     segments,
@@ -238,13 +239,20 @@ export function preview(doc: Document, drag: Drag): Document {
 
 /**
  * An Alt-drag's copies (ADR-0076), as Illustrator places them: one block directly above the topmost
- * dragged Node, in its parent, moved by the drag.
+ * dragged Node, in its parent, moved by the drag. The Nodes are those a plain drag moves, the
+ * outermost ones; with a Layer among them each copy goes directly above its own original instead,
+ * since a Layer cannot join a Group's block or become a Sublayer by a drag.
  */
 export function copyInput(doc: Document, { nodeIds, dx, dy }: Drag): DuplicateInput {
+  const offset = { x: dx, y: dy };
+  const { kept } = outermost(
+    doc,
+    nodeIds.flatMap((id) => doc.nodes.get(id) ?? []),
+  );
+  if (kept.length === 0 || kept.some((n) => n.type === "layer")) return { nodeIds, offset };
   const order = paintOrder(doc);
-  const top = nodeIds.reduce((a, b) => ((order.get(b) ?? 0) > (order.get(a) ?? 0) ? b : a));
-  const targetParentId = doc.nodes.get(top)?.parentId ?? null;
-  return { nodeIds, offset: { x: dx, y: dy }, targetParentId, after: top };
+  const top = kept.reduce((a, b) => ((order.get(b.id) ?? 0) > (order.get(a.id) ?? 0) ? b : a));
+  return { nodeIds, offset, targetParentId: top.parentId, after: top.id };
 }
 
 /**
