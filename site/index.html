@@ -3,9 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Zibel</title>
-<meta name="description" content="Zibel is a vector editor in the browser. AI agents draw on it through MCP, and people edit the same document on an Illustrator-style canvas.">
+<title>Kalamo</title>
+<meta name="description" content="Kalamo is a vector editor in the browser. AI agents draw on it through MCP, and people edit the same document on an Illustrator-style canvas.">
 <meta name="color-scheme" content="light dark">
+<link rel="canonical" href="https://kalamo.cc/">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Source+Code+Pro:wght@400;600&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
@@ -230,13 +231,13 @@
 </head>
 <body>
 <header class="bar">
-  <a class="brand" href="#top" aria-label="Zibel">
+  <a class="brand" href="#top" aria-label="Kalamo">
     <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M2 15 C 5 3, 13 3, 16 15" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="0.75" y="13.75" width="3" height="3" fill="var(--panel)" stroke="currentColor" stroke-width="1.5"/><rect x="14.25" y="13.75" width="3" height="3" fill="var(--person)" stroke="var(--person)" stroke-width="1.5"/></svg>
-    Zibel
+    Kalamo
   </a>
-  <nav class="links" aria-label="Zibel elsewhere">
+  <nav class="links" aria-label="Kalamo elsewhere">
     <a href="https://github.com/286486/kalamo" title="GitHub">
-      <span class="sr-only">Zibel on GitHub</span>
+      <span class="sr-only">Kalamo on GitHub</span>
       <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
     </a>
     <a href="https://x.com/woodywang_cdr" title="X">
@@ -251,9 +252,9 @@
     <p class="board-name" aria-hidden="true">Artboard 1</p>
     <div class="hero">
       <div class="artboard">
-        <h1 id="hero-title" class="sr-only">Zibel</h1>
+        <h1 id="hero-title" class="sr-only">Kalamo</h1>
         <!-- biome-ignore lint/a11y/noNoninteractiveTabindex: role="application" makes it a widget; Biome does not read the role -->
-        <div id="stage" tabindex="0" role="application" aria-label="The word Zibel as editable outlines. Drag an anchor or a handle to reshape it; with the wordmark focused, the arrow keys nudge the selected anchor."><svg id="word" class="agent" aria-hidden="true"></svg></div>
+        <div id="stage" tabindex="0" role="application" aria-label="The word Kalamo as editable outlines. Drag an anchor or a handle to reshape it; with the wordmark focused, the arrow keys nudge the selected anchor."><svg id="word" class="agent" aria-hidden="true"></svg></div>
         <div class="cursor" id="cursor" aria-hidden="true">
           <svg width="16" height="20" viewBox="0 0 16 20" aria-hidden="true"><path d="M1 1 L1 16 L5 12.5 L8 19 L10.5 18 L7.6 11.6 L13 11.6 Z" fill="var(--agent)" stroke="#fff" stroke-width="1.2" stroke-linejoin="round"/></svg>
           <span>claude-code</span>
@@ -267,9 +268,9 @@
           <span class="who"><i aria-hidden="true"></i>claude-code</span>
         </header>
         <ol id="log">
-          <li class="call"><span class="tool">zibel_tx_begin</span><span class="args">{ "docId": "01K6ZB…", "label": "Wordmark" }</span><span class="ret">txId "tx_7Q2M…"</span></li>
-          <li class="call"><span class="tool">zibel_node_create</span><span class="args">{ "txId": "tx_7Q2M…", "nodes": [{ "type": "path", "name": "Z", "parentId": "layer-1", "d": "M0 734L480 734L480 590…Z" }, … 4 more] }</span><span class="ret">createdIds [5]</span></li>
-          <li class="call"><span class="tool">zibel_tx_commit</span><span class="args">{ "txId": "tx_7Q2M…" }</span><span class="ret">rev 2, one undo step</span></li>
+          <li class="call"><span class="tool">kalamo_tx_begin</span><span class="args">{ "docId": "01K6ZB…", "label": "Wordmark" }</span><span class="ret">txId "tx_7Q2M…"</span></li>
+          <li class="call"><span class="tool">kalamo_node_create</span><span class="args">{ "txId": "tx_7Q2M…", "nodes": [{ "type": "path", "name": "K", "parentId": "layer-1", "d": "M0 696L0 46L172 46…Z" }, … 5 more] }</span><span class="ret">createdIds [6]</span></li>
+          <li class="call"><span class="tool">kalamo_tx_commit</span><span class="args">{ "txId": "tx_7Q2M…" }</span><span class="ret">rev 2, one undo step</span></li>
         </ol>
       </aside>
     </div>
@@ -325,7 +326,7 @@
     <p class="board-name" aria-hidden="true">Artboard 3</p>
     <div class="artboard">
       <h2 id="status-title">Not ready to use yet</h2>
-      <p class="intro">Zibel is being built in the open, one milestone at a time. The foundation works: an agent draws over MCP and the browser shows it live. The drawing tools, type, charts and hosting are being built now.</p>
+      <p class="intro">Kalamo is being built in the open, one milestone at a time. The foundation works: an agent draws over MCP and the browser shows it live. The drawing tools, type, charts and hosting are being built now.</p>
       <ol class="path-steps">
         <li class="done"><h3>Foundation <small>Done</small></h3><p>The document model, undo, the MCP server and a live browser viewer.</p></li>
         <li class="now"><h3>First release <small>In progress</small></h3><p>Pen and Pathfinder, type, charts, SVG round trips with Inkscape, and hosting.</p></li>
@@ -347,13 +348,13 @@
 </main>
 
 <footer>
-  <p class="fine">Open source under Apache-2.0. Zibel is short for Zobel, the sable marten whose hair makes the finest illustration brushes.</p>
+  <p class="fine">Open source under Apache-2.0. Kalamo comes from the Greek <i lang="grc-Latn">kálamos</i>, the reed pen. The same word still means “pen” as Arabic <i lang="ar-Latn">qalam</i>, Turkish <i lang="tr">kalem</i> and Swahili <i lang="sw">kalamu</i>.</p>
 </footer>
 
 <script>
 (() => {
-  // "Zibel" in Source Sans 3 Black at 1000 units, y down. Each anchor is [x, y, inX, inY, outX, outY].
-  const DATA = {"w":2200,"h":746,"letters":[[[[0,734,0,734,0,734],[480,734,480,734,480,734],[480,590,480,590,480,590],[212,590,212,590,212,590],[478,188,478,188,478,188],[478,84,478,84,478,84],[26,84,26,84,26,84],[26,228,26,228,26,228],[266,228,266,228,266,228],[0,630,0,630,0,630]]],[[[568,734,568,734,568,734],[740,734,740,734,740,734],[740,234,740,234,740,234],[568,234,568,234,568,234]],[[654,172,598,172,710,172],[748,86,748,138,748,34],[654,0,710,0,598,0],[560,86,560,34,560,138]]],[[[1134,746,1090,746,1240,746],[1342,475,1342,648,1342,322],[1147,222,1265,222,1103,222],[1024,272,1059,240,1024,272],[1028,200,1028,200,1028,200],[1028,38,1028,38,1028,38],[856,38,856,38,856,38],[856,734,856,734,856,734],[990,734,990,734,990,734],[1004,680,1004,680,1004,680],[1008,680,1008,680,1046,724]],[[1092,606,1132,606,1070,606],[1028,582,1048,600,1028,582],[1028,398,1028,398,1050,372],[1096,362,1070,362,1142,362],[1166,478,1166,396,1166,574]]],[[[1654,352,1622,352,1706,352],[1722,424,1722,386,1722,424],[1573,424,1573,424,1586,370]],[[1668,746,1522,746,1724,746],[1850,688,1796,726,1850,688],[1796,586,1796,586,1760,606],[1692,616,1726,616,1645,616],[1576,536,1595,601,1576,536],[1861,536,1861,536,1864,524],[1868,464,1868,494,1868,330],[1650,222,1798,222,1528,222],[1410,484,1410,322,1410,650]]],[[[2116,746,2000,746,2154,746],[2200,732,2182,740,2200,732],[2180,606,2180,606,2172,608],[2162,608,2168,608,2150,608],[2134,564,2134,598,2134,564],[2134,38,2134,38,2134,38],[1962,38,1962,38,1962,38],[1962,558,1962,558,1962,670]]]]};
+  // "Kalamo" in Source Sans 3 Black at 1000 units, y down. Each anchor is [x, y, inX, inY, outX, outY].
+  const DATA = {"w":3322,"h":708,"letters":[[[[0,696,0,696,0,696],[0,46,0,46,0,46],[172,46,172,46,172,46],[172,288,172,288,172,288],[176,288,176,288,176,288],[340,46,340,46,340,46],[528,46,528,46,528,46],[334,310,334,310,334,310],[566,696,566,696,566,696],[378,696,378,696,378,696],[234,446,234,446,234,446],[172,534,172,534,172,534],[172,696,172,696,172,696]]],[[[744,708,799,708,655,708],[594,554,594,642,594,412],[866,372,756,383,862,337.33],[796,320,838.67,320,753,320],[670,360,707,340,670,360],[610,250,610,250,678,209],[830,184,750,184,980,184],[1038,418,1038,277,1038,418],[1038,696,1038,696,1038,696],[898,696,898,696,898,696],[886,648,886,648,886,648],[882,648,882,648,842,684]],[[804,576,773.33,576,833,576],[866,542,848,563,866,542],[866,474,866,474,832,479],[758,540,758,493,758,564]]],[[[1304,708,1331,708,1183,708],[1150,520,1150,628,1150,520],[1150,0,1150,0,1150,0],[1322,0,1322,0,1322,0],[1322,526,1322,526,1322,544],[1350,570,1327,570,1358,570],[1368,568,1361,569,1368,568],[1388,694,1388,694,1364,705]]],[[[1578,708,1633,708,1489,708],[1428,554,1428,642,1428,412],[1700,372,1590,383,1696,337.33],[1630,320,1672.67,320,1587,320],[1504,360,1541,340,1504,360],[1444,250,1444,250,1512,209],[1664,184,1584,184,1814,184],[1872,418,1872,277,1872,418],[1872,696,1872,696,1872,696],[1732,696,1732,696,1732,696],[1720,648,1720,648,1720,648],[1716,648,1716,648,1676,684]],[[1638,576,1607.33,576,1667,576],[1700,542,1682,563,1700,542],[1700,474,1700,474,1666,479],[1592,540,1592,493,1592,564]]],[[[1984,696,1984,696,1984,696],[1984,196,1984,196,1984,196],[2124,196,2124,196,2124,196],[2136,257,2136,257,2136,257],[2140,257,2140,257,2185,213],[2290,184,2225,184,2351,184],[2428,264,2400,209,2472,218],[2582,184,2516,184,2704,184],[2740,388,2740,282,2740,388],[2740,696,2740,696,2740,696],[2568,696,2568,696,2568,696],[2568,410,2568,410,2568,371],[2518,330,2566,330,2496.67,330],[2448,368,2473.33,342.67,2448,368],[2448,696,2448,696,2448,696],[2276,696,2276,696,2276,696],[2276,410,2276,410,2276,371],[2226,330,2274,330,2204.67,330],[2156,368,2181.33,342.67,2156,368],[2156,696,2156,696,2156,696]]],[[[3074,708,3162,708,3031.33,708],[2953,677,2991,697.67,2866,629],[2826,446,2826,544,2826,390.67],[2861,305,2837.67,343.67,2907,229],[3074,184,2984,184,3116.67,184],[3194,215,3156.67,194.33,3280,262],[3322,446,3322,350,3322,501.33],[3286,588,3310,548.67,3241,663]],[[3074,570,3009,570,3138,570],[3146,446,3146,495,3146,397],[3074,322,3138,322,3009,322],[3002,446,3002,397,3002,496]]]]};
   const NS = "http://www.w3.org/2000/svg";
   const PAD = 40;
   const svg = document.getElementById("word");
@@ -524,11 +525,12 @@
     draw();
   });
 
-  // The bowl of the b, rightmost anchor: a smooth point, so its handles show off the curve.
+  // The last letter's (the o's) rightmost smooth anchor, so its handles show off the curve.
   const firstSel = () => {
+    const last = letters.length - 1, outer = letters[last][0];
     let best = null;
-    letters[2][0].forEach((a, ai) => { if (isSmooth(a) && (best === null || a[0] > letters[2][0][best][0])) best = ai; });
-    return [2, 0, best];
+    outer.forEach((a, ai) => { if (isSmooth(a) && (best === null || a[0] > outer[best][0])) best = ai; });
+    return [last, 0, best];
   };
 
   // Park the agent's cursor at a point in the wordmark, in page pixels.
@@ -576,9 +578,9 @@
     moveCursor(top[0], top[1]);
     g.g.classList.add("on");
   }); });
-  at(900 + 5 * 380 + 500, () => { log[2].classList.remove("pending"); svg.classList.remove("agent"); park(); });
-  at(900 + 5 * 380 + 900, () => { sel = firstSel(); cursor.classList.add("idle"); hint.classList.remove("pending"); draw(); });
-  at(900 + 5 * 380 + 1000, () => { finished = true; svg.classList.add("still"); });
+  at(900 + groups.length * 380 + 500, () => { log[2].classList.remove("pending"); svg.classList.remove("agent"); park(); });
+  at(900 + groups.length * 380 + 900, () => { sel = firstSel(); cursor.classList.add("idle"); hint.classList.remove("pending"); draw(); });
+  at(900 + groups.length * 380 + 1000, () => { finished = true; svg.classList.add("still"); });
 })();
 </script>
 </body>
