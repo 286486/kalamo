@@ -1246,3 +1246,68 @@ it("writes every isolated kind, far and near, byte for byte as before render's b
   });
   await expect(svg).toMatchFileSnapshot("__snapshots__/isolated-kinds.svg");
 });
+
+describe("a space after a character in another bundled family (ADR-0067)", () => {
+  const exported = (content: string, extra: object = {}) => {
+    const { doc, defaultLayerId: parentId } = newDoc();
+    const [node] = createNodes(doc, [
+      { type: "text", parentId, x: 0, y: 20, content, ...extra },
+    ]).nodes;
+    if (node?.type !== "text") throw new Error("setup");
+    return { doc, node, svg: toSvg(doc) };
+  };
+  const lines = (svg: string) =>
+    [
+      ...svg.matchAll(
+        /<tspan (?:sodipodi:role="line" )?x="[^"]*" y="[^"]*">(.*?)<\/tspan>(?=<tspan [sx]|<\/text>)/g,
+      ),
+    ].map((m) => m[1]);
+
+  it("writes each run of spaces after Hangul as its own tspan, and not one after Latin", () => {
+    expect(lines(exported("Hi 한국 어  Zibel").svg)).toEqual([
+      "Hi 한국<tspan> </tspan>어<tspan>  </tspan>Zibel",
+    ]);
+  });
+
+  it("does the same in Area Type, and for a no-break space after Han", () => {
+    const { svg } = exported("Hi 한국 어 Zibel 小 x", {
+      kind: "area",
+      width: 200,
+      height: 80,
+    });
+    expect(lines(svg)).toEqual([
+      "Hi 한국<tspan> </tspan>어<tspan> </tspan>Zibel 小<tspan> </tspan>x",
+    ]);
+  });
+
+  it("decides by family, not advance: a Hangul space in a Noto Sans SC text is split", () => {
+    const { svg } = exported("小 한 x", { fontFamily: "Noto Sans SC" });
+    expect(lines(svg)).toEqual(["小 한<tspan> </tspan>x"]);
+  });
+
+  it("keeps a Latin-only text and a space at a line's start as they were", () => {
+    expect(lines(exported("Hi there\n 한").svg)).toEqual(["Hi there", " 한"]);
+  });
+
+  it("keeps a space's Character Range attributes in its own tspan", () => {
+    const { svg } = exported("한 국", { ranges: [{ start: 0, end: 3, fill: "#FF0000" }] });
+    expect(lines(svg)).toEqual([
+      '<tspan fill="#FF0000">한</tspan><tspan fill="#FF0000"> </tspan><tspan fill="#FF0000">국</tspan>',
+    ]);
+  });
+
+  it.each(["point", "area"])("Opens the export of %s Type as the same Node", (kind) => {
+    const { node, svg } = exported("Hi 한국 어 Zibel", {
+      ...(kind === "area" && { kind, width: 200, height: 80 }),
+      ranges: [{ start: 5, end: 7, fill: "#FF0000" }],
+    });
+    const file = parseSvg(svg);
+    expect(file.warnings).toEqual([]);
+    expect(file.nodes.find((n) => n.id === node.id)).toEqual(node);
+  });
+
+  it("leaves resvg's chunked SVG without the split", () => {
+    const { doc } = exported("한 x");
+    expect(toSvg(doc, undefined, { resvg: true })).not.toContain("<tspan> </tspan>");
+  });
+});
