@@ -426,6 +426,20 @@ describe("tracking and Character Ranges (ADR-0029)", () => {
     );
   });
 
+  it("writes a range's tracking as its tspan's letter-spacing (ADR-0068)", () => {
+    const svg = svgOf({
+      fontSize: 20,
+      tracking: 100,
+      ranges: [
+        { start: 1, end: 2, tracking: 250 },
+        { start: 2, end: 3, tracking: 0 },
+      ],
+    });
+    expect(svg).toContain(
+      'H<tspan letter-spacing="5">e</tspan><tspan letter-spacing="0">l</tspan>lo</tspan>',
+    );
+  });
+
   it("writes no range fill into an element that paints no Fill", () => {
     const svg = svgOf({
       appearance: { fills: [], strokes: [{ color: "#000000", width: 1 }] },

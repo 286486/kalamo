@@ -1060,15 +1060,32 @@ describe("tracking and Character Ranges (ADR-0029)", () => {
     ]);
   });
 
+  it("reads a tspan's letter-spacing as its characters' tracking, in their em (ADR-0068)", () => {
+    const file = read(
+      '<text font-size="20" letter-spacing="2">a<tspan letter-spacing="5">b</tspan><tspan letter-spacing="0.1em">c</tspan><tspan letter-spacing="normal">d</tspan></text>',
+    );
+    expect(file.warnings).toEqual([]);
+    expect(leaves(file)[0]).toMatchObject({
+      tracking: 100,
+      ranges: [
+        { start: 1, end: 2, tracking: 250 },
+        { start: 3, end: 4, tracking: 0 },
+      ],
+    });
+  });
+
   it("scales baseline shift with a baked scale, and tracking not at all", () => {
     expect(
       text(
-        '<g transform="scale(2)"><text font-size="20" letter-spacing="2">a<tspan baseline-shift="3">b</tspan></text></g>',
+        '<g transform="scale(2)"><text font-size="20" letter-spacing="2">a<tspan baseline-shift="3">b</tspan><tspan letter-spacing="4">c</tspan></text></g>',
       ),
     ).toMatchObject({
       fontSize: 40,
       tracking: 100,
-      ranges: [{ start: 1, end: 2, baselineShift: 6 }],
+      ranges: [
+        { start: 1, end: 2, baselineShift: 6 },
+        { start: 2, end: 3, tracking: 200 },
+      ],
     });
   });
 
@@ -1091,6 +1108,12 @@ describe("tracking and Character Ranges (ADR-0029)", () => {
     expect(
       text('<text x="100" text-anchor="middle" font-size="10" letter-spacing="1">Hi</text>'),
     ).toMatchObject({ x: 95.01 });
+    // And with a range's: H tracks 3 of 10 pt.
+    expect(
+      text(
+        '<text x="100" text-anchor="middle" font-size="10" letter-spacing="1"><tspan letter-spacing="3">H</tspan>i</text>',
+      ),
+    ).toMatchObject({ x: 94.01 });
   });
 
   it.each([
@@ -1150,8 +1173,9 @@ describe("tracking and Character Ranges (ADR-0029)", () => {
         },
         ranges: [
           { start: 0, end: 1, fill: "#FF000080" },
-          { start: 1, end: 2, stroke: "#00FF00" },
+          { start: 1, end: 2, stroke: "#00FF00", tracking: -50 },
           { start: 2, end: 4, baselineShift: 3, rotation: -15, stroke: "#FF000080" },
+          { start: 4, end: 5, tracking: 0 },
         ],
       },
     ]).nodes;

@@ -148,15 +148,23 @@ const drawHH = async (extra: object) => {
 
 it("draws tracking, baseline shift and rotation inside the bounds node_get reports", async () => {
   const second = (range: object) => ({ ranges: [{ start: 1, end: 2, ...range }] });
-  const [plain, tracked, shifted, rotated] = await Promise.all([
+  const [plain, tracked, shifted, rotated, rangeTracked] = await Promise.all([
     drawHH({}),
     drawHH({ tracking: 500 }),
     drawHH(second({ baselineShift: 15 })),
     drawHH(second({ rotation: 90 })),
+    drawHH({ ranges: [{ start: 0, end: 1, tracking: 500 }] }),
   ]);
-  if (!plain || !tracked || !shifted || !rotated) throw new Error("setup");
-  expect([plain, tracked, shifted, rotated].map((d) => d.outside)).toEqual([[], [], [], []]);
+  if (!plain || !tracked || !shifted || !rotated || !rangeTracked) throw new Error("setup");
+  expect([plain, tracked, shifted, rotated, rangeTracked].map((d) => d.outside)).toEqual([
+    [],
+    [],
+    [],
+    [],
+    [],
+  ]);
   expect(tracked.right).toBeGreaterThanOrEqual(plain.right + 19);
+  expect(rangeTracked.right).toBe(tracked.right);
   expect(shifted.top).toBeLessThanOrEqual(plain.top - 14);
   expect(rotated.bottom).toBeGreaterThanOrEqual(plain.bottom + 15);
 });
@@ -482,12 +490,12 @@ it("draws the fixture Document with known pixels", async () => {
   // holding Chinese mixed with Latin in Regular and Bold (bundling Noto Sans SC moved no pixel); by
   // #160, a fifteenth holding a CJK Area Type wrapped between characters; by #164, a sixteenth
   // holding Korean Point Type in Regular and Bold and a Korean Area Type; by #67, a seventeenth
-  // holding texts whose Character Ranges override stroke. This export SVG names no
+  // holding texts whose Character Ranges override stroke and tracking. This export SVG names no
   // Noto chunk, so its Chinese and Korean draw as .notdef boxes; render's does not.
   // By #175, the texts that named the product say Kalamo, one clipping text says KAL, and the
   // namespace is kalamo.cc.
   expect(await hash(toSvg(doc, docRect(doc), { images }))).toBe(
-    "a7ae95d696fc749b99642af2743b1309380177488ed151c2f89e9e3d36b94297",
+    "de02c3a57160dbc889c04eb49d2cd8b002df8b36f5838e2760e7cb089713a22f",
   );
   expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned, images }))).toBe(
     "24c1e7ad8db33f59933a1b355c879cb19bfdfd67d70b11427b196aa646ea4b60",

@@ -215,17 +215,22 @@ type Overrides = Omit<CharacterRange, "start" | "end">;
 /** A Character Range as written, its colours not parsed yet. */
 type RangeInput = Omit<CharacterRange, "fill" | "stroke"> & { fill?: unknown; stroke?: unknown };
 /** The overrides a range can hold, which runs must all share to merge. */
-const OVERRIDES = ["fill", "stroke", "baselineShift", "rotation"] as const;
+const OVERRIDES = ["fill", "stroke", "baselineShift", "rotation", "tracking"] as const;
+/** A text's own character attributes, the values a range override is none at (ADR-0068). */
+export type OwnAttributes = { tracking?: number | undefined };
 
 /**
  * Character Ranges in canonical form (ADR-0029, ADR-0068): colours parsed, a later range winning
- * attribute by attribute, a shift or rotation of 0 clearing, then sorted runs that do not overlap,
- * adjacent equal runs merged and runs without overrides dropped. None left is `undefined`.
+ * attribute by attribute, a shift or rotation of 0 and a value equal to `text`'s own clearing, then
+ * sorted runs that do not overlap, adjacent equal runs merged and runs without overrides dropped.
+ * None left is `undefined`.
  */
 export function canonicalRanges(
   ranges: RangeInput[] | undefined,
   path: string,
+  text: OwnAttributes,
 ): CharacterRange[] | undefined {
+  const own = { tracking: text.tracking ?? 0 };
   // ponytail: per-character expansion, O(Σ range lengths); sweep the boundaries if it shows in a
   // profile.
   const chars: Overrides[] = [];
@@ -239,6 +244,10 @@ export function canonicalRanges(
       if (stroke !== undefined) o.stroke = stroke;
       for (const k of ["baselineShift", "rotation"] as const) {
         if (r[k] === 0) delete o[k];
+        else if (r[k] !== undefined) o[k] = r[k];
+      }
+      for (const k of ["tracking"] as const) {
+        if (r[k] === own[k]) delete o[k];
         else if (r[k] !== undefined) o[k] = r[k];
       }
       chars[c] = o;
@@ -256,13 +265,14 @@ export function canonicalRanges(
 }
 
 /**
- * Character Ranges without their fills and strokes, canonical, as a Clipping Path keeps them
- * (ADR-0052, ADR-0068).
+ * A text's Character Ranges without their fills and strokes, canonical, as a Clipping Path keeps
+ * them (ADR-0052, ADR-0068).
  */
-export const unfilledRanges = (ranges: CharacterRange[] | undefined) =>
+export const unfilledRanges = (ranges: CharacterRange[] | undefined, text: OwnAttributes) =>
   canonicalRanges(
     ranges?.map(({ fill: _, stroke: __, ...r }) => r),
     "ranges",
+    text,
   );
 
 /** What lays out a text: its kind, anchor or frame, content and character attributes. */
@@ -289,26 +299,40 @@ export interface TextLine {
   start: number;
 }
 
+/** A character of `content` on its own: its advance and the tracking after it in pt, and its overrides. */
+interface Metric {
+  char: string;
+  advance: number;
+  tracking: number;
+  overrides: Overrides | undefined;
+}
+
+/** Each character of a text's content, with the overrides of the Character Range that holds it. */
+function metrics(text: TextLayout): Metric[] {
+  const advance = advancer(text);
+  const s = text.fontSize / SOURCE_SANS_3.unitsPerEm;
+  const ranges = text.ranges ?? [];
+  const overrides = ranges.map(({ start: _, end: __, ...o }) => o);
+  let j = 0;
+  return [...text.content].map((char, c) => {
+    while ((ranges[j]?.end ?? Infinity) <= c) j++;
+    const o = (ranges[j]?.start ?? Infinity) <= c ? overrides[j] : undefined;
+    // A character's tracking is in its own em (ADR-0068).
+    const tracking = ((o?.tracking ?? text.tracking ?? 0) * text.fontSize) / 1000;
+    return { char, advance: advance(char) * s, tracking, overrides: o };
+  });
+}
+
 /**
- * A line's width in pt: its advance sum plus the tracking between its characters, but not after
- * the last (ADR-0029). An empty line is 0 wide.
+ * The width in pt of the characters from `from` up to `to`: their advances plus the tracking
+ * between them, but not after the last (ADR-0029). None is 0 wide.
  */
-function lineWidth(
-  text: string,
-  advance: (char: string) => number,
-  fontSize: number,
-  tracking = 0,
-) {
+function span(m: Metric[], from: number, to: number) {
   // ponytail: advance sum, no shaping or kerning; HarfBuzz (F-TEXT-09, M1) replaces this with
   // shaped glyph positions.
-  let units = 0;
-  let count = 0;
-  for (const ch of text) {
-    units += advance(ch);
-    count++;
-  }
-  const { unitsPerEm } = SOURCE_SANS_3;
-  return (units * fontSize) / unitsPerEm + (Math.max(0, count - 1) * tracking * fontSize) / 1000;
+  let width = 0;
+  for (let i = from; i < to; i++) width += (m[i] as Metric).advance + (m[i] as Metric).tracking;
+  return to > from ? width - (m[to - 1] as Metric).tracking : 0;
 }
 
 /**
@@ -318,9 +342,15 @@ function lineWidth(
  * `overflow`, the text that does not fit, join back into `content`.
  */
 export function layoutText(text: TextLayout): { lines: TextLine[]; overflow: string } {
-  const { x, y, content, fontSize, tracking } = text;
+  const { lines, overflow } = layout(text);
+  return { lines, overflow };
+}
+
+/** `layoutText`, with the metrics of every character of `content`. */
+function layout(text: TextLayout) {
+  const { x, y, content, fontSize } = text;
   const leading = text.leading ?? 1.2 * fontSize;
-  const advance = advancer(text);
+  const m = metrics(text);
   let start = 0;
   const line = (t: string, lineY: number) => {
     const l = { text: t, x, y: lineY, start };
@@ -333,11 +363,14 @@ export function layoutText(text: TextLayout): { lines: TextLine[]; overflow: str
       start++;
       return l;
     });
-    return { lines, overflow: "" };
+    return { lines, overflow: "", m };
   }
   const { width = 0, height = 0 } = text;
   // Trailing spaces and the return hang past the frame's edge.
-  const fits = (l: string) => lineWidth(l.trimEnd(), advance, fontSize, tracking) <= width;
+  const fits = (from: number, to: number) => {
+    while (to > from && /\s/.test((m[to - 1] as Metric).char)) to--;
+    return span(m, from, to) <= width;
+  };
   // CSS inline boxes, as Inkscape stacks them (ADR-0064): half the leading above and below each
   // family's em box, and a line as tall as the union of its first family's box, the strut, and the
   // boxes of the families its characters draw in. Latin alone is one leading tall.
@@ -374,19 +407,24 @@ export function layoutText(text: TextLayout): { lines: TextLine[]; overflow: str
     used += l.length;
     return true;
   };
+  // The code-point index of the current line's first character, and of the next unit's.
+  let [from, to] = [0, 0];
   wrap: for (const paragraph of content.split(/(?<=\n)/)) {
     let l = "";
+    from = to;
     for (const unit of lineBreakUnits(paragraph)) {
-      if (l && !fits(l + unit)) {
+      const n = [...unit].length;
+      if (l && !fits(from, to + n)) {
         if (!push(l)) break wrap;
-        l = "";
+        [l, from] = ["", to];
       }
-      if (!fits(unit)) break wrap;
+      if (!fits(to, to + n)) break wrap;
       l += unit;
+      to += n;
     }
     if (!push(l)) break;
   }
-  return { lines, overflow: content.slice(used) };
+  return { lines, overflow: content.slice(used), m };
 }
 
 /** A laid-out character: its origin on the unshifted baseline, advance width and overrides. */
@@ -399,27 +437,17 @@ export interface Glyph extends Omit<CharacterRange, "start" | "end"> {
 
 /**
  * Every character of a text's shown lines, a line's hard return included, each one tracking past the
- * one before, with the overrides of the Character Range that holds it (ADR-0029).
+ * one before by its own tracking, with the overrides of the Character Range that holds it (ADR-0029,
+ * ADR-0068).
  */
 export function glyphs(text: TextLayout): Glyph[] {
-  const advance = advancer(text);
-  const s = text.fontSize / SOURCE_SANS_3.unitsPerEm;
-  const tracking = ((text.tracking ?? 0) * text.fontSize) / 1000;
-  const ranges = text.ranges ?? [];
-  let j = 0;
-  return layoutText(text).lines.flatMap((line) => {
+  const { lines, m } = layout(text);
+  return lines.flatMap((line) => {
     let x = line.x;
     return [...line.text].map((char, k) => {
-      const c = line.start + k;
-      while ((ranges[j]?.end ?? Infinity) <= c) j++;
-      const width = advance(char) * s;
-      const glyph: Glyph = { char, x, y: line.y, width };
-      const r = ranges[j];
-      if (r && r.start <= c) {
-        const { start: _, end: __, ...overrides } = r;
-        Object.assign(glyph, overrides);
-      }
-      x += width + tracking;
+      const { advance, tracking, overrides } = m[line.start + k] as Metric;
+      const glyph: Glyph = { char, x, y: line.y, width: advance, ...overrides };
+      x += advance + tracking;
       return glyph;
     });
   });
@@ -437,18 +465,15 @@ export function textBox(text: TextLayout): Rect {
   }
   const { unitsPerEm, ascender, descender } = SOURCE_SANS_3;
   const s = text.fontSize / unitsPerEm;
-  const advance = advancer(text);
+  const { lines, m } = layout(text);
   let [left, top, right, bottom] = [Infinity, Infinity, -Infinity, -Infinity];
   const add = (x: number, y: number) => {
     [left, top] = [Math.min(left, x), Math.min(top, y)];
     [right, bottom] = [Math.max(right, x), Math.max(bottom, y)];
   };
-  for (const l of layoutText(text).lines) {
+  for (const l of lines) {
     add(l.x, l.y - ascender * s);
-    add(
-      l.x + Math.max(0, lineWidth(l.text, advance, text.fontSize, text.tracking)),
-      l.y - descender * s,
-    );
+    add(l.x + Math.max(0, span(m, l.start, l.start + [...l.text].length)), l.y - descender * s);
   }
   for (const g of glyphs(text)) {
     const a = ((g.rotation ?? 0) * Math.PI) / 180;

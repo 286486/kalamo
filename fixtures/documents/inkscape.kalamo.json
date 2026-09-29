@@ -2784,6 +2784,61 @@
       "visible": true,
       "x": 10,
       "y": 290
+    },
+    {
+      "appearance": { "fills": [{ "color": "#000000", "type": "solid" }], "strokes": [] },
+      "blendMode": "normal",
+      "content": "Spaced out",
+      "fontFamily": "Source Sans 3",
+      "fontSize": 16,
+      "fontStyle": "Regular",
+      "id": "01M38T29T2RANGES00000000B0",
+      "index": "au",
+      "kind": "point",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "ranges": [
+        { "end": 6, "start": 0, "tracking": 300 },
+        { "end": 10, "start": 7, "tracking": -80 }
+      ],
+      "tags": [],
+      "tracking": 50,
+      "transform": [0.99863, -0.052336, 0.052336, 0.99863, -16.838473, 0.964649],
+      "type": "text",
+      "visible": true,
+      "x": 10,
+      "y": 322
+    },
+    {
+      "appearance": { "fills": [{ "color": "#000000", "type": "solid" }], "strokes": [] },
+      "blendMode": "normal",
+      "content": "Wide words wrap sooner here",
+      "fontFamily": "Source Sans 3",
+      "fontSize": 12,
+      "fontStyle": "Regular",
+      "height": 44,
+      "id": "01M38T29T2RANGES00000000C0",
+      "index": "av",
+      "kind": "area",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "ranges": [
+        { "end": 4, "start": 0, "tracking": 400 },
+        { "end": 15, "start": 11, "tracking": 250 }
+      ],
+      "tags": [],
+      "transform": [0.99863, -0.052336, 0.052336, 0.99863, -13.925138, 8.220419],
+      "type": "text",
+      "visible": true,
+      "width": 130,
+      "x": 150,
+      "y": 270
     }
   ],
   "images": {

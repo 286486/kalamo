@@ -500,19 +500,62 @@ it("stores a range stroke parsed, the later range winning, and lays out without 
         { start: 1, end: 2, stroke: "#00FF0080" },
       ],
       "ranges",
+      {},
     ),
   ).toEqual([
     { start: 0, end: 1, fill: "#0000FF", stroke: "#FF0000" },
     { start: 1, end: 2, fill: "#0000FF", stroke: "#00FF0080" },
     { start: 2, end: 3, fill: "#0000FF", stroke: "#FF0000" },
   ]);
-  expect(() => canonicalRanges([{ start: 0, end: 1, stroke: "red" }], "ranges")).toThrow(
+  expect(() => canonicalRanges([{ start: 0, end: 1, stroke: "red" }], "ranges", {})).toThrow(
     expect.objectContaining({ data: expect.objectContaining({ path: "ranges[0].stroke" }) }),
   );
   const hi = { x: 0, y: 0, content: "Hi", fontSize: 10 };
   const stroked = { ...hi, ranges: [{ start: 0, end: 2, stroke: "#FF0000" }] };
   expect(textBox(stroked)).toEqual(textBox(hi));
   expect(glyphs(stroked).map((g) => g.stroke)).toEqual(["#FF0000", "#FF0000"]);
+});
+
+it("stores a range's tracking unless it equals the Node's, the later range winning (ADR-0068)", () => {
+  const ranges = [
+    { start: 0, end: 4, tracking: 200 },
+    { start: 1, end: 2, tracking: 50 },
+    { start: 2, end: 3, tracking: 0 },
+  ];
+  expect(canonicalRanges(ranges, "ranges", { tracking: 50 })).toEqual([
+    { start: 0, end: 1, tracking: 200 },
+    { start: 2, end: 3, tracking: 0 },
+    { start: 3, end: 4, tracking: 200 },
+  ]);
+  expect(canonicalRanges(ranges, "ranges", {})).toEqual([
+    { start: 0, end: 1, tracking: 200 },
+    { start: 1, end: 2, tracking: 50 },
+    { start: 3, end: 4, tracking: 200 },
+  ]);
+});
+
+it("tracks each character by its range's tracking, the last one's not counted (ADR-0068)", () => {
+  // "Hi" at 12 pt: H tracks 500 / 1000 em = 6 pt, i's tracking is past the end.
+  const hi = { x: 10, y: 50, content: "Hi", fontSize: 12, tracking: 100 };
+  const tracked = { ...hi, ranges: [{ start: 0, end: 2, tracking: 500 }] };
+  expect(textBox(tracked).width).toBeCloseTo(at12(652 + 246) + 6);
+  expect(glyphs(tracked).map((g) => g.x)).toEqual([10, expect.closeTo(10 + at12(652) + 6, 9)]);
+  // At 40 pt, "HH" is 52.16 wide; a range tracking of 500 on the first H adds 20.
+  const hh = (width: number, ranges?: { start: number; end: number; tracking: number }[]) =>
+    layoutText({
+      kind: "area",
+      x: 0,
+      y: 0,
+      width,
+      height: 100,
+      content: "HH HH",
+      fontSize: 40,
+      ranges,
+    }).lines.map((l) => l.text);
+  expect(hh(53)).toEqual(["HH ", "HH"]);
+  expect(hh(53, [{ start: 0, end: 1, tracking: 500 }])).toEqual([]);
+  expect(hh(75, [{ start: 3, end: 4, tracking: 500 }])).toEqual(["HH ", "HH"]);
+  expect(hh(70, [{ start: 3, end: 4, tracking: 500 }])).toEqual(["HH "]);
 });
 
 it("grows Point Type's box to hold a shifted or rotated character", () => {

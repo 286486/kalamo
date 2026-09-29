@@ -150,7 +150,7 @@ function emptied(clip: LeafNode): LeafNode {
   const appearance = { fills: [], strokes: [] };
   if (clip.type !== "text") return { ...clip, clipping: true, appearance };
   const { ranges, ...text } = clip;
-  const kept = unfilledRanges(ranges);
+  const kept = unfilledRanges(ranges, text);
   return { ...text, ...(kept && { ranges: kept }), clipping: true, appearance };
 }
 

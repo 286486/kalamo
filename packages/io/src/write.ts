@@ -747,6 +747,9 @@ function text(n: TextNode, a: Attrs, extra: (string | false)[], chunked: boolean
     ...paint("stroke", r.stroke),
     "baseline-shift": r.baselineShift ? formatNumber(r.baselineShift) : undefined,
     rotate: r.rotation ? formatNumber(r.rotation) : undefined,
+    // In user units, as on the <text> (ADR-0029, ADR-0068).
+    "letter-spacing":
+      r.tracking === undefined ? undefined : formatNumber((r.tracking * n.fontSize) / 1000),
   });
   // For resvg, each shown character's origin, so a chunk can start at it.
   const [first] = fontFamilies(n);

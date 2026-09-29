@@ -348,6 +348,12 @@ export const CharacterRange = z.strictObject({
     .max(360)
     .optional()
     .describe("Degrees clockwise about each character's baseline origin."),
+  tracking: z
+    .number()
+    .min(-1000)
+    .max(10_000)
+    .optional()
+    .describe("Space after each character in 1/1000 of its own em, -1000 to 10000."),
 });
 /** A stored Character Range, its fill and stroke parsed to `#RRGGBB` or `#RRGGBBAA`. */
 export type CharacterRange = Omit<z.output<typeof CharacterRange>, "fill" | "stroke"> & {

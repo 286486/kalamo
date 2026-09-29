@@ -13,6 +13,7 @@ import {
   fontStyleName,
   formatPath,
   frameShape,
+  glyphs,
   IDENTITY,
   IMAGE_ID,
   type ImageFile,
@@ -26,6 +27,7 @@ import {
   type Node,
   newId,
   normalizePath,
+  type OwnAttributes,
   parseDocument,
   parseNode,
   pathBounds,
@@ -198,7 +200,6 @@ function rotate(chars: Char[]) {
 
 /** What a nested tspan cannot set on part of a text yet (ADR-0029, ADR-0068). */
 const PER_TEXT = [
-  "letter-spacing",
   "font-family",
   "font-weight",
   "font-style",
@@ -243,11 +244,29 @@ function lineHeight(value: string | undefined, fontSize: number, k: number) {
   return leading && leading > 0 ? n3(leading) : undefined;
 }
 
-/** A text without its Range Fills, which a `<clipPath>`'s paint never gives it (ADR-0052). */
+/**
+ * `letter-spacing` as tracking, in thousandths of `fontSize`, a font size in the same user units, so
+ * a baked scale needs no scaling (ADR-0029). `normal` is 0.
+ */
+function trackingOf(style: Style, fontSize: number) {
+  const spacing = style["letter-spacing"]?.trim() ?? "normal";
+  const em =
+    spacing === "normal"
+      ? 0
+      : /[\d.]em$/.test(spacing)
+        ? Number.parseFloat(spacing)
+        : (length(spacing) ?? 0) / fontSize;
+  return n3(Math.min(10_000, Math.max(-1000, em * 1000)));
+}
+
+/**
+ * A text without its Range Fills and Strokes, which a `<clipPath>`'s paint never gives it
+ * (ADR-0052, ADR-0068).
+ */
 function unfilled(text: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
   if (!text) return text;
   const { ranges, ...rest } = text;
-  const kept = unfilledRanges(ranges as CharacterRange[] | undefined);
+  const kept = unfilledRanges(ranges as CharacterRange[] | undefined, rest);
   return { ...rest, ...(kept && { ranges: kept }) };
 }
 
@@ -904,6 +923,7 @@ class Reader {
       const ranges = canonicalRanges(
         [...((shape.ranges as CharacterRange[]) ?? []), ...painted],
         "ranges",
+        shape,
       );
       Object.assign(shape, { ranges });
     }
@@ -1045,8 +1065,11 @@ class Reader {
     return color === this.color(ownPaint, own, own[opacity]) ? undefined : color;
   }
 
-  /** The Character Ranges of a text's characters, `undefined` standing for a joining return. */
-  private ranges(chars: (Char | undefined)[], own: Style, k: number) {
+  /**
+   * The Character Ranges of a text's characters, `undefined` standing for a joining return, against
+   * `text`'s own attributes and `own`, the style they come from (ADR-0029, ADR-0068).
+   */
+  private ranges(chars: (Char | undefined)[], own: Style, k: number, text: OwnAttributes) {
     const ranges = chars.flatMap((c, i) => {
       if (!c) return [];
       for (const p of PER_TEXT) {
@@ -1068,10 +1091,11 @@ class Reader {
           ...(stroke && { stroke }),
           ...(c.shift && { baselineShift: n3(c.shift * k) }),
           ...(c.rotate && { rotation: n3(c.rotate % 360) }),
+          tracking: trackingOf(c.style, length(own["font-size"]) ?? 12),
         },
       ];
     });
-    return canonicalRanges(ranges, "ranges");
+    return canonicalRanges(ranges, "ranges", text);
   }
 
   /**
@@ -1096,15 +1120,7 @@ class Reader {
       fontWeight(own["font-weight"]),
       /^(italic|oblique)\b/i.test(own["font-style"] ?? ""),
     );
-    // letter-spacing over the font size, which a baked scale scales alike (ADR-0029).
-    const spacing = own["letter-spacing"]?.trim() ?? "normal";
-    const em =
-      spacing === "normal"
-        ? 0
-        : /[\d.]em$/.test(spacing)
-          ? Number.parseFloat(spacing)
-          : (length(spacing) ?? 0) / (length(own["font-size"]) ?? 12);
-    const tracking = n3(Math.min(10_000, Math.max(-1000, em * 1000)));
+    const tracking = trackingOf(own, length(own["font-size"]) ?? 12);
     const text = {
       type: "text",
       fontFamily: family || BUNDLED_FONT,
@@ -1155,7 +1171,7 @@ class Reader {
       if (!preserve) rotate(chars);
       const content = joined(chars);
       if (!content.trim()) return null;
-      const ranges = this.ranges(chars, own, k);
+      const ranges = this.ranges(chars, own, k, text);
       const shape = {
         ...text,
         kind: "area",
@@ -1177,26 +1193,20 @@ class Reader {
     const first = (name: string) =>
       numbers(line?.getAttribute(name) ?? null)[0] ?? numbers(e.getAttribute(name))[0] ?? 0;
     let x = k * first("x") + tx;
-    if (centred) {
-      const [top = ""] = content.split("\n");
-      const { fontFamily } = text;
-      const width = textBox({
-        x: 0,
-        y: 0,
-        content: top,
-        fontSize,
-        fontFamily,
-        fontStyle,
-        tracking,
-      }).width;
-      x -= anchor === "middle" ? width / 2 : width;
-      if (content.includes("\n")) unaligned();
-    }
     const ranges = this.ranges(
       lines.flatMap((l, i) => (i ? [undefined, ...l] : l)),
       own,
       k,
+      text,
     );
+    if (centred) {
+      // The first line's advance, its characters' own attributes and all (ADR-0068).
+      const [top = ""] = content.split("\n");
+      const last = glyphs({ ...text, x: 0, y: 0, content: top, ranges }).at(-1);
+      const width = last ? last.x + last.width : 0;
+      x -= anchor === "middle" ? width / 2 : width;
+      if (content.includes("\n")) unaligned();
+    }
     const y = n3(k * first("y") + ty);
     const shape = { ...text, kind: "point", x: n3(x), y, content, ...(ranges && { ranges }) };
     return { shape, style: own };
