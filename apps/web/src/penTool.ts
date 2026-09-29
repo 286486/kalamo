@@ -28,6 +28,7 @@ let converting = false;
 export const penTool: CanvasTool = {
   title: "Pen Tool",
   shortcut: "P",
+  group: "pen",
   icon: "M8 1 L12 8 L10 14 H6 L4 8 Z M8 1 V8 M7 8 A1 1 0 1 0 9 8",
   cursor: "crosshair",
   altCursor: anchorPointTool.cursor,

@@ -12,7 +12,7 @@ import { create } from "zustand";
 import { parseKey } from "./direct.ts";
 import type { ImageCache } from "./images.ts";
 import { afterProbe, type Probe, receive, type ViewState } from "./receive.ts";
-import type { Tool } from "./toolbox.ts";
+import type { Tool, ToolGroup } from "./toolbox.ts";
 import type { FillStroke } from "./tools.ts";
 import type { Viewport } from "./viewport.ts";
 
@@ -30,6 +30,8 @@ export interface State extends ViewState {
   /** Window > Layers. */
   layersShown: boolean;
   tool: Tool;
+  /** The tool each Tools panel group shows: the last chosen from it. */
+  front: Partial<Record<ToolGroup, Tool>>;
   /** The Fill and Stroke boxes, kept across Document Tabs as in Illustrator. */
   fillStroke: FillStroke;
 }
@@ -60,6 +62,7 @@ export const useStore = create<State>(() => ({
   images: null,
   layersShown: true,
   tool: "selection",
+  front: {},
   fillStroke: DEFAULT_FILL_STROKE,
 }));
 

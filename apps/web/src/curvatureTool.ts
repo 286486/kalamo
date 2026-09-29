@@ -39,6 +39,7 @@ function drawAnchor(
 export const curvatureTool: CanvasTool = {
   title: "Curvature Tool",
   shortcut: "Shift+~",
+  group: "pen",
   icon: "M2 13 C4 4 12 12 14 3 M1.5 12.5 h1 v1 h-1 Z M13.5 2.5 h1 v1 h-1 Z",
   cursor: "crosshair",
   down(e) {

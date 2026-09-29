@@ -10,6 +10,7 @@ import {
 } from "@zibel/core";
 import { beforeEach, expect, it, vi } from "vitest";
 import { DEFAULT_FILL_STROKE, send, useStore } from "./store.ts";
+import { TOOL_KEYS } from "./toolbox.ts";
 import {
   fillStrokeKey,
   finishPen,
@@ -75,6 +76,7 @@ beforeEach(() => {
     pen: null,
     pending: [],
     tool: "pen",
+    front: {},
     fillStroke: DEFAULT_FILL_STROKE,
   });
   vi.mocked(send).mockClear();
@@ -157,6 +159,19 @@ it("a tool switch finishes the path, and a single Anchor is dropped", () => {
   penClick([0, 0], 1);
   finishPen();
   expect(pen()).toBeNull();
+});
+
+it("a tool's shortcut or button brings it to the front of its group, and keeps the others'", () => {
+  setTool(TOOL_KEYS.L ?? "selection");
+  expect(useStore.getState()).toMatchObject({ tool: "ellipse", front: { rectangle: "ellipse" } });
+  setTool(TOOL_KEYS["Shift+C"] ?? "selection");
+  setTool("zoom");
+  expect(useStore.getState()).toMatchObject({
+    tool: "zoom",
+    front: { rectangle: "ellipse", pen: "anchorPoint" },
+  });
+  setTool(TOOL_KEYS.M ?? "selection");
+  expect(useStore.getState().front).toEqual({ rectangle: "rectangle", pen: "anchorPoint" });
 });
 
 it("draws nothing into a hidden or locked Layer, and says why", () => {
