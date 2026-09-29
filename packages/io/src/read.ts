@@ -181,7 +181,19 @@ interface Char {
   line: { el?: Element; style: Style };
   /** The sum of the `baseline-shift` lengths around it, in its text's user units. */
   shift: number;
+  /** The `rotate` lists of the elements around it, innermost first, each counting the characters it has given an angle. */
+  lists: { angles: number[]; next: number }[];
   rotate?: number;
+}
+
+/**
+ * Each character's rotation from the nearest `rotate` list, a list's angles indexing `chars`, the
+ * characters SVG addresses, its last angle applying past its end (ADR-0029).
+ */
+function rotate(chars: Char[]) {
+  for (const c of chars) {
+    for (const l of c.lists) c.rotate ??= l.angles[Math.min(l.next++, l.angles.length - 1)];
+  }
 }
 
 /** What a nested tspan cannot set on part of a text yet (ADR-0029). */
@@ -963,14 +975,14 @@ class Reader {
 
   /**
    * A text element's characters, one per code point: its text and its tspans', not a `<title>` or
-   * `<desc>` inside it. Baseline shifts add up down the tspans, and a character turns by the nearest
-   * `rotate` list, whose last angle applies past its end, as SVG draws them (ADR-0029).
+   * `<desc>` inside it. Baseline shifts add up down the tspans, as SVG draws them, and each
+   * character holds the `rotate` lists around it for `rotate` (ADR-0029).
    */
   private chars(e: Element, style: Style, shift: number, line: Char["line"]): Char[] {
     const out: Char[] = [];
     for (const c of Array.from(e.childNodes)) {
       if (c.nodeType === 3 || c.nodeType === 4) {
-        for (const char of c.nodeValue ?? "") out.push({ char, style, line, shift });
+        for (const char of c.nodeValue ?? "") out.push({ char, style, line, shift, lists: [] });
       } else if ((c as Element).localName === "tspan") {
         const t = c as Element;
         const s = computeStyle(t, style, this.rules);
@@ -980,9 +992,8 @@ class Reader {
     }
     const angles = numbers(e.getAttribute("rotate")).filter(Number.isFinite);
     if (angles.length) {
-      out.forEach((c, i) => {
-        c.rotate ??= angles[Math.min(i, angles.length - 1)];
-      });
+      const list = { angles, next: 0 };
+      for (const c of out) c.lists.push(list);
     }
     return out;
   }
@@ -1108,6 +1119,8 @@ class Reader {
     };
     const joined = (list: Char[]) => list.map((c) => c.char).join("");
     const all = this.chars(e, style, 0, { style });
+    // A rotate list indexes the characters SVG addresses: preserved, every one; collapsed, those left.
+    if (preserve) rotate(all);
     const anchor = own["text-anchor"];
     const centred = anchor === "middle" || anchor === "end";
     // Lines are left-aligned until paragraph alignment (F-TEXT-03).
@@ -1122,6 +1135,7 @@ class Reader {
       if (centred) unaligned();
       // The layout is recomputed from the characters; Inkscape's positioned lines are its fallback.
       const chars = clean(all);
+      if (!preserve) rotate(chars);
       const content = joined(chars);
       if (!content.trim()) return null;
       const ranges = this.ranges(chars, own, k);
@@ -1140,6 +1154,7 @@ class Reader {
     const lines = tspans.length
       ? tspans.map((t) => clean(all.filter((c) => c.line.el === t)))
       : [clean(all)];
+    if (!preserve) rotate(lines.flat());
     const content = lines.map(joined).join("\n");
     if (!content.trim()) return null;
     const first = (name: string) =>

@@ -1036,6 +1036,30 @@ describe("tracking and Character Ranges (ADR-0029)", () => {
     ]);
   });
 
+  it("indexes a rotate list by the characters left after whitespace collapses", () => {
+    expect(
+      text('<text rotate="10 20 30">\n  <tspan sodipodi:role="line">abc</tspan>\n</text>').ranges,
+    ).toEqual([
+      { start: 0, end: 1, rotation: 10 },
+      { start: 1, end: 2, rotation: 20 },
+      { start: 2, end: 3, rotation: 30 },
+    ]);
+    expect(text('<text rotate="10 20 30 40">a  b</text>').ranges).toEqual([
+      { start: 0, end: 1, rotation: 10 },
+      { start: 1, end: 2, rotation: 20 },
+      { start: 2, end: 3, rotation: 30 },
+    ]);
+  });
+
+  it("indexes a rotate list by every character where whitespace is preserved", () => {
+    expect(text('<text xml:space="preserve" rotate="10 20 30 40">a  b</text>').ranges).toEqual([
+      { start: 0, end: 1, rotation: 10 },
+      { start: 1, end: 2, rotation: 20 },
+      { start: 2, end: 3, rotation: 30 },
+      { start: 3, end: 4, rotation: 40 },
+    ]);
+  });
+
   it("scales baseline shift with a baked scale, and tracking not at all", () => {
     expect(
       text(
