@@ -81,7 +81,10 @@ function Box({ fillStroke, box }: { fillStroke: FillStroke; box: "fill" | "strok
 }
 
 const ALL_TOOLS = Object.keys(TOOLS) as Tool[];
-const labelOf = (t: Tool) => `${TOOLS[t].title} (${TOOLS[t].shortcut})`;
+const labelOf = (t: Tool) => {
+  const { title, shortcut } = TOOLS[t];
+  return shortcut ? `${title} (${shortcut})` : title;
+};
 /** How long a press on a group's button holds before its flyout opens, in ms. */
 const HOLD_MS = 300;
 

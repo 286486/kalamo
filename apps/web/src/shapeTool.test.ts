@@ -1,6 +1,12 @@
 import { createDocument, createNodes } from "@zibel/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { dragBox, ellipseTool, rectangleTool } from "./shapeTool.ts";
+import {
+  dragBox,
+  ellipseTool,
+  radiusKey,
+  rectangleTool,
+  roundedRectangleTool,
+} from "./shapeTool.ts";
 import { send, useStore } from "./store.ts";
 import type { CanvasTool, ToolEvent } from "./toolbox.ts";
 
@@ -46,6 +52,26 @@ describe("dragBox", () => {
     expect(dragBox(press, [8, 4], { ...NONE, shift: true, alt: true })).toEqual(box);
     expect(dragBox(press, [16, 8], { ...NONE, shift: true, alt: true })).toEqual(box);
     expect(dragBox(press, [8, 16], { ...NONE, shift: true, alt: true })).toEqual(box);
+  });
+});
+
+describe("radiusKey", () => {
+  const box = { width: 30, height: 10 };
+  it("steps 1 pt from the radius drawn, down to 0", () => {
+    expect(radiusKey(3, "ArrowUp", box)).toBe(4);
+    expect(radiusKey(3, "ArrowDown", box)).toBe(2);
+    expect(radiusKey(0.5, "ArrowDown", box)).toBe(0);
+    // 12 draws as 5 in a box 10 high.
+    expect(radiusKey(12, "ArrowUp", box)).toBe(6);
+    expect(radiusKey(12, "ArrowDown", box)).toBe(4);
+    expect(radiusKey(12, "ArrowDown", null)).toBe(11);
+  });
+
+  it("Left squares the corners, Right rounds them fully, and other keys are not its", () => {
+    expect(radiusKey(3, "ArrowLeft", box)).toBe(0);
+    expect(radiusKey(3, "ArrowRight", box)).toBe(Number.POSITIVE_INFINITY);
+    expect(radiusKey(3, "C", box)).toBeNull();
+    expect(radiusKey(3, "Shift", box)).toBeNull();
   });
 });
 
@@ -147,9 +173,9 @@ it("previews Shift and Alt pressed or released without a move", () => {
   tool.down(at([10, 10]));
   tool.move?.(at([16, 14]));
   expect(preview()).toBe("M 10 10 L 16 10 L 16 14 L 10 14 Z");
-  tool.keyChange?.({ ...NONE, shift: true, alt: true }, () => {});
+  tool.keyChange?.({ ...NONE, key: "Shift", down: true, shift: true, alt: true }, () => {});
   expect(preview()).toBe("M 4 4 L 16 4 L 16 16 L 4 16 Z");
-  tool.keyChange?.(NONE, () => {});
+  tool.keyChange?.({ ...NONE, key: "Alt", down: false }, () => {});
   expect(preview()).toBe("M 10 10 L 16 10 L 16 14 L 10 14 Z");
   tool.cancel?.(() => {});
   vi.unstubAllGlobals();
@@ -184,4 +210,80 @@ it("draws nothing into a locked Layer from an isolated leaf, leaving the Isolati
   dragWith(rectangleTool, [0, 0], [[20, 20]]);
   expect(send).not.toHaveBeenCalled();
   expect(useStore.getState()).toMatchObject({ ...view, pending: [], notice: /hidden or locked/ });
+});
+
+describe("the Rounded Rectangle tool", () => {
+  const key = (k: string, down = true) =>
+    roundedRectangleTool.keyChange?.({ ...NONE, key: k, down }, () => {});
+  const radius = () => {
+    const command = sent();
+    return command?.type === "create" ? command.nodes[0] : null;
+  };
+
+  // In order: the radius each drag leaves is the next one's.
+  it("starts at 12 pt, the arrow keys change it, and the last one carries over", () => {
+    dragWith(roundedRectangleTool, [0, 0], [[40, 30]]);
+    expect(radius()).toMatchObject({ type: "rect", width: 40, height: 30, radius: 12 });
+
+    roundedRectangleTool.down(at([0, 0]));
+    roundedRectangleTool.move?.(at([40, 30]));
+    expect([key("ArrowUp"), key("ArrowUp"), key("ArrowUp", false), key("ArrowDown")]).toEqual([
+      true,
+      true,
+      true,
+      true,
+    ]);
+    roundedRectangleTool.up?.(at([40, 30]));
+    expect(radius()).toMatchObject({ radius: 13 });
+
+    dragWith(roundedRectangleTool, [0, 0], [[20, 20]]);
+    expect(radius()).toMatchObject({ radius: 10 });
+    dragWith(roundedRectangleTool, [0, 0], [[40, 40]]);
+    expect(radius()).toMatchObject({ radius: 13 });
+  });
+
+  it("Right rounds fully as the box grows, and keeps the radius it drew; Left squares", () => {
+    roundedRectangleTool.down(at([0, 0]));
+    roundedRectangleTool.move?.(at([10, 10]));
+    key("ArrowRight");
+    roundedRectangleTool.up?.(at([60, 50]));
+    expect(radius()).toMatchObject({ width: 60, height: 50, radius: 25 });
+    dragWith(roundedRectangleTool, [0, 0], [[80, 80]]);
+    expect(radius()).toMatchObject({ radius: 25 });
+
+    roundedRectangleTool.down(at([0, 0]));
+    key("ArrowLeft");
+    roundedRectangleTool.up?.(at([30, 30]));
+    expect(radius()).toMatchObject({ radius: 0 });
+  });
+
+  it("previews the radius drawn, and takes no key but the arrows", () => {
+    const paths: string[] = [];
+    vi.stubGlobal(
+      "Path2D",
+      class {
+        constructor(d: string) {
+          paths.push(d);
+        }
+      },
+    );
+    const ctx = { fill() {}, stroke() {} } as unknown as CanvasRenderingContext2D;
+    roundedRectangleTool.down(at([0, 0]));
+    roundedRectangleTool.move?.(at([20, 10]));
+    roundedRectangleTool.draw?.(ctx, doc, 1);
+    expect(paths.at(-1)).toBe("M 0 0 L 20 0 L 20 10 L 0 10 Z");
+    key("ArrowUp");
+    key("ArrowUp");
+    roundedRectangleTool.draw?.(ctx, doc, 1);
+    expect(paths.at(-1)).toMatch(/^M 2 0 L 18 0 C/);
+    expect([key("C"), key("M"), key("Shift")]).toEqual([false, false, false]);
+    // The Rectangle tool takes no key, and is not drawing this one.
+    expect(rectangleTool.keyChange?.({ ...NONE, key: "ArrowUp", down: true }, () => {})).toBe(
+      false,
+    );
+    rectangleTool.draw?.(ctx, doc, 1);
+    expect(paths).toHaveLength(2);
+    roundedRectangleTool.cancel?.(() => {});
+    vi.unstubAllGlobals();
+  });
 });

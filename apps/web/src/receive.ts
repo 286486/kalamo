@@ -36,6 +36,8 @@ export interface ShapeBox {
   y: number;
   width: number;
   height: number;
+  /** A rect's corner radius, 0 when left out. */
+  radius?: number;
 }
 
 /**
