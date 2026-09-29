@@ -24,6 +24,18 @@ F-LAYER-01 asks for drag-to-restack and drag-to-reparent in the Layers panel. Si
 - **No empty undo step.** A drop where no Node would change parent or key sends nothing, as Object > Arrange does (ADR-0074).
 - **Clipping Paths** follow ADR-0071: dragged to another parent a Clipping Path loses `clipping` and its Clip Group becomes an ordinary Group; restacked in its own parent it stays the Clipping Path.
 
+## Alt-drag copies
+
+Amended by #194, on ADR-0076's `duplicate` edit. Illustrator's Layers panel duplicates a row dragged with Alt held: released on a Layer or Group, the copy goes to its top; released between rows, to that position. Alt may be pressed after the drag starts.
+
+- **Alt at release decides.** A drop whose Alt key is down when the button is released sends one `{type: "duplicate", input}` Command instead of `reparent`, with `targetParentId` and a position. Pressing Alt mid-drag copies, and releasing it before the button moves, as on the canvas (ADR-0076). One Transaction, one undo step.
+- **Same target, same set.** The copies land where a plain drop would put the originals: the top of a container row, or the gap between rows, at the indent-chosen depth. The copied Nodes are those a plain drag would move, so a Node in a locked container is left out, and they land as one block in the originals' panel order. With the originals still in place, any sibling anchors the block (`after` the sibling directly below the gap, else `before` the one directly above it, else on top).
+- **Same refusals.** A copy is refused wherever a move is, with no indicator and nothing sent: this includes a drop into the dragged Node's own descendant. The originals stay put, so such a copy could work, but Illustrator documents no such drop, and core refuses a target inside a copied Node (ADR-0076).
+- **A copy always lands.** Unlike a move, a copy dropped where the originals already are still sends: in the gap directly above its own row, for example, the copy lands directly above the original.
+- **Indicator.** While Alt is down, the drop effect is `copy`, and the browser's cursor shows a plus sign.
+- **Selection and names.** The copies become the Selection, as ADR-0076's canvas copies do, and keep their names. Only Duplicate adds " copy" (#195).
+- **Clicks and viewers.** Alt-click on a row still selects, and on a Layer's row still selects its contents (ADR-0012). A viewer's rows drag neither with Alt nor without it, and neither does text selected in them.
+
 ## Keyboard
 
 The panel has no keyboard move, as Illustrator's has none. Keyboard restacking in a parent is Object > Arrange and its shortcuts (ADR-0074). Moving to another Layer from the keyboard is Cut, then Paste in Place with something in the target Layer selected, since new art goes to the Layer of the Selection (ADR-0017), as Illustrator pastes into the active Layer. The pasted Nodes are new Nodes with new ids, and there is no keyboard route into a Group.
@@ -36,10 +48,13 @@ The panel has no keyboard move, as Illustrator's has none. Keyboard restacking i
 - **A drop zone below the list, or dragging below an expanded container meaning below it.** Rejected: the first reaches only the bottom of the top level, and the second puts the line over the container's topmost child while the Nodes land below its whole contents.
 - **Check the tree rules again in the browser.** Rejected: running core's `reparentNodes` on a copy is the same check, so the two cannot drift.
 - **Delete a Group the drag empties**, as Illustrator does. Rejected for the same reason as in ADR-0071: one core edit, one rule.
-- **Alt-drag to copy.** Out of scope: it needs a duplicate edit, which does not exist yet.
+- **Alt-drag to copy.** Out of scope at first, as it needed a duplicate edit. Added by #194 on ADR-0076's edit (see "Alt-drag copies").
+- **Let an Alt-drag copy into the dragged Node's own descendant.** Rejected: Illustrator documents no such drop, and core's duplicate refuses a target inside a copied Node.
+- **Send nothing for a copy that changes no position**, as for a move. Rejected: a copy adds a Node wherever it lands, so it is never an empty step.
 
 ## Consequences
 
+- The panel's Alt-drop sends ADR-0076's `duplicate` Command and needs no new message type.
 - `ClientMessage` gains `reparent`, and the Durable Object's Command table one entry. ADR-0071's note that the browser has no reparent Command, and ADR-0012's "no drag reordering yet", no longer hold.
 - The Layers panel's rows are a list (`ul` and `li`), each named by its Node's name, so a test or a screen reader can find a row.
 - The panel re-plans the drop on every `dragover`: a copy of the Document's Node map per event, fine at the Document sizes of REQUIREMENTS §7.1.

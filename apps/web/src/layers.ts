@@ -2,6 +2,7 @@ import {
   childrenOf,
   clippingPath,
   type Document,
+  type DuplicateInput,
   KalamoError,
   lockedIn,
   type Node,
@@ -197,15 +198,7 @@ export function dropMoves(
   if (nodes.length === 0) return null;
   // The first lands directly above the nearest undragged sibling below the gap, else directly
   // below the nearest one above it, else on top; so the anchor is never a dragged Node.
-  let first: Pick<ReparentInput, "before" | "after"> = {};
-  if (drop.zone !== "onto") {
-    const siblings = childrenOf(doc, parentId);
-    const gap = siblings.indexOf(at) + (drop.zone === "above" ? 1 : 0);
-    const stays = (n: Node) => !set.has(n.id);
-    const below = siblings.slice(0, gap).findLast(stays);
-    const above = siblings.slice(gap).find(stays);
-    first = below ? { after: below.id } : above ? { before: above.id } : {};
-  }
+  const first = slot(doc, drop, (n) => !set.has(n.id));
   const moves = nodes.map(
     (n, i): ReparentInput => ({
       nodeId: n.id,
@@ -225,6 +218,47 @@ export function dropMoves(
     if (e instanceof KalamoError) return null;
     throw e;
   }
+}
+
+/**
+ * The `duplicate` Command's input for a Layers panel Alt-drag of `dragged` onto `drop` (ADR-0075):
+ * copies of the Nodes a plain drag would move, as one block where it would land them. Null where
+ * the move is refused, a drop into a dragged Node's own descendant too, though the originals stay.
+ * Unlike a move, a copy to where the originals already are still lands there.
+ */
+export function dropCopies(
+  doc: Document,
+  dragged: string[],
+  drop: Drop,
+  scope: string | null,
+): DuplicateInput | null {
+  const plan = dropMoves(doc, dragged, drop, scope);
+  if (!plan) return null;
+  const { parentId } = plan.moves[0] as ReparentInput;
+  // The originals stay, so any sibling can anchor the block.
+  return {
+    nodeIds: plan.moves.map((m) => m.nodeId),
+    targetParentId: parentId,
+    ...slot(doc, drop, () => true),
+  };
+}
+
+/**
+ * Where in its parent a gap `drop` lands: directly above the nearest sibling below the gap that
+ * `anchors`, else directly below the nearest one above it, else on top, as a drop onto a container.
+ */
+function slot(
+  doc: Document,
+  drop: Drop,
+  anchors: (n: Node) => boolean,
+): Pick<ReparentInput, "before" | "after"> {
+  const at = doc.nodes.get(drop.id) as Node;
+  if (drop.zone === "onto") return {};
+  const siblings = childrenOf(doc, at.parentId);
+  const gap = siblings.indexOf(at) + (drop.zone === "above" ? 1 : 0);
+  const below = siblings.slice(0, gap).findLast(anchors);
+  const above = siblings.slice(gap).find(anchors);
+  return below ? { after: below.id } : above ? { before: above.id } : {};
 }
 
 /** Every Node in the order the Layers panel lists them fully expanded: topmost first, depth first. */

@@ -2,13 +2,14 @@ import {
   childrenOf,
   createDocument,
   createNodes,
+  duplicateNodes,
   makeMask,
   type Node,
   type ReparentInput,
   reparentNodes,
 } from "@kalamo/core";
 import { describe, expect, it } from "vitest";
-import { autoName, type Drop, dropAt, dropMoves, layerMask, rows } from "./layers.ts";
+import { autoName, type Drop, dropAt, dropCopies, dropMoves, layerMask, rows } from "./layers.ts";
 
 /**
  * Layer 1: Group g (rects a, b), rect c, hidden rect h, locked Group lg (rect m), Layer 3 (rect e).
@@ -368,5 +369,91 @@ describe("dropAt (ADR-0075)", () => {
     // e closes l3, not l1, since lg follows at depth 1.
     expect([at("e", 0.9, 2), at("e", 0.9, 0)]).toEqual(["below e 2", "below l3 1"]);
     expect(at("d", 0.9, 0)).toBe("below l2 0");
+  });
+});
+
+describe("dropCopies (ADR-0075)", () => {
+  /** The keys of the parent's children after the copy, bottom first; a copy of `x` is `x+`. */
+  const after = (f: ReturnType<typeof fixture>, dragged: string[], drop: Drop, parent: string) => {
+    const input = dropCopies(f.doc, dragged.map(f.id), drop, null);
+    if (!input) return null;
+    const doc = { ...f.doc, nodes: new Map(f.doc.nodes) };
+    const { copies } = duplicateNodes(doc, input);
+    const source = (id: string) => Object.keys(copies).find((k) => copies[k]?.includes(id));
+    return childrenOf(doc, f.id(parent)).map((n) => f.key(n.id) ?? `${f.key(source(n.id) ?? "")}+`);
+  };
+
+  it("copies onto a container's top, or into a gap, where a move would land", () => {
+    const f = fixture();
+    expect(after(f, ["c"], { zone: "onto", id: f.id("g") }, "g")).toEqual(["a", "b", "c+"]);
+    expect(after(f, ["g"], { zone: "above", id: f.id("c") }, "l1")).toEqual([
+      "g",
+      "c",
+      "g+",
+      "h",
+      "lg",
+      "l3",
+    ]);
+    const bottom = dropCopies(f.doc, [f.id("l3")], { zone: "below", id: f.id("l1") }, null);
+    expect(bottom).toEqual({ nodeIds: [f.id("l3")], targetParentId: null, before: f.id("l1") });
+  });
+
+  it("copies to a gap next to the original, where a move would change nothing", () => {
+    const f = fixture();
+    expect(after(f, ["c"], { zone: "above", id: f.id("c") }, "l1")).toEqual([
+      "g",
+      "c",
+      "c+",
+      "h",
+      "lg",
+      "l3",
+    ]);
+    expect(after(f, ["c"], { zone: "below", id: f.id("c") }, "l1")).toEqual([
+      "g",
+      "c+",
+      "c",
+      "h",
+      "lg",
+      "l3",
+    ]);
+    expect(after(f, ["c"], { zone: "above", id: f.id("g") }, "l1")).toEqual([
+      "g",
+      "c+",
+      "c",
+      "h",
+      "lg",
+      "l3",
+    ]);
+  });
+
+  it("copies several Nodes as one block in their panel order, leaving out a locked container's", () => {
+    const f = fixture();
+    expect(after(f, ["c", "d", "m"], { zone: "onto", id: f.id("l3") }, "l3")).toEqual([
+      "e",
+      "c+",
+      "d+",
+    ]);
+    expect(after(f, ["h", "g"], { zone: "below", id: f.id("c") }, "l1")).toEqual([
+      "g",
+      "g+",
+      "h+",
+      "c",
+      "h",
+      "lg",
+      "l3",
+    ]);
+  });
+
+  it("refuses every drop a move refuses, a copy into its own descendant too", () => {
+    const f = fixture();
+    const refused = (dragged: string, drop: Drop, scope: string | null = null) =>
+      dropCopies(f.doc, [f.id(dragged)], drop, scope);
+    expect(refused("l1", { zone: "onto", id: f.id("l3") })).toBeNull();
+    expect(refused("g", { zone: "onto", id: f.id("g") })).toBeNull();
+    expect(refused("g", { zone: "above", id: f.id("a") })).toBeNull();
+    expect(refused("l3", { zone: "onto", id: f.id("g") })).toBeNull();
+    expect(refused("c", { zone: "onto", id: f.id("lg") })).toBeNull();
+    expect(refused("m", { zone: "above", id: f.id("c") })).toBeNull();
+    expect(refused("a", { zone: "above", id: f.id("g") }, f.id("g"))).toBeNull();
   });
 });
