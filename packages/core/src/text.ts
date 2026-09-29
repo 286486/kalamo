@@ -111,15 +111,14 @@ const emAscent = ({ ascender, descender }: { ascender: number; descender: number
 /**
  * The bundled families in fallback order after a text's own (ADR-0063, ADR-0066), each with the
  * style names of its faces, the face a style draws in by CSS matching (ADR-0028), and the scripts it
- * draws. The Noto families have Regular and Bold only, and no
- * italic, so an italic draws upright.
+ * draws. The Noto families have Regular and Bold only, and no italic, so an italic draws upright.
  */
 const FAMILIES = {
   "Source Sans 3": {
     face: (style?: FontStyle) => bundledStyle(style),
     faces: sourceSans3,
     ascent: emAscent(SOURCE_SANS_3),
-    draws: "Latin, Greek and Cyrillic",
+    draws: "Latin, Greek, and Cyrillic",
   },
   "Noto Sans SC": {
     face: notoFace,
@@ -147,7 +146,7 @@ const list = (items: string[], type: "conjunction" | "disjunction") =>
 export const BUNDLED_FAMILIES_NOTE = `${list(
   BUNDLED_FAMILIES.map((f) => `${f} (${FAMILIES[f].draws})`),
   "conjunction",
-)} are bundled, and each character draws in the first of them that has it`;
+)} are bundled; each character draws in the text's own family if bundled and it has the glyph, else in the first of them that has it`;
 
 /** What picks a text's faces: its family, Source Sans 3 if none, and style. */
 type TextFont = { fontFamily?: string | undefined; fontStyle?: FontStyle | undefined };
