@@ -1,5 +1,6 @@
 import { formatPath, type Rect, Shape, shapeSegments } from "@kalamo/core";
-import type { PendingCreate } from "./receive.ts";
+import { forNewArt, leaving } from "./isolation.ts";
+import { copyInput, type PendingCreate } from "./receive.ts";
 import { send, useStore } from "./store.ts";
 import type { ToolEvent } from "./toolbox.ts";
 import type { FillStroke } from "./tools.ts";
@@ -109,8 +110,14 @@ export function commitDrag() {
     // ponytail: TransformInput takes at most 1000 nodeIds: a larger drag crashes preview() and
     // is closed with 1007 by the DO; chunk the command or lift the max when Documents grow.
     const translate = { x: drag.dx, y: drag.dy };
-    const commandId = send({ type: "transform", input: { nodeIds: drag.nodeIds, translate } });
-    useStore.setState({ drag: { ...drag, commandId } });
+    const s = useStore.getState();
+    const commandId =
+      drag.copy && s.doc
+        ? send({ type: "duplicate", input: copyInput(s.doc, drag) })
+        : send({ type: "transform", input: { nodeIds: drag.nodeIds, translate } });
+    // An isolated leaf's copies land beside it, so the Isolation goes up a level, as for new art.
+    const leave = drag.copy && s.doc ? leaving(s.isolated, forNewArt(s.doc, s)) : undefined;
+    useStore.setState({ drag: { ...drag, commandId, ...(leave && { leave }) } });
   }
 }
 

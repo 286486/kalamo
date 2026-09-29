@@ -444,6 +444,42 @@ it("moves Nodes from a reparent command as the User Actor, and rejects one namin
   expect(refused).toMatchObject({ type: "rejected", id: "r3", error: { code: "INVALID_PARENT" } });
 });
 
+it("copies Nodes from a duplicate command as the User Actor, and rejects one naming a deleted Node (ADR-0076)", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const [a, b] = (
+    await call("kalamo_node_create", { docId, nodes: [rect(defaultLayerId), rect(defaultLayerId)] })
+  ).structuredContent.createdIds;
+  const { ws, received } = await subscribe(docId);
+  await received(1);
+  const input = {
+    nodeIds: [b, a],
+    offset: { x: 5, y: 0 },
+    targetParentId: defaultLayerId,
+    after: b,
+  };
+  ws.send(command("d1", { type: "duplicate", input }));
+  const [, copied] = await received(2);
+  expect(copied).toMatchObject({ type: "tx", actor: "user", commandId: "d1", updated: [] });
+  const created = (copied as { created: { id: string; parentId: string }[] }).created;
+  expect(created).toHaveLength(2);
+  const { nodes } = (await call("kalamo_doc_outline", { docId, depth: 2 })).structuredContent;
+  expect(nodes[0].children.map((n: { id: string }) => n.id)).toEqual([
+    a,
+    b,
+    ...created.map((n) => n.id),
+  ]);
+
+  await call("kalamo_node_delete", { docId, nodeIds: [b] });
+  await received(3);
+  ws.send(command("d2", { type: "duplicate", input: { ...input, nodeIds: [a] } }));
+  const [, , , gone] = await received(4);
+  expect(gone).toMatchObject({
+    type: "rejected",
+    id: "d2",
+    error: { code: "NODE_GONE", nodeIds: [b] },
+  });
+});
+
 it("rejects a reparent command whose moved Node or parent was deleted meanwhile with NODE_GONE", async () => {
   const { docId, defaultLayerId } = await newDoc();
   const [a, b, group] = (

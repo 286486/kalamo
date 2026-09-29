@@ -707,6 +707,19 @@ export function childrenOf(doc: Document, parentId: string | null): Node[] {
     .sort((a, b) => (a.index < b.index ? -1 : a.index > b.index ? 1 : 0));
 }
 
+/** Each Node's place in paint order, bottom first. */
+export function paintOrder(doc: Document): Map<string, number> {
+  const order = new Map<string, number>();
+  const walk = (parentId: string | null) => {
+    for (const n of childrenOf(doc, parentId)) {
+      order.set(n.id, order.size);
+      walk(n.id);
+    }
+  };
+  walk(null);
+  return order;
+}
+
 /** Locked, or inside a locked Layer or Group. */
 export const lockedIn = (doc: Document, node: Node | undefined): boolean =>
   !!node &&

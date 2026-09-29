@@ -1,6 +1,7 @@
 import {
   type Artboard,
   type Document,
+  DuplicateInput,
   type ErrorData,
   MaskInput,
   type Node,
@@ -91,6 +92,8 @@ export const ClientMessage = z.object({
     z.object({ type: z.literal("reorder"), nodeIds: z.array(z.string()).min(1), op: ReorderOp }),
     // A drag in the Layers panel (ADR-0075).
     z.object({ type: z.literal("reparent"), moves: z.array(ReparentInput).min(1) }),
+    // A Selection-tool drag released with Alt: copies instead of moving (ADR-0076).
+    z.object({ type: z.literal("duplicate"), input: DuplicateInput }),
     // Object > Clipping Mask > Make and Release (ADR-0021).
     z.object({ type: z.literal("mask_make"), input: MaskInput }),
     z.object({ type: z.literal("mask_release"), nodeIds: z.array(z.string()).min(1) }),

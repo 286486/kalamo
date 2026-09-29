@@ -366,6 +366,24 @@ describe("image files in R2, swept once nothing names them (ADR-0046)", () => {
     });
   });
 
+  it("keeps a duplicated Image's file after its original is deleted and swept (ADR-0076)", async () => {
+    const { s, image, parentId } = await setup("r2-duplicate");
+    const id = await redId();
+    const ids = ok(
+      await s.createNodes([image(RED_2x2_PNG), image(RED_2x2_PNG, { file: "red.png" })], "agent"),
+    ).createdIds;
+    const { copies } = ok(await s.duplicateNodes({ nodeIds: ids }, "agent"));
+    expect(await stored("r2-duplicate")).toEqual({ rows: [id], objects: [id] });
+    ok(await s.deleteNodes(ids, "agent"));
+    await sweep(s, parentId);
+    expect(await stored("r2-duplicate")).toEqual({ rows: [id], objects: [id] });
+    const copyIds = ids.map((n) => copies[n]?.[0] as string);
+    const { nodes } = ok(await s.get(copyIds, "full", "agent"));
+    expect(nodes).toMatchObject([{ src: id }, { src: id, file: "red.png" }]);
+    const raster = ok(await s.raster("agent", { scale: 1, scope: { nodeIds: copyIds } })).svg;
+    expect(raster.split(`xlink:href="${RED_2x2_PNG}"`)).toHaveLength(3);
+  });
+
   it("keeps an open Transaction's staged Image, drawn in its own render, and sweeps it after rollback or expiry", async () => {
     const { s, image, parentId } = await setup("r2-tx");
     const [red, blue] = [await redId(), await blueId()];

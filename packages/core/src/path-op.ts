@@ -20,6 +20,7 @@ import {
   createNodes,
   MAX_NODES_PER_CREATE,
   newId,
+  paintOrder,
   worldTransform,
 } from "./document.ts";
 import { KalamoError } from "./errors.ts";
@@ -239,19 +240,6 @@ type WithAnchors = PathNode | LiveShape;
 function anchorsIn(node: WithAnchors, m: Matrix = IDENTITY) {
   const path = isLiveShape(node) ? toPath(node) : node;
   return { node, path, subpaths: toAnchors(transformSegments(parsePath(path.d, "d"), m)) };
-}
-
-/** Each Node's place in paint order, bottom first. */
-function paintOrder(doc: Document): Map<string, number> {
-  const order = new Map<string, number>();
-  const walk = (parentId: string | null) => {
-    for (const n of childrenOf(doc, parentId)) {
-      order.set(n.id, order.size);
-      walk(n.id);
-    }
-  };
-  walk(null);
-  return order;
 }
 
 /** `anchors`, each checked to be of a Node in `nodeIds`. */

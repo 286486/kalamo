@@ -233,6 +233,23 @@ describe("write tools pass the write and its options apart", () => {
     },
   );
 
+  it("node_duplicate: nodeIds, offset, count and targetParentId as sent, apart from the write options", async () => {
+    const copies = { a: ["a1", "a2"] };
+    const { service, call } = await harness({
+      duplicateNodes: async () => ({ ...receipt, copies }),
+    });
+    const input = { nodeIds: ["a"], offset: { x: 5, y: 0 }, count: 2, targetParentId: "g" };
+    const result = await call("kalamo_node_duplicate", { docId: "d", ...input, ...opts });
+    expect(service.duplicateNodes.mock.calls[0]).toStrictEqual(["d", input, opts]);
+    expect(result.structuredContent).toEqual({ ...receipt, copies });
+    await call("kalamo_node_duplicate", { docId: "d", nodeIds: ["a"], targetParentId: null });
+    expect(service.duplicateNodes.mock.calls[1]).toStrictEqual([
+      "d",
+      { nodeIds: ["a"], targetParentId: null },
+      {},
+    ]);
+  });
+
   it.each([1, 1000])("node_reparent: %i moves, the bounds, reach the service", async (n) => {
     const { service, call } = await harness({ reparentNodes: async () => receipt });
     const moves = Array.from({ length: n }, (_, i) => ({ nodeId: `n${i}`, parentId: "g" }));
@@ -789,6 +806,48 @@ describe("arguments are parsed strictly: a bad one is INVALID_INPUT and nothing 
       "parentId",
       expect.any(String),
     ],
+    [
+      "kalamo_node_duplicate",
+      { docId: "d", nodeIds: ["a"], count: 0 },
+      "count",
+      "count must be at least 1.",
+    ],
+    [
+      "kalamo_node_duplicate",
+      { docId: "d", nodeIds: ["a"], count: 101 },
+      "count",
+      "count must be at most 100.",
+    ],
+    [
+      "kalamo_node_duplicate",
+      { docId: "d", nodeIds: ["a"], count: 1.5 },
+      "count",
+      expect.any(String),
+    ],
+    [
+      "kalamo_node_duplicate",
+      { docId: "d", nodeIds: [] },
+      "nodeIds",
+      "nodeIds must be at least 1 item.",
+    ],
+    [
+      "kalamo_node_duplicate",
+      { docId: "d", nodeIds: ["a"], offset: { x: 1 } },
+      "offset.y",
+      "offset.y is required.",
+    ],
+    [
+      "kalamo_node_duplicate",
+      { docId: "d", nodeIds: ["a"], after: "b" },
+      "after",
+      expect.any(String),
+    ],
+    [
+      "kalamo_node_duplicate",
+      { docId: "d", nodeIds: ["a"], partial: true },
+      "partial",
+      expect.any(String),
+    ],
   ])("%s %j: %s, with a hint on what to send", async (name, args, path, hint) => {
     const { call, called } = await harness();
     expect(errorOf(await call(name, args))).toMatchObject({ code: "INVALID_INPUT", path, hint });
@@ -1075,6 +1134,7 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
     "kalamo_mask_release",
     "kalamo_node_create",
     "kalamo_node_delete",
+    "kalamo_node_duplicate",
     "kalamo_node_get",
     "kalamo_node_query",
     "kalamo_node_reorder",
@@ -1112,6 +1172,10 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
     ["docId", "fit", "ifRev", "intent", "parentId", "position", "svg", "txId"].sort(),
   );
   expect(byName.kalamo_svg_import?.annotations).toMatchObject({ destructiveHint: false });
+  expect(inputKeys("kalamo_node_duplicate").sort()).toEqual(
+    ["count", "docId", "ifRev", "intent", "nodeIds", "offset", "targetParentId", "txId"].sort(),
+  );
+  expect(byName.kalamo_node_duplicate?.annotations).toMatchObject({ destructiveHint: false });
   expect(inputKeys("kalamo_image_place").sort()).toEqual(
     ["asTemplate", "docId", "frame", "ifRev", "intent", "parentId", "src", "txId"].sort(),
   );
@@ -1319,7 +1383,7 @@ it("logs one line per call: Actor, tool, duration, node count, error code and re
 it("names every tool kalamo_ and knows the former name's tools and format as nothing (ADR-0069)", async () => {
   const { client, call } = await harness();
   const names = (await client.listTools()).tools.map((t) => t.name);
-  expect(names).toHaveLength(27);
+  expect(names).toHaveLength(28);
   expect(names.filter((n) => !n.startsWith("kalamo_") || n.includes(LEGACY_NAME))).toEqual([]);
 
   const failure = async (name: string) =>

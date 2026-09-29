@@ -305,7 +305,7 @@ Kalamo 要填的空位是：**Agent 能生成、人能精修、二者共享同�
 
 ### 5.7 变换、对齐与吸附
 
-- **F-XFORM-01** 边界框直接变换：移动、缩放（Shift 等比、Alt 中心）、旋转（边界框外拖动或 R 工具）、镜像（O）、倾斜（Shear）。所有变换工具支持 Alt+点击设参考点并打开数值对话框，Alt 拖拽复制。（P0）
+- **F-XFORM-01** 边界框直接变换：移动、缩放（Shift 等比、Alt 中心）、旋转（边界框外拖动或 R 工具）、镜像（O）、倾斜（Shear）。所有变换工具支持 Alt+点击设参考点并打开数值对话框，Alt 拖拽复制。（P0）Selection 工具的 Alt 拖拽复制已实现：松开鼠标时按着 Alt 即复制，副本作为一块放在最上面那个被拖 Node 之上并成为 Selection，与 `node_duplicate` 同一核心编辑（ADR-0076）；其余变换工具尚缺。
 - **F-XFORM-02** Transform 面板：9 点参考点、X / Y / W / H、旋转角、倾斜角、锁定比例、Live Shape 参数、Scale Strokes & Effects、Scale Corners、Flip H / V。（P0）
 - **F-XFORM-03** Free Transform（E）：自由扭曲 / 透视扭曲手柄。（P1）
 - **F-XFORM-04** Transform Each（逐个变换，含随机）、Transform Again（Ctrl+D）。（P1）
@@ -594,7 +594,7 @@ flowchart LR
 |---|---|---|---|
 | `node_update` | `docId`, `updates[]`：`{nodeId, patch}`，patch 为 JSON Merge Patch（RFC 7396）作用于节点可写属性（name、visible、locked、opacity、blendMode、appearance、几何参数、text 属性、meta）；image 另可写 `src`（data URL 或已有图像 id，只换像素，即 Relink）与 `file`（字符串链接或重新链接，`null` 即 Embed，无 `src` 时 `INVALID_IMAGE`；`src: null` 为 `INVALID_PATCH`，ADR-0042） | 回执 | D（覆盖属性） |
 | `node_delete` | `docId`, `nodeIds[]`；删掉最后一个顶层 Layer 的删除以 `LAST_LAYER` 拒绝（ADR-0073） | 回执 | D |
-| `node_duplicate` | `docId`, `nodeIds[]`, `offset?`, `count?`, `targetParentId?` | 新 id 映射 | |
+| `node_duplicate` | `docId`, `nodeIds[]`, `offset?`, `count?`（1–100，缺省 1）, `targetParentId?`；每个 Node 连同子树复制为新 id，其余不变（image 共享像素）；缺省每个副本紧贴原件之上，给 `targetParentId`（Layer、Group，或 `null` 即顶层）则全部作为一块按原件绘制次序置于其顶部；第 *k* 份平移 *k* × `offset`，自下而上排列；与祖先同列或重复的 id 只复制一次；单独复制的 Clipping Path 失去 `clipping`；Layer 入 Group 等为 `INVALID_PARENT`，不写入；一个事务（ADR-0076） | 回执 + `copies`：源 id → 新顶层 id（按 *k*） | |
 | `node_reparent` | `docId`, `moves[]`：`{nodeId, parentId, index | before | after}`；`index` 自下而上数父级的其余子节点，`before` 落在该兄弟之下，`after` 之上，缺省置顶；同一 `parentId` 即重排；按序施加，一个事务；Clipping Path 移出原父级即失去 `clipping`（ADR-0071） | 回执 | |
 | `node_reorder` | `docId`, `nodeIds[]`, `op`: front / forward / backward / back；每个 Node 只在其父级内重排，父级不变；forward / backward 越过一个兄弟（重叠与否），同一父级的多个 Node 保持相对次序，相邻的整块移动，已在顶 / 底的不动；不同父级的各自重排；Layer 亦可；Clipping Path 保留 `clipping`；一个事务，回执只列移动了的 Node（ADR-0074） | 回执 | |
 | `node_transform` | `docId`, `nodeIds[]`, `translate?`, `rotate?`（角度）, `scale?`, `skew?`, `matrix?`, `pivot`（center / 9 点 / 坐标）, `each`（逐个 vs 整体）, `scaleStrokes`；或 `transforms[]?`（每项即上述单个变换，按序施加，一个事务，ADR-0070） | 回执 + 新 bounds | |
@@ -995,6 +995,7 @@ kalamo/
 | 55 | 至少一个顶层 Layer（2026-09-30） | 已提交的 Document 至少保留一个顶层 Layer，同 Illustrator：`node_delete`（含事务内暂存与浏览器 `delete` 命令）删掉最后一个时以新错误码 `LAST_LAYER` 拒绝、不改任何东西，`partial` 下按序拒绝使其清空的那一项；提交合并后没有顶层 Layer 时整体以 `TREE_CONFLICT` 拒绝，事务保持打开；撤销与重做按行序从后往前跳过删除顶层 Layer 的行，直到留下一个；只拒绝把数目从至少一个降到零的写入，已存的无 Layer 文档仍可写、可用 `node_create` 修复 | ADR-0073、#192 |
 | 56 | 排列（2026-09-30） | `node_reorder` 与 Object > Arrange（Bring to Front Shift+Ctrl+]、Bring Forward Ctrl+]、Send Backward Ctrl+[、Send to Back Shift+Ctrl+[）是同一核心编辑：每个 Node 只在其父级内重排，父级不变；forward / backward 越过一个兄弟，不看是否重叠；同一父级的多个 Node 保持相对次序，相邻的整块移动，已在顶 / 底的不动、其余的向它靠拢；不同父级的各自重排；Layer 亦可重排；Clipping Path 保留 `clipping`；只有移动了的 Node 换键；一个事务、一个回执、一次撤销；无一移动时回执不列任何 Node，浏览器不发送命令 | ADR-0074、#191 |
 | 57 | 图层面板拖拽（2026-09-30） | Layers 面板拖动行即重排或换父级：浏览器发 `reparent` 命令，DO 走与 `node_reparent` 相同的核心编辑，一次拖放一个事务、一次撤销；拖动已选中的行带上整个 Selection，保持面板中的相对次序；行的上下四分之一为行间插入线，容器中部为放入其顶部；展开容器内容的最后一行之下，按指针缩进落在该行或其祖先之下；锁定容器中的 Node 留在原处、其余照移（该行不可拖）；锁定的目标容器、自身或后代、Layer 入 Group、隔离范围之外不显示指示、不发送；隐藏容器直接接收，Node 自身锁定或隐藏不阻止；不变位置时不发送；Alt 拖拽复制不在范围内；面板无键盘移动，同 Illustrator，重排用 Object > Arrange | ADR-0075、#190 |
+| 58 | 复制出新 Node（2026-09-30） | `node_duplicate` 与 Selection 工具的 Alt 拖拽复制是同一核心编辑：Node 连同子树复制为新 id，其余不变，image 按哈希共享像素、清扫照计；MCP 缺省每个副本紧贴原件之上（Layer 仍为 Layer），给 `targetParentId` 则全部一块按绘制次序置顶；`count` 1–100，第 *k* 份平移 *k* × `offset`（同 Transform Again），自下而上；与祖先同列或重复只复制一次；单独复制的 Clipping Path 失去 `clipping`，整个复制的 Clip Group、被剪切的 Layer 照旧裁切；违反树规则为 `INVALID_PARENT`、不写入；不检查锁定；无 `partial`；一个事务、一个回执（`copies` 映射）、一次撤销。浏览器以松开时的 Alt 为准，预览随 Alt 切换；副本一块放进最上面被拖 Node 的父级、紧贴其上，成为 Selection；隔离模式内留在隔离容器中；viewer 拖动不发送任何命令。Shift 约束与智能参考线待拖动移动具备后一并继承 | ADR-0076、#193 |
 
 **剩余开放问题**
 

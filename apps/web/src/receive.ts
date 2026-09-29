@@ -1,11 +1,14 @@
 import {
   type BareAnchor,
   type Document,
+  type DuplicateInput,
+  duplicateNodes,
   editPath,
   type Geometry,
   type NodeInput,
   type PathEditInput,
   type PathOpInput,
+  paintOrder,
   pathOp,
   transformNodes,
 } from "@kalamo/core";
@@ -14,12 +17,18 @@ import type { CurveAnchor } from "./curvature.ts";
 import { inRange, parseKey, segmentInRange } from "./direct.ts";
 import { prune } from "./isolation.ts";
 
-/** The Selection being dragged by (dx, dy) pt. `commandId` is set once its move has been sent. */
+/**
+ * The Selection being dragged by (dx, dy) pt. `commandId` is set once its move has been sent. With
+ * `copy`, Alt held, it leaves the originals and drops copies (ADR-0076); `leave` is the Isolation
+ * move its answer makes, as a PendingCreate's.
+ */
 export interface Drag {
   nodeIds: string[];
   dx: number;
   dy: number;
   commandId: string | null;
+  copy?: boolean;
+  leave?: PendingCreate["leave"];
 }
 
 /** An open subpath's Endpoint: its first Anchor, or its last. */
@@ -181,14 +190,16 @@ export function receive(
     msg.type === "tx"
       ? msg.created.filter((n) => !n.parentId || !made.has(n.parentId)).map((n) => n.id)
       : [];
+  // An Alt-drag's copies become the Selection, as drawn art does (ADR-0076).
+  const copied = msg.type === "tx" && answered && s.drag?.copy ? s.drag : undefined;
   const isolated = prune(s.doc, doc, s.isolated);
   // Drawn art leaves its leaf, unless an Esc, a prune or earlier art moved the Isolation meanwhile.
-  const leave = drawn?.leave;
+  const leave = drawn?.leave ?? copied?.leave;
   return {
     doc,
     isolated: leave && isolated === leave.from ? prune(s.doc, doc, leave.to) : isolated,
     // Drawn art becomes the Selection, as in Illustrator.
-    selection: drawn ? (drawn.select ? drawnTop : []) : [...new Set(selection)],
+    selection: drawn && !drawn.select ? [] : drawn || copied ? drawnTop : [...new Set(selection)],
     ...(answered && { drag: null }),
     anchors,
     segments,
@@ -208,11 +219,32 @@ export function receive(
  * `doc` with the drag applied by core, as the Document DO will apply it. Nodes deleted meanwhile
  * are left out here; the command still names them, so it is rejected (ADR-0010).
  */
-export function preview(doc: Document, { nodeIds, dx, dy }: Drag): Document {
+export function preview(doc: Document, drag: Drag): Document {
   const shown = { ...doc, nodes: new Map(doc.nodes) };
-  const present = nodeIds.filter((id) => doc.nodes.has(id));
-  if (present.length > 0) transformNodes(shown, { nodeIds: present, translate: { x: dx, y: dy } });
-  return shown;
+  const present = drag.nodeIds.filter((id) => doc.nodes.has(id));
+  if (present.length === 0) return shown;
+  if (!drag.copy) {
+    transformNodes(shown, { nodeIds: present, translate: { x: drag.dx, y: drag.dy } });
+    return shown;
+  }
+  try {
+    duplicateNodes(shown, copyInput(doc, { ...drag, nodeIds: present }));
+    return shown;
+  } catch (e) {
+    console.warn("An Alt-drag preview skipped a copy core refuses.", e);
+    return doc;
+  }
+}
+
+/**
+ * An Alt-drag's copies (ADR-0076), as Illustrator places them: one block directly above the topmost
+ * dragged Node, in its parent, moved by the drag.
+ */
+export function copyInput(doc: Document, { nodeIds, dx, dy }: Drag): DuplicateInput {
+  const order = paintOrder(doc);
+  const top = nodeIds.reduce((a, b) => ((order.get(b) ?? 0) > (order.get(a) ?? 0) ? b : a));
+  const targetParentId = doc.nodes.get(top)?.parentId ?? null;
+  return { nodeIds, offset: { x: dx, y: dy }, targetParentId, after: top };
 }
 
 /**

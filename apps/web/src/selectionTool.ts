@@ -12,7 +12,7 @@ import {
 } from "./canvas.ts";
 import { exitLevel, isolate } from "./isolation.ts";
 import { combine, editable, hitTest, marquee } from "./selection.ts";
-import { useStore } from "./store.ts";
+import { canEdit, useStore } from "./store.ts";
 import type { CanvasTool, ToolEvent } from "./toolbox.ts";
 
 /** A press on the canvas: moving objects under `hit`, or drawing a marquee. */
@@ -40,7 +40,7 @@ function doubleClick(e: ToolEvent, hit: string | null) {
   }
 }
 
-/** Illustrator's black arrow: selects and moves whole objects. */
+/** Illustrator's black arrow: selects and moves whole objects, or copies them with Alt held. */
 export const selectionTool: CanvasTool = {
   title: "Selection Tool",
   shortcut: "V",
@@ -64,7 +64,12 @@ export const selectionTool: CanvasTool = {
       // Pressing a selected object keeps the Selection, so all of it that is editable moves.
       const kept = selection.includes(hit);
       if (!kept) useStore.setState({ selection: [hit] });
-      const nodeIds = kept ? selection.filter((id) => editable(doc, doc.nodes.get(id))) : [hit];
+      // A viewer's press selects but moves and copies nothing (ADR-0047).
+      const nodeIds = !canEdit(useStore.getState())
+        ? []
+        : kept
+          ? selection.filter((id) => editable(doc, doc.nodes.get(id)))
+          : [hit];
       gesture = { kind: "move", start, hit, nodeIds, moved: false };
     } else {
       gesture = { kind: "marquee", start, mods, moved: false };
@@ -75,7 +80,10 @@ export const selectionTool: CanvasTool = {
     const d = g && dragged(g, e);
     if (!g || !d) return;
     if (g.kind === "move") {
-      useStore.setState({ drag: { nodeIds: g.nodeIds, dx: d[0], dy: d[1], commandId: null } });
+      if (g.nodeIds.length === 0) return;
+      // Alt held copies instead (ADR-0076); the preview follows it until the release decides.
+      const drag = { nodeIds: g.nodeIds, dx: d[0], dy: d[1], commandId: null, copy: e.alt };
+      useStore.setState({ drag });
     } else {
       marqueeRect = rectOf(g.start, e);
       e.redraw();
@@ -93,8 +101,20 @@ export const selectionTool: CanvasTool = {
       useStore.setState({ selection: combine(selection, ids, g.mods) });
       marqueeRect = null;
       e.redraw();
-    } else if (g?.moved) commitDrag();
+    } else if (g?.moved) {
+      const { drag } = useStore.getState();
+      if (drag?.commandId === null) useStore.setState({ drag: { ...drag, copy: e.alt } });
+      commitDrag();
+    }
     if (g && double) doubleClick(e, g.kind === "move" ? g.hit : null);
+  },
+  /** Alt pressed or released mid-drag switches the preview between moving and copying. */
+  keyChange(key) {
+    const { drag } = useStore.getState();
+    if (gesture?.kind === "move" && drag?.commandId === null && drag.copy !== key.alt) {
+      useStore.setState({ drag: { ...drag, copy: key.alt } });
+    }
+    return false;
   },
   cancel(redraw) {
     gesture = null;

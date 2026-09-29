@@ -1,8 +1,8 @@
-import { createDocument, createNodes, type Document, type Node } from "@kalamo/core";
+import { bounds, createDocument, createNodes, type Document, type Node } from "@kalamo/core";
 import type { TxMessage } from "@kalamo/sync";
 import { expect, it } from "vitest";
 import { anchorKey } from "./direct.ts";
-import { afterProbe, preview, previewEdit, previewOp, receive } from "./receive.ts";
+import { afterProbe, copyInput, preview, previewEdit, previewOp, receive } from "./receive.ts";
 
 function fixture() {
   const { doc, defaultLayerId } = createDocument({
@@ -410,4 +410,53 @@ it("stops a tab only when the probe after an unopened socket reads 404 DOC_NOT_F
   expect(afterProbe(null)).toBe("retry");
   expect(afterProbe({ status: 503 })).toBe("retry");
   expect(afterProbe({ status: 404 })).toBe("retry");
+});
+
+it("previews an Alt-drag as copies above the topmost dragged Node, originals left (ADR-0076)", () => {
+  const { doc, a, b } = fixture();
+  const layer = a.parentId as string;
+  expect(copyInput(doc, drag([b.id, a.id], null))).toEqual({
+    nodeIds: [b.id, a.id],
+    offset: { x: 5, y: 0 },
+    targetParentId: layer,
+    after: b.id,
+  });
+  const shown = preview(doc, { ...drag([a.id, b.id], null), copy: true });
+  const kids = [...shown.nodes.values()].filter((n) => n.parentId === layer);
+  kids.sort((p, q) => (p.index < q.index ? -1 : 1));
+  expect(kids.map((n) => n.id).slice(0, 2)).toEqual([a.id, b.id]);
+  expect(kids).toHaveLength(4);
+  expect(kids.slice(2).map((n) => bounds(shown, n)?.x)).toEqual([5, 5]);
+  expect(bounds(shown, shown.nodes.get(a.id) as Node)?.x).toBe(0);
+  expect(doc.nodes.size).toBe(3);
+});
+
+it("selects an Alt-drag's copies once its own answer creates them, and only then", () => {
+  const { doc, a } = fixture();
+  const state = {
+    doc,
+    selection: [a.id],
+    drag: { ...drag([a.id], "c1"), copy: true },
+    pen: null,
+    pending: [],
+    opPreview: null,
+    notice: null,
+    edit: null,
+    anchors: [],
+    segments: [],
+    isolated: null,
+  };
+  const group = { ...a, id: "g", type: "group", index: "b0" } as unknown as Node;
+  const inside = { ...a, id: "x", parentId: "g" } as Node;
+  const created = [group, inside];
+  const agent = receive(state, tx(doc, { created, commandId: "other" }), "d");
+  expect(agent).toMatchObject({ selection: [a.id] });
+  expect(receive(state, tx(doc, { actor: "user", created, commandId: "c1" }), "d")).toMatchObject({
+    drag: null,
+    selection: ["g"],
+  });
+  const moved = { ...state, drag: drag([a.id], "c1") };
+  expect(receive(moved, tx(doc, { actor: "user", created, commandId: "c1" }), "d")).toMatchObject({
+    selection: [a.id],
+  });
 });

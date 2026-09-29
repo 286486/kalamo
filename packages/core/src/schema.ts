@@ -767,6 +767,35 @@ export const ARRANGE: Record<ReorderOp, string> = {
   back: "Send to Back",
 };
 
+/**
+ * `node_duplicate` and Alt-drag copy (ADR-0076). `index`, `before` and `after` place the copies in
+ * `targetParentId` as they place a `node_reparent` move; only the browser's Alt-drag sends them.
+ */
+export const DuplicateInput = z.strictObject({
+  nodeIds: z.array(z.string()).min(1).max(1000),
+  offset: Point.optional().describe(
+    "Move each copy by x, y in pt; copy k of count moves by k × offset, as Transform Again would.",
+  ),
+  count: z
+    .number()
+    .int()
+    .min(1)
+    .max(100)
+    .optional()
+    .describe("Copies of each Node, 1 to 100; default 1."),
+  targetParentId: z
+    .string()
+    .nullable()
+    .optional()
+    .describe(
+      "A Layer or Group, or null for the top level (Layers only), to put every copy in, on top, as one block in the originals' stacking order. Omit it to put each copy directly above its own original.",
+    ),
+  index: ReparentInput.shape.index,
+  before: ReparentInput.shape.before,
+  after: ReparentInput.shape.after,
+});
+export type DuplicateInput = z.input<typeof DuplicateInput>;
+
 const clipNodeId = z
   .string()
   .describe("The Live Shape, Path or text that clips; it loses its Appearance.");

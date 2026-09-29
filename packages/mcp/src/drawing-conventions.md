@@ -38,6 +38,7 @@ Read this once before your first write. Tool descriptions cover each call; this 
 - Ids come from the server. Give each item a `clientKey` and read its new id from the receipt's `keyMap`.
 - To move Nodes to another Layer or Group, or to an exact place in their own, use `kalamo_node_reparent` with `moves: [{nodeId, parentId, index | before | after}]`. Geometry does not change, and a Clipping Path moved to another parent stops clipping.
 - To bring Nodes to the front or send them back in their own parent, use `kalamo_node_reorder` with `op`: `front`, `forward`, `backward` or `back`, as Object > Arrange does. `forward` and `backward` step past one sibling, and several Nodes keep their order among themselves.
+- To copy Nodes, use `kalamo_node_duplicate`: each copy has new ids for itself and everything inside it, and keeps the rest. Without `targetParentId` each copy lands directly above its original; with it, all copies go on top of that parent as one block. `count` with `offset` makes a row of copies, copy k moved by k × `offset`. Read the new ids from the receipt's `copies`.
 - Give Layers and Groups a `name`. `tags` and `meta` are yours: use them to find Nodes again with `kalamo_node_query`.
 - Children are painted bottom to top in the order you create them.
 

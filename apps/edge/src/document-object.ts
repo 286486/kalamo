@@ -9,8 +9,10 @@ import {
   createDocument,
   createNodes,
   type Document,
+  type DuplicateInput,
   dataUrl,
   deleteNodes,
+  duplicateNodes,
   type ErrorData,
   editPath,
   type Failed,
@@ -70,6 +72,7 @@ import {
   DOC_DELETED,
   type DocInfo,
   type DocumentMessage,
+  type DuplicateReceipt,
   type OpenedDocument,
   type PathEditReceipt,
   type RasterRequest,
@@ -494,6 +497,11 @@ export class DocumentObject extends DurableObject<Env> {
         c.moves.flatMap((m) => [m.nodeId, m.parentId ?? [], m.before ?? [], m.after ?? []].flat()),
       run: (c, actor, commandId) => this.reparentNodes(c.moves, actor, { commandId }),
     },
+    duplicate: {
+      nodeIds: ({ input: c }) =>
+        [...c.nodeIds, c.targetParentId ?? [], c.before ?? [], c.after ?? []].flat(),
+      run: (c, actor, commandId) => this.duplicateNodes(c.input, actor, { commandId }),
+    },
     mask_make: {
       nodeIds: (c) =>
         "layerId" in c.input ? [c.input.layerId] : [c.input.clipNodeId, ...c.input.contentIds],
@@ -883,6 +891,20 @@ export class DocumentObject extends DurableObject<Env> {
       const { nodes, failed } = reorderNodes(doc, nodeIds, op, opts);
       return { updated: nodes, failed, summary: ARRANGE[op] };
     });
+  }
+
+  duplicateNodes(
+    input: DuplicateInput,
+    actor: string,
+    opts: Options = {},
+  ): Result<DuplicateReceipt> {
+    let copies: Record<string, string[]> = {};
+    const result = this.write(actor, opts, "Duplicate", (doc) => {
+      const done = duplicateNodes(doc, input);
+      copies = done.copies;
+      return { created: done.created, warnings: textWarnings(done.created), failed: [] };
+    });
+    return "error" in result ? result : { ...result, copies };
   }
 
   makeMask(input: MaskInput, actor: string, opts: Options = {}): Result<WriteReceipt> {

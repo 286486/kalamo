@@ -56,6 +56,7 @@ it("lists the tools over HTTP (their schemas and annotations: packages/mcp serve
     "kalamo_mask_release",
     "kalamo_node_create",
     "kalamo_node_delete",
+    "kalamo_node_duplicate",
     "kalamo_node_get",
     "kalamo_node_query",
     "kalamo_node_reorder",
@@ -2207,6 +2208,48 @@ describe("kalamo_node_reorder (ADR-0074)", () => {
     });
     expect(errorOf(patched).hint).toContain("node_reorder");
     expect(errorOf(patched).hint).not.toContain("not available yet");
+  });
+});
+
+describe("kalamo_node_duplicate (ADR-0076)", () => {
+  it("copies an embedded and a linked Image that render, export and open as their originals", async () => {
+    const { docId, defaultLayerId } = await newDoc();
+    const embedded = { type: "image", parentId: defaultLayerId, src: RED_2x2_PNG, x: 10, y: 10 };
+    const linked = { ...embedded, x: 50, file: "photos/red.png" };
+    const ids = (await call("kalamo_node_create", { docId, nodes: [embedded, linked] }))
+      .structuredContent.createdIds as string[];
+    const { rev } = (await call("kalamo_doc_get_info", { docId })).structuredContent;
+    const result = await call("kalamo_node_duplicate", { docId, nodeIds: ids });
+    expect(result.isError).toBeFalsy();
+    const { copies, createdIds } = result.structuredContent;
+    expect(result.structuredContent.rev).toBe(rev + 1);
+    const copyIds = ids.map((id) => copies[id][0] as string);
+    expect(createdIds).toEqual(copyIds);
+    const png = async (id: string) =>
+      (await call("kalamo_render", { docId, scope: { nodeIds: [id] }, scale: 1 })).content[0].data;
+    for (const [i, id] of ids.entries())
+      expect(await png(copyIds[i] as string)).toBe(await png(id));
+    /** Each copy and its original in `doc`, without what a copy changes. */
+    const pairs = async (doc: string) => {
+      const { nodes } = (
+        await call("kalamo_node_get", { docId: doc, nodeIds: [...ids, ...copyIds], detail: "full" })
+      ).structuredContent;
+      const body = ({ id: _, index: __, ...rest }: { id: string; index?: string }) => rest;
+      return nodes.map(body);
+    };
+    const [a, b, a2, b2] = await pairs(docId);
+    expect(a2).toEqual(a);
+    expect(b2).toEqual(b);
+    expect(a).toMatchObject({ src: expect.stringMatching(/^[0-9a-f]{64}$/) });
+    expect(b).toMatchObject({ src: a.src, file: "photos/red.png" });
+    for (const format of ["kalamo_json", "svg"]) {
+      const content = (await call("kalamo_export", { docId, format })).content[0].text;
+      const opened = (await call("kalamo_doc_open", { content })).structuredContent;
+      const [c, d, c2, d2] = await pairs(opened.docId);
+      expect(c2).toEqual(c);
+      expect(d2).toEqual(d);
+      if (format === "kalamo_json") expect([c, d]).toEqual([a, b]);
+    }
   });
 });
 
