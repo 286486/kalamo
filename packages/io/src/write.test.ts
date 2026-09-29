@@ -1256,6 +1256,7 @@ describe("a space after a character in another bundled family (ADR-0067)", () =>
     if (node?.type !== "text") throw new Error("setup");
     return { doc, node, svg: toSvg(doc) };
   };
+  // Each line tspan's content, up to the next line tspan or the text's end.
   const lines = (svg: string) =>
     [
       ...svg.matchAll(
@@ -1296,9 +1297,9 @@ describe("a space after a character in another bundled family (ADR-0067)", () =>
     ]);
   });
 
-  it.each(["point", "area"])("Opens the export of %s Type as the same Node", (kind) => {
+  it.each(["Point", "Area"])("Opens the export of %s Type as the same Node", (kind) => {
     const { node, svg } = exported("Hi 한국 어 Zibel", {
-      ...(kind === "area" && { kind, width: 200, height: 80 }),
+      ...(kind === "Area" && { kind: "area", width: 200, height: 80 }),
       ranges: [{ start: 5, end: 7, fill: "#FF0000" }],
     });
     const file = parseSvg(svg);

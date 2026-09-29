@@ -751,11 +751,14 @@ function text(n: TextNode, a: Attrs, extra: (string | false)[], chunked: boolean
   let shown = 0;
   /** The characters of `t` from code point `start`, and whether they are laid out, so may chunk. */
   const spans = (start: number, t: string, laidOut: boolean) => {
-    /** Runs of characters, each with the attributes that set it apart and the x a chunk starts at. */
+    /**
+     * Runs of characters, each with the attributes that set it apart, the x a chunk starts at, and
+     * whether it is spaces that need a tspan of their own (ADR-0067).
+     */
     const runs: { attrs: string; x?: number; text: string; alone: boolean }[] = [];
     let family = first;
     let [index, range] = [start - 1, 0];
-    // Not for resvg: the family the last character but a space draws in (ADR-0067).
+    // Not for resvg: the family of the last character on the line that is not a space (ADR-0067).
     let before: string | undefined;
     for (const char of t) {
       index++;
@@ -766,9 +769,11 @@ function text(n: TextNode, a: Attrs, extra: (string | false)[], chunked: boolean
       const chunk = drawn !== family && origin !== undefined;
       family = drawn;
       let alone = false;
-      if (!chunked && (char === " " || char === "\u00a0"))
-        alone = before !== undefined && drawnFamily(n, char) !== before;
-      else if (!chunked) before = drawnFamily(n, char);
+      if (!chunked) {
+        const f = drawnFamily(n, char);
+        if (char === " " || char === "\u00a0") alone = before !== undefined && f !== before;
+        else before = char === "\n" ? undefined : f;
+      }
       const own = attrs({
         ...(r && r.start <= index && overrides(r)),
         "font-family": family === first ? undefined : family,
