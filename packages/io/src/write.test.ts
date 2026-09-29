@@ -109,6 +109,28 @@ it("writes a star's Inkscape parameters as set, and its centre and radii at full
   expect(formatPath(shapeSegments(star))).toContain("C");
 });
 
+it("writes a spiral as an Inkscape spiral, its parameters at full precision (ADR-0060)", () => {
+  const { doc, defaultLayerId: parentId } = newDoc();
+  const params = {
+    cx: 80.1234567,
+    cy: 50,
+    radius: 30.0001,
+    revolution: 2.75,
+    expansion: 0.6,
+    t0: 0.12345678,
+  };
+  const [spiral] = createNodes(doc, [{ type: "spiral", parentId, ...params, argument: 30 }]).nodes;
+  if (spiral?.type !== "spiral") throw new Error("setup");
+  const svg = toSvg(doc);
+  expect(svg).toContain(
+    'sodipodi:type="spiral" sodipodi:cx="80.1234567" sodipodi:cy="50" sodipodi:radius="30.0001" ' +
+      `sodipodi:revolution="2.75" sodipodi:expansion="0.6" sodipodi:argument="${Math.PI / 6}" sodipodi:t0="0.12345678" d="M `,
+  );
+  expect(svg).toContain(`d="${formatPath(shapeSegments(spiral))}"`);
+  const [back] = parseSvg(svg).nodes.filter((n) => n.type === "spiral");
+  expect(back).toMatchObject({ ...params, cx: 80.123, radius: 30, argument: 30 });
+});
+
 it("writes a cut ellipse, or a whole one with other parameters, as an Inkscape arc (ADR-0025)", () => {
   const { doc, defaultLayerId: parentId } = newDoc();
   const box = { type: "ellipse" as const, parentId, x: 40, y: 50, width: 120, height: 60 };

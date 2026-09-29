@@ -319,9 +319,10 @@ it("draws the fixture Document with known pixels", async () => {
   // Clipping Mask whose turned, translucent Clipping Path has a gradient Fill and two Strokes; by
   // #49, an eleventh holding a gradient clipped by turned, stroked, overflowing Area Type and a
   // fill clipped by turned Point Type with a turned, shifted character; by #51, a twelfth holding a
-  // Layer clipped by a turned, stroked Path over a gradient, with a sublayer clipped by a text.
+  // Layer clipped by a turned, stroked Path over a gradient, with a sublayer clipped by a text; by
+  // #148, a thirteenth holding a plain, a filled and a mirrored spiral.
   expect(await hash(toSvg(doc, docRect(doc), { images }))).toBe(
-    "828dadd7fdf0499aee51f53c2cd54894997bef7b4563f16eb0f7f089e4c9dff1",
+    "3e72046c08e2abd2430385c078001bb3d3eee76c87341689f0fefa68e558b6b6",
   );
   expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned, images }))).toBe(
     "24c1e7ad8db33f59933a1b355c879cb19bfdfd67d70b11427b196aa646ea4b60",
@@ -345,7 +346,7 @@ it("draws each fixture Artboard by its scope as the whole Document draws it ther
   const { doc, images } = fixtureDoc();
   const all = fit(docRect(doc), 2);
   const whole = await svgToPixels(renderSvg(doc, all.rect, { scale: 2, images }), 2);
-  expect(doc.artboards).toHaveLength(12);
+  expect(doc.artboards).toHaveLength(13);
   for (const a of doc.artboards) {
     const scope = { artboardId: a.id };
     const { rect, pixelSize } = fit(scopeRect(doc, scope), 2);

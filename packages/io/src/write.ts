@@ -52,6 +52,7 @@ import {
   paintAttrs,
   SVG_STROKE,
   scopeAttr,
+  spiralAttrs,
   starAttrs,
   XMLNS,
   xmlId,
@@ -404,6 +405,13 @@ function shape(n: ShapeNode): string {
         d: formatPath(shapeSegments(n)),
       })}`;
     }
+    case "spiral":
+      // Inkscape's spiral tool rebuilds the outline from these on load, at full precision (ADR-0060).
+      return `path${attrs({
+        "sodipodi:type": "spiral",
+        ...Object.fromEntries(Object.entries(spiralAttrs(n)).map(([k, v]) => [`sodipodi:${k}`, v])),
+        d: formatPath(shapeSegments(n)),
+      })}`;
     default:
       // The same outline node_get reports as d.
       return `path${attrs({

@@ -208,3 +208,24 @@ export function starOf(p: {
     twist: degrees(off - 2 * Math.PI * Math.round(off / (2 * Math.PI))),
   };
 }
+
+/**
+ * The `sodipodi:` parameters of an Inkscape spiral, from which Inkscape rebuilds it on load
+ * (ADR-0060): Zibel's own, at full precision, with `argument` in radians.
+ */
+export const spiralAttrs = (n: Extract<ShapeNode, { type: "spiral" }>) => ({
+  cx: n.cx,
+  cy: n.cy,
+  radius: n.radius,
+  revolution: n.revolution,
+  expansion: n.expansion,
+  argument: (n.argument * Math.PI) / 180,
+  t0: n.t0,
+});
+
+/** The Live Shape a spiral's parameters hold, the inverse of `spiralAttrs`. */
+export const spiralOf = (p: ReturnType<typeof spiralAttrs>) => ({
+  type: "spiral" as const,
+  ...p,
+  argument: degrees(p.argument),
+});

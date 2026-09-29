@@ -562,7 +562,16 @@ describe("arguments are parsed strictly: a bad one is INVALID_INPUT and nothing 
       "zibel_node_create",
       { docId: "d", nodes: [{ type: "circle", parentId: "p" }] },
       "nodes[0].type",
-      "Send one of: layer, rect, ellipse, line, polygon, star, path, text, image, group.",
+      "Send one of: layer, rect, ellipse, line, polygon, star, spiral, path, text, image, group.",
+    ],
+    [
+      "zibel_node_create",
+      {
+        docId: "d",
+        nodes: [{ type: "spiral", parentId: "p", cx: 0, cy: 0, radius: 9, revolution: 0.01 }],
+      },
+      "nodes[0].revolution",
+      "nodes[0].revolution must be at least 0.05.",
     ],
     [
       "zibel_render",

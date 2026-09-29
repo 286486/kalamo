@@ -55,6 +55,7 @@ import {
   numbers,
   SVG_STROKE,
   scopeOf,
+  spiralOf,
   starOf,
   withAlpha,
   xmlId,
@@ -1482,6 +1483,45 @@ class Reader {
   }
 
   /**
+   * An Inkscape spiral that a Live Shape holds (ADR-0060): its parameters, a missing one Inkscape's
+   * default. One Inkscape would clamp reads as the Path its d draws, which is what Inkscape draws.
+   */
+  private spiral(e: Element) {
+    if (e.getAttributeNS(NS.sodipodi, "type") !== "spiral") return undefined;
+    const at = (name: string, fallback: number) => {
+      const v = e.getAttributeNS(NS.sodipodi, name);
+      return v === null || v === "" ? fallback : Number(v);
+    };
+    const p = {
+      cx: at("cx", 0),
+      cy: at("cy", 0),
+      radius: at("radius", 1),
+      revolution: at("revolution", 3),
+      expansion: at("expansion", 1),
+      argument: at("argument", 0),
+      t0: at("t0", 0),
+    };
+    const valid =
+      Object.values(p).every(Number.isFinite) &&
+      p.radius >= 0 &&
+      p.revolution >= 0.05 &&
+      p.revolution <= 1024 &&
+      p.expansion >= 0 &&
+      p.expansion <= 1000 &&
+      p.t0 >= 0 &&
+      p.t0 <= 0.999;
+    if (!valid) {
+      this.warn(
+        "SPIRAL_AS_PATH",
+        "",
+        "A spiral with parameters Zibel cannot hold imports as the Path its d draws.",
+      );
+      return undefined;
+    }
+    return spiralOf(p);
+  }
+
+  /**
    * The scale and move a leaf's matrix bakes into its parameters (ADR-0017), or none when it keeps
    * the matrix. A randomized star's never bakes: its jitter is seeded from its parameters, so
    * moving or scaling them re-rolls it (ADR-0024).
@@ -1624,6 +1664,12 @@ class Reader {
         return path(segments);
       }
       case "path": {
+        const spiral = star ? undefined : this.spiral(e);
+        if (spiral) {
+          // revolution, expansion and t0 stay as written: 3 decimals of t0 would move the inner end.
+          const { cx, cy, radius } = spiral;
+          return { ...spiral, cx: x(cx), cy: y(cy), radius: size(radius), transform };
+        }
         const arc = star ? undefined : this.arc(e);
         if (arc) {
           const { cx, cy, rx, ry, ...angles } = arc;

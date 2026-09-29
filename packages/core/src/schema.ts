@@ -274,6 +274,39 @@ export const StarShape = z.object({
     .default(0)
     .describe("Degrees the inner vertices turn clockwise off the half step."),
 });
+/** Inkscape's spiral (ADR-0060): r = radius·t^expansion at 2π·revolution·t + argument, t0 ≤ t ≤ 1. */
+export const SpiralShape = z.object({
+  type: z.literal("spiral"),
+  cx: z.number(),
+  cy: z.number(),
+  radius: size.describe("Center to the outer end."),
+  revolution: z
+    .number()
+    .min(0.05)
+    .max(1024)
+    .default(3)
+    .describe("Turns from the center to the outer end, 0.05 to 1024."),
+  expansion: z
+    .number()
+    .min(0)
+    .max(1000)
+    .default(1)
+    .describe(
+      "How the turns spread: 1 evenly, above 1 wider outward, below 1 wider inward; 0 to 1000.",
+    ),
+  argument: z
+    .number()
+    .default(0)
+    .describe(
+      "Direction of the center end, degrees clockwise from 3 o'clock; the turns run clockwise.",
+    ),
+  t0: z
+    .number()
+    .min(0)
+    .max(0.999)
+    .default(0)
+    .describe("Where the inner end starts, as a share of the curve from the center, 0 to 0.999."),
+});
 export const PathShape = z.object({
   type: z.literal("path"),
   d: z.string().describe("SVG path data, absolute M, L, C, Q and Z only, e.g. M 0 0 L 10 0 Z."),
@@ -290,6 +323,7 @@ export const SHAPES = {
   line: LineShape,
   polygon: PolygonShape,
   star: StarShape,
+  spiral: SpiralShape,
   path: PathShape,
 };
 const { rect, ...others } = SHAPES;
@@ -508,6 +542,7 @@ const EllipseItem = z.strictObject({ ...EllipseShape.shape, ...leaf });
 const LineItem = z.strictObject({ ...LineShape.shape, ...leaf });
 const PolygonItem = z.strictObject({ ...PolygonShape.shape, ...leaf });
 const StarItem = z.strictObject({ ...StarShape.shape, ...leaf });
+const SpiralItem = z.strictObject({ ...SpiralShape.shape, ...leaf });
 const PathItem = z.strictObject({ ...PathShape.shape, ...leaf });
 const TextItem = z
   .strictObject({
@@ -528,6 +563,7 @@ const LEAF_ITEMS = [
   LineItem,
   PolygonItem,
   StarItem,
+  SpiralItem,
   PathItem,
   TextItem,
   ImageItem,
@@ -874,6 +910,7 @@ const NODE_TYPES = {
   line: true,
   polygon: true,
   star: true,
+  spiral: true,
   path: true,
   text: true,
   image: true,

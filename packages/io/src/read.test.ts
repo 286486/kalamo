@@ -17,6 +17,7 @@ import {
 } from "@zibel/core";
 import { describe, expect, it } from "vitest";
 import { RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
+import reference from "../../core/src/spiral.inkscape.json" with { type: "json" };
 import { MAX_DEPTH, parseFile, parseSvg, resolveLinks, SVG_LIMIT, toSvg } from "./index.ts";
 
 const errorOf = (fn: () => unknown) => {
@@ -624,6 +625,99 @@ it("reads an arc Zibel cannot hold as the Path its d draws", () => {
     expect(leaves(file)[0]).toMatchObject({ type: "path", d: "M 0 0 L 10 0 Z" });
     expect(file.warnings.map((w) => w.code)).toEqual(["ARC_AS_PATH"]);
   }
+});
+
+const spiral = (attrs: Record<string, string | number>) =>
+  `<path ${Object.entries({
+    "sodipodi:type": "spiral",
+    "sodipodi:cx": 100,
+    "sodipodi:cy": 100,
+    "sodipodi:radius": 50,
+    "sodipodi:revolution": 3,
+    "sodipodi:expansion": 1,
+    "sodipodi:argument": 0,
+    "sodipodi:t0": 0,
+    d: "M 0 0 L 10 0",
+    ...attrs,
+  })
+    .map(([k, v]) => `${k}="${v}"`)
+    .join(" ")} style="fill:none;stroke:#000000"/>`;
+
+it("opens spirals drawn in Inkscape as spirals that draw Inkscape's outline (ADR-0060)", () => {
+  // Inkscape 1.2.2's parameters, and the d it rebuilt from them with object-to-path.
+  const drawn = reference.slice(0, 12).filter((r) => r.radius > 0);
+  const file = parseFile(
+    svg(
+      'width="400" height="300" viewBox="0 0 400 300"',
+      drawn
+        .map(({ d, argument, ...p }) =>
+          spiral({
+            ...Object.fromEntries(Object.entries(p).map(([k, v]) => [`sodipodi:${k}`, v])),
+            "sodipodi:argument": (argument * Math.PI) / 180,
+            d,
+          }),
+        )
+        .join(""),
+    ),
+  );
+  expect(file.warnings).toEqual([]);
+  const nodes = leaves(file) as ShapeNode[];
+  expect(nodes.map((n) => n.type)).toEqual(drawn.map(() => "spiral"));
+  nodes.forEach((node, i) => {
+    const { d, ...params } = drawn[i] as (typeof drawn)[number];
+    expect(node).toMatchObject(params);
+    const inkscape = normalizePath(d, "d");
+    const ours = shapeSegments(node);
+    expect(ours.map((s) => s.cmd)).toEqual(inkscape.map((s) => s.cmd));
+    ours.forEach((s, j) => {
+      s.args.forEach((v, k) => {
+        const want = inkscape[j]?.args[k] ?? Number.NaN;
+        expect(Math.abs(v - want)).toBeLessThan(Math.max(0.01, Math.abs(want) * 1e-6));
+      });
+    });
+  });
+});
+
+it("reads a bare spiral with Inkscape's defaults, and bakes a move and scale but not a flip", () => {
+  const open = (body: string) => leaves(parseFile(svg('width="400" height="300"', body)))[0];
+  expect(open('<path sodipodi:type="spiral" d="M 0 0 L 1 0"/>')).toMatchObject({
+    type: "spiral",
+    cx: 0,
+    cy: 0,
+    radius: 1,
+    revolution: 3,
+    expansion: 1,
+    argument: 0,
+    t0: 0,
+  });
+  const turned = { "sodipodi:argument": Math.PI / 6, "sodipodi:t0": 0.12345678 };
+  expect(open(`<g transform="translate(10 0) scale(2)">${spiral(turned)}</g>`)).toMatchObject({
+    type: "spiral",
+    cx: 210,
+    cy: 200,
+    radius: 100,
+    argument: 30,
+    t0: 0.12345678,
+    transform: [1, 0, 0, 1, 0, 0],
+  });
+  expect(open(spiral({ transform: "matrix(-1,0,0,1,200,0)" }))).toMatchObject({
+    type: "spiral",
+    cx: 100,
+    radius: 50,
+    transform: [-1, 0, 0, 1, 200, 0],
+  });
+});
+
+it.each([
+  [{ "sodipodi:revolution": 0.01 }],
+  [{ "sodipodi:expansion": 1001 }],
+  [{ "sodipodi:t0": 1 }],
+  [{ "sodipodi:radius": -1 }],
+  [{ "sodipodi:cx": "abc" }],
+])("reads a spiral Inkscape would clamp, or cannot read, as the Path its d draws: %j", (attrs) => {
+  const file = parseFile(svg('width="400" height="300"', spiral(attrs)));
+  expect(leaves(file)[0]).toMatchObject({ type: "path", d: "M 0 0 L 10 0" });
+  expect(file.warnings.map((w) => w.code)).toEqual(["SPIRAL_AS_PATH"]);
 });
 
 it("keeps a randomized star's parameters as written, its matrix unbaked (ADR-0024)", () => {
