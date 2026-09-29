@@ -122,6 +122,52 @@ function matrixOn(svg: string, id: string): number[] {
   return m;
 }
 
+/**
+ * Each Area Type's shown lines in `svg` by Node id: the text of each line tspan whose baseline lies
+ * in the frame. Inkscape writes its overflow one ascent below the frame, and Zibel's has no `y`.
+ */
+function areaLines(svg: string): Map<string, string[]> {
+  const attr = (tag: string, name: string) =>
+    Number(new RegExp(`\\s${name}="([^"]*)"`).exec(tag)?.[1]);
+  const entities: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"' };
+  const decode = (t: string) =>
+    t.replace(/&(?:#(\d+)|(\w+));/g, (_, n, e) =>
+      n ? String.fromCodePoint(Number(n)) : entities[e],
+    );
+  const out = new Map<string, string[]>();
+  const texts =
+    /<text\b[^>]*\sid="z-([^"]+)"[^>]*shape-inside:url\(#area-z-[^>]*>([\s\S]*?)<\/text>/g;
+  for (const [, id, body] of svg.matchAll(texts)) {
+    const rect = new RegExp(`<rect\\b[^>]*\\sid="area-z-${id}"[^>]*>`).exec(svg)?.[0] ?? "";
+    const bottom = attr(rect, "y") + attr(rect, "height");
+    const lines: string[] = [];
+    let [depth, line, shown] = [0, "", false];
+    for (const [token, end, attrs, empty] of (body ?? "").matchAll(
+      /<(\/?)tspan\b([^>]*?)(\/?)>|[^<]+/g,
+    )) {
+      if (!token.startsWith("<")) {
+        line += decode(token);
+        continue;
+      }
+      if (depth === 0 && !end) [line, shown] = ["", attr(attrs ?? "", "y") <= bottom];
+      depth += end ? -1 : empty ? 0 : 1;
+      if (depth === 0 && shown) lines.push(line);
+    }
+    out.set(id as string, lines);
+  }
+  return out;
+}
+
+/** The first Area Type whose shown lines Inkscape breaks differently from `exported` (ADR-0064). */
+function lineDifference(exported: string, saved: string): string | undefined {
+  const got = areaLines(saved);
+  for (const [id, want] of areaLines(exported)) {
+    const show = JSON.stringify;
+    if (show(got.get(id)) !== show(want))
+      return `lines of ${id}: ${show(got.get(id))}, want ${show(want)}`;
+  }
+}
+
 /** An RGBA8 PNG of `image`, unfiltered. */
 function encodePng({ width, height, data }: Image): Buffer {
   const chunk = (type: string, body: Buffer) => {
@@ -388,7 +434,7 @@ async function main() {
         const warnings = reopened.warnings.filter((w) => w.code !== "IMAGE_LINK_MISSING");
         const structure = warnings.length
           ? `warnings: ${JSON.stringify(warnings)}`
-          : firstDifference(want, got);
+          : (firstDifference(want, got) ?? lineDifference(exported, readFileSync(saved, "utf8")));
 
         // resvg's PNG of the whole Document, and Inkscape's of an export framed to the same rect:
         // -C draws the viewBox at 1 px per pt, which --export-area (in px) does not.

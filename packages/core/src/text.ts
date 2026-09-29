@@ -1,4 +1,5 @@
 import { parseColor } from "./color.ts";
+import { lineBreakUnits } from "./line-break.ts";
 import { NOTO_SANS_SC } from "./noto-sans-sc.ts";
 import type { CharacterRange, Node, Rect, Warning } from "./schema.ts";
 import { SOURCE_SANS_3 } from "./source-sans-3.ts";
@@ -78,16 +79,25 @@ const notoSansSC = Object.fromEntries(
   ]),
 ) as Record<NotoStyle, Face>;
 
+/** A family's ascender as a share of its em box: ascender to descender scaled to one em, as Inkscape. */
+const emAscent = ({ ascender, descender }: { ascender: number; descender: number }) =>
+  ascender / (ascender - descender);
+
 /**
  * The bundled families, each with the style names of its faces and the face a style draws in, by
  * CSS matching (ADR-0028, ADR-0063). Noto Sans SC has Regular and Bold only, and no italic: weights
  * to 500 draw in Regular, heavier in Bold, and an italic draws upright.
  */
 const FAMILIES = {
-  "Source Sans 3": { face: (style?: FontStyle) => bundledStyle(style), faces: sourceSans3 },
+  "Source Sans 3": {
+    face: (style?: FontStyle) => bundledStyle(style),
+    faces: sourceSans3,
+    ascent: emAscent(SOURCE_SANS_3),
+  },
   "Noto Sans SC": {
     face: (style?: FontStyle): NotoStyle => (fontFace(style).weight <= 500 ? "Regular" : "Bold"),
     faces: notoSansSC,
+    ascent: emAscent(NOTO_SANS_SC),
   },
 } as const;
 export type BundledFamily = keyof typeof FAMILIES;
@@ -241,9 +251,9 @@ function lineWidth(
 
 /**
  * A text's lines (ADR-0022). Point Type breaks at hard returns, one leading apart from the baseline
- * origin `x, y`. Area Type wraps in its frame as Inkscape 1.2 draws it: each line keeps its trailing
- * spaces and hard return, so its lines and `overflow`, the text that does not fit, join back into
- * `content`.
+ * origin `x, y`. Area Type wraps in its frame as Inkscape 1.2 draws it, at spaces and between CJK
+ * characters (ADR-0064): each line keeps its trailing spaces and hard return, so its lines and
+ * `overflow`, the text that does not fit, join back into `content`.
  */
 export function layoutText(text: TextLayout): { lines: TextLine[]; overflow: string } {
   const { x, y, content, fontSize, tracking } = text;
@@ -263,39 +273,60 @@ export function layoutText(text: TextLayout): { lines: TextLine[]; overflow: str
     });
     return { lines, overflow: "" };
   }
-  const { ascender, descender } = SOURCE_SANS_3;
   const { width = 0, height = 0 } = text;
   // Trailing spaces and the return hang past the frame's edge.
   const fits = (l: string) => lineWidth(l.trimEnd(), advance, fontSize, tracking) <= width;
-  // ponytail: Inkscape's thresholds, measured rather than specified: a line shows while 90% of its
-  // leading lies in the frame, and a word wider than the frame overflows with all that follows.
-  const max = Math.max(0, Math.floor(height / leading - 0.9 + 1e-9) + 1);
-  const wrapped: string[] = [];
+  // CSS inline boxes, as Inkscape stacks them (ADR-0064): half the leading above and below each
+  // family's em box, and a line as tall as the union of its first family's box, the strut, and the
+  // boxes of the families its characters draw in. Latin alone is one leading tall.
+  const faces = facesOf(text);
+  const halfLeading = (leading - fontSize) / 2;
+  const box = (family: BundledFamily) => ({
+    ascent: halfLeading + fontSize * FAMILIES[family].ascent,
+    descent: halfLeading + fontSize * (1 - FAMILIES[family].ascent),
+  });
+  const strut = box(faces[0].family);
+  const lineBox = (l: string) => {
+    const b = { ...strut };
+    for (const ch of l.trimEnd()) {
+      const { ascent, descent } = box(faceFor(faces, ch).family);
+      b.ascent = Math.max(b.ascent, ascent);
+      b.descent = Math.max(b.descent, descent);
+    }
+    return b;
+  };
+  const lines: TextLine[] = [];
+  let top = 0;
   let used = 0;
+  // ponytail: Inkscape's thresholds, measured rather than specified: the first line shows while 90%
+  // of its height lies in the frame, a later one while 90% of the leading does, or all of it if the
+  // line is taller than the strut; and a unit wider than the frame overflows with all that follows.
   const push = (l: string) => {
-    if (wrapped.length === max) return false;
-    wrapped.push(l);
+    const { ascent, descent } = lineBox(l);
+    const shows = lines.length
+      ? ascent > strut.ascent
+        ? leading
+        : 0.9 * leading
+      : 0.9 * (ascent + descent);
+    if (top + shows > height + 1e-9 * leading) return false;
+    lines.push(line(l, y + top + ascent));
+    top += ascent + descent;
     used += l.length;
     return true;
   };
   wrap: for (const paragraph of content.split(/(?<=\n)/)) {
     let l = "";
-    for (const word of paragraph.match(/\S+\s*|\s+/g) ?? []) {
-      if (l && !fits(l + word)) {
+    for (const unit of lineBreakUnits(paragraph)) {
+      if (l && !fits(l + unit)) {
         if (!push(l)) break wrap;
         l = "";
       }
-      if (!fits(word)) break wrap;
-      l += word;
+      if (!fits(unit)) break wrap;
+      l += unit;
     }
     if (!push(l)) break;
   }
-  // CSS half-leading around an em box of the ascender and descender scaled to one em, as Inkscape.
-  const first = (leading - fontSize) / 2 + (fontSize * ascender) / (ascender - descender);
-  return {
-    lines: wrapped.map((t, i) => line(t, y + first + i * leading)),
-    overflow: content.slice(used),
-  };
+  return { lines, overflow: content.slice(used) };
 }
 
 /** A laid-out character: its origin on the unshifted baseline, advance width and overrides. */

@@ -102,6 +102,11 @@
       "frame": { "height": 120, "width": 200, "x": 600, "y": 130 },
       "id": "01M38T29SCJKARTB0ARD00000Z",
       "name": "CJK"
+    },
+    {
+      "frame": { "height": 120, "width": 140, "x": 820, "y": 130 },
+      "id": "01M38T29SCJKAREAARTB0ARD0Z",
+      "name": "CJK Area Type"
     }
   ],
   "nodes": [
@@ -2609,6 +2614,37 @@
       "visible": true,
       "x": 610,
       "y": 225
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#000000",
+            "type": "solid"
+          }
+        ],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "content": "Zibel用SVG保存「矢量图」，大家一起编辑。ちょっとコーヒーを飲みましょう！",
+      "fontFamily": "Source Sans 3",
+      "fontSize": 14,
+      "height": 100,
+      "id": "01M38T29SCJKAREATEXT00000A",
+      "index": "ap",
+      "kind": "area",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "text",
+      "visible": true,
+      "width": 118,
+      "x": 831,
+      "y": 145
     }
   ],
   "images": {

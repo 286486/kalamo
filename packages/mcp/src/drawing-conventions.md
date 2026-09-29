@@ -77,7 +77,7 @@ Read this once before your first write. Tool descriptions cover each call; this 
 ## Text
 
 - Point Type (`kind: "point"`, the default) starts its first baseline at `x, y` and breaks lines only at `\n` in `content`.
-- Area Type (`kind: "area"` with `width` and `height`) wraps `content` at spaces inside the frame `x, y, width, height`. Text that does not fit, including a word wider than the frame, is not drawn, and the receipt warns `TEXT_OVERFLOW`: enlarge the frame or shorten the content.
+- Area Type (`kind: "area"` with `width` and `height`) wraps `content` at spaces, and between Chinese, Japanese and Korean characters, inside the frame `x, y, width, height`. Text that does not fit, including a word wider than the frame, is not drawn, and the receipt warns `TEXT_OVERFLOW`: enlarge the frame or shorten the content.
 - `leading` is the distance between baselines in pt; omit it for Auto, 120% of `fontSize`. `node_update` with `leading: null` returns to Auto.
 - `fontFamily` takes any font name and keeps it, so export writes it back. Source Sans 3 and Noto Sans SC are bundled: another font renders and measures in Source Sans 3, and the receipt warns `FONT_MISSING`.
 - Chinese and Japanese draw in Noto Sans SC, character by character, wherever Source Sans 3 has no glyph, in Regular or Bold by the style, and upright in an italic; Japanese kanji take their Simplified Chinese forms. Hangul is not covered yet: Korean, and any character neither font has, such as emoji, renders as a `.notdef` box and measures as its width, and the receipt warns `MISSING_GLYPHS` naming the characters.
