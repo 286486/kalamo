@@ -298,7 +298,7 @@ const unholdSpiral = (spiral: SpiralOption, art: SpiralArt | null): SpiralOption
     ? { segments: art.revolution * 4, decay: 100 * 0.8 ** art.expansion, hold: null }
     : { ...spiral, hold: null };
 
-/** One direction's dividers in Illustrator's Rectangular Grid options: how many, and their skew in %. */
+/** One kind of dividers in Illustrator's grid tool options: how many, and their skew in %. */
 export interface Dividers {
   count: number;
   skew: number;

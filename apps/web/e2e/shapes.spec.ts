@@ -327,6 +327,17 @@ test("the Spiral tool drags a Live Spiral whose winds and decay carry over", asy
   expect(kept?.expansion).toBeCloseTo(Math.log(0.4) / Math.log(0.8), 6);
 });
 
+/** Where n grid dividers lie at `skew`%: each cell 2^(−skew/100) times the one before (ADR-0061). */
+function fractions(n: number, skew: number) {
+  const q = 2 ** (-skew / 100);
+  return Array.from({ length: n }, (_, i) => (1 - q ** (i + 1)) / (1 - q ** (n + 1)));
+}
+
+function expectClose(actual: number[], expected: number[]) {
+  expect(actual).toHaveLength(expected.length);
+  for (const [i, v] of actual.entries()) expect(v).toBeCloseTo(expected[i] as number, 6);
+}
+
 // #150: the Rectangular Grid tool draws a Group of a frame and divider lines (ADR-0061).
 test("the Rectangular Grid tool drags a Group whose divider counts and skews carry over", async ({
   page,
@@ -349,11 +360,6 @@ test("the Rectangular Grid tool drags a Group whose divider counts and skews car
       .filter((l) => l.x1 === l.x2)
       .map((l) => l.x1)
       .sort((a, b) => a - b);
-
-  const expectClose = (actual: number[], expected: number[]) => {
-    expect(actual).toHaveLength(expected.length);
-    for (const [i, v] of actual.entries()) expect(v).toBeCloseTo(expected[i] as number, 6);
-  };
 
   const button = await pickFromGroup(page, LINE_GROUP, "Rectangular Grid Tool");
 
@@ -381,16 +387,11 @@ test("the Rectangular Grid tool drags a Group whose divider counts and skews car
   await expect(button).toHaveAttribute("aria-pressed", "true");
   await expect.poll(async () => (await groups()).length).toBe(2);
   const second = (await groups()).find((g) => g.id !== id)?.id as string;
-  // n dividers at `skew`%: each cell 2^(−skew/100) times the one before (ADR-0061).
-  const at = (n: number, skew: number) => {
-    const q = 2 ** (-skew / 100);
-    return Array.from({ length: n }, (_, i) => (1 - q ** (i + 1)) / (1 - q ** (n + 1)));
-  };
-  const ys = at(6, 10)
+  const ys = fractions(6, 10)
     .map((f) => 80 - f * 70)
     .reverse();
   expectClose(await horizontal(second), ys);
-  const xs = at(4, 10).map((f) => 100 + f * 70);
+  const xs = fractions(4, 10).map((f) => 100 + f * 70);
   expectClose(await vertical(second), xs);
 
   // Undo removes the second grid, frame and dividers, in one step.
@@ -430,10 +431,6 @@ test("the Polar Grid tool drags a Group whose divider counts and skews carry ove
         return t < -1e-9 ? t + 1 : Math.max(t, 0);
       })
       .sort((a, b) => a - b);
-  const expectClose = (actual: number[], expected: number[]) => {
-    expect(actual).toHaveLength(expected.length);
-    for (const [i, v] of actual.entries()) expect(v).toBeCloseTo(expected[i] as number, 6);
-  };
 
   const button = await pickFromGroup(page, LINE_GROUP, "Polar Grid Tool");
 
@@ -466,14 +463,9 @@ test("the Polar Grid tool drags a Group whose divider counts and skews carry ove
   await expect(button).toHaveAttribute("aria-pressed", "true");
   await expect.poll(async () => (await groups()).length).toBe(2);
   const second = (await groups()).find((g) => g.id !== id)?.id as string;
-  // n dividers at `skew`%: each cell 2^(−skew/100) times the one before (ADR-0061).
-  const at = (n: number, skew: number) => {
-    const q = 2 ** (-skew / 100);
-    return Array.from({ length: n }, (_, i) => (1 - q ** (i + 1)) / (1 - q ** (n + 1)));
-  };
-  const rings = [...at(4, 10).map((f) => f * 70), 70];
+  const rings = [...fractions(4, 10).map((f) => f * 70), 70];
   expectClose(await widths(second), rings);
-  const spokes = [0, ...at(5, 10)];
+  const spokes = [0, ...fractions(5, 10)];
   expectClose(await turns(second), spokes);
 
   // Undo removes the second grid, ellipses and lines, in one step.
