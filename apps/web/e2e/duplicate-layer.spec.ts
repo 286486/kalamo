@@ -127,6 +127,13 @@ async function setup(page: Page, request: APIRequestContext, { viewer = false } 
     row(name).getByRole("button", { name, exact: true }).click({ modifiers });
   const menu = page.getByRole("button", { name: "Layers panel menu" });
   const item = page.getByRole("menu", { name: "Layers panel menu" }).getByRole("menuitem");
+  /** The positions of the highlighted rows: selected Nodes and Layer rows. */
+  const selected = () =>
+    page
+      .getByRole("listitem")
+      .evaluateAll((els) =>
+        els.flatMap((e, i) => (e.querySelector("[aria-pressed=true]") ? [i] : [])),
+      );
   const duplicate = async () => {
     await menu.click();
     await item.click();
@@ -142,6 +149,7 @@ async function setup(page: Page, request: APIRequestContext, { viewer = false } 
     row,
     rowNames,
     pick,
+    selected,
     menu,
     item,
     duplicate,
@@ -172,9 +180,8 @@ test('Duplicate "A" puts "A copy" directly above A, selected, and one Ctrl+Z rem
     expect(copy?.id).not.toBe(original?.id);
     expect(copy?.type).toBe(original?.type);
   }
-  await expect(
-    s.row("A copy").getByRole("button", { name: "A copy", exact: true }),
-  ).toHaveAttribute("aria-pressed", "true");
+  // The copy is selected as a click on its row selects it: its row, and its objects P and G.
+  await expect.poll(s.selected).toEqual([2, 5, 6]);
   expect(s.duplicates()[0].command.input).toEqual({
     nodeIds: [await s.id("A")],
     layerSuffix: " copy",
@@ -295,17 +302,52 @@ test("the entry is disabled with an empty Selection, and works from the keyboard
   await expect(s.item).toBeFocused();
   await expect(s.item).toHaveText("Duplicate Selection");
   await expect(s.item).toHaveAttribute("aria-disabled", "true");
+  // A disabled entry does nothing and the menu stays open, as in the menu bar.
+  await page.keyboard.press("Enter");
+  await expect(s.item).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(s.item).toBeHidden();
+  await expect(s.menu).toBeFocused();
 
   await s.pick("P");
   await s.menu.focus();
   await page.keyboard.press("Enter");
   await expect(s.item).toBeFocused();
+  // The focused entry shows the menu bar's focus colour.
+  await expect(s.item).toHaveCSS("background-color", "rgb(220, 230, 255)");
   await expect(s.item).toHaveText('Duplicate "P"');
   await page.keyboard.press("Enter");
   await expect.poll(() => s.children("A")).toEqual(["G", "P", "P", "S"]);
   await expect(s.item).toBeHidden();
+  // The keys go back to the Document.
+  await expect(s.menu).not.toBeFocused();
+  expect(s.duplicates()).toHaveLength(1);
+});
+
+test("a Layer row is forgotten when the Selection changes elsewhere, even to an equal empty one", async ({
+  page,
+  request,
+}) => {
+  const s = await setup(page, request);
+  // T is empty: its row selects no object, only the row.
+  await s.pick("T");
+  await expect.poll(s.selected).toEqual([4]);
+  await s.menu.click();
+  await expect(s.item).toHaveText('Duplicate "T"');
+  await expect(s.item).toHaveAttribute("aria-disabled", "false");
+  await page.keyboard.press("Escape");
+
+  // A canvas click on P, then on empty canvas: the Selection is empty again, the row stays gone.
+  const canvas = page.getByTestId("canvas");
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error("no canvas");
+  await page.mouse.click(box.x + box.width / 2 - 100 + 15, box.y + box.height / 2);
+  await expect.poll(s.selected).toEqual([5]);
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2 + 90);
+  await expect.poll(s.selected).toEqual([]);
+  await s.menu.click();
+  await expect(s.item).toHaveText("Duplicate Selection");
+  await expect(s.item).toHaveAttribute("aria-disabled", "true");
 });
 
 test("a viewer's entry is disabled, and an Agent's node_duplicate of a Layer shows up live", async ({

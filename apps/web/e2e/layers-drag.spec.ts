@@ -454,6 +454,18 @@ test("an Alt-drop in the gap directly above the row's own Node copies it there",
   expect(s.duplicates()).toBe(1);
 });
 
+test("an Alt-drag of a Layer's row selects the copy as its row's click would: its objects and its row", async ({
+  page,
+  request,
+}) => {
+  const s = await setup(page, request);
+  // The gap above A: the copy of B lands between A and B.
+  await s.altDrag("B", "A", 0.1);
+  await expect.poll(() => s.children(null)).toEqual(["A", "B", "B"]);
+  await expect.poll(s.rowNames).toEqual(["B", "G", "B", "G", "A", "Sub", "Green", "Red"]);
+  await expect.poll(s.selected).toEqual([2, 3]);
+});
+
 test("Alt-click on a Layer's row still selects its contents and copies nothing", async ({
   page,
   request,

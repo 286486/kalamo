@@ -50,6 +50,7 @@ export const useStore = create<State>(() => ({
   viewport: null,
   selection: [],
   isolated: null,
+  layerRows: [],
   drag: null,
   pen: null,
   pending: [],
@@ -77,6 +78,13 @@ useStore.subscribe((s, prev) => {
   }
 });
 
+// A Selection change that does not set the Layer rows forgets them (ADR-0076).
+useStore.subscribe((s, prev) => {
+  if (s.selection !== prev.selection && s.layerRows === prev.layerRows && s.layerRows.length > 0) {
+    useStore.setState({ layerRows: [] });
+  }
+});
+
 /** A viewer's tab edits nothing: the menus grey out and the tools shrink (ADR-0047). */
 export const canEdit = (s: Pick<State, "role">) => s.role !== "viewer";
 
@@ -89,7 +97,7 @@ let socket: WebSocket | null = null;
  * Each Document Tab's viewport, Selection and Isolation while another tab is shown, for the page's
  * lifetime.
  */
-const views = new Map<string, Pick<State, "viewport" | "selection" | "isolated">>();
+const views = new Map<string, Pick<State, "viewport" | "selection" | "isolated" | "layerRows">>();
 
 /**
  * Sends one gesture to the Document (ADR-0010) and returns its id, which its answer carries. While
@@ -137,6 +145,7 @@ export function connect(docId: string): () => void {
     viewport: null,
     selection: [],
     isolated: null,
+    layerRows: [],
     ...views.get(docId),
   });
   let ws: WebSocket;
@@ -196,8 +205,8 @@ export function connect(docId: string): () => void {
   };
   open();
   return () => {
-    const { viewport, selection, isolated } = useStore.getState();
-    views.set(docId, { viewport, selection, isolated });
+    const { viewport, selection, isolated, layerRows } = useStore.getState();
+    views.set(docId, { viewport, selection, isolated, layerRows });
     stopped = true;
     clearTimeout(retry);
     socket = null;

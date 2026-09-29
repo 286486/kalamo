@@ -33,7 +33,7 @@ Amended by #194, on ADR-0076's `duplicate` edit. Illustrator's Layers panel dupl
 - **Same refusals.** A copy is refused wherever a move is, with no indicator and nothing sent: this includes a drop into the dragged Node's own descendant. The originals stay put, so such a copy could work, but Illustrator documents no such drop, and core refuses a target inside a copied Node (ADR-0076).
 - **A copy always lands.** Unlike a move, a copy dropped where the originals already are still sends: in the gap directly above its own row, for example, the copy lands directly above the original.
 - **Indicator.** While Alt is down, the drop effect is `copy`, and the browser's cursor shows a plus sign.
-- **Selection and names.** The copies become the Selection, as ADR-0076's canvas copies do, and keep their names. Only Duplicate adds " copy" (#195).
+- **Selection and names.** The copies become the Selection, as ADR-0076's canvas copies do. A copied Layer is selected as its row's click selects it: its objects, and its row highlighted (ADR-0076, #195). The copies keep their names. Only Duplicate adds " copy" (#195).
 - **Clicks and viewers.** Alt-click on a row still selects, and on a Layer's row still selects its contents (ADR-0012). A viewer's rows drag neither with Alt nor without it, and neither does text selected in them.
 
 ## Keyboard

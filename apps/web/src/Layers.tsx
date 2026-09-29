@@ -42,21 +42,12 @@ export const Layers = memo(function Layers() {
   const selection = useStore((s) => s.selection);
   const isolated = useStore((s) => s.isolated);
   const editor = useStore(canEdit);
+  const layerRows = useStore((s) => s.layerRows);
   const [toggled, setToggled] = useState(() => new Set<string>());
   // The Nodes a drag in the panel carries, and where it would drop them (ADR-0075).
   const [dragged, setDragged] = useState<string[] | null>(null);
   const [drop, setDrop] = useState<(Drop & { row: string; depth: number }) | null>(null);
-  // The Layer rows clicked, selected as rows while the Selection is still the one they made (#195).
-  const [clicked, setClicked] = useState<{ layers: string[]; made: string[] }>(() => ({
-    layers: [],
-    made: [],
-  }));
   if (!doc) return null;
-  const same = new Set(clicked.made);
-  const layerRows =
-    clicked.made.length === selection.length && selection.every((id) => same.has(id))
-      ? clicked.layers
-      : [];
 
   const toggle = (id: string) => {
     const next = new Set(toggled);
@@ -74,7 +65,10 @@ export const Layers = memo(function Layers() {
   const runDuplicate = (e: React.MouseEvent<HTMLButtonElement>) => {
     const { input } = duplicate;
     if (!editor || !input) return;
+    // Closing hands focus back to the menu button; the keys then go back to the Document, as after
+    // a menu bar command.
     (e.currentTarget.closest("[popover]") as HTMLElement).hidePopover();
+    (document.activeElement as HTMLElement | null)?.blur();
     // One duplicate Command beside the originals (ADR-0076), whose copies become the Selection.
     const commandId = send({ type: "duplicate", input });
     useStore.setState((s) => ({
@@ -99,6 +93,11 @@ export const Layers = memo(function Layers() {
       }}
     >
       {/* Illustrator's panel menu, keyboard-operable as the menu bar's menus are (#195). */}
+      <style>
+        {
+          "#layers-menu [role=menuitem] { background: none; } #layers-menu [role=menuitem]:focus { background: #DCE6FF; outline: none; }"
+        }
+      </style>
       <div style={{ display: "flex", justifyContent: "flex-end", borderBottom: "1px solid #CCC" }}>
         <button
           type="button"
@@ -134,8 +133,11 @@ export const Layers = memo(function Layers() {
             role="menuitem"
             aria-disabled={!editor || !duplicate.input}
             onClick={runDuplicate}
+            // No inline background, so the stylesheet's focus colour shows.
             style={{
-              ...icon,
+              height: 20,
+              border: "none",
+              cursor: "pointer",
               width: "100%",
               padding: "3px 20px",
               textAlign: "left",
@@ -167,13 +169,20 @@ export const Layers = memo(function Layers() {
                   ? []
                   : objects(doc, node.id).map((n) => n.id);
             const next = combine(selection, ids, { shift: e.shiftKey, alt: e.altKey });
-            useStore.setState({ notice: null, selection: next });
-            // A Layer's row is also selected itself, for Duplicate; Shift adds or removes it.
-            const layers = e.shiftKey ? layerRows.filter((id) => id !== node.id) : [];
-            if (node.type === "layer" && !(e.shiftKey && layerRows.includes(node.id))) {
-              layers.push(node.id);
-            }
-            setClicked({ layers: e.shiftKey || node.type === "layer" ? layers : [], made: next });
+            // A Layer's row is also selected itself, for Duplicate (ADR-0076): a click selects it
+            // alone, and Shift+click on it adds or removes it, keeping the others.
+            const rows = useStore.getState().layerRows;
+            const layer = node.type === "layer";
+            const layers = !e.shiftKey
+              ? layer
+                ? [node.id]
+                : []
+              : !layer
+                ? rows
+                : rows.includes(node.id)
+                  ? rows.filter((id) => id !== node.id)
+                  : [...rows, node.id];
+            useStore.setState({ notice: null, selection: next, layerRows: layers });
           };
           // The pointer's height in the row picks the zone, its indent the depth of a gap (ADR-0075).
           const pointer = (e: React.DragEvent) => {

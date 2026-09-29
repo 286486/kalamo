@@ -17,6 +17,7 @@ import { applyBroadcast, type ServerMessage } from "@kalamo/sync";
 import type { CurveAnchor } from "./curvature.ts";
 import { inRange, parseKey, segmentInRange } from "./direct.ts";
 import { prune } from "./isolation.ts";
+import { objects } from "./selection.ts";
 
 /**
  * The Selection being dragged by (dx, dy) pt. `commandId` is set once its move has been sent. With
@@ -109,6 +110,11 @@ export interface ViewState {
   selection: string[];
   /** The isolated Node (ADR-0057, ADR-0058): UI state, like the Selection. */
   isolated: string | null;
+  /**
+   * The Layer rows the Layers panel shows selected, whose objects are in the Selection, since a
+   * Layer never is (ADR-0012). Only a write that sets them keeps them across a Selection change.
+   */
+  layerRows: string[];
   /** Drawn until the answer to its command arrives, so a committed move does not flicker. */
   drag: Drag | null;
   pen: PenPath | null;
@@ -199,11 +205,19 @@ export function receive(
   const isolated = prune(s.doc, doc, s.isolated);
   // Drawn art leaves its leaf, unless an Esc, a prune or earlier art moved the Isolation meanwhile.
   const leave = drawn?.leave ?? copied?.leave;
+  // Drawn art becomes the Selection, as in Illustrator. A copied Layer is selected as its row is
+  // clicked: its objects, and its row (ADR-0076).
+  const tops = drawn ? (drawn.select ? drawnTop : []) : copied ? drawnTop : null;
+  const layers = tops?.filter((id) => doc.nodes.get(id)?.type === "layer") ?? [];
+  const next = tops
+    ? tops.flatMap((id) => (layers.includes(id) ? objects(doc, id).map((n) => n.id) : [id]))
+    : [...new Set(selection)];
   return {
     doc,
     isolated: leave && isolated === leave.from ? prune(s.doc, doc, leave.to) : isolated,
-    // Drawn art becomes the Selection, as in Illustrator.
-    selection: drawn ? (drawn.select ? drawnTop : []) : copied ? drawnTop : [...new Set(selection)],
+    // An unchanged Selection stays the same array, so the Layer rows stay (ADR-0076).
+    selection: !tops && sameIds(next, s.selection) ? s.selection : next,
+    ...(tops && { layerRows: layers }),
     ...(answered && { drag: null }),
     anchors,
     segments,
@@ -319,3 +333,6 @@ export function afterProbe(probe: Probe): "retry" | "sign-in" | { notice: string
     return { notice: "This Document is no longer available to you." };
   return "retry";
 }
+
+const sameIds = (a: string[], b: string[]) =>
+  a.length === b.length && a.every((id, i) => id === b[i]);
