@@ -106,6 +106,7 @@ function ToolButton({ slot, tool }: { slot: ToolSlot; tool: Tool }) {
       (document.activeElement as HTMLElement).blur();
   };
   const choose = (t: Tool, byKey: boolean) => {
+    held.current = false;
     setTool(t);
     close(byKey && open === "key");
   };
@@ -129,10 +130,10 @@ function ToolButton({ slot, tool }: { slot: ToolSlot; tool: Tool }) {
     else if (e.key === "Home") items[0]?.focus();
     else if (e.key === "End") items.at(-1)?.focus();
     else if (e.key === "Escape") close(open === "key");
-    else if (e.key === "Tab") return setOpen(null);
-    // Enter and Space press the focused item; Space must not pan the canvas.
-    else if (e.key === "Enter" || e.key === " ") return e.stopPropagation();
-    else return;
+    // Pressed here: the Viewer takes Space's keyup to pan, which would cancel the native press.
+    else if (e.key === "Enter" || e.key === " ") items[at]?.click();
+    // Another key, a tool's shortcut or Tab, leaves the flyout.
+    else return setOpen(null);
     e.preventDefault();
     e.stopPropagation();
   };
@@ -149,6 +150,8 @@ function ToolButton({ slot, tool }: { slot: ToolSlot; tool: Tool }) {
         onPointerDown={(e) => {
           held.current = false;
           if (!group || e.button !== 0) return;
+          // A touch's release must land on the tool it is over, not on this button.
+          e.currentTarget.releasePointerCapture(e.pointerId);
           hold.current = setTimeout(() => {
             held.current = true;
             setOpen("pointer");

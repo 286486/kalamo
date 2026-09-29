@@ -81,8 +81,20 @@ test("a group's flyout opens by hold, right-click or keyboard, and fronts the ch
   await expect(add).toBeFocused();
   await page.keyboard.press(" ");
   await expect(item("Add Anchor Point Tool (+)")).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press(" ");
+  await expect(tool("Delete Anchor Point Tool (-)")).toHaveAttribute("aria-pressed", "true");
+  const del = tool("Delete Anchor Point Tool (-)");
+  await expect(del).toBeFocused();
+  // A tool's shortcut leaves the flyout.
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("m");
+  await expect(menu).toHaveCount(0);
+  await expect(tool("Rectangle Tool (M)")).toHaveAttribute("aria-pressed", "true");
+  await del.focus();
+  await page.keyboard.press("Enter");
   await page.keyboard.press("Escape");
   await expect(menu).toHaveCount(0);
-  await expect(add).toBeFocused();
-  await expect(add).toHaveAttribute("aria-pressed", "true");
+  await expect(del).toBeFocused();
+  await expect(tool("Rectangle Tool (M)")).toHaveAttribute("aria-pressed", "true");
 });

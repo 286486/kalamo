@@ -64,8 +64,8 @@ export const nextTap = (last: Tap | null, x: number, y: number, t: number): Tap 
   return { x, y, t, count: near ? last.count + 1 : 1 };
 };
 
-/** A Tools panel group, named after its first tool: Illustrator's Pen, Rectangle and Line Segment. */
-export type ToolGroup = "pen" | "rectangle" | "lineSegment";
+/** A Tools panel group, named after its first tool: Illustrator's Pen and Rectangle so far. */
+export type ToolGroup = "pen" | "rectangle";
 
 /**
  * A tool of the Tools panel on the canvas. Viewer keeps what every tool shares (viewport, pan,
