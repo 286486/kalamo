@@ -118,6 +118,6 @@ writeFileSync(
   `${JSON.stringify(
     kept.map((r) => ({ ...r.p, d: r.d })),
     null,
-    1,
+    2,
   )}\n`,
 );
