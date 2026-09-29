@@ -28,7 +28,10 @@ interface Settings {
 /** The bar or dialog on screen: how to take it down, and to redo the preview at a new zoom. */
 let open: { close: () => void; update: () => void } | null = null;
 
-/** Whether Simplify's bar or dialog is on screen: its Enter and Escape pass the pressed tool by. */
+/**
+ * Whether Simplify's bar or dialog is on screen: its Enter and Escape pass the pressed tool by.
+ * The dialog makes the canvas inert, so counting it only keeps the rule the same for both.
+ */
 export const simplifyOpen = () => !!open;
 
 /** Closes the bar or dialog without touching the preview. */

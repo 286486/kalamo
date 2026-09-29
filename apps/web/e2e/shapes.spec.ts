@@ -3,9 +3,10 @@ import { call } from "./mcp.ts";
 import { choose } from "./menubar.ts";
 
 /**
- * A new 200 × 100 pt Document open at 100%: `create` adds Nodes to its Layer, `at` maps its points to the page's, `nodes` fetches
- * its Nodes of `types` in full, and `drag` presses at `from`, takes each step, then releases. A
- * step is a point to move to, a key to press, or `+Key` and `-Key` to hold one down and let it up.
+ * A new 200 × 100 pt Document open at 100%: `create` adds Nodes to its Layer, `at` maps its
+ * points to the page's, `nodes` fetches its Nodes of `types` in full, and `drag` presses at `from`,
+ * takes each step, then releases. A step is a point to move to, a key to press, or `+Key` and
+ * `-Key` to hold one down and let it up.
  */
 async function openShapes(page: Page, request: Parameters<typeof call>[0], name: string) {
   const { docId, defaultLayerId: parentId } = (
