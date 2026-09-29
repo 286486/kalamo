@@ -21,6 +21,7 @@ import { describe, expect, it } from "vitest";
 import kalamoExport from "../../../fixtures/documents/inkscape.svg?raw";
 import { RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
 import reference from "../../core/src/spiral.inkscape.json" with { type: "json" };
+import { NS as DIALECT_NS } from "./dialect.ts";
 import { MAX_DEPTH, parseFile, parseSvg, resolveLinks, SVG_LIMIT, toSvg } from "./index.ts";
 
 const errorOf = (fn: () => unknown) => {
@@ -33,12 +34,11 @@ const errorOf = (fn: () => unknown) => {
   throw new Error("expected a KalamoError");
 };
 
-const NS_URI = "https://kalamo.cc/ns/svg";
 const NS = [
   'xmlns="http://www.w3.org/2000/svg"',
   'xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"',
   'xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"',
-  `xmlns:kalamo="${NS_URI}"`,
+  `xmlns:kalamo="${DIALECT_NS.kalamo}"`,
 ].join(" ");
 const svg = (attrs: string, body = "") => `<svg ${NS} ${attrs}>${body}</svg>`;
 
@@ -3150,7 +3150,7 @@ it("warns MISSING_GLYPHS once for a file, naming the union of its texts' missing
 describe("the former name's namespace, read beside Kalamo's forever (ADR-0069)", () => {
   /** `text` as the former name exported it: its namespace URI and prefix. */
   const legacy = (text: string) =>
-    text.replaceAll(NS_URI, LEGACY_SVG_NS).replaceAll(/\bkalamo(?=[:=])/g, LEGACY_NAME);
+    text.replaceAll(DIALECT_NS.kalamo, LEGACY_SVG_NS).replaceAll(/\bkalamo(?=[:=])/g, LEGACY_NAME);
   const AB = "01M38T29S8GTJN2S1004N4Q1BH";
   const SRC = "c".repeat(64);
   const read = (text: string) =>

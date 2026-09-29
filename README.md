@@ -60,7 +60,7 @@ GitHub mode needs a GitHub OAuth App (GitHub > Settings > Developer settings > O
 
 GitHub mode also needs the `OAUTH_KV` KV namespace, where `@cloudflare/workers-oauth-provider` keeps MCP OAuth grants and tokens (hashed, with encrypted props). The provider needs no secret of its own.
 
-MCP clients connect to `<MCP_ORIGIN>/mcp` with no token, for example `claude mcp add --transport http kalamo https://zibel.example.workers.dev/mcp`. The client discovers the authorization server, opens GitHub sign-in and a Kalamo consent page in the browser, and becomes an Agent of that person, named after the client and the login. The account menu's Connected Agents lists and revokes them.
+MCP clients connect to `<MCP_ORIGIN>/mcp` with no token, for example `claude mcp add --transport http kalamo https://kalamo.example.workers.dev/mcp`. The client discovers the authorization server, opens GitHub sign-in and a Kalamo consent page in the browser, and becomes an Agent of that person, named after the client and the login. The account menu's Connected Agents lists and revokes them.
 
 ```sh
 pnpm exec wrangler login

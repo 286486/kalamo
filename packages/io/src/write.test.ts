@@ -2,6 +2,8 @@ import {
   createDocument,
   createNodes,
   formatPath,
+  LEGACY_NAME,
+  LEGACY_SVG_NS,
   makeMask,
   type ShapeNode,
   serializeDocument,
@@ -489,6 +491,8 @@ it("writes the root in pt with its scope, and each Artboard as an Inkscape page"
         `<rect x="300" y="0" width="50" height="50" fill="#FFEEDD" kalamo:artboard="${two.id}" sodipodi:insensitive="true"/><g`,
     ),
   );
+  expect(svg).not.toContain(LEGACY_SVG_NS);
+  expect(svg).not.toMatch(new RegExp(LEGACY_NAME, "i"));
   // Inkscape resizes the page at (0,0) to the viewBox: the export's viewBox is that page, else
   // the first.
   expect(svgRect(doc)).toEqual(one.frame);
