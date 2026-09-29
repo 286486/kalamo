@@ -326,3 +326,81 @@ test("the Spiral tool drags a Live Spiral whose winds and decay carry over", asy
   expect(kept).toMatchObject({ radius: 20, revolution: 2.75, argument: 90 });
   expect(kept?.expansion).toBeCloseTo(Math.log(0.4) / Math.log(0.8), 6);
 });
+
+// #150: the Rectangular Grid tool draws a Group of a frame and divider lines (ADR-0061).
+test("the Rectangular Grid tool drags a Group whose divider counts and skews carry over", async ({
+  page,
+  request,
+}) => {
+  const { nodes, drag } = await openShapes(page, request, "Grids");
+  type Line = { parentId: string; x1: number; y1: number; x2: number; y2: number };
+  const groups = () => nodes<{ id: string; appearance?: object }>("group");
+  const rects = () => nodes<{ parentId: string; x: number; y: number; width: number }>("rect");
+  const lines = async (group: string) =>
+    (await nodes<Line>("line")).filter((l) => l.parentId === group);
+  // node_query sorts by id: the positions, sorted, top down and from the left.
+  const horizontal = async (group: string) =>
+    (await lines(group))
+      .filter((l) => l.y1 === l.y2)
+      .map((l) => l.y1)
+      .sort((a, b) => a - b);
+  const vertical = async (group: string) =>
+    (await lines(group))
+      .filter((l) => l.x1 === l.x2)
+      .map((l) => l.x1)
+      .sort((a, b) => a - b);
+
+  const expectClose = (actual: number[], expected: number[]) => {
+    expect(actual).toHaveLength(expected.length);
+    for (const [i, v] of actual.entries()) expect(v).toBeCloseTo(expected[i] as number, 6);
+  };
+
+  const button = await pickFromGroup(page, LINE_GROUP, "Rectangular Grid Tool");
+
+  // 5 and 5 dividers, evenly spaced in a 60 pt frame, all in the Stroke alone.
+  await drag([20, 20], [80, 80]);
+  await expect.poll(async () => (await groups()).length).toBe(1);
+  const [first] = await groups();
+  const id = first?.id as string;
+  expect(await rects()).toMatchObject([
+    { parentId: id, x: 20, y: 20, width: 60, appearance: { fills: [], strokes: [{ width: 1 }] } },
+  ]);
+  expect(await horizontal(id)).toEqual([30, 40, 50, 60, 70]);
+  expect(await vertical(id)).toEqual([30, 40, 50, 60, 70]);
+  // The Group is selected, not its children.
+  await expect(
+    page.getByRole("button", { name: "<Group>", exact: true, pressed: true }),
+  ).toHaveCount(1);
+  await expect(
+    page.getByRole("button", { name: "<Line>", exact: true, pressed: true }),
+  ).toHaveCount(0);
+
+  // Up and Left: 6 horizontal, 4 vertical. V and C skew each 10% toward the top and the right.
+  await drag([100, 10], [170, 80], "ArrowUp", "ArrowLeft", "v", "c", "v", "f");
+  await expect(button).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(async () => (await groups()).length).toBe(2);
+  const second = (await groups()).find((g) => g.id !== id)?.id as string;
+  // n dividers at `skew`%: each cell 2^(−skew/100) times the one before (ADR-0061).
+  const at = (n: number, skew: number) => {
+    const q = 2 ** (-skew / 100);
+    return Array.from({ length: n }, (_, i) => (1 - q ** (i + 1)) / (1 - q ** (n + 1)));
+  };
+  const ys = at(6, 10)
+    .map((f) => 80 - f * 70)
+    .reverse();
+  expectClose(await horizontal(second), ys);
+  const xs = at(4, 10).map((f) => 100 + f * 70);
+  expectClose(await vertical(second), xs);
+
+  // Undo removes the second grid, frame and dividers, in one step.
+  await page.keyboard.press("Control+z");
+  await expect.poll(async () => (await groups()).map((g) => g.id)).toEqual([id]);
+  expect(await lines(second)).toEqual([]);
+
+  // The counts and skews carry over to the next drag.
+  await drag([100, 10], [170, 80]);
+  await expect.poll(async () => (await groups()).length).toBe(2);
+  const third = (await groups()).find((g) => g.id !== id)?.id as string;
+  expect(await horizontal(third)).toHaveLength(6);
+  expectClose(await vertical(third), xs);
+});

@@ -182,8 +182,12 @@ export function receive(
   return {
     doc,
     isolated: leave && isolated === leave.from ? prune(s.doc, doc, leave.to) : isolated,
-    // Drawn art becomes the Selection, as in Illustrator.
-    selection: drawn ? (drawn.select ? [...made] : []) : [...new Set(selection)],
+    // Drawn art becomes the Selection, as in Illustrator: a Group drawn, not its inline children.
+    selection: drawn
+      ? drawn.select && msg.type === "tx"
+        ? msg.created.filter((n) => !n.parentId || !made.has(n.parentId)).map((n) => n.id)
+        : []
+      : [...new Set(selection)],
     ...(answered && { drag: null }),
     anchors,
     segments,

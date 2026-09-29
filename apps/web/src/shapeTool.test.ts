@@ -4,17 +4,21 @@ import {
   arcKey,
   arcTool,
   countKey,
+  dividerFractions,
   dragArc,
   dragBox,
+  dragGrid,
   dragLine,
   dragRadial,
   dragSpiral,
   dragStar,
   ellipseTool,
+  gridKey,
   lineTool,
   polygonTool,
   radiusKey,
   rectangleTool,
+  rectangularGridTool,
   roundedRectangleTool,
   shouldersRatio,
   spiralExpansion,
@@ -1064,5 +1068,218 @@ describe("the Spiral tool", () => {
     dragWith(spiralTool, [0, 0], [[0, 20]]);
     expect(created()).toMatchObject({ revolution: 2.5 });
     expect(expansion()).toBeCloseTo(1, 12);
+  });
+});
+
+describe("dividerFractions", () => {
+  const S = Math.SQRT1_2;
+  it("spaces 5 dividers evenly at skew 0", () => {
+    expect(dividerFractions({ count: 5, skew: 0 })).toEqual([1, 2, 3, 4, 5].map((i) => i / 6));
+  });
+
+  it.each([
+    // Each cell is 2^(−skew/100) times the one before: 1/√2 at 50, √2 at −50, of 7/8 in all.
+    [50, [(1 - S) / 0.875, 4 / 7, (1 - S / 2) / 0.875, 6 / 7, (1 - S / 4) / 0.875]],
+    [-50, [(2 * S - 1) / 7, 1 / 7, (4 * S - 1) / 7, 3 / 7, (8 * S - 1) / 7]],
+  ])("packs 5 dividers geometrically at skew %i", (skew, expected) => {
+    const f = dividerFractions({ count: 5, skew });
+    expect(f).toHaveLength(5);
+    for (const [i, v] of f.entries()) expect(v).toBeCloseTo(expected[i] as number, 12);
+    const cells = [0, ...f, 1].slice(1).map((v, i) => v - ([0, ...f][i] as number));
+    for (let i = 1; i < cells.length; i++)
+      expect((cells[i] as number) / (cells[i - 1] as number)).toBeCloseTo(2 ** (-skew / 100), 12);
+  });
+
+  it("mirrors a skew with its negative, and holds none for 0 dividers", () => {
+    const up = dividerFractions({ count: 4, skew: 130 });
+    const down = dividerFractions({ count: 4, skew: -130 });
+    for (const [i, v] of down.entries()) expect(v).toBeCloseTo(1 - (up[3 - i] as number), 12);
+    expect(dividerFractions({ count: 0, skew: 40 })).toEqual([]);
+  });
+});
+
+describe("dragGrid", () => {
+  const even = { horizontal: { count: 1, skew: 0 }, vertical: { count: 3, skew: 0 } };
+  it("frames the drag's box and runs each divider from side to side", () => {
+    expect(dragGrid([40, 50], [0, 10], NONE, even)).toEqual({
+      type: "group",
+      children: [
+        { type: "rect", x: 0, y: 10, width: 40, height: 40 },
+        { type: "line", x1: 0, y1: 30, x2: 40, y2: 30 },
+        { type: "line", x1: 10, y1: 10, x2: 10, y2: 50 },
+        { type: "line", x1: 20, y1: 10, x2: 20, y2: 50 },
+        { type: "line", x1: 30, y1: 10, x2: 30, y2: 50 },
+      ],
+    });
+  });
+
+  it("takes dragBox's Shift and Alt", () => {
+    const grid = dragGrid([20, 20], [30, 25], { shift: true, alt: true }, even);
+    expect(grid.children[0]).toEqual({ type: "rect", x: 10, y: 10, width: 20, height: 20 });
+  });
+
+  it("skews horizontal dividers toward the top, listed top down, and vertical ones toward the right", () => {
+    const skewed = { horizontal: { count: 2, skew: 100 }, vertical: { count: 2, skew: 100 } };
+    // Cells of 4, 2 and 1 sevenths of 70, from the bottom up and from the left.
+    const [, ...lines] = dragGrid([0, 0], [70, 70], NONE, skewed).children;
+    expect(lines.map((l) => ("y1" in l ? [l.x1, l.y1, l.x2, l.y2] : l))).toEqual([
+      [0, 10, 70, 10],
+      [0, 30, 70, 30],
+      [40, 0, 40, 70],
+      [60, 0, 60, 70],
+    ]);
+  });
+});
+
+describe("gridKey", () => {
+  const grid = { horizontal: { count: 5, skew: 0 }, vertical: { count: 5, skew: 0 } };
+  it.each([
+    ["ArrowUp", { horizontal: { count: 6, skew: 0 } }],
+    ["ArrowDown", { horizontal: { count: 4, skew: 0 } }],
+    ["ArrowRight", { vertical: { count: 6, skew: 0 } }],
+    ["ArrowLeft", { vertical: { count: 4, skew: 0 } }],
+    ["V", { horizontal: { count: 5, skew: 10 } }],
+    ["F", { horizontal: { count: 5, skew: -10 } }],
+    ["C", { vertical: { count: 5, skew: 10 } }],
+    ["X", { vertical: { count: 5, skew: -10 } }],
+  ])("%s changes one direction's dividers", (key, change) => {
+    expect(gridKey(grid, key)).toEqual({ ...grid, ...change });
+  });
+
+  it("keeps counts within 0…999 and skews within −500…500%, and takes no other key", () => {
+    const low = { horizontal: { count: 0, skew: -500 }, vertical: { count: 999, skew: 500 } };
+    expect(gridKey(low, "ArrowDown")).toEqual(low);
+    expect(gridKey(low, "F")).toEqual(low);
+    expect(gridKey(low, "ArrowRight")).toEqual(low);
+    expect(gridKey(low, "C")).toEqual(low);
+    for (const key of ["Z", "Shift", "constructor", "v"]) expect(gridKey(grid, key)).toBeNull();
+  });
+});
+
+describe("the Rectangular Grid tool", () => {
+  const key = (k: string) =>
+    rectangularGridTool.keyChange?.({ ...NONE, key: k, down: true }, () => {});
+  const created = () => {
+    const command = sent();
+    return command?.type === "create" ? command.nodes : null;
+  };
+  /** The inline children of the Group last sent. */
+  const children = () => {
+    const [group] = created() ?? [];
+    if (group?.type !== "group") throw new Error("no Group");
+    return (group.children ?? []) as Record<string, unknown>[];
+  };
+  const stroke = { fills: [], strokes: [{ color: "#0000FF", width: 1 }] };
+  beforeEach(() => {
+    useStore.setState({ fillStroke: { fill: "#FF0000", stroke: "#0000FF", active: "fill" } });
+  });
+
+  // In order: the counts and skews each drag leaves are the next one's.
+  it("sends one Group of a frame and 5 + 5 dividers, each in the Stroke alone", () => {
+    dragWith(rectangularGridTool, [0, 0], [[30, 30]], [[60, 60]]);
+    expect(vi.mocked(send)).toHaveBeenCalledTimes(1);
+    const nodes = created();
+    expect(nodes).toHaveLength(1);
+    const [group] = nodes ?? [];
+    expect(group).toMatchObject({ type: "group", parentId: defaultLayerId });
+    expect(group).not.toHaveProperty("appearance");
+    expect(children().map((c) => c.type)).toEqual(["rect", ...Array(10).fill("line")]);
+    expect(children()[0]).toEqual({
+      type: "rect",
+      x: 0,
+      y: 0,
+      width: 60,
+      height: 60,
+      appearance: stroke,
+    });
+    expect(children()[1]).toEqual({
+      type: "line",
+      x1: 0,
+      y1: 10,
+      x2: 60,
+      y2: 10,
+      appearance: stroke,
+    });
+    expect(children()[10]).toEqual({
+      type: "line",
+      x1: 50,
+      y1: 0,
+      x2: 50,
+      y2: 60,
+      appearance: stroke,
+    });
+    expect(useStore.getState().pending).toMatchObject([{ nodes: [{ type: "group" }] }]);
+  });
+
+  it("takes all eight keys during the drag, and the counts and skews carry over", () => {
+    rectangularGridTool.down(at([0, 0]));
+    rectangularGridTool.move?.(at([60, 60]));
+    const keys = ["ArrowUp", "ArrowDown", "ArrowDown", "ArrowRight", "V", "F", "C", "X", "C"];
+    expect(keys.map(key)).toEqual(Array(keys.length).fill(true));
+    expect(key("M")).toBe(false);
+    rectangularGridTool.up?.(at([60, 60]));
+    const lines = () => children().slice(1);
+    const drawn = () => {
+      const l = lines();
+      return {
+        horizontal: l.filter((d) => d.x1 === 0).length,
+        vertical: l.filter((d) => d.y1 === 0),
+      };
+    };
+    // 4 horizontal, even; 6 vertical, skewed 10% toward the right.
+    expect(drawn().horizontal).toBe(4);
+    const vertical = dragGrid([0, 0], [60, 60], NONE, {
+      horizontal: { count: 4, skew: 0 },
+      vertical: { count: 6, skew: 10 },
+    }).children.slice(5);
+    expect(drawn().vertical).toMatchObject(vertical);
+    dragWith(rectangularGridTool, [0, 0], [[60, 60]]);
+    expect(drawn().horizontal).toBe(4);
+    expect(drawn().vertical).toMatchObject(vertical);
+    // Back to 5 and 5 at 0% for the tests after.
+    rectangularGridTool.down(at([0, 0]));
+    for (const k of ["ArrowUp", "ArrowLeft", "X"]) key(k);
+    rectangularGridTool.up?.(at([1, 1]));
+    dragWith(rectangularGridTool, [0, 0], [[60, 60]]);
+    expect(lines()).toHaveLength(10);
+    expect(lines()[5]).toMatchObject({ x1: 10 });
+  });
+
+  it("draws nothing for a drag flat as a line, and moves with Space", () => {
+    dragWith(rectangularGridTool, [0, 0], [[30, 30]], [[30, 0]]);
+    expect(send).not.toHaveBeenCalled();
+    const space = { space: true };
+    dragWith(rectangularGridTool, [0, 0], [[10, 10]], [[15, 20], space], [[30, 30]]);
+    expect(children()[0]).toMatchObject({ x: 5, y: 10, width: 25, height: 20 });
+  });
+
+  it("previews every child in the Stroke alone", () => {
+    const drawn: string[] = [];
+    vi.stubGlobal(
+      "Path2D",
+      class {
+        constructor(d: string) {
+          drawn.push(d);
+        }
+      },
+    );
+    const paints: [string, unknown][] = [];
+    const ctx = {
+      fill() {
+        paints.push(["fill", ctx.fillStyle]);
+      },
+      stroke() {
+        paints.push(["stroke", ctx.strokeStyle]);
+      },
+      setLineDash() {},
+    } as unknown as CanvasRenderingContext2D & { fillStyle: unknown; strokeStyle: unknown };
+    rectangularGridTool.down(at([0, 0]));
+    rectangularGridTool.move?.(at([60, 60]));
+    rectangularGridTool.draw?.(ctx, doc, 1);
+    expect(drawn).toHaveLength(11);
+    expect(drawn[0]).toBe("M 0 0 L 60 0 L 60 60 L 0 60 Z");
+    expect(paints.every(([kind]) => kind === "stroke")).toBe(true);
+    rectangularGridTool.cancel?.(() => {});
+    vi.unstubAllGlobals();
   });
 });
