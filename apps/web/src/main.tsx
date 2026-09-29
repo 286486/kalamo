@@ -4,6 +4,7 @@ import { Account, SignIn, useMe } from "./Account.tsx";
 import { List } from "./List.tsx";
 import { MenuBar } from "./MenuBar.tsx";
 import { documentMenus } from "./menu.ts";
+import { receiveCarried } from "./storage.ts";
 import { goSignIn } from "./store.ts";
 import { Tabs, useTabs } from "./Tabs.tsx";
 import { Viewer } from "./Viewer.tsx";
@@ -61,6 +62,7 @@ function App() {
   );
 }
 
+receiveCarried();
 createRoot(document.getElementById("root") as HTMLElement).render(
   <StrictMode>
     <App />

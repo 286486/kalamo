@@ -19,13 +19,7 @@ type Entry = {
   until: `#${number}` | "permanent";
 };
 
-const ALLOWLIST: Entry[] = [
-  {
-    path: /^apps\/edge\/wrangler\.jsonc$/,
-    reason: "Cloudflare resource names: Worker, D1 database and R2 bucket.",
-    until: "#180",
-  },
-];
+const ALLOWLIST: Entry[] = [];
 
 type Hit = { path: string; line?: number; text: string };
 
@@ -49,7 +43,16 @@ function check(hits: Hit[], allowlist: Entry[]) {
 function trackedHits(): Hit[] {
   const git = (...args: string[]) => execFileSync("git", args, { encoding: "utf8" });
   const lines = (s: string) => s.split("\n").filter(Boolean);
-  const inContent = lines(git("grep", "-I", "-i", "-n", OLD, "--", ".")).map((l) => {
+  // git grep exits 1 when nothing matches, which is the goal once the rename is done.
+  const grep = () => {
+    try {
+      return git("grep", "-I", "-i", "-n", OLD, "--", ".");
+    } catch (e) {
+      if ((e as { status?: number }).status === 1) return "";
+      throw e;
+    }
+  };
+  const inContent = lines(grep()).map((l) => {
     const [, path = "", line, text = ""] = l.match(/^(.+?):(\d+):(.*)$/) ?? [];
     return { path, text, line: Number(line) };
   });
@@ -78,6 +81,7 @@ describe("the old name", () => {
       `export class ${Old}Thing {}`,
       `packages/core/src/${OLD}.ts`,
       `The ${Old} Authors.`,
+      `"name": "${OLD}",`,
     ]);
   });
 

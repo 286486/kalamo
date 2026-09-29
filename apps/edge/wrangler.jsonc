@@ -1,6 +1,6 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
-  "name": "zibel",
+  "name": "kalamo",
   "main": "src/index.ts",
   // Must not be later than the workerd bundled with @cloudflare/vitest-plugin.
   "compatibility_date": "2026-09-21",
@@ -23,22 +23,23 @@
   "durable_objects": {
     "bindings": [{ "name": "DOCUMENT", "class_name": "DocumentObject" }]
   },
-  // `wrangler d1 create zibel --binding DB --update-config` replaces this id for hosting.
+  // `wrangler d1 create kalamo --binding DB --update-config` replaces this id for hosting.
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "zibel",
-      "database_id": "bfad6d7b-8e8a-4b69-93e5-d7d00958c16f",
+      "database_name": "kalamo",
+      "database_id": "108560f3-fa33-4816-885f-db1a2e68f197",
       "migrations_dir": "migrations"
     }
   ],
   // Image files, one object per file per Document (ADR-0046); wrangler dev and tests emulate it.
-  "r2_buckets": [{ "binding": "IMAGES", "bucket_name": "zibel-images" }],
+  "r2_buckets": [{ "binding": "IMAGES", "bucket_name": "kalamo-images" }],
   // MCP OAuth grants and tokens, hashed and encrypted by workers-oauth-provider (ADR-0047).
-  // `wrangler kv namespace create OAUTH_KV --binding OAUTH_KV --update-config` replaces this id.
-  "kv_namespaces": [{ "binding": "OAUTH_KV", "id": "0e8bd0c1a4c34b5c9a0cbf3a7c2e3d41" }],
+  // `wrangler kv namespace create kalamo-oauth --binding OAUTH_KV --update-config` replaces this id.
+  "kv_namespaces": [{ "binding": "OAUTH_KV", "id": "3f0564ab74d940089087907628b44310" }],
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["DocumentObject"] }],
-  // Deployed Workers sign browsers in with GitHub (ADR-0047). `.dev.vars` sets `dev` locally; the
-  // GitHub secrets, APP_ORIGIN and MCP_ORIGIN are Worker secrets.
+  // Deployed Workers sign browsers in with GitHub (ADR-0047), unless the deploy passes
+  // `--var AUTH_MODE:dev`, as the hosted one does for now (README). `.dev.vars` sets `dev` locally;
+  // the GitHub secrets, APP_ORIGIN and MCP_ORIGIN are Worker secrets.
   "vars": { "AUTH_MODE": "github" }
 }
