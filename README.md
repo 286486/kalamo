@@ -85,7 +85,7 @@ The deployment's former workers.dev URL was deleted (#181) and answers 404. To r
 
 ## Landing page
 
-The landing page `site/public/index.html` is its own static-only Worker, `kalamo-site` (Workers Static Assets, no script, no bindings), configured in `site/wrangler.jsonc`. It is separate from the editor's Worker `kalamo`, so deploying one never replaces the other. `site/public/_redirects` is deploy-time config, not an uploaded file: it serves the page at `/` and answers 404 for `/index.html`; every other path is a bodiless 404.
+The landing page `site/public/index.html` is its own static-only Worker, `kalamo-site` (Workers Static Assets, no script, no bindings), configured in `site/wrangler.jsonc`. It is separate from the editor's Worker `kalamo`, so deploying one never replaces the other. `site/public/_redirects` is deploy-time config, not an uploaded file: it serves the page at `/` and answers 404 for `/index.html`; every other path is a bodiless 404. An encoded or doubled-slash spelling of `/index.html` (`/%69ndex.html`, `//index.html`) may instead get a bodiless 307 to `/index.html`, which then 404s: the asset worker redirects to the decoded path when it differs from the one requested.
 
 ```sh
 pnpm deploy:site:check # dry run: "No bindings found."; WRANGLER_LOG=debug lists the assets

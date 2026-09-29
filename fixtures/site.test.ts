@@ -1,5 +1,6 @@
 // The landing page Worker kalamo-site (#185), under a local `wrangler dev` of site/wrangler.jsonc:
-// the page at / byte for byte, a 404 for every other path, and a config with nothing but assets.
+// the page at / byte for byte, a 404 for every other path (or a 307 to /index.html, which 404s), and a
+// config with nothing but assets.
 import { type ChildProcess, spawn } from "node:child_process";
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { request } from "node:http";
@@ -14,13 +15,23 @@ let port = 0;
 let server: ChildProcess | undefined;
 let state = "";
 
-/** A request with the path sent as written (no URL normalisation) and no redirect following. */
-function send(path: string, method = "GET"): Promise<{ status: number; body: Buffer }> {
+/** A request with the path sent as written (no URL normalisation) and no redirect following. node:http
+ * sends no Accept-Encoding, so the body arrives uncompressed and compares byte for byte. */
+function send(
+  path: string,
+  method = "GET",
+): Promise<{ status: number; location?: string; body: Buffer }> {
   return new Promise((resolve, reject) => {
     const req = request({ host: "127.0.0.1", port, path, method }, (res) => {
       const chunks: Buffer[] = [];
       res.on("data", (c: Buffer) => chunks.push(c));
-      res.on("end", () => resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks) }));
+      res.on("end", () =>
+        resolve({
+          status: res.statusCode ?? 0,
+          location: res.headers.location,
+          body: Buffer.concat(chunks),
+        }),
+      );
     });
     req.on("error", reject);
     req.end();
@@ -99,26 +110,53 @@ describe("kalamo-site", () => {
     expect(Object.fromEntries(statuses)).toEqual(Object.fromEntries(paths.map((p) => [p, 404])));
   }, 30_000);
 
+  // _redirects matches the raw path, but the asset worker looks assets up by the decoded path with
+  // repeated slashes merged, and answers 307 to that canonical path when the two differ. So an
+  // encoded or doubled-slash /index.html is either a 404 or a relative 307 to /index.html, which
+  // then 404s: never the page, and never another origin.
+  it("answers an encoded or doubled-slash /index.html with a 404, or a 307 to one", async () => {
+    for (const path of [
+      "/INDEX.HTML",
+      "/index.html/",
+      "/index.html?x",
+      "/./index.html",
+      "/%2e/index.html",
+      "/%69ndex.html",
+      "/index%2ehtml",
+      "/index.htm%6c",
+      "//index.html",
+      "/%2Findex.html",
+      "//evil.example/",
+      "/%2Fevil.example/",
+    ]) {
+      const res = await send(path);
+      expect(res.body.length, path).toBe(0);
+      if (res.status === 307) expect(res.location, path).toBe("/index.html");
+      else expect(res.status, path).toBe(404);
+    }
+    const next = await send("/index.html");
+    expect([next.status, next.body.length]).toEqual([404, 0]);
+  }, 30_000);
+
   it("never accepts a POST to /mcp", async () => {
     expect([404, 405]).toContain((await send("/mcp", "POST")).status);
   }, 30_000);
 
   it("is configured as assets only: no script, route, binding or public URL", () => {
     const config = experimental_readRawConfig({ config: "site/wrangler.jsonc" }).rawConfig;
-    for (const key of [
-      "main",
-      "routes",
-      "route",
-      "vars",
-      "d1_databases",
-      "r2_buckets",
-      "kv_namespaces",
-      "durable_objects",
-      "services",
-      "migrations",
-    ])
-      expect(config, key).not.toHaveProperty(key);
-    expect(config.assets).not.toHaveProperty("run_worker_first");
+    expect(Object.keys(config).sort()).toEqual([
+      "$schema",
+      "assets",
+      "compatibility_date",
+      "name",
+      "preview_urls",
+      "workers_dev",
+    ]);
+    expect(Object.keys(config.assets ?? {}).sort()).toEqual([
+      "directory",
+      "html_handling",
+      "not_found_handling",
+    ]);
     expect(config).toMatchObject({ name: "kalamo-site", workers_dev: false, preview_urls: false });
   });
 

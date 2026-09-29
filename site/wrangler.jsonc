@@ -5,7 +5,8 @@
   // Not later than apps/edge/wrangler.jsonc's.
   "compatibility_date": "2026-09-21",
   // html_handling "none": /index.html and /index 404 instead of 307 to /. _redirects serves / and
-  // hides /index.html; every other path is a bodiless 404.
+  // hides /index.html; every other path is a bodiless 404, or, for an encoded or doubled-slash
+  // /index.html, a bodiless 307 to /index.html, which 404s.
   "assets": { "directory": "./public", "html_handling": "none", "not_found_handling": "none" },
   "workers_dev": false,
   "preview_urls": false
