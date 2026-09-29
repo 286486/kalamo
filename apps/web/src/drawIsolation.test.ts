@@ -5,7 +5,13 @@ import { drawPending } from "./canvas.ts";
 import { curvatureDown, curvatureUp } from "./curvature.ts";
 import { DEFAULT_PENCIL, pencilDown, pencilMove, pencilUp, savePencilOptions } from "./pencil.ts";
 import { receive } from "./receive.ts";
-import { ellipseTool, polygonTool, rectangleTool, roundedRectangleTool } from "./shapeTool.ts";
+import {
+  ellipseTool,
+  polygonTool,
+  rectangleTool,
+  roundedRectangleTool,
+  starTool,
+} from "./shapeTool.ts";
 import { connect, DEFAULT_FILL_STROKE, send, useStore } from "./store.ts";
 import type { CanvasTool, ToolEvent } from "./toolbox.ts";
 import { finishPen, penDown, penUp } from "./tools.ts";
@@ -149,6 +155,7 @@ const tools: [string, () => void][] = [
   ["Rounded Rectangle", drawShape(roundedRectangleTool)],
   ["Ellipse", drawShape(ellipseTool)],
   ["Polygon", drawShape(polygonTool)],
+  ["Star", drawShape(starTool)],
 ];
 
 beforeEach(() => {

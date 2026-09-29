@@ -6,7 +6,13 @@ import { exitIsolation, keysOf } from "./menu.ts";
 import { pencilTool } from "./pencilTool.ts";
 import { penTool } from "./penTool.ts";
 import { selectionTool } from "./selectionTool.ts";
-import { ellipseTool, polygonTool, rectangleTool, roundedRectangleTool } from "./shapeTool.ts";
+import {
+  ellipseTool,
+  polygonTool,
+  rectangleTool,
+  roundedRectangleTool,
+  starTool,
+} from "./shapeTool.ts";
 import { useStore } from "./store.ts";
 import { fillStrokeKey, setTool } from "./tools.ts";
 import type { Viewport } from "./viewport.ts";
@@ -41,7 +47,7 @@ export interface ToolEvent {
 }
 
 /** The modifiers a key can change mid-drag. */
-export type KeyMods = Pick<ToolEvent, "shift" | "alt" | "space">;
+export type KeyMods = Pick<ToolEvent, "shift" | "alt" | "ctrl" | "space">;
 
 /** A key pressed, repeated or released while a tool holds the pointer, and the modifiers now held. */
 export interface ToolKey extends KeyMods {
@@ -131,6 +137,7 @@ export const TOOLS = {
   roundedRectangle: roundedRectangleTool,
   ellipse: ellipseTool,
   polygon: polygonTool,
+  star: starTool,
   pencil: pencilTool,
 } satisfies Record<string, CanvasTool>;
 
@@ -164,7 +171,10 @@ export function pressedKey(
   const keys = keysOf(e);
   const key = keys.slice(keys.lastIndexOf("+") + 1);
   const down = e.type === "keydown";
-  return !!pressed?.keyChange?.({ key, down, shift: e.shiftKey, alt: e.altKey, space }, redraw);
+  return !!pressed?.keyChange?.(
+    { key, down, shift: e.shiftKey, alt: e.altKey, ctrl: e.ctrlKey || e.metaKey, space },
+    redraw,
+  );
 }
 
 /**

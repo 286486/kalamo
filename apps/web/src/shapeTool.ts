@@ -1,8 +1,9 @@
+import { MAX_COUNT, MIN_COUNT } from "@zibel/core";
 import { dragged, drawDrawing, type Press, shapePath } from "./canvas.ts";
 import type { ShapeBox } from "./receive.ts";
 import { useStore } from "./store.ts";
 import type { CanvasTool, KeyMods } from "./toolbox.ts";
-import { type NewArt, sendNewArt } from "./tools.ts";
+import { type NewArt, type StarArt, sendNewArt } from "./tools.ts";
 
 type Point = [number, number];
 
@@ -13,7 +14,7 @@ type Point = [number, number];
 export function dragBox(
   press: Point,
   p: Point,
-  { shift, alt }: Omit<KeyMods, "space">,
+  { shift, alt }: Pick<KeyMods, "shift" | "alt">,
 ): Omit<ShapeBox, "type"> {
   let [dx, dy] = [p[0] - press[0], p[1] - press[1]];
   if (shift) {
@@ -41,19 +42,19 @@ export const uprightAngle = (sides: number) => (sides % 2 ? 0 : 180 / sides);
 /**
  * The centre, radius and angle a drag from `press` to `p` draws (F-DRAW-01), as Illustrator's
  * Polygon tool does; the Star and Spiral tools share it. The press is the centre and the pointer
- * sets the radius. Its direction turns the shape, which is upright for a drag straight down, and
- * Shift keeps it upright.
+ * sets the radius. Its direction turns the shape from `upright`, the angle it has for a drag
+ * straight down, and Shift keeps it upright.
  */
 export function dragRadial(
   press: Point,
   p: Point,
   { shift }: Pick<KeyMods, "shift">,
-  sides: number,
+  upright: number,
 ): { cx: number; cy: number; radius: number; angle: number } {
   const [dx, dy] = [p[0] - press[0], p[1] - press[1]];
   // Degrees clockwise on screen from straight down.
   const turn = shift ? 0 : (Math.atan2(-dx, dy) * 180) / Math.PI;
-  const angle = (((uprightAngle(sides) + turn) % 360) + 360) % 360;
+  const angle = (((upright + turn) % 360) + 360) % 360;
   return { cx: press[0], cy: press[1], radius: Math.hypot(dx, dy), angle };
 }
 
@@ -82,14 +83,64 @@ export function radiusKey(
   }
 }
 
-/** The side count after `key`, as in Illustrator: Up adds a side and Down removes one, in 3…1000. */
-export function sidesKey(sides: number, key: string): number | null {
-  if (key === "ArrowUp") return Math.min(1000, sides + 1);
-  if (key === "ArrowDown") return Math.max(3, sides - 1);
+/**
+ * A polygon's side count or a star's point count after `key`, as in Illustrator: Up adds one and
+ * Down removes one, within core's bounds.
+ */
+export function countKey(count: number, key: string): number | null {
+  if (key === "ArrowUp") return Math.min(MAX_COUNT, count + 1);
+  if (key === "ArrowDown") return Math.max(MIN_COUNT, count - 1);
   return null;
 }
 
-/** What a shape tool's drag draws, and the option (corner radius, side count) its keys change. */
+/**
+ * The inner radius, as a fraction of the outer, at which a star of `points` has straight shoulders
+ * (Illustrator's Alt): each point's edges lie on the lines joining every second point, as in a
+ * pentagram. Null for 3 and 4 points, which have no such star.
+ */
+export const shouldersRatio = (points: number) =>
+  points < 5 ? null : Math.cos((2 * Math.PI) / points) / Math.cos(Math.PI / points);
+
+/**
+ * The Star tool's option: its point count, the inner radius as a fraction of the outer, and the
+ * inner radius Ctrl holds, or null.
+ */
+export interface StarOption {
+  points: number;
+  ratio: number;
+  inner: number | null;
+}
+
+/**
+ * The star a drag from `press` to `p` draws (F-DRAW-01), as Illustrator's Star tool does: the
+ * pointer's distance from the press is the outer radius, and the drag turns it as `dragRadial`
+ * does, from pointing straight up. The inner radius is Ctrl's held one or else `ratio` of the
+ * outer; Alt straightens the shoulders instead, where `points` allows it.
+ */
+export function dragStar(
+  press: Point,
+  p: Point,
+  mods: Pick<KeyMods, "shift" | "alt">,
+  { points, ratio, inner }: StarOption,
+): StarArt {
+  const { cx, cy, radius, angle } = dragRadial(press, p, mods, 0);
+  const shoulders = mods.alt ? shouldersRatio(points) : null;
+  const innerRadius = shoulders === null ? (inner ?? ratio * radius) : shoulders * radius;
+  return { type: "star", cx, cy, outerRadius: radius, innerRadius, points, angle };
+}
+
+/** `star` once Ctrl is up: the inner radius it held, if any, becomes the ratio drawn. */
+const unhold = (star: StarOption, art: StarArt | null): StarOption => ({
+  ...star,
+  ratio:
+    star.inner !== null && art && art.outerRadius > 0 ? star.inner / art.outerRadius : star.ratio,
+  inner: null,
+});
+
+/**
+ * What a shape tool's drag draws, and the option (corner radius, side count, a star's radii) its
+ * keys and modifiers change.
+ */
 interface DragShape<A extends NewArt, O> {
   /** The option the session's first drag starts with. */
   option: O;
@@ -98,6 +149,8 @@ interface DragShape<A extends NewArt, O> {
   visible(art: A): boolean;
   /** `option` after `key` while `art` is drawn, or null when the key is not the drag's. */
   key?(option: O, key: string, art: A | null): O | null;
+  /** `option` with the modifiers `mods` held, re-read before `art` is redrawn. */
+  mods?(option: O, mods: KeyMods, art: A | null): O;
   /**
    * The option the next drag starts from, after one that ended with `option` and drew `art`, or
    * nothing; `kept` is the one it started from. The drag's own by default.
@@ -126,6 +179,7 @@ function shapeTool<A extends NewArt, O>(
     if (mods.space)
       drag.origin = [drag.origin[0] + p[0] - drag.at[0], drag.origin[1] + p[1] - drag.at[1]];
     drag.at = p;
+    if (shape.mods) drag.option = shape.mods(drag.option, mods, drag.art);
     if (moved) drag.art = shape.art(drag.origin, p, mods, drag.option);
   }
 
@@ -177,11 +231,12 @@ function shapeTool<A extends NewArt, O>(
 }
 
 /** A Rectangle or Ellipse spanning the drag. */
-const box = (type: ShapeBox["type"]): DragShape<ShapeBox, null> => ({
-  option: null,
-  art: (origin, p, mods) => ({ type, ...dragBox(origin, p, mods) }),
-  visible: (b) => b.width > 0 && b.height > 0,
-});
+const box = (type: ShapeBox["type"]) =>
+  ({
+    option: null,
+    art: (origin, p, mods) => ({ type, ...dragBox(origin, p, mods) }),
+    visible: (b) => b.width > 0 && b.height > 0,
+  }) satisfies DragShape<ShapeBox, null>;
 
 export const rectangleTool = shapeTool(
   {
@@ -238,10 +293,35 @@ export const polygonTool = shapeTool(
     option: 6,
     art: (origin, p, mods, sides) => ({
       type: "polygon",
-      ...dragRadial(origin, p, mods, sides),
+      ...dragRadial(origin, p, mods, uprightAngle(sides)),
       sides,
     }),
     visible: (polygon) => polygon.radius > 0,
-    key: sidesKey,
+    key: countKey,
+  },
+);
+
+export const starTool = shapeTool<StarArt, StarOption>(
+  {
+    title: "Star Tool",
+    shortcut: "",
+    group: "rectangle",
+    icon: "M8 1.5 L9.6 5.8 L14.2 6 L10.6 8.9 L11.8 13.3 L8 10.8 L4.2 13.3 L5.4 8.9 L1.8 6 L6.4 5.8 Z",
+  },
+  {
+    // Illustrator's default star: 5 points, radii 50 pt and 25 pt.
+    option: { points: 5, ratio: 0.5, inner: null },
+    art: dragStar,
+    visible: (star) => star.outerRadius > 0,
+    key: (star, key) => {
+      const points = countKey(star.points, key);
+      return points === null ? null : { ...star, points };
+    },
+    // Ctrl pressed holds the inner radius drawn; released, it leaves the ratio that drew.
+    mods(star, { ctrl }, art) {
+      if (!ctrl) return unhold(star, art);
+      return star.inner === null && art ? { ...star, inner: art.innerRadius } : star;
+    },
+    keep: unhold,
   },
 );

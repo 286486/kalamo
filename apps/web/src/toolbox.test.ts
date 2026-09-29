@@ -43,7 +43,7 @@ it("shows each group as one button, at its first tool, fronting its last chosen 
     "pencil",
   ]);
   expect(slots[3]?.tools).toEqual(["pen", "addAnchor", "deleteAnchor", "anchorPoint", "curvature"]);
-  expect(slots[4]?.tools).toEqual(["rectangle", "roundedRectangle", "ellipse", "polygon"]);
+  expect(slots[4]?.tools).toEqual(["rectangle", "roundedRectangle", "ellipse", "polygon", "star"]);
   expect(toolSlots(all, { pen: "curvature", rectangle: "ellipse" })[3]?.shown).toBe("curvature");
   expect(toolSlots(all, { pen: "curvature", rectangle: "ellipse" })[4]?.shown).toBe("ellipse");
   // A viewer's tools show no group; a fronted tool that is not shown is ignored.
@@ -102,7 +102,7 @@ it("a key the pressed tool takes switches no tool; one it does not take still do
   expect(setTool).toHaveBeenLastCalledWith("anchorPoint");
 });
 
-it.each(["roundedRectangle", "polygon"] as const)(
+it.each(["roundedRectangle", "polygon", "star"] as const)(
   "the %s tool takes the arrow keys while dragging",
   (name) => {
     const tool = TOOLS[name];
@@ -115,9 +115,10 @@ it.each(["roundedRectangle", "polygon"] as const)(
   },
 );
 
-it("gives the Rounded Rectangle and Polygon tools no shortcut, as Illustrator does", () => {
+it("gives the Rounded Rectangle, Polygon and Star tools no shortcut, as Illustrator does", () => {
   expect(Object.values(TOOLS).filter((t) => !t.shortcut)).toEqual([
     TOOLS.roundedRectangle,
     TOOLS.polygon,
+    TOOLS.star,
   ]);
 });

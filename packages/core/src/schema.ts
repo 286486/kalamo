@@ -189,7 +189,10 @@ export interface Artboard {
 }
 
 const size = z.number().nonnegative();
-const count = z.number().int().min(3).max(1000);
+/** The fewest and most sides a polygon, or points a star, can have. */
+export const MIN_COUNT = 3;
+export const MAX_COUNT = 1000;
+const count = z.number().int().min(MIN_COUNT).max(MAX_COUNT);
 
 /** Live Shape parameters (F-DRAW-01) and a Path's `d`, in document coordinates. */
 export const RectShape = z.object({
