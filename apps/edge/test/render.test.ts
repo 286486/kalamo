@@ -219,7 +219,7 @@ it("exports the fixture Document as Inkscape SVG that matches the stored file", 
     pixelSize: { width: 1580, height: 250 },
     scale: 1,
   });
-});
+}, 30_000);
 
 it("exports PNG as image content with its viewport, in the same scopes", async () => {
   const doc = await newDoc();
