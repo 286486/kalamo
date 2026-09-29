@@ -535,56 +535,59 @@ describe("reads pass their filters and txId, and bad arguments never reach the s
   it.each([
     [
       "kalamo_node_transform",
-      { transforms: [entry], rotate: 5 },
+      { partial: true, transforms: [entry], rotate: 5 },
       "rotate",
       "kalamo_node_transform takes transforms or rotate, not both.",
       "Put rotate inside each entry of transforms that needs it.",
     ],
     [
       "kalamo_node_transform",
-      { transforms: [entry], nodeIds: ["a"] },
+      { partial: true, transforms: [entry], nodeIds: ["a"] },
       "nodeIds",
       "kalamo_node_transform takes transforms or nodeIds, not both.",
       "Put nodeIds inside each entry of transforms that needs it.",
     ],
     [
       "kalamo_node_transform",
-      { transforms: [entry], pivot: "top" },
+      { partial: true, transforms: [entry], pivot: "top" },
       "pivot",
       "kalamo_node_transform takes transforms or pivot, not both.",
       "Put pivot inside each entry of transforms that needs it.",
     ],
     [
       "kalamo_node_transform",
-      { transforms: [] },
+      { partial: true, transforms: [] },
       "transforms",
       expect.any(String),
       "transforms must be at least 1 item.",
     ],
     [
       "kalamo_node_transform",
-      { transforms: [entry, { nodeIds: ["b"], rotat: 1 }] },
+      { partial: true, transforms: [entry, { nodeIds: ["b"], rotat: 1 }] },
       "transforms[1].rotat",
       "kalamo_node_transform has no argument transforms[1].rotat.",
       expect.stringMatching(/^Did you mean rotate\? transforms\[1\] takes: nodeIds, /),
     ],
     [
       "kalamo_node_transform",
-      { transforms: [entry, { nodeIds: ["b"], matrix: [1, 0, 0, 1, 0, 0], rotate: 9 }] },
+      {
+        partial: true,
+        transforms: [entry, { nodeIds: ["b"], matrix: [1, 0, 0, 1, 0, 0], rotate: 9 }],
+      },
       "transforms[1]",
       expect.stringContaining("matrix replaces rotate"),
       expect.any(String),
     ],
     [
       "kalamo_node_transform",
-      { transforms: [entry, entry, { nodeIds: ["b"], matrix: [1, 0] }] },
+      { partial: true, transforms: [entry, entry, { nodeIds: ["b"], matrix: [1, 0] }] },
       "transforms[2].matrix",
       expect.any(String),
       expect.any(String),
     ],
     [
       "kalamo_node_transform",
-      {},
+      { partial: true },
       "nodeIds",
       "kalamo_node_transform needs nodeIds.",
       "nodeIds is required.",
@@ -605,6 +608,13 @@ describe("reads pass their filters and txId, and bad arguments never reach the s
     ],
     [
       "kalamo_mask_make",
+      { clipNodeId: "c", layerId: "l" },
+      "clipNodeId",
+      "kalamo_mask_make takes layerId or clipNodeId, not both.",
+      "Send layerId alone, or clipNodeId and contentIds without it.",
+    ],
+    [
+      "kalamo_mask_make",
       { clipNodeId: "c" },
       undefined,
       "kalamo_mask_make: Invalid input",
@@ -619,8 +629,7 @@ describe("reads pass their filters and txId, and bad arguments never reach the s
     ],
   ])("%s refuses %j as INVALID_INPUT at its path", async (name, args, path, message, hint) => {
     const { call, called } = await harness();
-    const partial = name === "kalamo_node_transform" && { partial: true };
-    const result = await call(name, { docId: "d", ...args, ...partial });
+    const result = await call(name, { docId: "d", ...args });
     expect(errorOf(result)).toEqual({ code: "INVALID_INPUT", path, message, hint });
     expect(called()).toEqual([]);
   });

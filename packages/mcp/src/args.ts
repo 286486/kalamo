@@ -18,8 +18,8 @@ export function parseArgs<T extends z.ZodType>(tool: string, schema: T, raw: unk
 
 /**
  * Refuses arguments that mix two forms of a tool: the first defined key of `others` beside a
- * defined `key` is INVALID_INPUT at that key (ADR-0050). Undefined values count as absent, so run
- * it on args parsed by the advertised schema, whose own defaults stay unset.
+ * defined `key` is INVALID_INPUT at that key (ADR-0050). Undefined values count as absent; a key
+ * the advertised schema defaults must not be listed in `others`.
  */
 export function exclusive(
   tool: string,
@@ -28,8 +28,9 @@ export function exclusive(
   others: readonly string[],
   hint: (other: string) => string,
 ): void {
+  if (args[key] === undefined) return;
   const other = others.find((k) => args[k] !== undefined);
-  if (args[key] === undefined || !other) return;
+  if (!other) return;
   throw new KalamoError({
     code: "INVALID_INPUT",
     message: `${tool} takes ${key} or ${other}, not both.`,
