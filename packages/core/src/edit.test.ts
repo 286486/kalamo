@@ -10,9 +10,10 @@ import {
 } from "./document.ts";
 import { deleteNodes, reparentNodes, transformNodes, updateNodes } from "./edit.ts";
 import { KalamoError } from "./errors.ts";
+import { parseDocument, serializeDocument } from "./file.ts";
 import { makeMask } from "./mask.ts";
 import { applyTo, compose, IDENTITY, invert } from "./matrix.ts";
-import type { Gradient, Node, ShapeNode } from "./schema.ts";
+import type { Document, Gradient, Node, ShapeNode } from "./schema.ts";
 
 const newDoc = () => {
   const { doc, defaultLayerId } = createDocument({
@@ -611,6 +612,10 @@ describe("deleteNodes", () => {
     expect([...doc.nodes.keys()]).not.toContain(b.id);
   });
 
+  /** The Nodes of `doc` after a `.kalamo.json` round trip; throws if the file does not open. */
+  const reopened = (doc: Document) =>
+    new Map(parseDocument(serializeDocument(doc)).nodes.map((n) => [n.id, n]));
+
   it("refuses deleting the only top-level Layer with LAST_LAYER and changes nothing", () => {
     const { doc, defaultLayerId } = newDoc();
     expect(errorOf(() => deleteNodes(doc, [defaultLayerId]))).toEqual({
@@ -621,6 +626,7 @@ describe("deleteNodes", () => {
       nodeIds: [defaultLayerId],
     });
     expect(outline(doc)).toMatchObject([{ id: defaultLayerId }]);
+    expect(reopened(doc)).toEqual(doc.nodes);
   });
 
   it("deletes top-level Layers while one is left; all of them only with partial, less the last", () => {
@@ -628,11 +634,13 @@ describe("deleteNodes", () => {
     const [l2, l3] = createNodes(doc, [{ type: "layer" }, { type: "layer" }]).nodes;
     if (!l2 || !l3) throw new Error("setup");
     const all = [defaultLayerId, l2.id, l3.id];
-    expect(errorOf(() => deleteNodes(structuredClone(doc), all))).toMatchObject({
+    const refused = structuredClone(doc);
+    expect(errorOf(() => deleteNodes(refused, all))).toMatchObject({
       code: "LAST_LAYER",
       path: "nodeIds[2]",
       nodeIds: all,
     });
+    expect(reopened(refused)).toEqual(doc.nodes);
     expect(deleteNodes(structuredClone(doc), all.slice(0, 2)).deletedIds).toEqual(all.slice(0, 2));
     const { deletedIds, failed } = deleteNodes(doc, all, { partial: true });
     expect(deletedIds).toEqual(all.slice(0, 2));
