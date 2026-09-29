@@ -1098,10 +1098,29 @@ describe("tracking and Character Ranges (ADR-0029)", () => {
     '<text>a<tspan baseline-shift="super">b</tspan></text>',
     '<text>a<tspan baseline-shift="30%">b</tspan></text>',
     '<text fill="none" stroke="#000">a<tspan fill="#f00">b</tspan></text>',
+    '<text>a<tspan stroke="#f00">b</tspan></text>',
+    '<text stroke="#000" stroke-width="0">a<tspan stroke="#f00">b</tspan></text>',
+    '<defs><linearGradient id="g"><stop offset="0" stop-color="#f00"/></linearGradient></defs><text stroke="#000">a<tspan stroke="url(#g)">b</tspan></text>',
+    '<text stroke="#000">a<tspan stroke="none">b</tspan></text>',
+    '<text stroke="#000">a<tspan stroke-width="3">b</tspan></text>',
+    '<text stroke="#000">a<tspan stroke-dasharray="1 1">b</tspan></text>',
   ])("warns for what a range cannot hold, and makes none: %s", (body) => {
     const file = read(body);
     expect(file.warnings).toEqual([expect.objectContaining({ code: "UNSUPPORTED_ATTRIBUTE" })]);
     expect(leaves(file).find((n) => n.type === "text")).not.toHaveProperty("ranges");
+  });
+
+  it("reads a tspan's stroke on a text with a Stroke as a range stroke (ADR-0068)", () => {
+    const file = read(
+      '<text stroke="#000" stroke-opacity="0.5">a<tspan stroke="#f00">b</tspan><tspan stroke-opacity="1">c</tspan><tspan stroke="#000000">d</tspan></text>',
+    );
+    expect(file.warnings).toEqual([]);
+    expect(leaves(file)[0]).toMatchObject({
+      ranges: [
+        { start: 1, end: 2, stroke: "#FF000080" },
+        { start: 2, end: 3, stroke: "#000000" },
+      ],
+    });
   });
 
   it("reads a none fill under a none fill as no range and no warning", () => {
@@ -1125,14 +1144,23 @@ describe("tracking and Character Ranges (ADR-0029)", () => {
         content: "Hello",
         fontSize: 20,
         tracking: 100,
+        appearance: {
+          fills: [{ color: "#000000" }],
+          strokes: [{ color: "#0000FF", width: 1 }],
+        },
         ranges: [
           { start: 0, end: 1, fill: "#FF000080" },
-          { start: 2, end: 4, baselineShift: 3, rotation: -15 },
+          { start: 1, end: 2, stroke: "#00FF00" },
+          { start: 2, end: 4, baselineShift: 3, rotation: -15, stroke: "#FF000080" },
         ],
       },
     ]).nodes;
-    const back = leaves(parseFile(toSvg(doc)))[0];
-    expect(back).toMatchObject({ tracking: 100, ranges: node && "ranges" in node && node.ranges });
+    const file = parseFile(toSvg(doc));
+    expect(file.warnings).toEqual([]);
+    expect(leaves(file)[0]).toMatchObject({
+      tracking: 100,
+      ranges: node && "ranges" in node && node.ranges,
+    });
   });
 });
 
@@ -1759,7 +1787,7 @@ describe("a painted Clipping Path (ADR-0051)", () => {
   });
 
   describe("a text Clipping Path (ADR-0052)", () => {
-    it("reads back a painted Area Type clip, its ranges, Range Fills and overflow", () => {
+    it("reads back a painted Area Type clip, its ranges, Range Fills and Strokes and overflow", () => {
       const { doc, defaultLayerId: parentId } = createDocument({
         id: "d",
         name: "Doc",
@@ -1784,7 +1812,8 @@ describe("a painted Clipping Path (ADR-0051)", () => {
         transform: [0.9, 0.2, -0.2, 0.9, 5, 0],
         ranges: [
           { start: 0, end: 1, fill: "#FF0000" },
-          { start: 1, end: 2, rotation: 10 },
+          { start: 1, end: 2, rotation: 10, stroke: "#00FF00" },
+          { start: 5, end: 6, fill: "#FF0000", stroke: "#00FF00" },
         ],
         appearance: {
           fills: [{ type: "solid", color: "#000000" }],

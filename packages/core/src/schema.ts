@@ -338,6 +338,9 @@ export const CharacterRange = z.strictObject({
   start: z.number().int().min(0),
   end: z.number().int().min(1),
   fill: Color.optional().describe("Replaces every Fill's paint for these characters."),
+  stroke: Color.optional().describe(
+    "Replaces every Stroke's paint for these characters; a text with no Stroke draws none.",
+  ),
   baselineShift: z.number().optional().describe("In pt, positive up."),
   rotation: z
     .number()
@@ -346,8 +349,11 @@ export const CharacterRange = z.strictObject({
     .optional()
     .describe("Degrees clockwise about each character's baseline origin."),
 });
-/** A stored Character Range, its fill parsed to `#RRGGBB` or `#RRGGBBAA`. */
-export type CharacterRange = Omit<z.output<typeof CharacterRange>, "fill"> & { fill?: string };
+/** A stored Character Range, its fill and stroke parsed to `#RRGGBB` or `#RRGGBBAA`. */
+export type CharacterRange = Omit<z.output<typeof CharacterRange>, "fill" | "stroke"> & {
+  fill?: string;
+  stroke?: string;
+};
 
 /**
  * A text (ADR-0013, ADR-0022): Point Type from its baseline origin, or Area Type in its frame,

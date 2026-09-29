@@ -212,13 +212,15 @@ function advancer(text: TextFont): (char: string) => number {
 }
 
 type Overrides = Omit<CharacterRange, "start" | "end">;
-/** A Character Range as written, its fill not parsed yet. */
-type RangeInput = Omit<CharacterRange, "fill"> & { fill?: unknown };
+/** A Character Range as written, its colours not parsed yet. */
+type RangeInput = Omit<CharacterRange, "fill" | "stroke"> & { fill?: unknown; stroke?: unknown };
+/** The overrides a range can hold, which runs must all share to merge. */
+const OVERRIDES = ["fill", "stroke", "baselineShift", "rotation"] as const;
 
 /**
- * Character Ranges in canonical form (ADR-0029): colours parsed, a later range winning attribute by
- * attribute, a shift or rotation of 0 clearing, then sorted runs that do not overlap, adjacent equal
- * runs merged and runs without overrides dropped. None left is `undefined`.
+ * Character Ranges in canonical form (ADR-0029, ADR-0068): colours parsed, a later range winning
+ * attribute by attribute, a shift or rotation of 0 clearing, then sorted runs that do not overlap,
+ * adjacent equal runs merged and runs without overrides dropped. None left is `undefined`.
  */
 export function canonicalRanges(
   ranges: RangeInput[] | undefined,
@@ -228,10 +230,13 @@ export function canonicalRanges(
   // profile.
   const chars: Overrides[] = [];
   ranges?.forEach((r, i) => {
-    const fill = r.fill === undefined ? undefined : parseColor(r.fill, `${path}[${i}].fill`);
+    const colour = (k: "fill" | "stroke") =>
+      r[k] === undefined ? undefined : parseColor(r[k], `${path}[${i}].${k}`);
+    const [fill, stroke] = [colour("fill"), colour("stroke")];
     for (let c = r.start; c < r.end; c++) {
       const o = { ...chars[c] };
       if (fill !== undefined) o.fill = fill;
+      if (stroke !== undefined) o.stroke = stroke;
       for (const k of ["baselineShift", "rotation"] as const) {
         if (r[k] === 0) delete o[k];
         else if (r[k] !== undefined) o[k] = r[k];
@@ -244,24 +249,19 @@ export function canonicalRanges(
     const o = chars[c] ?? {};
     if (Object.keys(o).length === 0) continue;
     const last = out.at(-1);
-    if (
-      last?.end === c &&
-      last.fill === o.fill &&
-      last.baselineShift === o.baselineShift &&
-      last.rotation === o.rotation
-    ) {
-      last.end++;
-    } else {
-      out.push({ start: c, end: c + 1, ...o });
-    }
+    if (last?.end === c && OVERRIDES.every((k) => last[k] === o[k])) last.end++;
+    else out.push({ start: c, end: c + 1, ...o });
   }
   return out.length ? out : undefined;
 }
 
-/** Character Ranges without their fills, canonical, as a Clipping Path keeps them (ADR-0052). */
+/**
+ * Character Ranges without their fills and strokes, canonical, as a Clipping Path keeps them
+ * (ADR-0052, ADR-0068).
+ */
 export const unfilledRanges = (ranges: CharacterRange[] | undefined) =>
   canonicalRanges(
-    ranges?.map(({ fill: _, ...r }) => r),
+    ranges?.map(({ fill: _, stroke: __, ...r }) => r),
     "ranges",
   );
 

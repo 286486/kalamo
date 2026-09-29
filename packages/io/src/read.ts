@@ -196,14 +196,18 @@ function rotate(chars: Char[]) {
   }
 }
 
-/** What a nested tspan cannot set on part of a text yet (ADR-0029). */
+/** What a nested tspan cannot set on part of a text yet (ADR-0029, ADR-0068). */
 const PER_TEXT = [
   "letter-spacing",
   "font-family",
   "font-weight",
   "font-style",
   "font-size",
-  "stroke",
+  "stroke-width",
+  "stroke-dasharray",
+  "stroke-linecap",
+  "stroke-linejoin",
+  "stroke-miterlimit",
 ];
 
 /** The id in `url(#id)`, as `clip-path` and `shape-inside` name an element. */
@@ -870,7 +874,8 @@ class Reader {
     }
     const appearance: Appearance = { fills: [], strokes: [] };
     let looks: Style | undefined;
-    let rangeFills: CharacterRange[] | undefined;
+    // The Range Fills of its Fill's copy and the Range Strokes of its Stroke's (ADR-0068).
+    const rangePaints: { fill?: CharacterRange[]; stroke?: CharacterRange[] } = {};
     for (const { fill, looks: s, copy, style: cs, matrix: cm, fromUse } of paints) {
       const look =
         kalamoAttr(copy, "stack") === "true"
@@ -883,19 +888,21 @@ class Reader {
       else appearance.strokes.push(...look.strokes);
       const t =
         copy.localName === "text" ? copy : elements(copy).find((c) => c.localName === "text");
-      if (fill && e.localName === "text" && t && !rangeFills) {
+      const list = fill ? "fill" : "stroke";
+      if (e.localName === "text" && t && !rangePaints[list]) {
         const ts = t === copy ? cs : computeStyle(t, cs, this.rules);
         const ranges = this.text(t, ts, t === copy ? cm : multiply(cm, this.own(t) ?? IDENTITY))
           ?.shape.ranges as CharacterRange[] | undefined;
-        rangeFills = ranges?.flatMap(({ start, end, fill }) =>
-          fill ? [{ start, end, fill }] : [],
+        rangePaints[list] = (ranges ?? []).flatMap(({ start, end, [list]: paint }) =>
+          paint ? [{ start, end, [list]: paint }] : [],
         );
       }
       looks ??= s;
     }
-    if (rangeFills?.length) {
+    const painted = [...(rangePaints.fill ?? []), ...(rangePaints.stroke ?? [])];
+    if (painted.length) {
       const ranges = canonicalRanges(
-        [...((shape.ranges as CharacterRange[]) ?? []), ...rangeFills],
+        [...((shape.ranges as CharacterRange[]) ?? []), ...painted],
         "ranges",
       );
       Object.assign(shape, { ranges });
@@ -1013,21 +1020,29 @@ class Reader {
     return shift ?? 0;
   }
 
-  /** A character's range fill: its solid fill where it differs from the text's own (ADR-0029). */
-  private rangeFill(s: Style, own: Style): string | undefined {
-    const [fill, ownFill] = [s.fill ?? "black", own.fill ?? "black"];
-    if (fill === ownFill && s["fill-opacity"] === own["fill-opacity"]) return undefined;
-    if (fill.trim() === "none" && ownFill.trim() === "none") return undefined;
-    const color = this.color(fill, s, s["fill-opacity"]);
-    if (!color || ownFill.trim() === "none") {
+  /**
+   * A character's range fill or stroke: its solid paint where it differs from the text's own
+   * (ADR-0029, ADR-0068).
+   */
+  private rangePaint(list: "fill" | "stroke", s: Style, own: Style): string | undefined {
+    const unset = list === "fill" ? "black" : "none";
+    const opacity = `${list}-opacity`;
+    const [paint, ownPaint] = [s[list] ?? unset, own[list] ?? unset];
+    if (paint === ownPaint && s[opacity] === own[opacity]) return undefined;
+    if (paint.trim() === "none" && ownPaint.trim() === "none") return undefined;
+    const color = this.color(paint, s, s[opacity]);
+    const unpainted =
+      ownPaint.trim() === "none" || (list === "stroke" && (length(own["stroke-width"]) ?? 1) <= 0);
+    if (!color || unpainted) {
+      const [name, List] = list === "fill" ? ["fill", "Fill"] : ["stroke", "Stroke"];
       this.warn(
         "UNSUPPORTED_ATTRIBUTE",
-        "tspan fill",
-        "A gradient or none as the fill of part of a text, or any fill on part of a text with no Fill, is not supported yet; those characters import in the text's own paint.",
+        `tspan ${name}`,
+        `A gradient or none as the ${name} of part of a text, or any ${name} on part of a text with no ${List}, is not supported yet; those characters import in the text's own paint.`,
       );
       return undefined;
     }
-    return color === this.color(ownFill, own, own["fill-opacity"]) ? undefined : color;
+    return color === this.color(ownPaint, own, own[opacity]) ? undefined : color;
   }
 
   /** The Character Ranges of a text's characters, `undefined` standing for a joining return. */
@@ -1043,12 +1058,14 @@ class Reader {
           );
         }
       }
-      const fill = this.rangeFill(c.style, own);
+      const fill = this.rangePaint("fill", c.style, own);
+      const stroke = this.rangePaint("stroke", c.style, own);
       return [
         {
           start: i,
           end: i + 1,
           ...(fill && { fill }),
+          ...(stroke && { stroke }),
           ...(c.shift && { baselineShift: n3(c.shift * k) }),
           ...(c.rotate && { rotation: n3(c.rotate % 360) }),
         },

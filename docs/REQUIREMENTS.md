@@ -332,7 +332,7 @@ Kalamo 要填的空位是：**Agent 能生成、人能精修、二者共享同�
 ### 5.9 文字
 
 - **F-TEXT-01** 三种文本对象：Point Type（T 点击）、Area Type（T 拖框或点击闭合路径内）、Type on a Path（点击路径）；纵排（P2）。（P0 点 / 区域；P1 路径文字）
-- **F-TEXT-02** 字符属性：字体族 / 样式（系统字体 + Google Fonts + 上传 TTF / OTF / WOFF2）、字号、行距、字距（kerning：metrics / optical / 手动）、字符间距（tracking）、水平 / 垂直缩放、基线偏移、旋转、大小写、上下标、下划线 / 删除线、颜色（fill / stroke 独立）。（P0 常用项；P1 全部）字体样式 `fontStyle` 为 Illustrator 样式名，内置 Source Sans 3 的 Regular、Italic、Bold、Bold Italic、Black、Black Italic（ADR-0028），以及 Noto Sans SC 与 Noto Sans KR 的 Regular、Bold，Source Sans 3 缺字形的字符逐字按 Noto Sans SC、Noto Sans KR 的顺序回退（ADR-0063、ADR-0066）。字符间距 `tracking` 在 Node 上；逐字符的颜色、基线偏移与旋转是 `ranges` 中的 Character Range（ADR-0029）。
+- **F-TEXT-02** 字符属性：字体族 / 样式（系统字体 + Google Fonts + 上传 TTF / OTF / WOFF2）、字号、行距、字距（kerning：metrics / optical / 手动）、字符间距（tracking）、水平 / 垂直缩放、基线偏移、旋转、大小写、上下标、下划线 / 删除线、颜色（fill / stroke 独立）。（P0 常用项；P1 全部）字体样式 `fontStyle` 为 Illustrator 样式名，内置 Source Sans 3 的 Regular、Italic、Bold、Bold Italic、Black、Black Italic（ADR-0028），以及 Noto Sans SC 与 Noto Sans KR 的 Regular、Bold，Source Sans 3 缺字形的字符逐字按 Noto Sans SC、Noto Sans KR 的顺序回退（ADR-0063、ADR-0066）。字符间距 `tracking` 在 Node 上；逐字符的填色、描边色、基线偏移与旋转是 `ranges` 中的 Character Range（ADR-0029、ADR-0068）。
 - **F-TEXT-03** 段落属性：左 / 中 / 右 / 两端对齐、缩进、段前后距、连字符（P2）、制表符（P2）。（P0 对齐缩进）
 - **F-TEXT-04** 区域文字：自动换行、溢出标记、串接文本框（threading，P2）、行列分栏（P2）、Auto Size。（P0 基础）矩形框、自动换行与溢出警告见 ADR-0022，中文、日文、韩文在字符间换行，句号、闭括号等不居行首，开括号不居行尾（ADR-0064）；任意闭合路径内的区域文字、点 / 区域互转暂缓。
 - **F-TEXT-05** 路径文字：沿路径起止滑块、翻转、对齐基线 / 上 / 下 / 中、效果（Rainbow / Skew / 3D Ribbon / Stair / Gravity，P2）。（P1）
@@ -989,6 +989,7 @@ kalamo/
 | 49 | 请求体上限（2026-09-29） | Worker 读取前加上限：打开与置入 32 MiB（即 DO RPC 上限，20 MB 图像的文档仍能从自己的导出重新打开），位图 5 MiB；`Content-Length` 先查，缺失或少报时边读边计数；`/api` 回 400 `LIMIT_EXCEEDED`，`/mcp` 回 413 与 JSON-RPC 错误（#125）；`.kalamo.json` 不另设格式上限 | ADR-0049、§6.5、§7.5 |
 | 50 | 严格工具参数（2026-09-29） | 工具参数由 Kalamo 自己严格解析，SDK 只校验参数是对象，并经 `.meta()` 公布真实 schema（带 `additionalProperties: false`）；未知键（嵌套的也算）让调用失败，不再被静默丢弃，`meta` 与 `node_update` patch 顶层除外；schema 失败统一为 `INVALID_INPUT`，附 `path` 与 `hint`（最接近的键名、必填、边界、允许值），记入每次调用的日志行；不新增错误码；缺 `arguments` 的请求仍是 SDK 文本 | ADR-0050、#23 |
 | 51 | 更名 Kalamo（2026-09-29） | 前一个名字在阿拉伯语、希伯来语中意为"粪、垃圾"，更名为 **Kalamo**（卡拉莫），产品域名 `kalamo.cc`，SVG 命名空间 `https://kalamo.cc/ns/svg`；旧 SVG 命名空间、旧存盘文件与旧浏览器存储键永久可读，MCP 名称不留别名；Cloudflare 资源迁移到 Kalamo 名下并逐字段核对后才删除旧部署；工作树内不留旧名的任何痕迹 | §1.1.1、ADR-0069、#172 |
+| 52 | 逐字符属性（2026-09-29） | Character Range 在 `fill`、`baselineShift`、`rotation` 之外还可覆盖 `stroke`（替换每个 Stroke 的颜色）；等于 Node 自身值的覆盖即无覆盖，存储时丢弃；Inkscape 在行内 tspan 上写的这些属性导入为 Character Range，不再警告 | ADR-0068、#67 |
 
 **剩余开放问题**
 

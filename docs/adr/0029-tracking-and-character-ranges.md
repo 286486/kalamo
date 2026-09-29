@@ -60,4 +60,4 @@ Point Type's box is still the union of its lines (ADR-0022), each at least 0 wid
 - `.kalamo.json` and stored Nodes need no migration: absent `tracking` is 0, and absent `ranges` is none.
 - Replace merges `ranges` together with `content` (see #28's three-way merge). A file that changed the content brings its own ranges.
 - The canvas draws a rotated character with a gradient Fill by turning the gradient with it, where SVG keeps the gradient still. Solid fills, which is what ranges set, look the same.
-- A follow-up issue brings tracking, font style, font size, font family and stroke colour per range. Until then Inkscape files that set those on part of a text import them with the text's own value and a warning.
+- A follow-up issue brings tracking, font style, font size, font family and stroke colour per range. Until then Inkscape files that set those on part of a text import them with the text's own value and a warning. Amended by ADR-0068, which brings them.

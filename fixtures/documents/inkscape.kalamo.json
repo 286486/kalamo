@@ -112,6 +112,11 @@
       "frame": { "height": 120, "width": 220, "x": 360, "y": 130 },
       "id": "01M38T29SK0REANARTB0ARD00Z",
       "name": "Korean"
+    },
+    {
+      "frame": { "height": 120, "width": 300, "x": 0, "y": 260 },
+      "id": "01M38T29T2RANGESARTB0ARD00",
+      "name": "Character Ranges"
     }
   ],
   "nodes": [
@@ -2740,6 +2745,45 @@
       "width": 90,
       "x": 485,
       "y": 145
+    },
+    {
+      "appearance": {
+        "fills": [{ "color": "#FFD166", "type": "solid" }],
+        "strokes": [
+          {
+            "cap": "butt",
+            "color": "#1D3557",
+            "dash": [],
+            "join": "miter",
+            "miterLimit": 10,
+            "type": "solid",
+            "width": 1
+          }
+        ]
+      },
+      "blendMode": "normal",
+      "content": "Outline",
+      "fontFamily": "Source Sans 3",
+      "fontSize": 24,
+      "fontStyle": "Regular",
+      "id": "01M38T29T2RANGES00000000A0",
+      "index": "at",
+      "kind": "point",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "ranges": [
+        { "end": 3, "start": 0, "stroke": "#E63946" },
+        { "end": 7, "start": 5, "stroke": "#2A9D8F80" }
+      ],
+      "tags": [],
+      "transform": [0.99863, -0.052336, 0.052336, 0.99863, -15.163723, 0.920794],
+      "type": "text",
+      "visible": true,
+      "x": 10,
+      "y": 290
     }
   ],
   "images": {

@@ -732,16 +732,19 @@ function text(n: TextNode, a: Attrs, extra: (string | false)[], chunked: boolean
   const { lines, overflow } = layoutText(n);
   const area = n.kind === "area";
   const role = area ? {} : { "sodipodi:role": "line" };
-  // A nested tspan for each run of characters with overrides, bare text for the rest (ADR-0029). A range fill
-  // goes only where a Fill paints, opaque where the element's fill-opacity would inherit.
-  // A container paint's copy has no fill of its own and takes none: its Fill paints every glyph.
-  const painted = a.fill !== undefined && a.fill !== "none";
+  // A nested tspan for each run of characters with overrides, bare text for the rest (ADR-0029). A
+  // range fill goes only where a Fill paints, and a range stroke where a Stroke does (ADR-0068),
+  // opaque where the element's opacity would inherit. A container paint's copy has no paint of its
+  // own and takes none: its paint covers every glyph.
   const ranges = n.ranges ?? [];
+  const paint = (list: "fill" | "stroke", color: string | undefined): Attrs => {
+    if (!color || a[list] === undefined || a[list] === "none") return {};
+    const opaque = color.length === 7 && a[`${list}-opacity`] !== undefined;
+    return { ...paintAttrs(list, color), ...(opaque && { [`${list}-opacity`]: "1" }) };
+  };
   const overrides = (r: CharacterRange): Attrs => ({
-    ...(painted && r.fill && paintAttrs("fill", r.fill)),
-    ...(painted &&
-      r.fill?.length === 7 &&
-      a["fill-opacity"] !== undefined && { "fill-opacity": "1" }),
+    ...paint("fill", r.fill),
+    ...paint("stroke", r.stroke),
     "baseline-shift": r.baselineShift ? formatNumber(r.baselineShift) : undefined,
     rotate: r.rotation ? formatNumber(r.rotation) : undefined,
   });

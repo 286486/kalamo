@@ -4,6 +4,7 @@ import { NOTO_SANS_KR } from "./noto-sans-kr.ts";
 import { NOTO_SANS_SC } from "./noto-sans-sc.ts";
 import { SOURCE_SANS_3 } from "./source-sans-3.ts";
 import {
+  canonicalRanges,
   drawnFamily,
   type FontStyle,
   fileGlyphWarnings,
@@ -489,6 +490,29 @@ it("places each character at its origin, with its range's overrides", () => {
       rotation: 90,
     }),
   ]);
+});
+
+it("stores a range stroke parsed, the later range winning, and lays out without it (ADR-0068)", () => {
+  expect(
+    canonicalRanges(
+      [
+        { start: 0, end: 3, stroke: "#FF0000", fill: "#0000FF" },
+        { start: 1, end: 2, stroke: "#00FF0080" },
+      ],
+      "ranges",
+    ),
+  ).toEqual([
+    { start: 0, end: 1, fill: "#0000FF", stroke: "#FF0000" },
+    { start: 1, end: 2, fill: "#0000FF", stroke: "#00FF0080" },
+    { start: 2, end: 3, fill: "#0000FF", stroke: "#FF0000" },
+  ]);
+  expect(() => canonicalRanges([{ start: 0, end: 1, stroke: "red" }], "ranges")).toThrow(
+    expect.objectContaining({ data: expect.objectContaining({ path: "ranges[0].stroke" }) }),
+  );
+  const hi = { x: 0, y: 0, content: "Hi", fontSize: 10 };
+  const stroked = { ...hi, ranges: [{ start: 0, end: 2, stroke: "#FF0000" }] };
+  expect(textBox(stroked)).toEqual(textBox(hi));
+  expect(glyphs(stroked).map((g) => g.stroke)).toEqual(["#FF0000", "#FF0000"]);
 });
 
 it("grows Point Type's box to hold a shifted or rotated character", () => {
