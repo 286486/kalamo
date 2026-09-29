@@ -9,7 +9,16 @@ import {
   reparentNodes,
 } from "@kalamo/core";
 import { describe, expect, it } from "vitest";
-import { autoName, type Drop, dropAt, dropCopies, dropMoves, layerMask, rows } from "./layers.ts";
+import {
+  autoName,
+  type Drop,
+  dropAt,
+  dropCopies,
+  dropMoves,
+  duplicateRows,
+  layerMask,
+  rows,
+} from "./layers.ts";
 
 /**
  * Layer 1: Group g (rects a, b), rect c, hidden rect h, locked Group lg (rect m), Layer 3 (rect e).
@@ -455,5 +464,31 @@ describe("dropCopies (ADR-0075)", () => {
     expect(refused("c", { zone: "onto", id: f.id("lg") })).toBeNull();
     expect(refused("m", { zone: "above", id: f.id("c") })).toBeNull();
     expect(refused("a", { zone: "above", id: f.id("g") }, f.id("g"))).toBeNull();
+  });
+});
+
+describe("duplicateRows (#195)", () => {
+  const plan = (f: ReturnType<typeof fixture>, selected: string[], scope: string | null = null) => {
+    const { label, input } = duplicateRows(f.doc, selected.map(f.id), scope);
+    return { label, ids: input?.nodeIds.map(f.key) ?? null };
+  };
+
+  it("names one row, counting rows inside it as that one, and appends copy to Layers", () => {
+    const f = fixture();
+    const { input } = duplicateRows(f.doc, [f.id("l3"), f.id("e")], null);
+    expect(input).toEqual({ nodeIds: [f.id("l3")], layerSuffix: " copy" });
+    expect(plan(f, ["l2"])).toEqual({ label: 'Duplicate "<Layer>"', ids: ["l2"] });
+    expect(plan(f, ["c", "d"])).toEqual({ label: "Duplicate Selection", ids: ["c", "d"] });
+  });
+
+  it("leaves out a row whose copy would land in a locked container or outside the Isolation", () => {
+    const f = fixture();
+    expect(plan(f, ["m"])).toEqual({ label: 'Duplicate "<Rectangle>"', ids: null });
+    expect(plan(f, ["m", "c"]).ids).toEqual(["c"]);
+    // The locked Group itself lands in an unlocked Layer.
+    expect(plan(f, ["lg"]).ids).toEqual(["lg"]);
+    expect(plan(f, ["a", "c"], f.id("g")).ids).toEqual(["a"]);
+    expect(plan(f, ["g"], f.id("g")).ids).toBeNull();
+    expect(plan(f, [])).toEqual({ label: "Duplicate Selection", ids: null });
   });
 });

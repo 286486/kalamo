@@ -6,6 +6,7 @@ import {
   KalamoError,
   lockedIn,
   type Node,
+  outermost,
   type ReparentInput,
   reparentNodes,
 } from "@kalamo/core";
@@ -131,6 +132,33 @@ export function layerIsolation(
     return { label, target: null };
   }
   return { label: `${label} for ${nameOf(doc, layer)}`, target: layer.id };
+}
+
+/**
+ * The Layers panel menu's Duplicate (#195): Duplicate "<name>" for one selected row, else Duplicate
+ * Selection, counting a row inside another selected row as that one. Its input copies each row
+ * directly above its own original with " copy" on every copied Layer's name, leaving out a row whose
+ * copy would land in a locked container, itself or through an ancestor (ADR-0012), or outside the
+ * isolated Node `scope`. Null when no row is left.
+ */
+export function duplicateRows(
+  doc: Document,
+  selected: string[],
+  scope: string | null,
+): { label: string; input: DuplicateInput | null } {
+  const { kept } = outermost(
+    doc,
+    selected.flatMap((id) => doc.nodes.get(id) ?? []),
+  );
+  const label =
+    kept.length === 1 ? `Duplicate "${nameOf(doc, kept[0] as Node)}"` : "Duplicate Selection";
+  const lands = kept.filter(({ parentId }) => {
+    const parent = doc.nodes.get(parentId ?? "");
+    if (lockedIn(doc, parent)) return false;
+    return scope === null || parentId === scope || (!!parent && inScope(doc, parent, scope));
+  });
+  if (lands.length === 0) return { label, input: null };
+  return { label, input: { nodeIds: lands.map((n) => n.id), layerSuffix: " copy" } };
 }
 
 /** Where a Layers panel drag lands: on a Layer or Group row, or in the gap above or below a row. */

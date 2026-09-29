@@ -38,6 +38,16 @@ Kalamo follows Illustrator (REQUIREMENTS §2). Adobe's help and Adobe staff answ
 - **Viewers.** A viewer's Selection-tool press selects but starts no move and no copy, so a viewer's drag sends nothing. The server still refuses a viewer's Commands with `PERMISSION_DENIED` (ADR-0047).
 - **Shift and Smart Guides.** The drag-move has neither a Shift constraint nor Smart Guides yet. The copy is one Command sent at release from the same drag, so when the move gains them, Alt-drag has them too.
 
+## The Layers panel's Duplicate
+
+Amended by #195. Illustrator's Layers panel menu has Duplicate "<name>" (Duplicate Selection for several rows); dragging a row onto Create New Layer and Alt-drag (#194) duplicate too. Adobe's help and community answers say the copy lands directly above its original in the same parent, " copy" is appended to the Layer's name and to every Sub-Layer's name with no setting to turn it off, the copy keeps the original's visibility and lock, and Duplicate works on every selected row, Layers and objects alike, each copy above its own original.
+
+- **Entry point.** The panel's header gains a panel-menu button (☰) with one entry: Duplicate "<name>" when one row is selected, counting rows inside it as that row, and Duplicate Selection otherwise. The menu is a native `popover` with `role="menu"`: Enter or Space on the button opens it and focuses the entry, Enter runs it, Escape closes it, and the canvas leaves the keys to it while it is open. No main-menu entry or shortcut, as in Illustrator. The drag onto Create New Layer waits for the New Layer button.
+- **Selected rows.** A Layer is never in the Selection (ADR-0012): its row selects its objects. So the panel also remembers the Layer rows clicked, and they count as selected rows while the Selection is still the one those clicks made. They are highlighted, and Shift+click adds or removes one. A click on another row, or any change to the Selection elsewhere, forgets them. Dragging a row still carries what it carried (ADR-0075).
+- **Effect.** One `duplicate` Command beside the originals, with `layerSuffix: " copy"`: core appends it to the name of every copied Layer, the top one and each nested Layer, in the same Transaction and undo step. An empty name stays empty, since the auto-name `<Layer>` is never stored. Other Nodes keep their names. `layerSuffix` is the browser's only: MCP does not publish it, so `kalamo_node_duplicate` keeps every name.
+- **What copies.** Visibility and lock are copied as they are, so a locked or hidden Layer, a Template Layer too, can be duplicated and its copy is locked or hidden. A clipped Layer and a Clip Group are copied whole and keep clipping. A row whose copy would land in a locked container, itself or through an ancestor, is skipped, because canvas locks bind people (ADR-0027); so is a row whose copy would land outside the isolated Node. With no row left, or for a viewer, the entry is disabled and nothing is sent.
+- **Selection.** The copies become the Selection, as an Alt-drag's do.
+
 ## Considered Options
 
 - **Each copy above its own original on the canvas too**, as InDesign does. Rejected: Illustrator puts the block above the topmost object, and Adobe confirmed it is intended.
@@ -52,4 +62,4 @@ Kalamo follows Illustrator (REQUIREMENTS §2). Adobe's help and Adobe staff answ
 - `reparentNodes` and `duplicateNodes` share one position rule (`slotOf`), so `index`, `before` and `after` mean one thing. `paintOrder` moved from `path-op.ts` to `document.ts` for both.
 - `DocumentService` gains `duplicateNodes`, returning a `DuplicateReceipt`. The socket `ClientMessage` union gains `duplicate`.
 - The Selection tool's `keyChange` watches Alt, and its press no longer starts a move for a viewer.
-- Layers-panel Alt-drag (#194) and Duplicate Layer (#195) build on this edit.
+- Layers-panel Alt-drag (#194) and Duplicate Layer (#195) build on this edit. `DuplicateInput` gains the browser-only `layerSuffix`, and `keysTaken` covers every open `role=menu` popover, the panel menu's too.

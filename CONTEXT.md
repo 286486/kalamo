@@ -308,7 +308,7 @@ _Avoid_: Sheet、Page、Workbook、Window
 _Avoid_: Duplicate（那是在原处复制出新 Node）、Clone
 
 **Duplicate（复制出新 Node）**：
-把 Node 连同其整棵子树复制为新 Node，对应 Illustrator 的 Alt 拖拽复制。每个复制出的 Node 都有新 id，其余不变：名称、可见与锁定、不透明度、混合模式、transform、Appearance、Live Shape 与 `compound_shape` 参数、文字、tags、meta，image 的 `src`（按哈希共享像素）与 `file`。不走剪贴板，这点与 Copy 不同。Agent 用 `node_duplicate`：缺省每个副本紧贴在原件之上，给 `targetParentId` 则全部作为一块按原件的绘制次序放进该父级顶部；`count` 份副本的第 *k* 份平移 *k* × `offset`。浏览器里 Selection 工具松开鼠标时按着 Alt 即复制而非移动，副本作为一块放在最上面那个被拖 Node 之上、同一父级内，并成为 Selection；Layers 面板里按着 Alt 松开拖拽也是复制，副本作为一块落在普通拖拽会放原件的位置（容器行的顶部，或两行之间），同样成为 Selection（ADR-0075）。单独复制出的 Clipping Path 失去 `clipping`；整个复制的 Clip Group 或被剪切的 Layer 仍然裁切（ADR-0076）。
+把 Node 连同其整棵子树复制为新 Node，对应 Illustrator 的 Alt 拖拽复制。每个复制出的 Node 都有新 id，其余不变：名称、可见与锁定、不透明度、混合模式、transform、Appearance、Live Shape 与 `compound_shape` 参数、文字、tags、meta，image 的 `src`（按哈希共享像素）与 `file`。不走剪贴板，这点与 Copy 不同。Agent 用 `node_duplicate`：缺省每个副本紧贴在原件之上，给 `targetParentId` 则全部作为一块按原件的绘制次序放进该父级顶部；`count` 份副本的第 *k* 份平移 *k* × `offset`。浏览器里 Selection 工具松开鼠标时按着 Alt 即复制而非移动，副本作为一块放在最上面那个被拖 Node 之上、同一父级内，并成为 Selection；Layers 面板里按着 Alt 松开拖拽也是复制，副本作为一块落在普通拖拽会放原件的位置（容器行的顶部，或两行之间），同样成为 Selection（ADR-0075）。Layers 面板菜单的 Duplicate 把选中的每一行（Layer、子 Layer、Group 或对象）复制到其原件正上方、同一父级内，复制出的每个 Layer 名称追加 " copy"，其余 Node 名称不变；落点在锁定容器内或 Isolation Mode 之外的行被跳过。单独复制出的 Clipping Path 失去 `clipping`；整个复制的 Clip Group 或被剪切的 Layer 仍然裁切（ADR-0076）。
 _Avoid_: Clone、Copy（那是剪贴板）、Paste in Front
 
 **Place（置入）**：

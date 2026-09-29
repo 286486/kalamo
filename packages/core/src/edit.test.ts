@@ -1795,6 +1795,17 @@ describe("duplicateNodes (ADR-0076)", () => {
     expect(childrenOf(doc, null).map((c) => c.id)).toEqual([id("L"), id("M"), n.id, layer.id]);
   });
 
+  it("with layerSuffix names every copied Layer's copy, and only Layers", () => {
+    const { doc, id, duplicate } = scene();
+    const [sub] = createNodes(doc, [{ type: "layer", name: "S", parentId: id("M") }]).nodes as [
+      Node,
+    ];
+    createNodes(doc, [{ type: "layer", name: "", parentId: sub.id }]);
+    const { created } = duplicate(["M", "a"], { layerSuffix: " copy" });
+    expect(created.map((n) => n.name)).toEqual(["M copy", "G", "x", "y", "S copy", "", "a"]);
+    expect(doc.nodes.get(id("M"))?.name).toBe("M");
+  });
+
   it("keeps an Image's src and file, and a Live Shape's parameters", () => {
     const { doc, id } = scene();
     const src = "a".repeat(64);

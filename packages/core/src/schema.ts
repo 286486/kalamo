@@ -770,6 +770,7 @@ export const ARRANGE: Record<ReorderOp, string> = {
 /**
  * `node_duplicate` and Alt-drag copy (ADR-0076). `index`, `before` and `after` place the copies in
  * `targetParentId` as they place a `node_reparent` move; only the browser's Alt-drag sends them.
+ * `layerSuffix` is the Layers panel's Duplicate's (#195); MCP publishes none of the four.
  */
 export const DuplicateInput = z.strictObject({
   nodeIds: z.array(z.string()).min(1).max(1000),
@@ -793,6 +794,12 @@ export const DuplicateInput = z.strictObject({
   index: ReparentInput.shape.index,
   before: ReparentInput.shape.before,
   after: ReparentInput.shape.after,
+  layerSuffix: z
+    .literal(" copy")
+    .optional()
+    .describe(
+      "Appended to every copied Layer's non-empty name, as Illustrator's Layers panel Duplicate does.",
+    ),
 });
 export type DuplicateInput = z.input<typeof DuplicateInput>;
 

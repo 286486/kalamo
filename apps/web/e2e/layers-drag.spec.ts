@@ -460,7 +460,8 @@ test("Alt-click on a Layer's row still selects its contents and copies nothing",
 }) => {
   const s = await setup(page, request);
   await page.getByRole("button", { name: "A", exact: true }).click({ modifiers: ["Alt"] });
-  await expect.poll(s.selected).toEqual([4, 5]);
+  // A's own row is highlighted too, as a selected row for Duplicate (ADR-0076).
+  await expect.poll(s.selected).toEqual([2, 4, 5]);
   expect(s.duplicates()).toBe(0);
 });
 

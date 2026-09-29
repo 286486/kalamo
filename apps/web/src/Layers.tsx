@@ -5,6 +5,7 @@ import {
   dropAt,
   dropCopies,
   dropMoves,
+  duplicateRows,
   layerIsolation,
   layerMask,
   nameOf,
@@ -45,7 +46,17 @@ export const Layers = memo(function Layers() {
   // The Nodes a drag in the panel carries, and where it would drop them (ADR-0075).
   const [dragged, setDragged] = useState<string[] | null>(null);
   const [drop, setDrop] = useState<(Drop & { row: string; depth: number }) | null>(null);
+  // The Layer rows clicked, selected as rows while the Selection is still the one they made (#195).
+  const [clicked, setClicked] = useState<{ layers: string[]; made: string[] }>(() => ({
+    layers: [],
+    made: [],
+  }));
   if (!doc) return null;
+  const same = new Set(clicked.made);
+  const layerRows =
+    clicked.made.length === selection.length && selection.every((id) => same.has(id))
+      ? clicked.layers
+      : [];
 
   const toggle = (id: string) => {
     const next = new Set(toggled);
@@ -59,6 +70,18 @@ export const Layers = memo(function Layers() {
   const mask = layerMask(doc, selection, isolated);
   const isolation = layerIsolation(doc, selection, isolated);
   const listed = rows(doc, toggled, isolated);
+  const duplicate = duplicateRows(doc, [...layerRows, ...selection], isolated);
+  const runDuplicate = (e: React.MouseEvent<HTMLButtonElement>) => {
+    const { input } = duplicate;
+    if (!editor || !input) return;
+    (e.currentTarget.closest("[popover]") as HTMLElement).hidePopover();
+    // One duplicate Command beside the originals (ADR-0076), whose copies become the Selection.
+    const commandId = send({ type: "duplicate", input });
+    useStore.setState((s) => ({
+      notice: null,
+      pending: [...s.pending, { commandId, nodes: [], select: true }],
+    }));
+  };
 
   return (
     <div
@@ -75,6 +98,55 @@ export const Layers = memo(function Layers() {
         font: "12px system-ui, sans-serif",
       }}
     >
+      {/* Illustrator's panel menu, keyboard-operable as the menu bar's menus are (#195). */}
+      <div style={{ display: "flex", justifyContent: "flex-end", borderBottom: "1px solid #CCC" }}>
+        <button
+          type="button"
+          aria-label="Layers panel menu"
+          aria-haspopup="menu"
+          popoverTarget="layers-menu"
+          style={{ ...icon, width: 24 }}
+        >
+          ☰
+        </button>
+        <div
+          id="layers-menu"
+          role="menu"
+          aria-label="Layers panel menu"
+          popover="auto"
+          style={{
+            position: "fixed",
+            inset: "auto",
+            top: 24,
+            right: 4,
+            margin: 0,
+            padding: "4px 0",
+            background: "#F5F5F5",
+            border: "1px solid #BBB",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
+          }}
+          onToggle={(e) => {
+            if (e.newState === "open") e.currentTarget.querySelector("button")?.focus();
+          }}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            aria-disabled={!editor || !duplicate.input}
+            onClick={runDuplicate}
+            style={{
+              ...icon,
+              width: "100%",
+              padding: "3px 20px",
+              textAlign: "left",
+              whiteSpace: "nowrap",
+              color: editor && duplicate.input ? undefined : "#999",
+            }}
+          >
+            {duplicate.label}
+          </button>
+        </div>
+      </div>
       <ul
         aria-label="Layers"
         style={{ flex: 1, overflow: "auto", margin: 0, padding: 0, listStyle: "none" }}
@@ -82,6 +154,7 @@ export const Layers = memo(function Layers() {
         {listed.map(({ node, depth, expandable, expanded, dimmed, underlined }, i) => {
           const label = nameOf(doc, node);
           const selected = selection.includes(node.id);
+          const highlighted = selected || layerRows.includes(node.id);
           const pick = (e: React.MouseEvent) => {
             const { doc, selection } = useStore.getState();
             if (!doc) return;
@@ -93,10 +166,14 @@ export const Layers = memo(function Layers() {
                 : dimmed
                   ? []
                   : objects(doc, node.id).map((n) => n.id);
-            useStore.setState({
-              notice: null,
-              selection: combine(selection, ids, { shift: e.shiftKey, alt: e.altKey }),
-            });
+            const next = combine(selection, ids, { shift: e.shiftKey, alt: e.altKey });
+            useStore.setState({ notice: null, selection: next });
+            // A Layer's row is also selected itself, for Duplicate; Shift adds or removes it.
+            const layers = e.shiftKey ? layerRows.filter((id) => id !== node.id) : [];
+            if (node.type === "layer" && !(e.shiftKey && layerRows.includes(node.id))) {
+              layers.push(node.id);
+            }
+            setClicked({ layers: e.shiftKey || node.type === "layer" ? layers : [], made: next });
           };
           // The pointer's height in the row picks the zone, its indent the depth of a gap (ADR-0075).
           const pointer = (e: React.DragEvent) => {
@@ -172,7 +249,7 @@ export const Layers = memo(function Layers() {
                 alignItems: "center",
                 height: 22,
                 paddingLeft: 4 + depth * INDENT,
-                backgroundColor: selected ? SELECTED : undefined,
+                backgroundColor: highlighted ? SELECTED : undefined,
                 opacity: dimmed ? 0.5 : 1,
                 borderBottom: "1px solid #E4E4E4",
                 // Illustrator's indicators: the container outlined, or a line in the gap from the
@@ -218,7 +295,7 @@ export const Layers = memo(function Layers() {
               )}
               <button
                 type="button"
-                aria-pressed={selected}
+                aria-pressed={highlighted}
                 onClick={pick}
                 style={{
                   ...icon,

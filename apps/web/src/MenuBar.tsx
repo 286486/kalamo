@@ -13,7 +13,7 @@ const CSS = `
 
 /** True while a menu or a dialog is open, when the canvas and the shortcuts leave the keys to it. */
 export const keysTaken = () =>
-  document.querySelector("[role=menubar] [popover]:popover-open, dialog[open]") !== null;
+  document.querySelector("[role=menu]:popover-open, dialog[open]") !== null;
 
 const itemsOf = (menu: Element) => [...menu.querySelectorAll<HTMLElement>(ITEMS)];
 /** The role=menu or role=menubar an item sits in. */

@@ -844,6 +844,12 @@ describe("arguments are parsed strictly: a bad one is INVALID_INPUT and nothing 
     ],
     [
       "kalamo_node_duplicate",
+      { docId: "d", nodeIds: ["a"], layerSuffix: " copy" },
+      "layerSuffix",
+      expect.any(String),
+    ],
+    [
+      "kalamo_node_duplicate",
       { docId: "d", nodeIds: ["a"], partial: true },
       "partial",
       expect.any(String),
