@@ -234,6 +234,30 @@ test("two object rows in different Groups each copy above their own original, na
   ).toHaveAttribute("aria-pressed", "false");
 });
 
+test("Shift+click on an object row keeps the Layer rows, and Alt+Shift+click removes one", async ({
+  page,
+  request,
+}) => {
+  const s = await setup(page, request);
+  await page.getByRole("button", { name: "Expand H" }).click();
+  // B, H, Green, A, S, T, P, G.
+  await s.pick("A");
+  await s.pick("Green", ["Shift"]);
+  await expect.poll(s.selected).toEqual([2, 3, 6, 7]);
+  await s.duplicate();
+  await expect.poll(() => s.children(null)).toEqual(["A", "A copy", "B"]);
+  expect(await s.children("H")).toEqual(["Green", "Green"]);
+
+  await s.pick("A");
+  await s.pick("B", ["Shift"]);
+  await page
+    .getByRole("listitem", { name: "A", exact: true })
+    .getByRole("button", { name: "A", exact: true })
+    .click({ modifiers: ["Alt", "Shift"] });
+  await s.menu.click();
+  await expect(s.item).toHaveText('Duplicate "B"');
+});
+
 test("a clipped Layer's copy still clips, and a locked, hidden Layer's copy is locked and hidden", async ({
   page,
   request,

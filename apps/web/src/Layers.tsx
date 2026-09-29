@@ -169,19 +169,18 @@ export const Layers = memo(function Layers() {
                   ? []
                   : objects(doc, node.id).map((n) => n.id);
             const next = combine(selection, ids, { shift: e.shiftKey, alt: e.altKey });
-            // A Layer's row is also selected itself, for Duplicate (ADR-0076): a click selects it
-            // alone, and Shift+click on it adds or removes it, keeping the others.
-            const rows = useStore.getState().layerRows;
+            // A Layer's row is also selected itself, for Duplicate (ADR-0076), as combine treats
+            // the Selection: a click selects it alone, Shift+click toggles it and Alt+Shift+click
+            // removes it, keeping the others. The array is always new, so the store sees the rows
+            // set with this Selection and keeps them.
+            const current = useStore.getState().layerRows;
+            const others = current.filter((id) => id !== node.id);
             const layer = node.type === "layer";
-            const layers = !e.shiftKey
-              ? layer
-                ? [node.id]
-                : []
-              : !layer
-                ? rows
-                : rows.includes(node.id)
-                  ? rows.filter((id) => id !== node.id)
-                  : [...rows, node.id];
+            let layers: string[];
+            if (!e.shiftKey) layers = layer ? [node.id] : [];
+            else if (!layer) layers = [...current];
+            else if (e.altKey || others.length < current.length) layers = others;
+            else layers = [...others, node.id];
             useStore.setState({ notice: null, selection: next, layerRows: layers });
           };
           // The pointer's height in the row picks the zone, its indent the depth of a gap (ADR-0075).

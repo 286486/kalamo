@@ -17,7 +17,7 @@ import { applyBroadcast, type ServerMessage } from "@kalamo/sync";
 import type { CurveAnchor } from "./curvature.ts";
 import { inRange, parseKey, segmentInRange } from "./direct.ts";
 import { prune } from "./isolation.ts";
-import { objects } from "./selection.ts";
+import { editable, objects } from "./selection.ts";
 
 /**
  * The Selection being dragged by (dx, dy) pt. `commandId` is set once its move has been sent. With
@@ -206,11 +206,15 @@ export function receive(
   // Drawn art leaves its leaf, unless an Esc, a prune or earlier art moved the Isolation meanwhile.
   const leave = drawn?.leave ?? copied?.leave;
   // Drawn art becomes the Selection, as in Illustrator. A copied Layer is selected as its row is
-  // clicked: its objects, and its row (ADR-0076).
+  // clicked: its row, and its objects unless it is hidden or locked, itself or through an ancestor
+  // (ADR-0076).
   const tops = drawn ? (drawn.select ? drawnTop : []) : copied ? drawnTop : null;
   const layers = tops?.filter((id) => doc.nodes.get(id)?.type === "layer") ?? [];
   const next = tops
-    ? tops.flatMap((id) => (layers.includes(id) ? objects(doc, id).map((n) => n.id) : [id]))
+    ? tops.flatMap((id) => {
+        if (!layers.includes(id)) return [id];
+        return editable(doc, doc.nodes.get(id)) ? objects(doc, id).map((n) => n.id) : [];
+      })
     : [...new Set(selection)];
   return {
     doc,

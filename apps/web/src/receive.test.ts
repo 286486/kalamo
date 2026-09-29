@@ -552,3 +552,30 @@ it("keeps an unchanged Selection the same array, so the Layer rows stay; a chang
   const gone = receive(state, tx(doc, { deletedIds: [a.id] }), "d");
   expect(gone?.selection).toEqual([]);
 });
+
+it("selects none of a copied Layer's objects when an ancestor hides or locks it, as its row", () => {
+  const { doc, a } = fixture();
+  const [made] = createNodes(doc, [{ type: "layer" }]).nodes as [Node];
+  const hidden = { ...made, visible: false } as Node;
+  doc.nodes.set(hidden.id, hidden);
+  const state = {
+    doc,
+    selection: [a.id],
+    drag: null,
+    pen: null,
+    pending: [{ commandId: "c1", nodes: [], select: true }],
+    opPreview: null,
+    notice: null,
+    edit: null,
+    anchors: [],
+    segments: [],
+    layerRows: [],
+    isolated: null,
+  };
+  // A nested Layer's copy in the hidden Layer, as Duplicate or an Alt-drag onto it makes.
+  const layer = { ...a, id: "L", type: "layer", parentId: hidden.id } as unknown as Node;
+  const art = { ...a, id: "x", parentId: "L" } as Node;
+  expect(
+    receive(state, tx(doc, { actor: "user", created: [layer, art], commandId: "c1" }), "d"),
+  ).toMatchObject({ selection: [], layerRows: ["L"] });
+});
