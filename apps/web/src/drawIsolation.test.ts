@@ -7,6 +7,7 @@ import { DEFAULT_PENCIL, pencilDown, pencilMove, pencilUp, savePencilOptions } f
 import { receive } from "./receive.ts";
 import {
   ellipseTool,
+  lineTool,
   polygonTool,
   rectangleTool,
   roundedRectangleTool,
@@ -156,6 +157,7 @@ const tools: [string, () => void][] = [
   ["Ellipse", drawShape(ellipseTool)],
   ["Polygon", drawShape(polygonTool)],
   ["Star", drawShape(starTool)],
+  ["Line Segment", drawShape(lineTool)],
 ];
 
 beforeEach(() => {

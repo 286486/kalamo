@@ -204,3 +204,40 @@ test("the Star tool drags a Live Star from its centre, and Up and Down set its p
     innerRadius: 5,
   });
 });
+
+// #146: the Line Segment tool draws a Live Line in the current Stroke and no Fill.
+test("the Line Segment tool drags a Live Line with Shift and Alt, stroked and unfilled", async ({
+  page,
+  request,
+}) => {
+  const { nodes, drag } = await openShapes(page, request, "Lines");
+  type Line = { x1: number; y1: number; x2: number; y2: number; appearance: object };
+  const lines = () => nodes<Line>("line");
+
+  // \ picks it; the default Fill box is set, and the line still has no Fill.
+  await page.keyboard.press("\\");
+  await expect(
+    page.getByRole("button", { name: "Line Segment Tool (\\)", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await drag([20, 80], [80, 20]);
+  await expect
+    .poll(lines)
+    .toMatchObject([
+      { x1: 20, y1: 80, x2: 80, y2: 20, appearance: { fills: [], strokes: [{ width: 1 }] } },
+    ]);
+
+  // Shift turns it to 0°; Alt centres it on the press.
+  await drag([100, 50], [150, 54], "+Shift");
+  await page.keyboard.up("Shift");
+  await drag([60, 50], "+Alt", [80, 60]);
+  await page.keyboard.up("Alt");
+  await expect.poll(async () => (await lines()).length).toBe(3);
+  const all = await lines();
+  expect(all.find((l) => l.x1 === 100)).toMatchObject({ y1: 50, x2: 150, y2: 50 });
+  expect(all.find((l) => l.x2 === 80 && l.y2 === 60)).toMatchObject({ x1: 40, y1: 40 });
+
+  // A drag back to its press draws nothing.
+  await drag([100, 80], [120, 80], [100, 80]);
+  await page.waitForTimeout(300);
+  expect(await lines()).toHaveLength(3);
+});

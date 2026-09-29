@@ -67,7 +67,11 @@ export type NewArt =
   | { type: "path"; d: string }
   | ShapeBox
   | Pick<Extract<Shape, { type: "polygon" }>, "type" | "cx" | "cy" | "radius" | "sides" | "angle">
-  | StarArt;
+  | StarArt
+  | LineArt;
+
+/** A line from (x1, y1) to (x2, y2). */
+export type LineArt = Extract<Shape, { type: "line" }>;
 
 /** A star as the Star tool draws it: not twisted, rounded or randomized. */
 export type StarArt = Pick<

@@ -22,6 +22,7 @@ it("names a key press in Illustrator's Windows notation, Cmd as Ctrl", () => {
   expect(keysOf(press("+", { ctrlKey: true, shiftKey: true }, "Equal"))).toBe("Ctrl+=");
   expect(keysOf(press("Backspace"))).toBe("Delete");
   expect(keysOf(press("F7"))).toBe("F7");
+  expect(keysOf(press("\\", {}, "Backslash"))).toBe("\\");
 });
 
 it("shows a shortcut as the platform's menus do", () => {
