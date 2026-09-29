@@ -36,7 +36,7 @@ Read this once before your first write. Tool descriptions cover each call; this 
 - Every Node you create needs `parentId`, the id of a Layer or Group, never an Artboard. A Layer's parent is the root (omit `parentId`) or another Layer. `kalamo_doc_create` returns `defaultLayerId` for your first Nodes.
 - Build Layers first, one per part of the picture (background, content, labels), then Groups inside them, then shapes. A `group` can carry its `children` inline in the same `kalamo_node_create` call.
 - Ids come from the server. Give each item a `clientKey` and read its new id from the receipt's `keyMap`.
-- To move Nodes to another Layer or Group, or restack them in their own, use `kalamo_node_reparent` with `moves: [{nodeId, parentId, index | before | after}]`. Geometry does not change, and a Clipping Path moved to another parent stops clipping.
+- To move Nodes to another Layer or Group, or to an exact place in their own, use `kalamo_node_reparent` with `moves: [{nodeId, parentId, index | before | after}]`. Geometry does not change, and a Clipping Path moved to another parent stops clipping.
 - To bring Nodes to the front or send them back in their own parent, use `kalamo_node_reorder` with `op`: `front`, `forward`, `backward` or `back`, as Object > Arrange does. `forward` and `backward` step past one sibling, and several Nodes keep their order among themselves.
 - Give Layers and Groups a `name`. `tags` and `meta` are yours: use them to find Nodes again with `kalamo_node_query`.
 - Children are painted bottom to top in the order you create them.

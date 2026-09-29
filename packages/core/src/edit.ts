@@ -505,7 +505,7 @@ export function reorderNodes(
   const parents = new Set(ok.map((n) => n.parentId));
   const moves = [...parents].flatMap((p) => restack(childrenOf(doc, p), selected, op));
   reparentNodes(doc, moves);
-  const nodes = [...new Set(ok)].flatMap((n) => {
+  const nodes = [...new Map(ok.map((n) => [n.id, n])).values()].flatMap((n) => {
     const now = doc.nodes.get(n.id) as Node;
     return now.index === n.index ? [] : [now];
   });

@@ -20,7 +20,7 @@ Illustrator's Help ("Stacking objects") says Bring to Front and Send to Back mov
 - **Keys.** The moves are same-parent `node_reparent` moves (`before`, `after` or `index`), applied in order. So a moved Node gets a fractional-index key between its new neighbours, a Node already in its slot keeps its key, and no other Node's key changes (ADR-0071).
 - **Already at the edge is a no-op, not an error.** A Node already where `op` puts it is left out of `updatedIds`. If none moves, the receipt lists none. The call still commits, as `node_update` of an unchanged value and `node_reparent` to the same place do: `rev` +1 and an undo step that changes nothing. The browser sends no Command when nothing would move, so Ctrl+Z after an Arrange shortcut always undoes something visible.
 - **Any Node.** MCP accepts any Node, Layers included: a top-level Layer is restacked among the top-level Layers, a Sublayer among its parent's children. The browser acts on the Selection that is not hidden or locked, as the other Object commands do.
-- **Clipping Paths** keep `clipping` when restacked, since their position in the Clipping Mask does not matter (ADR-0021). The Clip Group draws the same.
+- **Clipping Paths** keep `clipping` when restacked, since their position in the Clipping Mask does not matter (ADR-0021). The Clipping Mask draws the same.
 - **One write.** One Transaction, one WriteReceipt, one undo step (ADR-0011). An unknown id is `NODE_NOT_FOUND` with `path` `nodeIds[i]`. With `partial`, it is skipped and listed in `failed`. The input schema is strict (ADR-0050). Locks do not refuse an MCP write (ADR-0027).
 
 ## Considered Options

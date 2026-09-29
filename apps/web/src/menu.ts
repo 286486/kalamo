@@ -594,7 +594,8 @@ export function keysOf(
   if (plus) key = "=";
   else if (key === "Backspace") key = "Delete";
   // Shift+] types }, and Illustrator names the bracket key.
-  else if (key === "{" || key === "}") key = key === "{" ? "[" : "]";
+  else if (key === "{") key = "[";
+  else if (key === "}") key = "]";
   if (key.length === 1) key = key.toUpperCase();
   return [
     e.altKey && "Alt",

@@ -1558,6 +1558,38 @@ describe("reorderNodes (ADR-0074)", () => {
     expect(kids(null)).toEqual(["M", "L"]);
   });
 
+  it("restacks a Sublayer among its parent Layer's children", () => {
+    const { doc, id, reorder } = scene();
+    const [sub] = createNodes(doc, [{ type: "layer", parentId: id("M"), name: "S" }]).nodes as [
+      Node,
+    ];
+    const kidsOfM = () => childrenOf(doc, id("M")).map((n) => n.id);
+    expect(kidsOfM()).toEqual([id("G"), sub.id]);
+    reorderNodes(doc, [sub.id], "back");
+    expect(kidsOfM()).toEqual([sub.id, id("G")]);
+    expect(doc.nodes.get(sub.id)?.parentId).toBe(id("M"));
+    reorder(["G"], "backward");
+    expect(kidsOfM()).toEqual([id("G"), sub.id]);
+  });
+
+  it("moves a Node and its ancestor each among its own siblings", () => {
+    const { id, kids, reorder } = scene();
+    const { nodes } = reorder(["M", "x"], "back");
+    expect(kids(null)).toEqual(["M", "L"]);
+    expect(kids("G")).toEqual(["x", "y", "z"]);
+    expect(nodes.map((n) => n.id)).toEqual([id("M")]);
+    reorder(["M", "y"], "front");
+    expect(kids(null)).toEqual(["L", "M"]);
+    expect(kids("G")).toEqual(["x", "z", "y"]);
+  });
+
+  it("moves a Node named twice once, and returns it once", () => {
+    const { id, kids, reorder } = scene();
+    const { nodes } = reorder(["b", "b"], "forward");
+    expect(kids("L")).toEqual(["a", "c", "b", "d", "e"]);
+    expect(nodes.map((n) => n.id)).toEqual([id("b")]);
+  });
+
   it("keeps clipping on a restacked Clipping Path (ADR-0021)", () => {
     const { doc, id, kids } = scene();
     makeMask(doc, { clipNodeId: id("a"), contentIds: [id("b"), id("c")] });

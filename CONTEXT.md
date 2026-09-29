@@ -32,6 +32,10 @@ _Avoid_: Container、Frame
 人类用户在 UI 中当前选中的 Node 集合。它是 UI 便利，不是文档状态；Agent 操作以显式 Node ID 为准。
 _Avoid_: 把 Selection 作为工具调用的隐式参数
 
+**Arrange（排列）**：
+在 Node 的父级内改变其堆叠次序，父级不变，对应 Illustrator 的 Object > Arrange：Bring to Front、Bring Forward、Send Backward、Send to Back。Forward / Backward 越过一个兄弟，不看是否重叠；多个 Node 保持相对次序。浏览器作用于 Selection，Agent 用 `node_reorder`；移到别的父级或确切位置用 `node_reparent`（ADR-0071、ADR-0074）。
+_Avoid_: z-order、raise / lower、reorder 作为 UI 名称
+
 **Isolation Mode（隔离模式）**：
 只编辑一个 Group（含 Clip Group）、子 Layer 或单个 Live Shape / Path 的状态，对应 Illustrator 的 Isolation Mode：双击 Group 或路径进入，子 Layer 从 Layers 面板底部的 Enter Isolation Mode 进入，顶层 Layer 不能隔离。画布的点选、框选、Select All 与新绘图稿都限于被隔离的 Node 内，其余图稿淡化且不可选，Layers 面板只列出它；Esc 或面包屑逐级退出，其上的每个 Group 与子 Layer 各是一级。它与 Selection 一样是每个 Document Tab 的浏览器状态，不写入 Document，MCP 不感知（ADR-0057、ADR-0058）。
 _Avoid_: Focus mode、Edit mode、Enter group

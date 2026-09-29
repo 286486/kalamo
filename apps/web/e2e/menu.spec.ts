@@ -322,6 +322,8 @@ test("Object > Arrange restacks the Selection by Illustrator's shortcuts, and Ct
   await expect.poll(top).toBe("GGG");
   await page.keyboard.press("Shift+Control+BracketRight");
   await expect.poll(top).toBe("GBB");
+  // Already in front: nothing is sent, so Ctrl+Z undoes the Bring to Front before it.
+  await page.keyboard.press("Shift+Control+BracketRight");
   await page.keyboard.press("Control+Z");
   await expect.poll(top).toBe("GGG");
   await page.keyboard.press("Control+Z");
