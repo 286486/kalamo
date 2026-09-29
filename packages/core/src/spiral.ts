@@ -6,7 +6,7 @@ type Spiral = Extract<Shape, { type: "spiral" }>;
 
 /** Samples per fitted piece, and a piece's step as a share of one turn (ADR-0060). */
 const SAMPLES = 8;
-const STEP = 1 / 4;
+const QUARTER_TURN = 1 / 4;
 /** Inkscape's fit accepts a cubic within this many units of every sample. */
 const TOLERANCE = 3;
 
@@ -70,7 +70,7 @@ export function spiralSegments(shape: Spiral): Segment[] {
     else out.push(...pts.slice(1, SAMPLES).map((p): Segment => ({ cmd: "L", args: [...p] })));
     return [next, [tx, ty]];
   };
-  const tstep = STEP / revolution;
+  const tstep = QUARTER_TURN / revolution;
   let t = t0;
   let hat = tangent(t0);
   while (t < 1 - tstep) [t, hat] = piece(t, tstep / (SAMPLES - 1), hat);
@@ -90,10 +90,10 @@ const at = (q: Point[], u: number): Point => [bezier(q, u, 0), bezier(q, u, 1)];
  * Schneider's fit ("An Algorithm for Automatically Fitting Digitized Curves", Graphics Gems 1990)
  * of cubics from the first point to the last, leaving along `hat1` and arriving against `hat2`:
  * chord-length parameters, then Newton steps and refits while the worst point is within 3
- * tolerances, then a split at the worst point, `depth` more times at most (5 cubics). Null when
+ * tolerances, then a split at the worst point, `depth` more times at most (4 cubics). Null when
  * that fails; empty when the points have no length.
  */
-function fit(pts: Point[], hat1: Point, hat2: Point, depth = 4): Point[][] | null {
+function fit(pts: Point[], hat1: Point, hat2: Point, depth = 3): Point[][] | null {
   const n = pts.length;
   const [p0, p3] = [pts[0] as Point, pts[n - 1] as Point];
   if (n === 2) {

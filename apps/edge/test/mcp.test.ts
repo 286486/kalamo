@@ -855,6 +855,20 @@ it("creates a spiral, gets its parameters and derived d, and renders it (ADR-006
   expect(full.d).not.toContain("Z");
   const rendered = await call("zibel_render", { docId: doc.docId, scope: { nodeIds: [id] } });
   expect(rendered.content[0]).toMatchObject({ type: "image", mimeType: "image/png" });
+  const update = (patch: object) =>
+    call("zibel_node_update", { docId: doc.docId, updates: [{ nodeId: id, patch }] });
+  expect(errorOf(await update({ t0: 1 }))).toMatchObject({
+    code: "INVALID_INPUT",
+    hint: expect.stringContaining("at most 0.999"),
+  });
+  expect(errorOf(await update({ turns: 4 }))).toMatchObject({ code: "INVALID_PATCH" });
+  expect((await update({ revolution: 4, expansion: 0.5 })).isError).toBeFalsy();
+  const [updated] = (
+    await call("zibel_node_get", { docId: doc.docId, nodeIds: [id], detail: "full" })
+  ).structuredContent.nodes;
+  expect(updated).toMatchObject({ ...spiral, revolution: 4, expansion: 0.5 });
+  expect(updated.d).toBe(formatPath(shapeSegments(updated as ShapeNode)));
+  expect(updated.d).not.toBe(full.d);
 });
 
 it("creates a slice, a chord and an open arc of an ellipse, and renders a quarter pie over its own bounds", async () => {

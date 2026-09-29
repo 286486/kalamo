@@ -49,13 +49,13 @@ import { generateKeyBetween } from "fractional-indexing";
 import {
   alpha,
   arcOf,
-  degrees,
   idOf,
   MITER_LIMIT,
   NS,
   numbers,
   SVG_STROKE,
   scopeOf,
+  spiralOf,
   starOf,
   withAlpha,
   xmlId,
@@ -1518,7 +1518,7 @@ class Reader {
       );
       return undefined;
     }
-    return p;
+    return spiralOf(p);
   }
 
   /**
@@ -1666,16 +1666,9 @@ class Reader {
       case "path": {
         const spiral = star ? undefined : this.spiral(e);
         if (spiral) {
-          const { cx, cy, radius, argument, ...rest } = spiral;
-          return {
-            type: "spiral",
-            cx: x(cx),
-            cy: y(cy),
-            radius: size(radius),
-            ...rest,
-            argument: degrees(argument),
-            transform,
-          };
+          // revolution, expansion and t0 stay as written: 3 decimals of t0 would move the inner end.
+          const { cx, cy, radius } = spiral;
+          return { ...spiral, cx: x(cx), cy: y(cy), radius: size(radius), transform };
         }
         const arc = star ? undefined : this.arc(e);
         if (arc) {
