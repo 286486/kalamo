@@ -1,14 +1,26 @@
 import { expect, type Page, test } from "@playwright/test";
 import { call } from "./mcp.ts";
 
-/** Noto Sans SC's files, which only a Document that draws in it may request (ADR-0063). */
-const noto = (page: Page) => {
+/** A Noto family's files, which only a Document that draws in it may request (ADR-0063, ADR-0066). */
+const noto = (page: Page, file = "NotoSansSC") => {
   const urls: string[] = [];
   page.on("request", (r) => {
-    if (r.url().includes("NotoSansSC")) urls.push(r.url());
+    if (r.url().includes(file)) urls.push(r.url());
   });
   return urls;
 };
+
+/** The weight, style and status of each face `family` registered, sorted. */
+const faces = (page: Page, family: string) =>
+  page.evaluate(
+    (family) =>
+      [...document.fonts]
+        .filter((f) => f.family.replace(/"/g, "") === family)
+        .map((f) => `${f.weight} ${f.style} ${f.status}`)
+        .sort(),
+    family,
+  );
+const LOADED = ["400", "700"].flatMap((w) => [`${w} italic loaded`, `${w} normal loaded`]);
 
 /** The first and last columns holding ink in row band `top` to `bottom`, in pt from the left, at `k` px per pt. */
 function inkColumns(
@@ -84,22 +96,15 @@ test("a CJK text loads Noto Sans SC and draws its glyphs inside the bounds rende
   page,
   request,
 }) => {
-  const requested = noto(page);
+  const [requested, korean] = [noto(page), noto(page, "NotoSansKR")];
   const { docId, id } = await textDoc(page, request, {
     content: "小动物",
     fontStyle: "Bold Italic",
   });
-  await expect
-    .poll(() =>
-      page.evaluate(() =>
-        [...document.fonts]
-          .filter((f) => f.family.replace(/"/g, "") === "Noto Sans SC")
-          .map((f) => `${f.weight} ${f.style} ${f.status}`)
-          .sort(),
-      ),
-    )
-    .toEqual(["400", "700"].flatMap((w) => [`${w} italic loaded`, `${w} normal loaded`]));
+  await expect.poll(() => faces(page, "Noto Sans SC")).toEqual(LOADED);
   expect(requested).toHaveLength(2);
+  await page.evaluate(() => document.fonts.ready);
+  expect(korean).toEqual([]);
 
   const b = (await call(request, "zibel_node_get", { docId, nodeIds: [id] })).structuredContent
     .nodes[0].geometricBounds;
@@ -124,11 +129,39 @@ test("a CJK text loads Noto Sans SC and draws its glyphs inside the bounds rende
   expect(at(44, 36)).toBeLessThan(128);
 });
 
-test("a Latin-only Document never requests Noto Sans SC", async ({ page, request }) => {
-  const requested = noto(page);
+// #164: Hangul draws in Noto Sans KR, loaded lazily on its own, measured as `render` draws it (ADR-0066).
+test("a Korean text loads Noto Sans KR alone and draws its glyphs inside the bounds render draws", async ({
+  page,
+  request,
+}) => {
+  const [korean, chinese] = [noto(page, "NotoSansKR"), noto(page)];
+  const { docId, id } = await textDoc(page, request, { content: "한국어", fontStyle: "Bold" });
+  await expect.poll(() => faces(page, "Noto Sans KR")).toEqual(LOADED);
+  expect(korean).toHaveLength(2);
+  expect(chinese).toEqual([]);
+
+  const b = (await call(request, "zibel_node_get", { docId, nodeIds: [id] })).structuredContent
+    .nodes[0].geometricBounds;
+  expect(b.width).toBeCloseTo(3 * 0.92 * 48);
+  const image = await rendered(page, request, docId);
+  const [renderLeft, renderRight] = inkColumns(image, b.y, b.y + b.height);
+  expect(renderLeft).toBeGreaterThanOrEqual(b.x - 1);
+  expect(renderRight).toBeLessThanOrEqual(b.x + b.width + 1);
+  expect(renderRight - renderLeft).toBeGreaterThan(b.width - 12);
+  await expect
+    .poll(async () => {
+      const c = await canvas(page);
+      const [left, right] = inkColumns(c, b.y, b.y + b.height, c.k);
+      return [left - renderLeft, right - renderRight].map((d) => (Math.abs(d) <= 1.5 ? "same" : d));
+    })
+    .toEqual(["same", "same"]);
+});
+
+test("a Latin-only Document requests neither Noto family", async ({ page, request }) => {
+  const requested = [...noto(page), ...noto(page, "NotoSansKR")];
   await textDoc(page, request, { content: "Hello" });
   await page.evaluate(() => document.fonts.ready);
-  // The Source Sans 3 faces load at once, not after Noto Sans SC.
+  // The Source Sans 3 faces load at once, not after a Noto family.
   await expect
     .poll(() =>
       page.evaluate(async () => (await document.fonts.load('12px "Source Sans 3"')).length),

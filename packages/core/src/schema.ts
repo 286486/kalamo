@@ -2,7 +2,7 @@ import { z } from "zod";
 import { COLOR_PATTERN } from "./color.ts";
 import { type ImageInfo, preserveAspectRatio } from "./image.ts";
 import { compose, scaleOf } from "./matrix.ts";
-import { FONT_STYLES } from "./text.ts";
+import { BUNDLED_FAMILIES_NOTE, BUNDLED_FONT, FONT_STYLES } from "./text.ts";
 
 /**
  * `#RRGGBB` or `#RRGGBBAA`, case-insensitive (REQUIREMENTS §6.5). The published schema carries the
@@ -379,7 +379,7 @@ export const TextShape = z.object({
     .min(1)
     .default("Source Sans 3")
     .describe(
-      "Any font name, kept as written; Source Sans 3 and Noto Sans SC are bundled, and others render in Source Sans 3.",
+      `Any font name, kept as written; ${BUNDLED_FAMILIES_NOTE}; others render in ${BUNDLED_FONT}.`,
     ),
   fontStyle: z
     .enum(FONT_STYLES)

@@ -1,4 +1,6 @@
 import {
+  BUNDLED_FAMILIES,
+  BUNDLED_FONT,
   bounds,
   convertToPath,
   createDocument,
@@ -15,7 +17,7 @@ import { expect, it } from "vitest";
 import { COMPOSITING, near } from "../../../fixtures/compositing.ts";
 import fixture from "../../../fixtures/documents/inkscape.zibel.json?raw";
 import { RED_2x2_PNG } from "../../../fixtures/images.ts";
-import { svgToPixels, svgToPng } from "./png.ts";
+import { LAZY_FONTS, renderFonts, svgToPixels, svgToPng } from "./png.ts";
 import { fit, renderSvg } from "./svg.ts";
 
 it("rasterises SVG with resvg-wasm inside workerd", async () => {
@@ -247,7 +249,7 @@ it("draws a character Source Sans 3 lacks in Noto Sans SC, the rest of its line 
   for (const style of ["Regular", "Bold", "Black", "Bold Italic"]) {
     const mixed = await drawnText("Hi 小", style);
     const latin = await drawnText("Hi", style);
-    const notdef = await drawnText("Hi 한", style);
+    const notdef = await drawnText("Hi ก", style);
     // "Hi " ends at 小's origin; its ink stays left of it.
     const at = Math.floor((mixed.box?.width ?? 0) - 100 + 10);
     expect(mixed.columns(0, at), style).toBe(latin.columns(0, at));
@@ -287,8 +289,57 @@ it("keeps an Area Type's last line in Source Sans 3 when CJK overflows after it"
     ] as never);
     return ink(renderSvg(doc));
   };
-  expect(await drawn("Hi\n小动物小动物")).toEqual(await drawn("Hi\n한국어한국어"));
+  expect(await drawn("Hi\n小动物小动物")).toEqual(await drawn("Hi\nกขคกขค"));
 });
+
+// Noto Sans KR draws Hangul, which Source Sans 3 and Noto Sans SC lack (ADR-0066).
+it("draws Hangul in Noto Sans KR, the rest of its line as before", async () => {
+  for (const style of ["Regular", "Bold", "Black", "Bold Italic"]) {
+    const mixed = await drawnText("Hi 한", style);
+    const latin = await drawnText("Hi", style);
+    const notdef = await drawnText("Hi ก", style);
+    const at = Math.floor((latin.box?.width ?? 0) + 20 + 10);
+    expect(mixed.columns(0, at), style).toBe(latin.columns(0, at));
+    expect(mixed.columns(at, 400), style).not.toBe(notdef.columns(at, 400));
+    expect(mixed.columns(at, 400), style).not.toBe(latin.columns(at, 400));
+  }
+  const hangul = async (style: string) => (await drawnText("한", style)).columns(0, 400);
+  expect(await hangul("Italic")).toBe(await hangul("Regular"));
+  expect(await hangul("Bold Italic")).toBe(await hangul("Bold"));
+  expect(await hangul("Black")).toBe(await hangul("Bold"));
+  expect(await hangul("Bold")).not.toBe(await hangul("Regular"));
+}, 30_000);
+
+// 直 has distinct Simplified Chinese and Korean forms, so the face it draws in shows.
+it("draws each character of a line mixing Han and Hangul in its own face", async () => {
+  const [sc, kr] = [await drawnText("直"), await drawnText("直", "Regular", "Noto Sans KR")];
+  expect(sc.columns(0, 110)).not.toBe(kr.columns(0, 110));
+  const mixed = await drawnText("直한");
+  expect(mixed.columns(0, 110)).toBe(sc.columns(0, 110));
+  expect(mixed.columns(110, 400)).not.toBe((await drawnText("直ก")).columns(110, 400));
+}, 30_000);
+
+it("has font files for every bundled family, and only those (ADR-0066)", () => {
+  expect([BUNDLED_FONT, ...Object.keys(LAZY_FONTS)].sort()).toEqual([...BUNDLED_FAMILIES].sort());
+});
+
+it("copies into resvg only the files of the families an SVG draws in", async () => {
+  const sizes = async (content: string) => {
+    const { doc, defaultLayerId: parentId } = createDocument({
+      id: "d",
+      name: "Doc",
+      artboards: [{ width: 100, height: 40 }],
+    });
+    createNodes(doc, [{ type: "text", parentId, x: 0, y: 20, content }]);
+    return (await renderFonts(renderSvg(doc))).fontBuffers.map((b) => b.byteLength);
+  };
+  const sourceSans3 = await sizes("Hi");
+  expect(sourceSans3).toHaveLength(6);
+  const [scRegular, scBold, krRegular, krBold] = [8331336, 8543168, 4644748, 4816044];
+  expect(await sizes("Hi 한")).toEqual([...sourceSans3, krRegular, krBold]);
+  expect(await sizes("Hi 小")).toEqual([...sourceSans3, scRegular, scBold]);
+  expect(await sizes("小한")).toEqual([...sourceSans3, scRegular, scBold, krRegular, krBold]);
+}, 30_000);
 
 it("draws a text in Noto Sans SC in it, and what it lacks in Source Sans 3", async () => {
   const noto = await drawnText("Hi", "Regular", "Noto Sans SC");
@@ -408,10 +459,11 @@ it("draws the fixture Document with known pixels", async () => {
   // Layer clipped by a turned, stroked Path over a gradient, with a sublayer clipped by a text; by
   // #148, a thirteenth holding a plain, a filled and a mirrored spiral; by #159, a fourteenth
   // holding Chinese mixed with Latin in Regular and Bold (bundling Noto Sans SC moved no pixel); by
-  // #160, a fifteenth holding a CJK Area Type wrapped between characters. This export SVG names no
-  // Noto chunk, so its Chinese draws as .notdef boxes; render's does not.
+  // #160, a fifteenth holding a CJK Area Type wrapped between characters; by #164, a sixteenth
+  // holding Korean Point Type in Regular and Bold and a Korean Area Type. This export SVG names no
+  // Noto chunk, so its Chinese and Korean draw as .notdef boxes; render's does not.
   expect(await hash(toSvg(doc, docRect(doc), { images }))).toBe(
-    "91b1180983904b6f618dfc013b000ebddae78c8763520de829022a0d1653eb3a",
+    "cfb99e448e3a6b28afcc64948f7ebc8b4fe20cef5a96de9593094b297f4a01b5",
   );
   expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned, images }))).toBe(
     "24c1e7ad8db33f59933a1b355c879cb19bfdfd67d70b11427b196aa646ea4b60",
@@ -435,7 +487,7 @@ it("draws each fixture Artboard by its scope as the whole Document draws it ther
   const { doc, images } = fixtureDoc();
   const all = fit(docRect(doc), 2);
   const whole = await svgToPixels(renderSvg(doc, all.rect, { scale: 2, images }), 2);
-  expect(doc.artboards).toHaveLength(15);
+  expect(doc.artboards).toHaveLength(16);
   for (const a of doc.artboards) {
     const scope = { artboardId: a.id };
     const { rect, pixelSize } = fit(scopeRect(doc, scope), 2);
@@ -455,7 +507,7 @@ it("draws each fixture Artboard by its scope as the whole Document draws it ther
     // the same SVG is drawn from a rect grown to x = 0. A Node left out would differ by far more.
     expect(worst, a.name).toBeLessThanOrEqual(16);
   }
-});
+}, 30_000);
 
 it("draws the fixture's Layer Clipping Mask inside its Clipping Path, its Stroke over it (ADR-0053)", async () => {
   const { doc, images } = fixtureDoc();
@@ -565,13 +617,42 @@ it("clips by a text's Noto Sans SC glyphs, not by .notdef boxes (ADR-0052, ADR-0
     makeMask(doc, { clipNodeId: clip.id, contentIds: [content_.id] });
     return ink(renderSvg(doc));
   };
-  const [cjk, notdef] = [await clipped("小"), await clipped("한")];
+  const [cjk, notdef] = [await clipped("小"), await clipped("ก")];
   // 小's vertical stroke runs down the middle of its em square, above where a .notdef box starts.
   const at = (drawn: [number, number][], x: number, y: number) =>
     drawn.some(([px, py]) => px === x && py === y);
   expect(at(cjk, 60, 30)).toBe(true);
   expect(at(notdef, 60, 30)).toBe(false);
 });
+
+it("clips by a text's Noto Sans KR glyphs, not by .notdef boxes (ADR-0052, ADR-0066)", async () => {
+  const clipped = async (content: string) => {
+    const { doc, defaultLayerId: parentId } = createDocument({
+      id: "d",
+      name: "Doc",
+      artboards: [{ width: 120, height: 120, background: "#FFFFFF" }],
+    });
+    const [content_, clip] = createNodes(doc, [
+      {
+        type: "rect",
+        parentId,
+        x: 0,
+        y: 0,
+        width: 120,
+        height: 120,
+        appearance: { fills: [{ color: "#FF0000" }] },
+      },
+      { type: "text", parentId, x: 10, y: 100, content, fontSize: 100 },
+    ]).nodes;
+    if (!content_ || !clip) throw new Error("setup");
+    makeMask(doc, { clipNodeId: clip.id, contentIds: [content_.id] });
+    return ink(renderSvg(doc));
+  };
+  const [hangul, notdef] = [await clipped("한"), await clipped("ก")];
+  // Source Sans 3's .notdef box is 660 units tall, so it reaches y = 34; 한's ㅎ rises above it.
+  expect(notdef.every(([, y]) => y >= 33)).toBe(true);
+  expect(hangul.some(([, y]) => y < 30)).toBe(true);
+}, 30_000);
 
 it("draws an Image's pixels in its frame and nowhere else", async () => {
   const { doc, defaultLayerId } = createDocument({

@@ -3130,7 +3130,7 @@ describe("container Appearance (ADR-0043)", () => {
 
 it("warns MISSING_GLYPHS once for a file, naming the union of its texts' missing characters", () => {
   const file = parseFile(
-    '<svg xmlns="http://www.w3.org/2000/svg"><text x="0" y="10">한국</text><text x="0" y="30">국어 ok</text></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg"><text x="0" y="10">กข</text><text x="0" y="30">ขค ok</text></svg>',
   );
   const texts = file.nodes.filter((n) => n.type === "text");
   expect(file.warnings).toEqual([
@@ -3138,7 +3138,7 @@ it("warns MISSING_GLYPHS once for a file, naming the union of its texts' missing
       code: "MISSING_GLYPHS",
       nodeId: texts[0]?.id,
       message:
-        "Neither Source Sans 3 nor Noto Sans SC has glyphs for 한, 국, 어; they render as .notdef boxes and measure as the box's width.",
+        "None of Source Sans 3, Noto Sans SC, or Noto Sans KR has glyphs for ก, ข, ค; they render as .notdef boxes and measure as the box's width.",
     },
   ]);
 });

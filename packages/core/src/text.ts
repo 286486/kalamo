@@ -1,5 +1,6 @@
 import { parseColor } from "./color.ts";
 import { lineBreakUnits } from "./line-break.ts";
+import { NOTO_SANS_KR } from "./noto-sans-kr.ts";
 import { NOTO_SANS_SC } from "./noto-sans-sc.ts";
 import { parsePath, type Segment } from "./path.ts";
 import type { CharacterRange, Node, Rect, Warning } from "./schema.ts";
@@ -87,42 +88,65 @@ const sourceSans3 = Object.fromEntries(
     ];
   }),
 ) as Record<BundledStyle, Face>;
-const notoSansSC = Object.fromEntries(
-  Object.entries(NOTO_SANS_SC.faces).map(([style, f]) => [
-    style,
-    {
-      advance: (c: number) => runAdvance(f.runs, c),
-      notdef: f.notdef,
-      notdefOutline: parsePath(f.notdefPath, "notdefPath"),
-    },
-  ]),
-) as Record<NotoStyle, Face>;
+/** A Noto family's faces, their advances looked up in its runs. */
+const notoFaces = (table: typeof NOTO_SANS_SC) =>
+  Object.fromEntries(
+    Object.entries(table.faces).map(([style, f]) => [
+      style,
+      {
+        advance: (c: number) => runAdvance(f.runs, c),
+        notdef: f.notdef,
+        notdefOutline: parsePath(f.notdefPath, "notdefPath"),
+      },
+    ]),
+  ) as Record<NotoStyle, Face>;
+/** Noto's Regular and Bold by CSS matching: weights to 500 draw in Regular, heavier in Bold. */
+const notoFace = (style?: FontStyle): NotoStyle =>
+  fontFace(style).weight <= 500 ? "Regular" : "Bold";
 
 /** A family's ascender as a share of its em box: ascender to descender scaled to one em, as Inkscape. */
 const emAscent = ({ ascender, descender }: { ascender: number; descender: number }) =>
   ascender / (ascender - descender);
 
 /**
- * The bundled families, each with the style names of its faces and the face a style draws in, by
- * CSS matching (ADR-0028, ADR-0063). Noto Sans SC has Regular and Bold only, and no italic: weights
- * to 500 draw in Regular, heavier in Bold, and an italic draws upright.
+ * The bundled families in fallback order after a text's own (ADR-0063, ADR-0066), each with the
+ * style names of its faces, the face a style draws in by CSS matching (ADR-0028), and the scripts it
+ * draws. The Noto families have Regular and Bold only, and no italic, so an italic draws upright.
  */
 const FAMILIES = {
   "Source Sans 3": {
     face: (style?: FontStyle) => bundledStyle(style),
     faces: sourceSans3,
     ascent: emAscent(SOURCE_SANS_3),
+    draws: "Latin, Greek, and Cyrillic",
   },
   "Noto Sans SC": {
-    face: (style?: FontStyle): NotoStyle => (fontFace(style).weight <= 500 ? "Regular" : "Bold"),
-    faces: notoSansSC,
+    face: notoFace,
+    faces: notoFaces(NOTO_SANS_SC),
     ascent: emAscent(NOTO_SANS_SC),
+    draws: "Chinese and Japanese",
+  },
+  "Noto Sans KR": {
+    face: notoFace,
+    faces: notoFaces(NOTO_SANS_KR),
+    ascent: emAscent(NOTO_SANS_KR),
+    draws: "Korean",
   },
 } as const;
 export type BundledFamily = keyof typeof FAMILIES;
+/** The bundled families, the one list of them (ADR-0066). */
+export const BUNDLED_FAMILIES = Object.keys(FAMILIES) as [BundledFamily, ...BundledFamily[]];
 
 /** The one family every family Zibel lacks renders in (ADR-0013). */
 export const BUNDLED_FONT = "Source Sans 3";
+
+const list = (items: string[], type: "conjunction" | "disjunction") =>
+  new Intl.ListFormat("en", { style: "long", type }).format(items);
+/** The bundled families and what each draws, for tool and schema descriptions. */
+export const BUNDLED_FAMILIES_NOTE = `${list(
+  BUNDLED_FAMILIES.map((f) => `${f} (${FAMILIES[f].draws})`),
+  "conjunction",
+)} are bundled; each character draws in the text's own family if bundled and it has the glyph, else in the first of them that has it`;
 
 /** What picks a text's faces: its family, Source Sans 3 if none, and style. */
 type TextFont = { fontFamily?: string | undefined; fontStyle?: FontStyle | undefined };
@@ -137,7 +161,7 @@ const isBundled = (family: string): family is BundledFamily => Object.hasOwn(FAM
 export function fontFamilies(text: TextFont): [BundledFamily, ...BundledFamily[]] {
   const { fontFamily = BUNDLED_FONT } = text;
   const own = isBundled(fontFamily) ? fontFamily : BUNDLED_FONT;
-  return [own, ...(Object.keys(FAMILIES) as BundledFamily[]).filter((f) => f !== own)];
+  return [own, ...BUNDLED_FAMILIES.filter((f) => f !== own)];
 }
 
 type DrawnFace = { family: BundledFamily; face: Face };
@@ -487,7 +511,7 @@ const missingGlyphsWarning = (nodeId: string, chars: string[]): Warning => {
   return {
     code: "MISSING_GLYPHS",
     nodeId,
-    message: `Neither Source Sans 3 nor Noto Sans SC has glyphs for ${named}; they render as .notdef boxes and measure as the box's width.`,
+    message: `None of ${list(BUNDLED_FAMILIES, "disjunction")} has glyphs for ${named}; they render as .notdef boxes and measure as the box's width.`,
   };
 };
 
