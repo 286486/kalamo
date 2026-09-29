@@ -108,6 +108,7 @@ const clickTool = (add: boolean) => (e: ToolEvent) => {
 export const addAnchorTool: CanvasTool = {
   title: "Add Anchor Point Tool",
   shortcut: "+",
+  group: "pen",
   icon: "M8 1 L12 8 L10 14 H6 L4 8 Z M8 1 V8 M11 2 H15 M13 0 V4",
   cursor: "crosshair",
   down: clickTool(true),
@@ -117,6 +118,7 @@ export const addAnchorTool: CanvasTool = {
 export const deleteAnchorTool: CanvasTool = {
   title: "Delete Anchor Point Tool",
   shortcut: "-",
+  group: "pen",
   icon: "M8 1 L12 8 L10 14 H6 L4 8 Z M8 1 V8 M11 2 H15",
   cursor: "crosshair",
   down: clickTool(false),
@@ -160,6 +162,7 @@ export function pullHandles(
 export const anchorPointTool: CanvasTool = {
   title: "Anchor Point Tool",
   shortcut: "Shift+C",
+  group: "pen",
   icon: "M2 13 L8 3 L14 13 M5 3 H11",
   cursor: "default",
   down(e) {

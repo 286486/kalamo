@@ -6,6 +6,7 @@ import { pencilTool } from "./pencilTool.ts";
 import { penTool } from "./penTool.ts";
 import { selectionTool } from "./selectionTool.ts";
 import { ellipseTool, rectangleTool } from "./shapeTool.ts";
+import { useStore } from "./store.ts";
 import type { Viewport } from "./viewport.ts";
 import { zoomTool } from "./zoomTool.ts";
 
@@ -63,6 +64,9 @@ export const nextTap = (last: Tap | null, x: number, y: number, t: number): Tap 
   return { x, y, t, count: near ? last.count + 1 : 1 };
 };
 
+/** A Tools panel group, named after its first tool: Illustrator's Pen, Rectangle and Line Segment. */
+export type ToolGroup = "pen" | "rectangle" | "lineSegment";
+
 /**
  * A tool of the Tools panel on the canvas. Viewer keeps what every tool shares (viewport, pan,
  * zoom, the Document and the Selection outline) and hands the rest to the active tool.
@@ -71,6 +75,8 @@ export interface CanvasTool {
   title: string;
   /** Its key (ADR-0031). */
   shortcut: string;
+  /** The Tools panel group it shares one button with, as in Illustrator's default toolbar. */
+  group?: ToolGroup;
   /** Its icon's SVG path in a 16 px box, and the icon's fill. */
   icon: string;
   iconFill?: string;
@@ -115,7 +121,45 @@ export const TOOLS = {
 
 export type Tool = keyof typeof TOOLS;
 
+// The active tool is at the front of its group, whether a click, its shortcut or a flyout chose it.
+useStore.subscribe((s, prev) => {
+  const { group } = TOOLS[s.tool];
+  if (s.tool !== prev.tool && group && s.front[group] !== s.tool) {
+    useStore.setState({ front: { ...s.front, [group]: s.tool } });
+  }
+});
+
 export const TOOL_KEYS: Record<string, Tool> = Object.fromEntries(
   // keysOf reports + as =, the key it is on.
   (Object.keys(TOOLS) as Tool[]).map((name) => [TOOLS[name].shortcut.replace(/^\+$/, "="), name]),
 );
+
+/** A Tools panel button: its tools, in the panel's order, and the one it shows. */
+export interface ToolSlot {
+  tools: Tool[];
+  shown: Tool;
+}
+
+/**
+ * The Tools panel's buttons for `tools`: each lone tool, and each group at its first tool, showing
+ * its tool in `front` or else its first.
+ */
+export function toolSlots(tools: readonly Tool[], front: Partial<Record<ToolGroup, Tool>>) {
+  const slots: ToolSlot[] = [];
+  const groups = new Map<ToolGroup, ToolSlot>();
+  for (const t of tools) {
+    const group = TOOLS[t].group;
+    const slot = group && groups.get(group);
+    if (slot) slot.tools.push(t);
+    else {
+      const added = { tools: [t], shown: t };
+      slots.push(added);
+      if (group) groups.set(group, added);
+    }
+  }
+  for (const [group, slot] of groups) {
+    const t = front[group];
+    if (t && slot.tools.includes(t)) slot.shown = t;
+  }
+  return slots;
+}

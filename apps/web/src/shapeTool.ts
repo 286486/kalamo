@@ -56,7 +56,7 @@ function update(p: Point, mods: KeyMods, moved: boolean) {
 /** A drag draws a Live Shape of `type`, previewed in the current Fill and Stroke until release. */
 const shapeTool = (
   type: ShapeBox["type"],
-  tool: Pick<CanvasTool, "title" | "shortcut" | "icon">,
+  tool: Pick<CanvasTool, "title" | "shortcut" | "icon" | "group">,
 ): CanvasTool => ({
   ...tool,
   cursor: "crosshair",
@@ -102,11 +102,13 @@ const shapeTool = (
 export const rectangleTool = shapeTool("rect", {
   title: "Rectangle Tool",
   shortcut: "M",
+  group: "rectangle",
   icon: "M2.5 3.5 H13.5 V12.5 H2.5 Z",
 });
 
 export const ellipseTool = shapeTool("ellipse", {
   title: "Ellipse Tool",
   shortcut: "L",
+  group: "rectangle",
   icon: "M2 8 A6 4.5 0 1 0 14 8 A6 4.5 0 1 0 2 8 Z",
 });
