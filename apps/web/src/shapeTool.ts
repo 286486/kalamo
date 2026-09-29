@@ -95,7 +95,7 @@ interface DragShape<A extends NewArt, O> {
   option: O;
   art(origin: Point, p: Point, mods: KeyMods, option: O): A;
   /** False for art dragged back to a line or a point, which would be invisible. */
-  shows(art: A): boolean;
+  visible(art: A): boolean;
   /** `option` after `key` while `art` is drawn, or null when the key is not the drag's. */
   key?(option: O, key: string, art: A | null): O | null;
   /**
@@ -160,7 +160,7 @@ function shapeTool<A extends NewArt, O>(
       update([e.x, e.y], e, !!dragged(drag.gesture, e));
       const { art, option } = drag;
       drag = null;
-      const shown = art && shape.shows(art) ? art : null;
+      const shown = art && shape.visible(art) ? art : null;
       kept = shape.keep ? shape.keep(option, shown, kept) : option;
       if (shown) sendNewArt([shown]);
       e.redraw();
@@ -180,7 +180,7 @@ function shapeTool<A extends NewArt, O>(
 const box = (type: ShapeBox["type"]): DragShape<ShapeBox, null> => ({
   option: null,
   art: (origin, p, mods) => ({ type, ...dragBox(origin, p, mods) }),
-  shows: (b) => b.width > 0 && b.height > 0,
+  visible: (b) => b.width > 0 && b.height > 0,
 });
 
 export const rectangleTool = shapeTool(
@@ -241,7 +241,7 @@ export const polygonTool = shapeTool(
       ...dragRadial(origin, p, mods, sides),
       sides,
     }),
-    shows: (polygon) => polygon.radius > 0,
+    visible: (polygon) => polygon.radius > 0,
     key: sidesKey,
   },
 );

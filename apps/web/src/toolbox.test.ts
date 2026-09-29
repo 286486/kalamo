@@ -103,7 +103,7 @@ it("a key the pressed tool takes switches no tool; one it does not take still do
 });
 
 it.each(["roundedRectangle", "polygon"] as const)(
-  "the %s tool takes the arrow keys while dragging, and has no shortcut",
+  "the %s tool takes the arrow keys while dragging",
   (name) => {
     const tool = TOOLS[name];
     const arrow = press("ArrowUp");
@@ -112,9 +112,12 @@ it.each(["roundedRectangle", "polygon"] as const)(
     expect(pressedKey(arrow, tool, false, () => {})).toBe(true);
     expect(pressedKey(press("v"), tool, false, () => {})).toBe(false);
     tool.cancel?.(() => {});
-    expect(Object.values(TOOLS).filter((t) => !t.shortcut)).toEqual([
-      TOOLS.roundedRectangle,
-      TOOLS.polygon,
-    ]);
   },
 );
+
+it("gives the Rounded Rectangle and Polygon tools no shortcut, as Illustrator does", () => {
+  expect(Object.values(TOOLS).filter((t) => !t.shortcut)).toEqual([
+    TOOLS.roundedRectangle,
+    TOOLS.polygon,
+  ]);
+});

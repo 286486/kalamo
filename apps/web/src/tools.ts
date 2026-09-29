@@ -7,6 +7,7 @@ import {
   invert,
   type NodeInput,
   type PathEditInput,
+  type Shape,
   worldTransform,
 } from "@zibel/core";
 import { addAnchorAt, deleteAnchorAt } from "./anchorTools.ts";
@@ -65,7 +66,7 @@ export const NOTHING_DRAWN = "The Layer is hidden or locked; nothing was drawn."
 export type NewArt =
   | { type: "path"; d: string }
   | ShapeBox
-  | { type: "polygon"; cx: number; cy: number; radius: number; sides: number; angle: number };
+  | Pick<Extract<Shape, { type: "polygon" }>, "type" | "cx" | "cy" | "radius" | "sides" | "angle">;
 
 /**
  * The `create` input for drawn art: the current Fill and Stroke, in placeParent's Layer or
