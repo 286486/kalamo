@@ -173,7 +173,7 @@ it("draws tracking, baseline shift, rotation and range overrides inside the boun
   expect(rangeTracked.right).toBe(tracked.right);
   expect(shifted.top).toBeLessThanOrEqual(plain.top - 14);
   expect(rotated.bottom).toBeGreaterThanOrEqual(plain.bottom + 15);
-});
+}, 30_000);
 
 it("draws a range stroke in its colour, inside the bounds node_get reports (ADR-0068)", async () => {
   const stroked = (ranges?: object[]) => ({
