@@ -168,19 +168,25 @@ export const Layers = memo(function Layers() {
                 : dimmed
                   ? []
                   : objects(doc, node.id).map((n) => n.id);
-            const next = combine(selection, ids, { shift: e.shiftKey, alt: e.altKey });
-            // A Layer's row is also selected itself, for Duplicate (ADR-0076), as combine treats
-            // the Selection: a click selects it alone, Shift+click toggles it and Alt+Shift+click
-            // removes it, keeping the others. The array is always new, so the store sees the rows
-            // set with this Selection and keeps them.
+            // A Layer's row is also selected itself, for Duplicate (ADR-0076): a click selects it
+            // alone, Shift+click toggles it and Alt+Shift+click removes it, keeping the others, and
+            // its objects follow it as a group, so the row and its art never disagree. Other rows
+            // go through combine and keep the Layer rows on Shift. The arrays are always new, so the
+            // store sees the rows set with this Selection and keeps them.
             const current = useStore.getState().layerRows;
             const others = current.filter((id) => id !== node.id);
-            const layer = node.type === "layer";
+            let next: string[];
             let layers: string[];
-            if (!e.shiftKey) layers = layer ? [node.id] : [];
-            else if (!layer) layers = [...current];
-            else if (e.altKey || others.length < current.length) layers = others;
-            else layers = [...others, node.id];
+            if (node.type === "layer" && e.shiftKey) {
+              const on = !e.altKey && others.length === current.length;
+              layers = on ? [...others, node.id] : others;
+              next = on
+                ? [...selection, ...ids.filter((id) => !selection.includes(id))]
+                : selection.filter((id) => !ids.includes(id));
+            } else {
+              next = combine(selection, ids, { shift: e.shiftKey, alt: e.altKey });
+              layers = !e.shiftKey ? (node.type === "layer" ? [node.id] : []) : [...current];
+            }
             useStore.setState({ notice: null, selection: next, layerRows: layers });
           };
           // The pointer's height in the row picks the zone, its indent the depth of a gap (ADR-0075).

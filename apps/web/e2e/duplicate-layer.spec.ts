@@ -258,6 +258,28 @@ test("Shift+click on an object row keeps the Layer rows, and Alt+Shift+click rem
   await expect(s.item).toHaveText('Duplicate "B"');
 });
 
+test("a Layer row's Shift toggle moves all its objects with it, after a partial per-object toggle too", async ({
+  page,
+  request,
+}) => {
+  const s = await setup(page, request);
+  // B, H, A, S, T, P, G.
+  await s.pick("A");
+  await s.pick("P", ["Shift"]);
+  await expect.poll(s.selected).toEqual([2, 6]);
+  // Off: the row and every one of its objects, not P back in.
+  await s.pick("A", ["Shift"]);
+  await expect.poll(s.selected).toEqual([]);
+  await s.pick("A", ["Shift"]);
+  await expect.poll(s.selected).toEqual([2, 5, 6]);
+  await s.pick("P", ["Shift"]);
+  const a = page
+    .getByRole("listitem", { name: "A", exact: true })
+    .getByRole("button", { name: "A", exact: true });
+  await a.click({ modifiers: ["Alt", "Shift"] });
+  await expect.poll(s.selected).toEqual([]);
+});
+
 test("a clipped Layer's copy still clips, and a locked, hidden Layer's copy is locked and hidden", async ({
   page,
   request,
