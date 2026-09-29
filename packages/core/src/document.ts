@@ -19,6 +19,7 @@ import {
   type Fill,
   type Gradient,
   type GroupNode,
+  type ImageNode,
   ImageShape,
   imageFrame,
   imagePixels,
@@ -548,21 +549,30 @@ export type LeafClip = { maskId: string; segments: Segment[] } & (
   | { text: TextNode }
 );
 
-const worldFrame = (doc: Document, n: TextNode) =>
-  transformSegments(shapeSegments(frameShape(textBox(n))), worldTransform(doc, n));
+/**
+ * A leaf's geometry in document coordinates, under its `worldTransform`: a Live Shape's or Path's
+ * outline, or an Image's or a text's frame.
+ */
+export const worldSegments = (doc: Document, n: LeafNode | ImageNode): Segment[] =>
+  transformSegments(
+    shapeSegments(
+      n.type === "text" ? frameShape(textBox(n)) : n.type === "image" ? frameShape(n) : n,
+    ),
+    worldTransform(doc, n),
+  );
 
 const worldOutline = (
   doc: Document,
   n: ShapeNode,
 ): { segments: Segment[]; fillRule: FillRule } => ({
-  segments: transformSegments(shapeSegments(n), worldTransform(doc, n)),
+  segments: worldSegments(doc, n),
   fillRule: n.type === "path" && n.fillRule === "evenodd" ? "evenodd" : "nonzero",
 });
 
 /** A Clipping Mask's Clipping Path as the clip of the leaves inside it. */
 export const leafClip = (doc: Document, maskId: string, clip: LeafNode): LeafClip =>
   clip.type === "text"
-    ? { maskId, segments: worldFrame(doc, clip), text: clip }
+    ? { maskId, segments: worldSegments(doc, clip), text: clip }
     : { maskId, ...worldOutline(doc, clip) };
 
 /**
@@ -584,7 +594,7 @@ export function paintedLeaves(
     }
     if (n.clipping) return [];
     if (n.type === "text")
-      return [{ node: n, segments: worldFrame(doc, n), fillRule: "nonzero", clips }];
+      return [{ node: n, segments: worldSegments(doc, n), fillRule: "nonzero", clips }];
     return [{ node: n, ...worldOutline(doc, n), clips }];
   });
 }
@@ -639,13 +649,7 @@ export function bounds(doc: Document, node: Node): Rect | null {
     const clip = clipAmong(children);
     return clip ? bounds(doc, clip) : union(children.map((c) => bounds(doc, c)));
   }
-  const shape =
-    node.type === "text"
-      ? frameShape(textBox(node))
-      : node.type === "image"
-        ? frameShape(node)
-        : node;
-  return pathBounds(transformSegments(shapeSegments(shape), worldTransform(doc, node)));
+  return pathBounds(worldSegments(doc, node));
 }
 
 /**

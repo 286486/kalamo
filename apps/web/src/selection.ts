@@ -5,7 +5,6 @@ import {
   containerAppearance,
   type Document,
   formatPath,
-  frameShape,
   type ImageNode,
   isLiveShape,
   type LeafClip,
@@ -18,11 +17,9 @@ import {
   type Rect,
   type ShapeNode,
   scaleOf,
-  shapeSegments,
   type TextNode,
-  textBox,
   touches,
-  transformSegments,
+  worldSegments,
   worldTransform,
 } from "@kalamo/core";
 import { drawClipGlyphs } from "@kalamo/render/canvas";
@@ -222,16 +219,7 @@ const widest = (doc: Document, n: LeafNode) =>
 
 /** A shape's outline, or an Image's or a text's frame, in document coordinates. */
 const outline = (doc: Document, n: ShapeNode | ImageNode | TextNode) =>
-  new Path2D(
-    formatPath(
-      transformSegments(
-        shapeSegments(
-          n.type === "image" ? frameShape(n) : n.type === "text" ? frameShape(textBox(n)) : n,
-        ),
-        worldTransform(doc, n),
-      ),
-    ),
-  );
+  new Path2D(formatPath(worldSegments(doc, n)));
 
 const ruleOf = (n: ShapeNode) =>
   n.type === "path" && n.fillRule === "evenodd" ? "evenodd" : "nonzero";
