@@ -7,8 +7,8 @@ it("has font files for every bundled family, and only those (ADR-0066)", () => {
   for (const files of Object.values(FONT_FILES)) expect(files.length).toBeGreaterThan(0);
 });
 
-it("lazy-loads each family a character draws in, its Character Range's included (ADR-0068)", () => {
-  const lazy = (...texts: object[]) => {
+it("lazy-loads each family a character draws in, its Character Range's font included (ADR-0068)", () => {
+  const lazy = (...texts: Partial<Extract<NodeInput, { type: "text" }>>[]) => {
     const { doc, defaultLayerId: parentId } = createDocument({
       id: "d",
       name: "Doc",
@@ -16,9 +16,7 @@ it("lazy-loads each family a character draws in, its Character Range's included 
     });
     createNodes(
       doc,
-      texts.map(
-        (t) => ({ type: "text", parentId, x: 0, y: 50, content: "Hello", ...t }) as NodeInput,
-      ),
+      texts.map((t) => ({ type: "text", parentId, x: 0, y: 50, content: "Hello", ...t })),
     );
     return drawnLazyFamilies(doc);
   };
