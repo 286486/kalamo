@@ -78,6 +78,7 @@ function pickColor(node: LeafNode, g: Gradient, index: number, box: Box) {
     const stops = setColor(g.stops, index, withAlpha(input.value.toUpperCase(), alphaOf(old)));
     sendPaint(paintUpdates([node], box, () => ({ ...g, stops })));
     input.remove();
+    if (picker === input) picker = null;
   });
   input.style.cssText = "position:fixed;opacity:0;pointer-events:none";
   input.dataset.testid = "stop-color-picker";

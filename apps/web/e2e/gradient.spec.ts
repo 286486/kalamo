@@ -136,6 +136,49 @@ test("the Gradient panel applies, retypes, adds and colours a stop, moves a midp
   await page.keyboard.press("Control+Z");
   await expect.poll(async () => (await stops()).length).toBe(3);
 
+  // Deleting the last stop by key hands focus to the one before it: further Deletes stay on the
+  // slider, refused at two stops, and never Clear the rect.
+  const threeLeft = await rev();
+  await stopButton(3).focus();
+  await page.keyboard.press("Delete");
+  await expect.poll(async () => (await stops()).length).toBe(2);
+  await expect(stopButton(2)).toBeFocused();
+  await page.keyboard.press("Delete");
+  await page.keyboard.press("Backspace");
+  await page.waitForTimeout(300);
+  expect(await exists()).toBe(1);
+  expect(await rev()).toBe(threeLeft + 1);
+  await page.keyboard.press("Control+Z");
+  await expect.poll(async () => (await stops()).length).toBe(3);
+  // So does the Delete button, which is disabled once two stops remain.
+  await stopButton(3).click();
+  await panel.getByRole("button", { name: "Delete", exact: true }).click();
+  await expect.poll(async () => (await stops()).length).toBe(2);
+  await expect(stopButton(2)).toBeFocused();
+  await page.keyboard.press("Delete");
+  await page.waitForTimeout(300);
+  expect(await exists()).toBe(1);
+  expect((await stops()).length).toBe(2);
+  await page.keyboard.press("Control+Z");
+  await expect.poll(async () => (await stops()).length).toBe(3);
+
+  // A focused midpoint moves 1% with an arrow, 10% with Shift, within its span.
+  const m0 = (await stops())[0]?.midpoint ?? 0.5;
+  await panel.getByRole("button", { name: "Midpoint 1" }).focus();
+  await page.keyboard.press("ArrowLeft");
+  await expect.poll(async () => (await stops())[0]?.midpoint).toBeCloseTo(m0 - 0.01, 6);
+  await page.keyboard.press("Shift+ArrowRight");
+  await expect.poll(async () => (await stops())[0]?.midpoint).toBeCloseTo(m0 + 0.09, 6);
+
+  // A number field lets the menu bar's Ctrl keys through: Undo, then Window > Gradient.
+  await panel.getByLabel("Angle").focus();
+  await page.keyboard.press("Control+Z");
+  await expect.poll(async () => (await stops())[0]?.midpoint).toBeCloseTo(m0 - 0.01, 6);
+  await page.keyboard.press("Control+F9");
+  await expect(panel).toBeHidden();
+  await page.keyboard.press("Control+F9");
+  await expect(panel).toBeVisible();
+
   await panel.getByLabel("Aspect Ratio %").fill("50");
   await panel.getByLabel("Aspect Ratio %").press("Enter");
   await expect.poll(async () => (await fill()).gradient.aspectRatio).toBe(0.5);

@@ -8,7 +8,7 @@ import {
   withAlpha,
   worldTransform,
 } from "@kalamo/core";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { TEAR_OFF } from "./annotator.ts";
 import {
   activeGradient,
@@ -87,11 +87,9 @@ function NumberField(props: {
         style={{ width: 56 }}
         onChange={(e) => setText(e.target.value)}
         onBlur={done}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") done();
-          // A field's keys are not the canvas's.
-          e.stopPropagation();
-        }}
+        // The panel keeps Delete, the arrows and Enter from the canvas; the menu bar's Ctrl keys,
+        // such as Undo, still reach it, and typed letters are not tool keys in a field.
+        onKeyDown={(e) => e.key === "Enter" && done()}
       />
     </label>
   );
@@ -144,7 +142,9 @@ export const GradientPanel = memo(function GradientPanel() {
   // without choosing fires no event to take a preview back. Bound once per input, reading the
   // latest render through `latest`.
   const latest = useRef({ stops, index, stop, apply, withStops });
-  latest.current = { stops, index, stop, apply, withStops };
+  useLayoutEffect(() => {
+    latest.current = { stops, index, stop, apply, withStops };
+  });
   const bindColor = useCallback((el: HTMLInputElement | null) => {
     if (!el) return;
     const commit = () => {
@@ -161,6 +161,19 @@ export const GradientPanel = memo(function GradientPanel() {
     requestAnimationFrame(() =>
       slider.current?.querySelector<HTMLElement>(`[aria-label="Color Stop ${k + 1}"]`)?.focus(),
     );
+  /**
+   * Removes the picked stop, refused while only two remain, and hands focus to the stop now at its
+   * place, or the one before it: its own button, or a Delete button just disabled, may be gone, and
+   * the next Delete must not reach Edit > Clear.
+   */
+  const deleteStop = () => {
+    const left = removeStop(stops, index);
+    if (!left) return;
+    const k = Math.min(index, left.length - 1);
+    setPicked({ kind: "stop", index: k });
+    focusStop(k);
+    apply(withStops(left));
+  };
   /** The slider's keys: Delete removes the picked stop; arrows move it or the picked midpoint. */
   const onSliderKey = (e: React.KeyboardEvent) => {
     const step = { ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1 }[e.key];
@@ -174,9 +187,8 @@ export const GradientPanel = memo(function GradientPanel() {
     e.preventDefault();
     e.stopPropagation();
     if (!step) {
-      // Refused while only two stops remain; a midpoint cannot be deleted.
-      const left = picked.kind === "stop" && removeStop(stops, index);
-      if (left) apply(withStops(left));
+      // A midpoint cannot be deleted.
+      if (picked.kind === "stop") deleteStop();
       return;
     }
     const by = step * (e.shiftKey ? 0.1 : 0.01);
@@ -431,10 +443,7 @@ export const GradientPanel = memo(function GradientPanel() {
               type="button"
               title="Delete Stop"
               disabled={stops.length <= 2}
-              onClick={() => {
-                const left = removeStop(stops, index);
-                if (left) apply(withStops(left));
-              }}
+              onClick={deleteStop}
             >
               Delete
             </button>
