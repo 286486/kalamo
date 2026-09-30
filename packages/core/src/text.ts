@@ -433,23 +433,22 @@ function layout(text: TextLayout) {
   return { lines, overflow, m };
 }
 
-/** The lines as ADR-0022 lays them out, each starting at `x`. */
-function unaligned(text: TextLayout) {
-  const { x, y, content, fontSize } = text;
-  const m = metrics(text);
+/**
+ * The first family's ascent and each line's box. A line's leading, as Illustrator's (ADR-0068): the
+ * Node's, or with Auto 120% of the largest size among its characters, its hard return included; an
+ * empty last line's is the Node's size. CSS inline boxes at that size and leading stack a line
+ * holding CJK as Inkscape does (ADR-0064): half the leading above and below each family's em box,
+ * and the line as tall as the union of the text's first family's box, the strut, and the boxes of
+ * the families its characters draw in, trailing spaces left out. `rise` and `drop` are what the line
+ * exceeds the strut by, above and below; a Latin line has neither.
+ */
+function lineBoxes(text: TextLayout, m: Metric[]) {
   const chars = m.map((c) => c.char);
-  // A line's leading, as Illustrator's (ADR-0068): the Node's, or with Auto 120% of the largest
-  // size among its characters, its hard return included; an empty last line's is the Node's size.
-  // CSS inline boxes at that size and leading stack a line holding CJK as Inkscape does (ADR-0064):
-  // half the leading above and below each family's em box, and the line as tall as the union of
-  // the text's first family's box, the strut, and the boxes of the families its characters draw in,
-  // trailing spaces left out. `rise` and `drop` are what the line exceeds the strut by, above and
-  // below; a Latin line has neither.
   const first = FAMILIES[fontFamilies(text)[0]].ascent;
   const lineBox = (from: number, to: number) => {
     let size = 0;
     for (let i = from; i < to; i++) size = Math.max(size, (m[i] as Metric).size);
-    size ||= m[to]?.size ?? fontSize;
+    size ||= m[to]?.size ?? text.fontSize;
     const leading = text.leading ?? 1.2 * size;
     to = hangsFrom(chars, from, to);
     let [top, bottom] = [first, first];
@@ -467,6 +466,15 @@ function unaligned(text: TextLayout) {
       drop,
     };
   };
+  return { first, lineBox };
+}
+
+/** The lines as ADR-0022 lays them out, each starting at `x`. */
+function unaligned(text: TextLayout) {
+  const { x, y, content, fontSize } = text;
+  const m = metrics(text);
+  const chars = m.map((c) => c.char);
+  const { first, lineBox } = lineBoxes(text, m);
   let start = 0;
   const line = (t: string, lineY: number): TextLine => {
     const l = { text: t, x, y: lineY, start };
@@ -678,6 +686,93 @@ export function textBox(text: TextLayout): Rect {
     }
   }
   return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
+/** Where a line's aligned start sits from its anchor, in its widths (ADR-0077). */
+const ALIGN = { left: 0, center: 0.5, right: 1, justify: 0 } as const;
+/** A converted text's numbers keep 3 decimals, as the file does (REQUIREMENTS §6.5). */
+const r3 = (n: number) => Math.round(n * 1000) / 1000 || 0;
+
+/**
+ * Convert to Area Type (ADR-0079): the rectangle frame Point Type's lines lay out in unchanged. It
+ * is as wide as the widest line and each unit or prefix greedy wrapping checks, so nothing wraps,
+ * and as tall as the line boxes, so nothing overflows; its first baseline is the old one, to the
+ * 3 decimals it keeps.
+ */
+export function areaFrame(text: TextLayout): Rect {
+  const { lines, m } = layout({ ...text, kind: "point" });
+  const chars = m.map((c) => c.char);
+  const { lineBox } = lineBoxes(text, m);
+  const width = (from: number, to: number) => span(m, from, hangsFrom(chars, from, to));
+  let [widest, height] = [0, 0];
+  let ascent: number | undefined;
+  for (const l of lines) {
+    let to = l.start;
+    for (const unit of lineBreakUnits(l.text)) {
+      const n = [...unit].length;
+      widest = Math.max(widest, width(l.start, to + n), width(to, to + n));
+      to += n;
+    }
+    const b = lineBox(l.start, Math.min(to + 1, m.length));
+    height += b.leading + b.rise + b.drop;
+    ascent ??= b.ascent;
+  }
+  // Every line empty or all spaces has no width; a frame needs one. Rounded up, so none wraps.
+  widest = Math.ceil((widest || text.fontSize) * 1000) / 1000;
+  return {
+    x: r3(text.x - widest * ALIGN[text.alignment ?? "left"]),
+    y: r3(text.y - (ascent as number)),
+    width: widest,
+    height: r3(height),
+  };
+}
+
+/**
+ * Convert to Point Type (ADR-0079): Area Type's shown lines, each soft wrap a hard return in place
+ * of the line's last whitespace, or inserted after a CJK break, which shifts the ranges after it.
+ * The overflow is discarded, and so is the last shown line's hard return; `discarded` counts both.
+ * The first line keeps its baseline and aligned start. Undefined when no line shows.
+ */
+export function pointType(
+  text: TextLayout,
+):
+  | { x: number; y: number; content: string; ranges: CharacterRange[]; discarded: number }
+  | undefined {
+  const { lines, m } = layout(text);
+  const head = lines[0];
+  if (!head) return undefined;
+  let ranges = text.ranges ?? [];
+  const out: string[] = [];
+  let inserted = 0;
+  lines.forEach((l, i) => {
+    const t = [...l.text];
+    const last = t.at(-1) as string;
+    const soft = i < lines.length - 1 && last !== "\n";
+    if (i === lines.length - 1 && last === "\n") t.pop();
+    else if (soft && /\s/.test(last)) t[t.length - 1] = "\n";
+    else if (soft) {
+      const p = out.length + t.length;
+      ranges = ranges.map((r) => ({
+        ...r,
+        start: r.start >= p ? r.start + 1 : r.start,
+        end: r.end > p ? r.end + 1 : r.end,
+      }));
+      t.push("\n");
+      inserted++;
+    }
+    out.push(...t);
+  });
+  const w = span(m, head.start, head.start + hangsFrom([...head.text]));
+  const k = ALIGN[text.alignment ?? "left"];
+  return {
+    x: r3(head.x + w * k),
+    y: r3(head.y),
+    content: out.join(""),
+    ranges: ranges
+      .map((r) => ({ ...r, end: Math.min(r.end, out.length) }))
+      .filter((r) => r.start < r.end),
+    discarded: [...text.content].length - out.length + inserted,
+  };
 }
 
 const faceName = (family: string, style: FontStyle) =>

@@ -43,7 +43,7 @@ import {
   type Warning,
   Writable,
 } from "./schema.ts";
-import { canonicalRanges } from "./text.ts";
+import { areaFrame, canonicalRanges, pointType } from "./text.ts";
 
 const isContainer = (n: Node): n is LayerNode | GroupNode =>
   n.type === "layer" || n.type === "group";
@@ -242,8 +242,9 @@ function writableSchema(node: Node) {
     });
   }
   if (node.type === "text") {
-    // A text's kind is fixed, and only Area Type has a frame, which it cannot drop (ADR-0022); a
-    // shaped one's is path data, and `frame: null` makes it the rectangle of its bounds (ADR-0078).
+    // A text's kind converts before this schema applies (ADR-0079). Only Area Type has a frame
+    // (ADR-0022); a shaped one's is path data, and `frame: null` makes it the rectangle of its bounds
+    // (ADR-0078).
     const { type: _, kind: __, width, height, frame: shape, ...text } = TextShape.shape;
     const frame =
       node.kind === "area" ? { width: width.unwrap(), height: height.unwrap(), frame: shape } : {};
@@ -256,25 +257,78 @@ function writableSchema(node: Node) {
   return Writable.extend(parameters).extend({ appearance: AppearanceInput });
 }
 
+/**
+ * Convert to Area Type or Point Type (ADR-0079): the text of the other kind that shows the same
+ * lines, and a `TEXT_DISCARDED` warning for the overflow Point Type cannot hold.
+ */
+function converted(
+  node: Extract<Node, { type: "text" }>,
+  invalid: (key: string, message: string, hint: string) => KalamoError,
+): { node: Node; warnings: Warning[] } {
+  if (node.kind === "point") {
+    return { node: { ...node, kind: "area", ...areaFrame(node) }, warnings: [] };
+  }
+  const point = pointType(node);
+  if (!point) {
+    throw invalid(
+      ".kind",
+      "No line of this Area Type shows, so Point Type would hold no text.",
+      "Enlarge the frame until a line shows, then convert.",
+    );
+  }
+  const { discarded, ...layout } = point;
+  const warnings = discarded
+    ? [
+        {
+          code: "TEXT_DISCARDED",
+          nodeId: node.id,
+          message: `${discarded} characters of overflow were deleted, as Illustrator's Convert to Point Type deletes them; undo restores them.`,
+        },
+      ]
+    : [];
+  const { width: _, height: __, frame: ___, ...text } = node;
+  return { node: { ...text, kind: "point", ...layout }, warnings };
+}
+
 /** Validates and merges one patch, returning the new Node without storing it. */
-function patched(doc: Document, raw: UpdateInput, i: number): Node {
+function patched(doc: Document, raw: UpdateInput, i: number): { node: Node; warnings: Warning[] } {
   // Not parsed with NodePatch: the per-type schema below checks every value and answers with a hint.
-  const { nodeId, patch } = raw as { nodeId: string; patch: Record<string, unknown> };
-  const node = lookup(doc, nodeId, `updates[${i}].nodeId`);
+  const { nodeId } = raw;
+  let patch = raw.patch as Record<string, unknown>;
+  let node = lookup(doc, nodeId, `updates[${i}].nodeId`);
   const at = `updates[${i}].patch`;
   const invalid = (key: string, message: string, hint: string) =>
     new KalamoError({ code: "INVALID_PATCH", message, hint, path: `${at}${key}` });
+  let warnings: Warning[] = [];
+  if (node.type === "text" && "kind" in patch) {
+    const { kind, ...rest } = patch;
+    patch = rest;
+    if (kind !== "point" && kind !== "area") {
+      throw invalid(".kind", "kind is point or area.", "Send the kind to convert the text to.");
+    }
+    if (kind !== node.kind) {
+      const layout = Object.keys(patch).find(
+        (k) => k !== "type" && Object.hasOwn(TextShape.shape, k),
+      );
+      if (layout) {
+        throw invalid(
+          `.${layout}`,
+          `${layout} cannot change in the patch that converts the text.`,
+          "Convert first, with kind alone or with name, visible, locked, opacity, blendMode, appearance, tags or meta, then edit the layout in a second update.",
+        );
+      }
+      ({ node, warnings } = converted(node, invalid));
+    }
+  }
   const schema = writableSchema(node);
   for (const key of Object.keys(patch)) {
     const readOnly =
       (Object.hasOwn(READ_ONLY, key) ? READ_ONLY[key] : undefined) ??
-      (key === "kind" && node.type === "text"
-        ? "A text's kind is fixed (ADR-0022); create a text of the other kind and delete this one."
-        : key === "d" && node.type === "text"
-          ? "A text has no outline until Create Outlines; change content instead."
-          : key === "d" && node.type !== "path"
-            ? "A Live Shape's d is derived from its parameters; change those instead."
-            : undefined);
+      (key === "d" && node.type === "text"
+        ? "A text has no outline until Create Outlines; change content instead."
+        : key === "d" && node.type !== "path"
+          ? "A Live Shape's d is derived from its parameters; change those instead."
+          : undefined);
     if (readOnly) throw invalid(`.${key}`, `${key} is read-only.`, readOnly);
     if (key === "src" && patch.src === null && node.type === "image") {
       throw invalid(
@@ -373,7 +427,7 @@ function patched(doc: Document, raw: UpdateInput, i: number): Node {
     else delete next.ranges;
   }
   if (next.type === "path" && "d" in patch) next.d = formatPath(parsePath(next.d, `${at}.d`));
-  return next;
+  return { node: next, warnings };
 }
 
 /**
@@ -384,17 +438,17 @@ export function updateNodes(
   doc: Document,
   updates: UpdateInput[],
   { partial = false } = {},
-): { nodes: Node[]; failed: Failed[] } {
+): { nodes: Node[]; warnings: Warning[]; failed: Failed[] } {
   const staged = { ...doc, nodes: new Map(doc.nodes) };
-  const { ok: nodes, failed } = collect(updates, partial, (u, i) => {
-    const next = patched(staged, u, i);
-    staged.nodes.set(next.id, next);
-    return next;
+  const { ok, failed } = collect(updates, partial, (u, i) => {
+    const done = patched(staged, u, i);
+    staged.nodes.set(done.node.id, done.node);
+    return done;
   });
   // Two patches to one Node are one update: its final value, where it first appeared.
-  const unique = [...new Map(nodes.map((n) => [n.id, n])).values()];
+  const unique = [...new Map(ok.map(({ node: n }) => [n.id, n])).values()];
   for (const n of unique) doc.nodes.set(n.id, n);
-  return { nodes: unique, failed };
+  return { nodes: unique, warnings: ok.flatMap((d) => d.warnings), failed };
 }
 
 /**

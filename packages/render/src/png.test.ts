@@ -12,6 +12,7 @@ import {
   pathOp,
   type Rect,
   transformNodes,
+  updateNodes,
 } from "@kalamo/core";
 import { docRect, scopeRect, toSvg } from "@kalamo/io";
 import { describe, expect, it } from "vitest";
@@ -120,6 +121,42 @@ it("draws a shaped Area Type's spans where the layout puts them, none in the fra
   // The right span's first line draws, from x 130.
   expect(drawn.some(([x, y]) => x >= 130 && y < 30)).toBe(true);
 });
+
+it.each(["left", "center", "right"] as const)(
+  "draws %s text pixel for pixel alike before and after each Convert (ADR-0079)",
+  async (alignment) => {
+    const { doc, defaultLayerId } = createDocument({
+      id: "d",
+      name: "Doc",
+      artboards: [{ width: 200, height: 120, background: "#FFFFFF" }],
+    });
+    const [t] = createNodes(doc, [
+      {
+        type: "text",
+        kind: "area",
+        parentId: defaultLayerId,
+        x: 20,
+        y: 10,
+        width: 120,
+        height: 100,
+        fontSize: 11,
+        tracking: 40,
+        alignment,
+        content: "Converted text keeps every line where it was.\nA second paragraph.",
+        ranges: [{ start: 3, end: 12, fill: "#FF0000", baselineShift: 2 }],
+      },
+    ]).nodes as [Node];
+    const pixels = async () => (await svgToPixels(renderSvg(doc), 2)).pixels;
+    const area = await pixels();
+    expect(area.some((v) => v !== 255)).toBe(true);
+    updateNodes(doc, [{ nodeId: t.id, patch: { kind: "point" } }]);
+    expect(doc.nodes.get(t.id)).toMatchObject({ kind: "point" });
+    expect(await pixels()).toEqual(area);
+    updateNodes(doc, [{ nodeId: t.id, patch: { kind: "area" } }]);
+    expect(doc.nodes.get(t.id)).toMatchObject({ kind: "area" });
+    expect(await pixels()).toEqual(area);
+  },
+);
 
 it("draws text in the bundled font, inside the bounds node_get reports", async () => {
   const { doc, defaultLayerId } = createDocument({
