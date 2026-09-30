@@ -610,7 +610,7 @@ function area(
    * The lines greedy filling puts in `spans` from unit `u`, its characters from `at` on, where the
    * characters it tried end, and the unit and character it stopped at.
    */
-  const fill = (spans: Span[], u: number, at: number, minBreakWidth: number) => {
+  const fill = (spans: Span[], u: number, at: number, minBreak: number) => {
     const placed: { from: number; to: number; span: Span }[] = [];
     let s = 0;
     let from = at;
@@ -628,7 +628,7 @@ function area(
       }
       // The unit starts span s. A billionth's tolerance keeps Inkscape's `>=` where the widths are equal.
       for (let sp = spans[s]; sp && width(rest, unit.to) > sp.width; sp = spans[++s]) {
-        if (sp.width < minBreakWidth * (1 - 1e-9)) continue;
+        if (sp.width < minBreak * (1 - 1e-9)) continue;
         const piece = prefix(rest, unit.to, sp.width);
         if (piece.end === rest) continue;
         placed.push({ from: rest, to: piece.end, span: sp });

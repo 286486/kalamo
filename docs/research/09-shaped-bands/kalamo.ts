@@ -85,7 +85,7 @@ for (const size of [20, 40, 10]) {
 }
 
 // A unit wider than its span (#221): `probe.mjs`'s BREAKS, each line of each band as a `break` row
-// of `results.tsv` has it, its spans joined, then a `hidden` row for the overflow.
+// of `results.tsv` has it, its spans joined, then an `overflow` row for what does not fit.
 const arm = (w: number) => `M 20 40 L ${20 + w} 40 L ${20 + w} 120 L 320 120 L 320 340 L 20 340 Z`;
 const PATHS: Record<string, string> = {
   U: "M 20 40 L 140 40 L 140 120 L 200 120 L 200 40 L 320 40 L 320 340 L 20 340 Z",
@@ -145,17 +145,29 @@ for (const [frameName, name, content, leadings = [undefined, 30], extra = {}] of
   }
 }
 
-// Drift guard: every case gives Inkscape's rows in `results.tsv` exactly, but `big-tail`, ADR-0084's
-// model differences, so a case edited here or in `probe.mjs` alone fails the run.
+// Drift guard: every case gives Inkscape's rows in `results.tsv` exactly, so a case edited here or in
+// `probe.mjs` alone fails the run. Only ADR-0084's model differences are compared less: in
+// `big-tail` at leading 30 a 40 pt line sits by Illustrator's leading, so each line's characters
+// compare but not where it sits, and `slant big-tail` at Auto sizes its first band whole.
+const compared = (id: string, rows: string) => {
+  if (id === "break\tslant\tbig-tail\tauto") return "";
+  if (!id.endsWith("\tbig-tail\t30")) return rows;
+  return rows
+    .split("\n")
+    .map((row) => {
+      const [, , , , baseline, , text] = row.split("\t");
+      return `${baseline === "overflow" ? "overflow" : "line"}\t${text}`;
+    })
+    .join("\n");
+};
 const inkscape = new Map<string, string>();
 for (const row of readFileSync(new URL("results.tsv", import.meta.url), "utf8").split("\n")) {
   if (!row.startsWith("break\t")) continue;
   const id = row.split("\t").slice(0, 4).join("\t");
   inkscape.set(id, inkscape.has(id) ? `${inkscape.get(id)}\n${row}` : row);
 }
-const drift = [...new Set([...inkscape.keys(), ...kalamo.keys()])].filter(
-  (id) =>
-    !(id.includes("\tbig-tail\t") && inkscape.has(id) && kalamo.has(id)) &&
-    inkscape.get(id) !== kalamo.get(id),
-);
+const drift = [...new Set([...inkscape.keys(), ...kalamo.keys()])].filter((id) => {
+  const [a, b] = [inkscape.get(id), kalamo.get(id)];
+  return a === undefined || b === undefined || compared(id, a) !== compared(id, b);
+});
 if (drift.length) throw new Error(`break cases differ from results.tsv: ${drift.join(", ")}`);
