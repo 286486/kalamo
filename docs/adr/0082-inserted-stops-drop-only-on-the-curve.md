@@ -3,7 +3,7 @@ status: accepted
 date: 2026-09-30
 ---
 
-# Inserted midpoint stops are dropped only while they lie on the curve
+# Inserted stops are dropped only while they lie on the curve
 
 ADR-0081 draws a Midpoint in SVG with extra stops marked `kalamo:simulated="true"`, and import drops every marked stop. Inkscape 1.2.2 adds a stop by duplicating the stop before it, attributes and all (`sp_vector_add_stop`, `sp_gradient_add_stop`). A stop the designer adds after an inserted stop is therefore marked too, and import dropped it with no warning, even after the designer recoloured it (#204). This ADR amends ADR-0081's import rule, its Inkscape section and its option "Recognising inserted stops by colour instead of marks".
 
@@ -16,7 +16,7 @@ Import judges the marked stops span by span. A span runs from one unmarked stop 
   - The offsets are compared before they are rounded to 3 decimals, since the curve is steep next to its stop.
 - **Off the curve.** If any marked stop in the span is further off, the span is kept as SVG draws it: every stop in it becomes an ordinary Color Stop, and the start stop drops its midpoint, since the kept stops already draw it.
 - **Outside the unmarked stops.** A marked stop before the first unmarked stop or after the last one is kept the same way, so the pad colours are not lost.
-- **The warning.** When any marked stop is kept, import warns `MIDPOINT_STOP_KEPT` once per gradient element that holds the stops: "Stops Kalamo inserted to draw a midpoint were kept as Color Stops, since the gradient was edited."
+- **The warning.** When any marked stop is kept, import warns `SIMULATED_STOP_KEPT` once per gradient element that holds the stops: "Stops Kalamo inserted to draw a midpoint were kept as Color Stops, since the gradient was edited."
 - **Midpoints.** Only an unmarked stop followed by an unmarked stop keeps its midpoint. So the last stop drops it, as before, and so does a stop followed by a kept marked stop.
 - **Unmarked copies.** An unmarked stop copied from a real stop with a midpoint (Inkscape copies `kalamo:midpoint` too) is an ordinary stop with that midpoint, clamped. The marked stops after it are judged against its own curve.
 - **Unchanged.** Clamping to 0.13–0.87, 0.5 not stored, a file without marks imports every stop as an ordinary Color Stop, and reflect or repeat unrolling drops midpoints.
@@ -52,5 +52,5 @@ Import judges the marked stops span by span. A span runs from one unmarked stop 
 
 - Recolouring a real stop in Inkscape by more than 2 steps turns its span's inserted stops into real Color Stops. The pixels are kept, but the Gradient panel shows a dozen stops and no midpoint. Illustrator's panel would too for the same SVG, since it holds no midpoint either.
 - Inkscape puts a stop added right after a real stop with a midpoint halfway to the first inserted stop, within 0.001 of the real stop. It reads back at the real stop's offset, so the span between them is empty and the copy's own curve draws the rest. Moved further along, the inserted stops lie on neither curve, and the span imports as drawn, with the warning.
-- The import warning codes gain `MIDPOINT_STOP_KEPT`. `kalamo_doc_open` and `kalamo_svg_import` name it, and ADR-0017's warning list does.
+- The import warning codes gain `SIMULATED_STOP_KEPT`. `kalamo_doc_open` and `kalamo_svg_import` name it, and ADR-0017's warning list does.
 - CONTEXT.md's **Midpoint** entry gives the new rule.

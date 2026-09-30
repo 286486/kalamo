@@ -2688,7 +2688,7 @@ describe("gradients (ADR-0026)", () => {
         const { stops, codes } = read(name);
         expect(stops, name).toEqual(literal(name));
         expect(stops.length, name).toBeGreaterThan(10);
-        expect(codes, name).toEqual(["MIDPOINT_STOP_KEPT"]);
+        expect(codes, name).toEqual(["SIMULATED_STOP_KEPT"]);
       }
       expect(read("a red stop added after an inserted stop").stops).toContainEqual({
         offset: 0.5,
@@ -2706,7 +2706,7 @@ describe("gradients (ADR-0026)", () => {
     it("keeps inserted stops outside the first and last stops, the midpoint between them", () => {
       expect(read("inserted stops copied before the first stop and after the last")).toEqual({
         stops: [{ offset: 0, color: "#0000FF" }, start, end, { offset: 1, color: "#FF0000" }],
-        codes: ["MIDPOINT_STOP_KEPT"],
+        codes: ["SIMULATED_STOP_KEPT"],
       });
     });
 
@@ -2719,7 +2719,7 @@ describe("gradients (ADR-0026)", () => {
 
     it("keeps the span of a copied stop moved off its stop as drawn, the copy included", () => {
       const name = "a stop added after the start stop, then moved";
-      expect(read(name)).toEqual({ stops: literal(name), codes: ["MIDPOINT_STOP_KEPT"] });
+      expect(read(name)).toEqual({ stops: literal(name), codes: ["SIMULATED_STOP_KEPT"] });
       expect(literal(name)).toContainEqual({ offset: 0.3, color: "#010101" });
     });
 
@@ -2728,7 +2728,7 @@ describe("gradients (ADR-0026)", () => {
         const near = `an inserted stop's ${channel} 2 steps off the curve` as const;
         expect(read(near), near).toEqual({ stops: MIDPOINT_STOPS, codes: [] });
         const far = `an inserted stop's ${channel} 3 steps off the curve` as const;
-        expect(read(far), far).toEqual({ stops: literal(far), codes: ["MIDPOINT_STOP_KEPT"] });
+        expect(read(far), far).toEqual({ stops: literal(far), codes: ["SIMULATED_STOP_KEPT"] });
       }
     });
   });

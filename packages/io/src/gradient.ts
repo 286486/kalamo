@@ -85,7 +85,7 @@ export function unroll(
 }
 
 /** A stop as read, and whether export inserted it to draw a midpoint (`kalamo:simulated`). */
-export type ReadStop = ColorStop & { marked: boolean };
+type ReadStop = ColorStop & { marked: boolean };
 
 /** How far, in 8-bit steps, an inserted stop may lie from its midpoint's curve and be dropped. */
 const ON_CURVE = 2;
@@ -98,10 +98,10 @@ const ON_CURVE = 2;
  * marked stop was kept.
  */
 export function unmark(read: ReadStop[]): { stops: ColorStop[]; keptInserted: boolean } {
-  const real = read.flatMap((s, i) => (s.marked ? [] : [i]));
+  const realAt = read.flatMap((s, i) => (s.marked ? [] : [i]));
   const dropped = new Set<ReadStop>();
-  real.slice(0, -1).forEach((i, r) => {
-    const j = real[r + 1] as number;
+  realAt.slice(0, -1).forEach((i, r) => {
+    const j = realAt[r + 1] as number;
     const curve = [read[i], read[j]] as ColorStop[];
     const span = read.slice(i + 1, j);
     if (span.every((m) => colorSteps(m.color, colorAt(curve, m.offset)) <= ON_CURVE)) {

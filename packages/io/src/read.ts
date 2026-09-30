@@ -1451,7 +1451,7 @@ class Reader {
     if (keptInserted) {
       const id = holder?.getAttribute("id") ?? "";
       this.warn(
-        "MIDPOINT_STOP_KEPT",
+        "SIMULATED_STOP_KEPT",
         id,
         "Stops Kalamo inserted to draw a midpoint were kept as Color Stops, since the gradient was edited.",
       );
