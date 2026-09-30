@@ -1,13 +1,15 @@
 /**
- * Where Area Type may break a line (ADR-0064): at spaces, as ADR-0022, and between CJK characters
- * as Pango 1.50's UAX #14 breaks them, so Inkscape 1.2.2 wraps the exported SVG at the same places.
- * `Intl.Segmenter` has no line granularity, so the classes live here.
+ * Where Area Type may break a line: at spaces, as ADR-0022; between CJK characters (ADR-0064); and
+ * after a solidus, a hyphen or a break-after dash in Latin text (ADR-0085). Each follows Pango 1.50's
+ * UAX #14, so Inkscape 1.2.2 wraps the exported SVG at the same places. `Intl.Segmenter` has no line
+ * granularity, so the classes live here.
  */
 
-// ponytail: UAX #14 reduced to three flags and two sign sets, checked against Pango 1.50.12 for
-// every CJK code point beside an ideograph and a Latin letter (ADR-0064). Breaks that need no CJK
-// neighbour (emoji, B2 dashes, ZWSP, Thai) and rules across spaces or number sequences are left out;
-// add the full pair table if Latin text ever wraps other than at spaces.
+// ponytail: UAX #14 reduced to flags and small sets, checked against Pango 1.50.12: every CJK code
+// point beside an ideograph and a Latin letter (ADR-0064), and random Latin strings with `/`, `-` and
+// BA (ADR-0085). Still left out: EX (`x!|y`), IN (`x…|y`), B2 (`a|—|b`), emoji as ID (`x|🙂|y`), ZWSP,
+// IS/CL/CP before PR/OP (`a)|(b`), U+00AD, BA outside ASCII, Latin-1 and General Punctuation, Thai,
+// and rules across spaces. Each needs its own class here; past a few more, the pair table pays off.
 
 /** A character that breaks from its neighbours unless a flag below forbids it: UAX #14's ID, H2/H3, JL/JV/JT, CJ, NS, CL and OP of CJK width. */
 const CJK =
@@ -28,15 +30,44 @@ const PREFIX =
 /** UAX #14's PO: a unit or sign that no line break parts from the ideograph before it. */
 const POSTFIX = /[%¢°‰-‷₧₶₻₾⃀℃℉％￠]/u;
 
+/** Break after: UAX #14's SY and HY, and its BA in ASCII, Latin-1 and General Punctuation but U+00AD and spaces. */
+const BREAK_AFTER = /[-/|\u2010\u2012\u2013\u2027\u2056\u2058-\u205B\u205D\u205E]/u;
+
+/** UAX #14's NU and IS: a solidus inside `NU (NU | SY | IS)*` keeps a number, or a sign after it, whole (LB25). */
+const DIGIT = /\p{Nd}/u;
+const INFIX = /[,.:;]/;
+
+/** UAX #14's HL, which LB21a and LB21b keep beside a hyphen or solidus. */
+const HEBREW = /[\u05D0-\u05EA\u05EF-\u05F2\uFB1D\uFB1F-\uFB28\uFB2A-\uFB4F]/u;
+
+/** UAX #14's CM, which takes its base's class (LB9). */
+const MARK = /\p{M}/u;
+
 const SPACE = /\s/;
 
-/** Whether a line may break between two non-space characters. */
+/** Whether a line may break between two non-space characters, one of them CJK. */
 function breaksBetween(before: string, after: string) {
-  if (!CJK.test(before) && !CJK.test(after)) return false;
   // `$「` and `」%` break; `$字` and `字%` do not.
   if (PREFIX.test(before)) return CJK.test(after) && NO_BREAK_AFTER.test(after);
   if (POSTFIX.test(after)) return CJK.test(before) && NO_BREAK_BEFORE.test(before);
   return !NO_BREAK_BEFORE.test(after) && !NO_BREAK_AFTER.test(before);
+}
+
+/**
+ * Whether a line may break after `sign`, the base of the marks before `next`, where `before` is the
+ * base before it and `inNumber` says `sign` ends `NU (NU | SY | IS)*`.
+ */
+function breaksAfter(sign: string, next: string, before: string, inNumber: boolean) {
+  if (!BREAK_AFTER.test(sign)) return false;
+  // `%` is UAX #14's PO, not a non-starter: Pango breaks `a-|%`.
+  if (next !== "%" && NO_BREAK_BEFORE.test(next)) return false;
+  if (sign === "/") {
+    return (
+      !HEBREW.test(next) &&
+      !(inNumber && (DIGIT.test(next) || PREFIX.test(next) || POSTFIX.test(next)))
+    );
+  }
+  return !HEBREW.test(before) && !(sign === "-" && DIGIT.test(next));
 }
 
 /**
@@ -47,13 +78,25 @@ export function lineBreakUnits(paragraph: string): string[] {
   const units: string[] = [];
   let unit = "";
   let prev = "";
+  let base = "";
+  let beforeBase = "";
+  let inNumber = false;
   for (const ch of paragraph) {
-    if (unit && !SPACE.test(ch) && (SPACE.test(prev) || breaksBetween(prev, ch))) {
+    const breaks =
+      CJK.test(prev) || CJK.test(ch)
+        ? breaksBetween(prev, ch)
+        : breaksAfter(base, ch, beforeBase, inNumber);
+    if (unit && !SPACE.test(ch) && (SPACE.test(prev) || breaks)) {
       units.push(unit);
       unit = "";
     }
     unit += ch;
     prev = ch;
+    if (!MARK.test(ch)) {
+      inNumber = DIGIT.test(ch) || (inNumber && (ch === "/" || INFIX.test(ch)));
+      beforeBase = base;
+      base = ch;
+    }
   }
   if (unit) units.push(unit);
   return units;
