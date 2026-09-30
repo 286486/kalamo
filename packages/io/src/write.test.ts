@@ -1528,15 +1528,16 @@ describe("a space after a character in another bundled family (ADR-0067)", () =>
 });
 
 it.each([
-  ["Point", {}],
-  ["Area", { kind: "area", width: 200, height: 120 }],
+  ["Point", { x: 10, y: 30 }],
+  ["Area", { kind: "area", x: 10, y: 30, width: 200, height: 120 }],
+  ["shaped Area", { kind: "area", frame: "M 10 10 L 210 10 L 210 130 L 110 160 L 10 130 Z" }],
 ])(
   "writes a fallback run's line-height, so Inkscape stacks %s Type by leading alone, and Opens it back (ADR-0080)",
   (_, extra) => {
     const { doc, defaultLayerId: parentId } = newDoc();
     const text = (content: string, more: object) =>
       createNodes(doc, [
-        { type: "text", parentId, x: 10, y: 30, fontSize: 20, content, ...extra, ...more } as never,
+        { type: "text", parentId, fontSize: 20, content, ...extra, ...more } as never,
       ]).nodes[0] as Node;
     const nodes = [
       // Auto: 1.2 less twice what Noto Sans SC's ascent, 0.88, exceeds Source Sans 3's, 1000 / 1326.
