@@ -1,5 +1,5 @@
 import { type APIRequestContext, expect, type Page, test } from "@playwright/test";
-import { call } from "./mcp.ts";
+import { call, listThenGet } from "./mcp.ts";
 
 test.use({ permissions: ["clipboard-read", "clipboard-write"] });
 
@@ -20,24 +20,14 @@ async function children(
   docId: string,
   layerId: string,
 ): Promise<Record<string, unknown>[]> {
-  // A write landing between the two reads, such as a cut's delete, makes node_get refuse ids the
-  // outline just listed. The reads start over, since expect.poll fails at once on a throw.
-  for (let attempt = 0; ; attempt++) {
-    const { nodes } = (
-      await call(request, "kalamo_doc_outline", { docId, rootId: layerId, depth: 1 })
-    ).structuredContent as { nodes: { id: string }[] };
-    if (nodes.length === 0) return [];
-    const got = await call(request, "kalamo_node_get", {
-      docId,
-      nodeIds: nodes.map((n) => n.id),
-      detail: "full",
-    });
-    if (got.structuredContent) {
-      const full = got.structuredContent.nodes as Record<string, unknown>[];
-      return full.map(({ id, index, parentId, ...n }) => n);
-    }
-    if (attempt === 2) throw new Error(`node_get failed: ${got.content?.[0]?.text}`);
-  }
+  const full = await listThenGet<Record<string, unknown>>(
+    request,
+    docId,
+    async () =>
+      (await call(request, "kalamo_doc_outline", { docId, rootId: layerId, depth: 1 }))
+        .structuredContent.nodes,
+  );
+  return full.map(({ id, index, parentId, ...n }) => n);
 }
 
 test("cut, copy and paste move Nodes between Document tabs, ungrouped, as one Transaction each", async ({

@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { call } from "./mcp.ts";
+import { call, listThenGet } from "./mcp.ts";
 
 // #74: the Pen draws Corner paths that commit once, in the current Fill and Stroke.
 test("the Pen draws a triangle, and an open path that undo takes back", async ({
@@ -16,14 +16,14 @@ test("the Pen draws a triangle, and an open path that undo takes back", async ({
   await expect(page.getByTestId("status-bar")).toContainText(/\d+%/);
   const size = page.viewportSize() ?? { width: 0, height: 0 };
   const [cx, cy] = [size.width / 2, size.height / 2];
-  const paths = async () => {
-    const found = (await call(request, "kalamo_node_query", { docId, types: ["path"] }))
-      .structuredContent.nodes as { id: string }[];
-    if (found.length === 0) return [];
-    const nodeIds = found.map((n) => n.id);
-    return (await call(request, "kalamo_node_get", { docId, nodeIds, detail: "full" }))
-      .structuredContent.nodes;
-  };
+  const paths = () =>
+    listThenGet<{ id: string; d: string }>(
+      request,
+      docId,
+      async () =>
+        (await call(request, "kalamo_node_query", { docId, types: ["path"] })).structuredContent
+          .nodes,
+    );
 
   // A red Fill: Fill is the active box, so / sets it to None, then D brings back the default.
   await page.getByRole("button", { name: "Pen Tool (P)" }).click();
@@ -45,10 +45,10 @@ test("the Pen draws a triangle, and an open path that undo takes back", async ({
       strokes: [{ color: "#000000", width: 1 }],
     },
   });
-  expect(triangle.d).toMatch(/^M [\d.]+ [\d.]+ L [\d.]+ [\d.]+ L [\d.]+ [\d.]+ Z$/);
+  expect(triangle?.d).toMatch(/^M [\d.]+ [\d.]+ L [\d.]+ [\d.]+ L [\d.]+ [\d.]+ Z$/);
   const { changes } = (await call(request, "kalamo_doc_changes", { docId, sinceRev: rev }))
     .structuredContent;
-  expect(changes).toMatchObject([{ actor: "user", createdIds: [triangle.id] }]);
+  expect(changes).toMatchObject([{ actor: "user", createdIds: [triangle?.id] }]);
   // The new path is the Selection.
   await expect(page.getByRole("button", { name: "<Path>", exact: true })).toHaveAttribute(
     "aria-pressed",
@@ -63,8 +63,8 @@ test("the Pen draws a triangle, and an open path that undo takes back", async ({
   await page.mouse.click(cx - 20, cy + 40);
   await page.keyboard.press("Enter");
   await expect.poll(async () => (await paths()).length).toBe(2);
-  const open = (await paths()).find((n: { id: string }) => n.id !== triangle.id);
-  expect(open.d).toMatch(/^M [\d.]+ [\d.]+ L [\d.]+ [\d.]+ L [\d.]+ [\d.]+$/);
+  const open = (await paths()).find((n) => n.id !== triangle?.id);
+  expect(open?.d).toMatch(/^M [\d.]+ [\d.]+ L [\d.]+ [\d.]+ L [\d.]+ [\d.]+$/);
 
   // Undo after the commit removes the whole path.
   await page.keyboard.press("Control+z");

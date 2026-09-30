@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { call } from "./mcp.ts";
+import { call, listThenGet } from "./mcp.ts";
 
 // #83: the Pencil draws freehand paths that commit once, closes loops and redraws selected paths.
 test("the Pencil draws a stroke, redraws part of it, and closes a loop with its options", async ({
@@ -20,18 +20,14 @@ test("the Pencil draws a stroke, redraws part of it, and closes a loop with its 
   if (!box) throw new Error("no canvas");
   const at = (x: number, y: number) =>
     [box.x + box.width / 2 + x - 100, box.y + box.height / 2 + y - 50] as const;
-  const paths = async () => {
-    const found = (await call(request, "kalamo_node_query", { docId, types: ["path"] }))
-      .structuredContent.nodes as { id: string }[];
-    if (found.length === 0) return [];
-    const nodeIds = found.map((n) => n.id);
-    return (await call(request, "kalamo_node_get", { docId, nodeIds, detail: "full" }))
-      .structuredContent.nodes as {
-      id: string;
-      d: string;
-      appearance: { fills: unknown[] };
-    }[];
-  };
+  const paths = () =>
+    listThenGet<{ id: string; d: string; appearance: { fills: unknown[] } }>(
+      request,
+      docId,
+      async () =>
+        (await call(request, "kalamo_node_query", { docId, types: ["path"] })).structuredContent
+          .nodes,
+    );
   const changes = async () =>
     (await call(request, "kalamo_doc_changes", { docId, sinceRev: rev })).structuredContent
       .changes as unknown[];
