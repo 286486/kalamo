@@ -989,3 +989,39 @@ it("refuses an unknown id at nodeIds[i] changing nothing, and lists no Node that
   expect(receipt).toMatchObject({ rev: 4, updatedIds: [], createdIds: [], deletedIds: [] });
   expect(await places()).toEqual(before);
 });
+
+it("aligns a text's receipt bounds, node_update moving them and null restoring left (ADR-0077)", async () => {
+  const s = stub("align");
+  const { defaultLayerId } = ok(
+    await s.create({ docId: "align", name: "Doc", artboards, actor: "agent-a" }),
+  );
+  const text = { type: "text", parentId: defaultLayerId, x: 100, y: 50, content: "HHHH" } as const;
+  const created = ok(await s.createNodes([{ ...text, alignment: "center" }], "agent-a"));
+  const centred = created.bounds as { x: number; width: number };
+  expect(centred.x + centred.width / 2).toBeCloseTo(100, 6);
+  const [id = ""] = created.createdIds;
+  const full = async () =>
+    (ok(await s.get([id], "full", "agent-a")).nodes[0] ?? {}) as {
+      alignment?: string;
+      bounds: object;
+    };
+  expect(await full()).toMatchObject({ alignment: "center" });
+
+  const left = ok(await s.createNodes([text], "agent-a"));
+  const leftBounds = left.bounds as { x: number; width: number };
+  expect(leftBounds.x).toBeCloseTo(100, 0);
+  const [leftId = ""] = left.createdIds;
+  expect(ok(await s.get([leftId], "full", "agent-a")).nodes[0]).not.toHaveProperty("alignment");
+
+  ok(await s.updateNodes([{ nodeId: leftId, patch: { alignment: "right" } }], "agent-a"));
+  const right = ok(await s.get([leftId], "full", "agent-a")).nodes[0] as unknown as {
+    geometricBounds: { x: number; width: number };
+  };
+  expect(right.geometricBounds.x + right.geometricBounds.width).toBeCloseTo(100, 0);
+  ok(await s.updateNodes([{ nodeId: leftId, patch: { alignment: null } }], "agent-a"));
+  const restored = ok(await s.get([leftId], "full", "agent-a")).nodes[0] as unknown as {
+    geometricBounds: object;
+  };
+  expect(restored).not.toHaveProperty("alignment");
+  expect(restored.geometricBounds).toEqual(leftBounds);
+});

@@ -831,7 +831,7 @@ describe("updateNodes on a text", () => {
     });
     if (key === "width")
       expect(error.hint).toMatch(
-        /meta, x, y, content, fontFamily, fontStyle, fontSize, leading, tracking, ranges, appearance/,
+        /meta, x, y, content, fontFamily, fontStyle, fontSize, leading, tracking, alignment, ranges, appearance/,
       );
   });
 

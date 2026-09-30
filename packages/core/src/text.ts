@@ -3,7 +3,7 @@ import { lineBreakUnits } from "./line-break.ts";
 import { NOTO_SANS_KR } from "./noto-sans-kr.ts";
 import { NOTO_SANS_SC } from "./noto-sans-sc.ts";
 import { parsePath, type Segment } from "./path.ts";
-import type { CharacterRange, Node, Rect, Warning } from "./schema.ts";
+import type { Alignment, CharacterRange, Node, Rect, Warning } from "./schema.ts";
 import { SOURCE_SANS_3 } from "./source-sans-3.ts";
 
 /** Illustrator's weight names and their CSS `font-weight` (ADR-0028). */
@@ -295,16 +295,22 @@ interface TextLayout extends TextFont {
   fontSize: number;
   leading?: number | undefined;
   tracking?: number | undefined;
+  alignment?: Alignment | undefined;
   ranges?: CharacterRange[] | undefined;
 }
 
-/** One laid-out line: its characters, where its baseline starts, and its first character's index. */
+/**
+ * One laid-out line: its characters, where its baseline starts, aligned (ADR-0077), and its first
+ * character's index.
+ */
 export interface TextLine {
   text: string;
   x: number;
   y: number;
   /** The code-point index in `content` of the line's first character. */
   start: number;
+  /** A justified line's extra space in pt after each space before its last word (ADR-0077). */
+  wordSpacing?: number;
 }
 
 /**
@@ -385,8 +391,45 @@ export function layoutText(text: TextLayout): { lines: TextLine[]; overflow: str
   return { lines, overflow };
 }
 
-/** `layoutText`, with the metrics of every character of `content`. */
+/**
+ * How many of a line's characters come before its trailing spaces and hard return, which hang past
+ * its alignment and are never widened (ADR-0022, ADR-0077).
+ */
+export function hangsFrom(chars: string[]): number {
+  let end = chars.length;
+  while (end > 0 && /\s/.test(chars[end - 1] as string)) end--;
+  return end;
+}
+
+/** `layoutText`, with the metrics of every character of `content`, each line aligned (ADR-0077). */
 function layout(text: TextLayout) {
+  const { lines, overflow, m } = unaligned(text);
+  const { alignment = "left", x } = text;
+  const area = text.kind === "area";
+  if (alignment === "left" || (alignment === "justify" && !area)) return { lines, overflow, m };
+  const width = text.width ?? 0;
+  lines.forEach((l, i) => {
+    // Trailing spaces and the return hang past the edge, as Inkscape and Illustrator align; so does
+    // the tracking after the last character, as SVG's text-anchor measures a line (ADR-0077).
+    const chars = [...l.text];
+    const end = hangsFrom(chars);
+    const w = span(m, l.start, l.start + end);
+    if (alignment === "center") l.x = area ? x + (width - w) / 2 : x - w / 2;
+    else if (alignment === "right") l.x = area ? x + width - w : x - w;
+    else {
+      // A paragraph's last line, a line ending at a hard return or the last shown, stays left, as
+      // does a line with no space between words to widen (Illustrator's Justify with last line
+      // aligned left, word spacing only).
+      const spaces = chars.slice(0, end).filter((c) => c === " ").length;
+      const last = i === lines.length - 1 || chars.at(-1) === "\n";
+      if (!last && spaces > 0 && w < width) l.wordSpacing = (width - w) / spaces;
+    }
+  });
+  return { lines, overflow, m };
+}
+
+/** The lines as ADR-0022 lays them out, each starting at `x`. */
+function unaligned(text: TextLayout) {
   const { x, y, content, fontSize } = text;
   const m = metrics(text);
   // A line's leading, as Illustrator's (ADR-0068): the Node's, or with Auto 120% of the largest
@@ -419,7 +462,7 @@ function layout(text: TextLayout) {
     };
   };
   let start = 0;
-  const line = (t: string, lineY: number) => {
+  const line = (t: string, lineY: number): TextLine => {
     const l = { text: t, x, y: lineY, start };
     start += [...t].length;
     return l;
@@ -500,20 +543,25 @@ export function glyphs(text: TextLayout): Glyph[] {
   const { lines, m } = layout(text);
   return lines.flatMap((line) => {
     let x = line.x;
-    return [...line.text].map((char, k) => {
+    const chars = [...line.text];
+    // A justified line widens each space before its last word (ADR-0077).
+    const words = hangsFrom(chars);
+    return chars.map((char, k) => {
       const { advance, tracking, overrides } = m[line.start + k] as Metric;
       const glyph: Glyph = { char, x, y: line.y, width: advance, ...overrides };
       x += advance + tracking;
+      if (line.wordSpacing && char === " " && k < words) x += line.wordSpacing;
       return glyph;
     });
   });
 }
 
 /**
- * A text's box: Area Type's frame. Point Type's is the union of its lines, each from `x` for its
- * width, at least 0, and from the ascender to the descender (ADR-0013, ADR-0022), and of every
- * character's cell: its advance width from its origin, ascender to descender at its own size, raised
- * by its baseline shift and turned clockwise about the origin by its rotation (ADR-0029, ADR-0068).
+ * A text's box: Area Type's frame. Point Type's is the union of its lines, each from its aligned
+ * start for its width, at least 0, and from the ascender to the descender (ADR-0013, ADR-0022,
+ * ADR-0077), and of every character's cell: its advance width from its origin, ascender to descender
+ * at its own size, raised by its baseline shift and turned clockwise about the origin by its rotation
+ * (ADR-0029, ADR-0068).
  */
 export function textBox(text: TextLayout): Rect {
   if (text.kind === "area") {

@@ -944,8 +944,8 @@ it("reads <text> as one Point Type, its Inkscape lines joined by returns, keepin
     appearance: { fills: [{ color: "#FF0000" }] },
     ranges: [{ start: 3, end: 4, fontStyle: "Bold" }],
   });
-  // Half of "Hi"'s advances at 10 pt: (652 + 246) × 10 / 1000 / 2.
-  expect(centred).toMatchObject({ x: 95.51, content: "Hi" });
+  // x stays the anchor, which the line centres on (ADR-0077).
+  expect(centred).toMatchObject({ x: 100, content: "Hi", alignment: "center" });
   // The bold tspan's face is missing too (ADR-0068).
   expect(file.warnings).toEqual([
     expect.objectContaining({ code: "FONT_MISSING", nodeId: abc?.id }),
@@ -985,16 +985,7 @@ it("reads font-weight and font-style as the style name, inherited as CSS inherit
     "Black",
     "Bold",
   ]);
-  // Half of "Hi"'s Bold advances at 10 pt: (674 + 276) × 10 / 1000 / 2.
-  expect(read.at(-1)).toMatchObject({ x: 95.25 });
-  // In Noto Sans SC, by its own advances: (728 + 275) × 10 / 1000 / 2 (ADR-0063).
-  const noto = parseFile(
-    svg(
-      'width="300" height="300"',
-      '<text x="100" y="100" text-anchor="middle" font-family="Noto Sans SC" font-size="10">Hi</text>',
-    ),
-  );
-  expect(leaves(noto)[0]).toMatchObject({ x: 94.985, fontFamily: "Noto Sans SC" });
+  expect(read.at(-1)).toMatchObject({ x: 100, alignment: "center" });
   // Semibold Italic and Thin are not bundled.
   expect(file.warnings.map((w) => w.message)).toEqual([
     "Source Sans 3 Semibold Italic is not bundled, so it renders in Source Sans 3 Bold Italic; the name is kept.",
@@ -1174,16 +1165,12 @@ describe("tracking and Character Ranges (ADR-0029)", () => {
     });
   });
 
-  it("measures text-anchor with the tracking", () => {
-    expect(
-      text('<text x="100" text-anchor="middle" font-size="10" letter-spacing="1">Hi</text>'),
-    ).toMatchObject({ x: 95.01 });
-    // And with a range's: H tracks 3 of 10 pt.
+  it("keeps a tracked text's x at its anchor, the layout aligning about it (ADR-0077)", () => {
     expect(
       text(
         '<text x="100" text-anchor="middle" font-size="10" letter-spacing="1"><tspan letter-spacing="3">H</tspan>i</text>',
       ),
-    ).toMatchObject({ x: 94.01 });
+    ).toMatchObject({ x: 100, alignment: "center", tracking: 100 });
   });
 
   it.each([
@@ -1351,16 +1338,8 @@ it("warns when Area Type cannot flow as written, and keeps its text", () => {
     ),
   );
   const [circle, missing, centred, area] = leaves(file);
-  expect(area).toMatchObject({ kind: "area", x: 0, y: 0, content: "centred" });
-  // Warnings come once per kind, so the centred Area Type is checked on its own.
-  const alone = parseFile(
-    svg(
-      "",
-      '<defs><rect id="r" width="50" height="50"/></defs><text style="shape-inside:url(#r);text-anchor:end">a</text>',
-    ),
-  );
-  expect(alone.warnings).toEqual([expect.objectContaining({ code: "UNSUPPORTED_ATTRIBUTE" })]);
-  expect(alone.warnings[0]?.message).toMatch(/^text-anchor/);
+  // Without text-align, Area Type aligns by text-anchor (ADR-0077).
+  expect(area).toMatchObject({ kind: "area", x: 0, y: 0, content: "centred", alignment: "center" });
   expect(circle).toMatchObject({
     kind: "area",
     x: 10,
@@ -1370,10 +1349,9 @@ it("warns when Area Type cannot flow as written, and keeps its text", () => {
     content: "in a circle",
   });
   expect(missing).toMatchObject({ kind: "point", x: 5, y: 5, content: "a\nb" });
-  expect(centred).toMatchObject({ kind: "point", content: "a\nb" });
+  expect(centred).toMatchObject({ kind: "point", x: 50, content: "a\nb", alignment: "center" });
   expect(file.warnings.map((w) => [w.code, w.message.split(" ")[0]])).toEqual([
     ["UNSUPPORTED_ATTRIBUTE", "shape-inside"],
-    ["UNSUPPORTED_ATTRIBUTE", "text-anchor"],
   ]);
 });
 
@@ -3341,5 +3319,113 @@ describe("the former name's namespace, read beside Kalamo's forever (ADR-0069)",
       ["new"],
       ["old"],
     ]);
+  });
+});
+
+describe("alignment (ADR-0077)", () => {
+  /** What Inkscape 1.2.2 saves for a two-line Point Type at x 200 aligned by `style`. */
+  const inkscapePoint = (style: string) =>
+    `<text x="200" y="50" style="font-family:'Source Sans 3';font-size:12px;line-height:1.2;font-kerning:none;${style}" xml:space="preserve" id="text6"><tspan sodipodi:role="line" x="200" y="50" id="tspan2">Hello world</tspan><tspan sodipodi:role="line" x="200" y="64.4" id="tspan4">Hi</tspan></text>`;
+  /** What it saves for flowed text in a 150 × 200 frame, positioned tspans and all. */
+  const inkscapeArea = (align: string) =>
+    `<defs><rect id="fr" x="20" y="20" width="150" height="200"/></defs><text style="shape-inside:url(#fr);white-space:pre;font-family:'Source Sans 3';font-size:12px;line-height:1.2;font-kerning:none;text-align:${align}" xml:space="preserve" id="text9"><tspan x="27.72197" y="30.249774" id="tspan22">The quick brown fox jumps </tspan><tspan x="25.885948" y="44.649776" id="tspan24">over the lazy dog.</tspan></text>`;
+  const one = (body: string) => {
+    const file = parseFile(svg('width="400" height="300"', body));
+    return { node: leaves(file)[0] as unknown as Record<string, unknown>, warnings: file.warnings };
+  };
+
+  it.each([
+    ["text-align:center;text-anchor:middle", "center"],
+    ["text-align:end;text-anchor:end", "right"],
+    ["text-align:justify;text-anchor:start", "justify"],
+  ])(
+    "reads Inkscape's multi-line Point Type with %s as %s, x at the anchor",
+    (style, alignment) => {
+      const { node, warnings } = one(inkscapePoint(style));
+      expect(node).toMatchObject({
+        kind: "point",
+        x: 200,
+        y: 50,
+        content: "Hello world\nHi",
+        alignment,
+      });
+      expect(warnings).toEqual([]);
+    },
+  );
+
+  it("reads a start anchor as left, which is not stored", () => {
+    expect(one(inkscapePoint("text-align:start;text-anchor:start")).node).not.toHaveProperty(
+      "alignment",
+    );
+  });
+
+  it.each([
+    ["center", "center"],
+    ["end", "right"],
+    ["right", "right"],
+    ["justify", "justify"],
+  ])(
+    "reads Inkscape's Area Type with text-align %s as %s, the frame as written",
+    (align, alignment) => {
+      const { node, warnings } = one(inkscapeArea(align));
+      expect(node).toMatchObject({
+        kind: "area",
+        x: 20,
+        y: 20,
+        width: 150,
+        height: 200,
+        alignment,
+      });
+      expect(warnings).toEqual([]);
+    },
+  );
+
+  it("takes the first line's alignment when the lines disagree, warning once", () => {
+    const { node, warnings } = one(
+      '<text x="50" y="50" text-anchor="middle"><tspan sodipodi:role="line">a</tspan><tspan sodipodi:role="line" text-anchor="end">b</tspan><tspan sodipodi:role="line" style="text-anchor:start">c</tspan></text>',
+    );
+    expect(node).toMatchObject({ x: 50, content: "a\nb\nc", alignment: "center" });
+    expect(warnings).toEqual([expect.objectContaining({ code: "UNSUPPORTED_ATTRIBUTE" })]);
+    expect(warnings[0]?.message).toMatch(/^text-anchor differs between the lines/);
+    const justified = one(
+      '<text x="50" y="50" style="text-align:justify"><tspan sodipodi:role="line">a</tspan><tspan sodipodi:role="line" style="text-align:start">b</tspan></text>',
+    );
+    expect(justified.node).toMatchObject({ alignment: "justify" });
+    expect(justified.warnings[0]?.message).toMatch(/^text-align differs/);
+  });
+
+  it("re-imports each alignment of both kinds from a Kalamo export to the same Node", () => {
+    const { doc, defaultLayerId: parentId } = createDocument({
+      id: "d",
+      name: "Doc",
+      artboards: [{ width: 400, height: 300 }],
+    });
+    const alignments = ["center", "right", "justify"] as const;
+    const nodes = createNodes(doc, [
+      ...alignments.map((alignment, i) => ({
+        type: "text" as const,
+        parentId,
+        x: 200,
+        y: 30 + i * 40,
+        content: "Hello\nHi there",
+        alignment,
+      })),
+      ...alignments.map((alignment, i) => ({
+        type: "text" as const,
+        kind: "area" as const,
+        parentId,
+        x: 20 + i * 120,
+        y: 150,
+        width: 100,
+        height: 100,
+        content: "The quick brown fox jumps over the lazy dog.\nAgain the fox.",
+        alignment,
+      })),
+    ]).nodes;
+    const file = parseFile(toSvg(doc));
+    expect(file.warnings).toEqual([]);
+    const read = leaves(file);
+    const strip = ({ index: _, ...n }: Record<string, unknown>) => n;
+    expect(read.map((n) => strip(n as never))).toEqual(nodes.map((n) => strip(n as never)));
   });
 });

@@ -9,14 +9,14 @@ ADR-0013 kept Point Type to one line, and ADR-0017's importer split every Inksca
 
 ## The model
 
-- **Point Type** (`kind: "point"`) keeps its fields. `content` may hold hard returns, `\n`, and nothing else breaks a line. Tabs, `\r` and the other control characters are still refused, with a hint to use `\n`. Line *i* starts at `x`, its baseline at `y + i · leading`. Amended by ADR-0068: each line is its own leading below the one before, which differs only when Character Ranges set sizes.
+- **Point Type** (`kind: "point"`) keeps its fields. `content` may hold hard returns, `\n`, and nothing else breaks a line. Tabs, `\r` and the other control characters are still refused, with a hint to use `\n`. Line *i* starts at `x`, its baseline at `y + i · leading`. Amended by ADR-0077: each line starts where its alignment puts it about `x`. Amended by ADR-0068: each line is its own leading below the one before, which differs only when Character Ranges set sizes.
 - **Area Type** (`kind: "area"`) adds `width` and `height`: `x, y, width, height` is its frame, a rectangle in the Node's own coordinates, as Illustrator's Type tool drags one. Area Type in any closed path waits for its own issue. Its geometric bounds are the frame, as Illustrator reports an area type object's.
 - **Leading** (`leading`, pt) is the distance between baselines, on both kinds. Absent means Auto, 120 % of `fontSize`, which follows the font size as Illustrator's Auto leading does. Amended by ADR-0068: Auto is 120 % of the largest size on each line, the line's own leading. `node_update` with `leading: null` returns to Auto. Nodes and files that have no `leading` stay valid and need no migration.
 - **Kind is fixed.** `node_update` cannot turn one kind into the other; Illustrator's Convert to Area Type / Point Type is later work. It can write `width` and `height` of Area Type only.
 
 ## One layout, in `core`
 
-One function in `core/text.ts` lays out a text Node into lines, each a string with its baseline start. `bounds`, the Canvas2D renderer and the SVG writer all read it, as they read `textBox` today (ADR-0013). Area Type follows what Inkscape 1.2.2 draws, measured headless on the bundled font, so a file looks the same in both:
+One function in `core/text.ts` lays out a text Node into lines, each a string with its baseline start. Amended by ADR-0077: that start is aligned, and a justified line carries its widened word spacing. `bounds`, the Canvas2D renderer and the SVG writer all read it, as they read `textBox` today (ADR-0013). Area Type follows what Inkscape 1.2.2 draws, measured headless on the bundled font, so a file looks the same in both:
 
 - **First baseline** at `y + (leading − fontSize) / 2 + fontSize · ascender / (ascender − descender)`: CSS half-leading with the ascender and descender scaled to sum to one em, which is what Inkscape does. Illustrator's default First Baseline (Ascent) sits higher; matching the editor of the round trip wins. ADR-0064 stacks a line holding CJK by the fonts it draws in, which lowers it.
 - **Wrapping** is greedy at spaces: a line takes words while the advance sum without its trailing spaces fits `width`. The spaces after the last word stay on the line and do not count, and a hard return ends a paragraph. On the sample text these breaks equal Inkscape's. ADR-0064 adds breaks between CJK characters, and stacks a line that holds CJK by the fonts it draws in.
@@ -35,7 +35,7 @@ resvg ignores `shape-inside` and draws the tspans where they are written, so `re
 
 Import:
 
-- A `<text>` with `sodipodi:role="line"` tspans is one Point Type: the lines joined by `\n`, empty lines kept; `x, y` and the style from the first line. `text-anchor` middle or end moves `x` by the first line's width, and on more than one line warns `UNSUPPORTED_ATTRIBUTE` `text-anchor`, since the lines are left-aligned until paragraph alignment (F-TEXT-03).
+- A `<text>` with `sodipodi:role="line"` tspans is one Point Type: the lines joined by `\n`, empty lines kept; `x, y` and the style from the first line. Amended by ADR-0077: `text-anchor` and `text-align` are read as the text's `alignment`, `x` stays the anchor, and nothing warns `text-anchor`.
 - A `<text>` whose `shape-inside` names a `<rect>` with no transform of its own is Area Type: the frame is the rect, mapped by the text's matrix like any leaf's parameters, and `content` is the element's text content, with returns kept under `white-space: pre`, `pre-wrap` or `pre-line`. Tspan positions are ignored; the layout is recomputed. Any other shape is flowed in its bounding box with `UNSUPPORTED_ATTRIBUTE` `shape-inside`; a missing reference imports Point Type with the same warning.
 - `line-height` becomes `leading`: unitless `1.2` or `normal` or none is Auto, another unitless or percentage value is that multiple of `fontSize`, a length converts to pt. A baked scale scales `leading`, `width` and `height` with `fontSize`.
 

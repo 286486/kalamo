@@ -520,8 +520,9 @@ function pen(ctx: Canvas2D, s: Stroke) {
 }
 
 /**
- * Fills or strokes a text's shown lines, so overflowing Area Type is not drawn (ADR-0022). With
- * tracking or ranges each character paints on its own at its origin, raised by its baseline shift
+ * Fills or strokes a text's shown lines, each from its aligned start, so overflowing Area Type is
+ * not drawn (ADR-0022, ADR-0077). With tracking, ranges or a justified line each character paints on
+ * its own at its origin, raised by its baseline shift
  * and turned about the origin by its rotation, in its range's fill or stroke when `paint` is the
  * Fill's or the Stroke's style, and in its own face and size (ADR-0029, ADR-0068). A character no
  * bundled face has paints as the first face's `.notdef` box at its origin, traced, since `fillText`
@@ -536,10 +537,12 @@ function text(ctx: Canvas2D, n: TextNode, how: "fill" | "stroke", paint?: unknow
     if (how === "fill") ctx.fill();
     else ctx.stroke();
   };
-  if (!n.tracking && !n.ranges) {
+  const { lines } = layoutText(n);
+  // A justified line's widened spaces place each character on its own too (ADR-0077).
+  if (!n.tracking && !n.ranges && !lines.some((l) => l.wordSpacing)) {
     let placed: Glyph[] | undefined;
     let k = 0;
-    for (const l of layoutText(n).lines) {
+    for (const l of lines) {
       const chars = [...l.text];
       if (chars.every((ch) => hasGlyph(n, ch))) draw(l.text, l.x, l.y);
       else {

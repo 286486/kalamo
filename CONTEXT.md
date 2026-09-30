@@ -100,6 +100,10 @@ _Avoid_: Font weight、Bold flag、Typeface
 Text 相邻两行基线之间的距离，单位 pt，属于下面那一行。未设置即 Auto，为该行最大字号的 120%（与 Illustrator 一致，ADR-0068），随字号变化；设置后每行固定。
 _Avoid_: Line height、Line spacing
 
+**Alignment（对齐）**：
+Text 的段落属性 `alignment`，与 Illustrator 段落面板的对齐一致：`left`（缺省，不存储）、`center`、`right`、`justify`（末行左对齐的两端对齐），一个 Text 只有一个值。Point Type 以锚点 `x` 对齐每一行；Area Type 在框内对齐每一行，`justify` 只加宽词间空格，把除段落末行外的每一行撑满框宽。行宽不含行尾空格、硬回车和最后一个字符后的字符间距（ADR-0077）。
+_Avoid_: text-anchor、text-align、Justification（Justification 是两端对齐的间距设置）
+
 **Tracking（字符间距）**：
 Text 的字符属性 `tracking`，每个字符后增加的间距，单位 1/1000 em，与 Illustrator 字符面板一致，可为负，缺省 0。每行最后一个字符后的间距不计入行宽（ADR-0029）。
 _Avoid_: Letter spacing、Character spacing、Kerning（Kerning 是字符对之间的调整）

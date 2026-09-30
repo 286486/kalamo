@@ -152,7 +152,9 @@ export function createNodes(
       }
       node = container;
     } else if (input.type === "text") {
-      const { ranges, ...parsed } = TextShape.superRefine(textFrame).parse(input);
+      const { ranges, alignment, ...rest } = TextShape.superRefine(textFrame).parse(input);
+      // Left is the default and is not stored (ADR-0077).
+      const parsed = { ...rest, ...(alignment && alignment !== "left" && { alignment }) };
       const canonical = canonicalRanges(ranges, `${path}.ranges`, parsed);
       // Measured with its ranges, so a default gradient spans the bounds they give.
       const text = { ...parsed, ...(canonical && { ranges: canonical }) };

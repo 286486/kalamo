@@ -115,6 +115,22 @@ describe("write tools pass the write and its options apart", () => {
     expect(service.createNodes.mock.calls[1]?.[2]).toEqual({ partial: false });
   });
 
+  it("node_create and node_update: a text's alignment arrives as sent, null included (ADR-0077)", async () => {
+    const { service, call } = await harness({
+      createNodes: async () => receipt,
+      updateNodes: async () => receipt,
+    });
+    const text = { type: "text", parentId: "p", x: 0, y: 0, content: "Hi" };
+    await call("kalamo_node_create", { docId: "d", nodes: [{ ...text, alignment: "center" }] });
+    expect(service.createNodes.mock.calls[0]?.[1]).toMatchObject([{ alignment: "center" }]);
+    const updates = [
+      { nodeId: "t", patch: { alignment: "right" } },
+      { nodeId: "t", patch: { alignment: null } },
+    ];
+    await call("kalamo_node_update", { docId: "d", updates });
+    expect(service.updateNodes.mock.calls[0]?.[1]).toEqual(updates);
+  });
+
   it("node_create: a linked image arrives with file, and src only when sent (ADR-0042)", async () => {
     const { service, call } = await harness({ createNodes: async () => receipt });
     const frame = { parentId: "p", x: 0, y: 0, width: 4, height: 2 };
@@ -622,6 +638,13 @@ describe("reads pass their filters and txId, and bad arguments never reach the s
       "nodeIds",
       "kalamo_node_transform needs nodeIds.",
       "nodeIds is required.",
+    ],
+    [
+      "kalamo_node_create",
+      { nodes: [{ type: "text", parentId: "p", x: 0, y: 0, content: "Hi", alignment: "middle" }] },
+      "nodes[0].alignment",
+      expect.stringContaining("alignment"),
+      expect.any(String),
     ],
     [
       "kalamo_mask_make",
