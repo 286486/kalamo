@@ -31,7 +31,7 @@ import {
   type Rect,
   type ShapeNode,
 } from "./schema.ts";
-import { type Glyph, glyphs } from "./text.ts";
+import { type Glyph, glyphs, layoutText } from "./text.ts";
 
 const newDoc = () => {
   const { doc, defaultLayerId } = createDocument({
@@ -2217,6 +2217,74 @@ describe("Convert to Area Type and Point Type (ADR-0079)", () => {
     expect(a.height).toBeCloseTo(14.4 + 36 + 14.4);
   });
 
+  it.each([
+    ["first", "ab\ncd\nef", [{ start: 0, end: 2, fontSize: 30 }], undefined],
+    ["last", "ab\ncd", [{ start: 3, end: 5, fontSize: 30 }], undefined],
+    ["last, under a set leading", "ab\ncd\nef", [{ start: 6, end: 8, fontSize: 60 }], 10],
+    ["middle, with small lines after", "ab\ncd\nef\ngh", [{ start: 3, end: 5, fontSize: 90 }], 10],
+  ])(
+    "Point to Area holds a larger size on the %s line, and converts back unchanged",
+    (_, content, ranges, leading) => {
+      const { doc, t } = make({ content, ranges, leading });
+      const { warnings } = convert(doc, t.id, { kind: "area" });
+      const a = doc.nodes.get(t.id) as Text;
+      expect(warnings).toEqual([]);
+      expect(layoutText(a).overflow).toBe("");
+      expectSame(a, t);
+      expect(convert(doc, t.id, { kind: "point" }).warnings).toEqual([]);
+      expect(doc.nodes.get(t.id)).toEqual(t);
+    },
+  );
+
+  it("Point to Area rounds the width up past a floating-point quotient below it", () => {
+    const { doc, t } = make({
+      content: "MMMM",
+      alignment: "right",
+      leading: 10,
+      ranges: [{ start: 0, end: 4, tracking: 200 }],
+    });
+    convert(doc, t.id, { kind: "area" });
+    const a = doc.nodes.get(t.id) as Text;
+    expect(layoutText(a)).toMatchObject({ lines: [{ text: "MMMM" }], overflow: "" });
+    expectSame(a, t);
+  });
+
+  it("Point to Area of CJK in a fallback family keeps x and moves later lines only down", () => {
+    // ADR-0079's contract: a rectangle frame stacks CJK line boxes as Inkscape does (ADR-0064),
+    // which Point Type does not, and converting back restores the Node.
+    const content = "Hello 中文 world\nsecond 日本語 line\nlast";
+    const { doc, t } = make({ content, ranges: [{ start: 6, end: 8, fontSize: 40 }] });
+    convert(doc, t.id, { kind: "area" });
+    const a = doc.nodes.get(t.id) as Text;
+    expect(layoutText(a).overflow).toBe("");
+    const [before, after] = [drawn(t), drawn(a)];
+    expect(after.map((g) => g.char)).toEqual(before.map((g) => g.char));
+    after.forEach((g, i) => {
+      const was = before[i] as Glyph;
+      expect(g.x).toBeCloseTo(was.x, 3);
+      if (was.y === before[0]?.y) expect(g.y).toBeCloseTo(was.y, 3);
+      else expect(g.y).toBeGreaterThan(was.y);
+    });
+    expect(convert(doc, t.id, { kind: "point" }).warnings).toEqual([]);
+    expect(doc.nodes.get(t.id)).toEqual(t);
+  });
+
+  it("a trailing hard return survives Point to Area and back", () => {
+    const { doc, t } = make({ content: "ab\n" });
+    convert(doc, t.id, { kind: "area" });
+    expect(convert(doc, t.id, { kind: "point" }).warnings).toEqual([]);
+    expect(doc.nodes.get(t.id)).toEqual(t);
+  });
+
+  it("Area to Point deletes the hard return before a paragraph of overflow, counting it", () => {
+    const { doc, t } = make({ kind: "area", width: 60, height: 16, content: "ab\ncd" });
+    const { warnings } = convert(doc, t.id, { kind: "point" });
+    expect(doc.nodes.get(t.id)).toMatchObject({ kind: "point", content: "ab" });
+    expect(warnings).toEqual([
+      { code: "TEXT_DISCARDED", nodeId: t.id, message: expect.stringMatching(/^3 characters/) },
+    ]);
+  });
+
   it("Point to Area of empty or all-space lines is fontSize wide", () => {
     const { doc, t } = make({ content: "\n  \n", fontSize: 20 });
     convert(doc, t.id, { kind: "area" });
@@ -2348,6 +2416,13 @@ describe("Convert to Area Type and Point Type (ADR-0079)", () => {
       path: "updates[0].patch.width",
       hint: expect.stringMatching(/Convert first/),
     });
+    // The same kind too, so the rule does not depend on the Node's kind.
+    expect(errorOf(() => convert(doc, t.id, { kind: "area", content: "x" }))).toMatchObject({
+      code: "INVALID_PATCH",
+      path: "updates[0].patch.content",
+      hint: expect.stringMatching(/Convert first/),
+    });
+    expect(doc.nodes.get(t.id)).toEqual(t);
     convert(doc, t.id, { kind: "area" });
     expect(doc.nodes.get(t.id)).toEqual(t);
     convert(doc, t.id, { kind: "point", name: "Body", opacity: 0.5 });

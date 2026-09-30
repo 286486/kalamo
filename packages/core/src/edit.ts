@@ -263,18 +263,19 @@ function writableSchema(node: Node) {
  */
 function converted(
   node: Extract<Node, { type: "text" }>,
-  invalid: (key: string, message: string, hint: string) => KalamoError,
+  at: string,
 ): { node: Node; warnings: Warning[] } {
   if (node.kind === "point") {
     return { node: { ...node, kind: "area", ...areaFrame(node) }, warnings: [] };
   }
   const point = pointType(node);
   if (!point) {
-    throw invalid(
-      ".kind",
-      "No line of this Area Type shows, so Point Type would hold no text.",
-      "Enlarge the frame until a line shows, then convert.",
-    );
+    throw new KalamoError({
+      code: "INVALID_PATCH",
+      message: "No line of this Area Type shows, so Point Type would hold no text.",
+      hint: "Enlarge the frame until a line shows, then convert.",
+      path: `${at}.kind`,
+    });
   }
   const { discarded, ...layout } = point;
   const warnings = discarded
@@ -306,19 +307,18 @@ function patched(doc: Document, raw: UpdateInput, i: number): { node: Node; warn
     if (kind !== "point" && kind !== "area") {
       throw invalid(".kind", "kind is point or area.", "Send the kind to convert the text to.");
     }
-    if (kind !== node.kind) {
-      const layout = Object.keys(patch).find(
-        (k) => k !== "type" && Object.hasOwn(TextShape.shape, k),
+    // Whatever the kind is now, so the rule does not depend on the Node (#57).
+    const layout = Object.keys(patch).find(
+      (k) => k !== "type" && Object.hasOwn(TextShape.shape, k),
+    );
+    if (layout) {
+      throw invalid(
+        `.${layout}`,
+        `${layout} cannot change in a patch with kind.`,
+        "Convert first, with kind alone or with name, visible, locked, opacity, blendMode, appearance, tags or meta, then edit the layout in a second update.",
       );
-      if (layout) {
-        throw invalid(
-          `.${layout}`,
-          `${layout} cannot change in the patch that converts the text.`,
-          "Convert first, with kind alone or with name, visible, locked, opacity, blendMode, appearance, tags or meta, then edit the layout in a second update.",
-        );
-      }
-      ({ node, warnings } = converted(node, invalid));
     }
+    if (kind !== node.kind) ({ node, warnings } = converted(node, at));
   }
   const schema = writableSchema(node);
   for (const key of Object.keys(patch)) {

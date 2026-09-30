@@ -3,7 +3,7 @@ import { edgesOf, frameSpans, type Span } from "./frame.ts";
 import { lineBreakUnits } from "./line-break.ts";
 import { NOTO_SANS_KR } from "./noto-sans-kr.ts";
 import { NOTO_SANS_SC } from "./noto-sans-sc.ts";
-import { parsePath, type Segment } from "./path.ts";
+import { parsePath, round3, type Segment } from "./path.ts";
 import type { Alignment, CharacterRange, Node, Rect, Warning } from "./schema.ts";
 import { SOURCE_SANS_3 } from "./source-sans-3.ts";
 
@@ -404,6 +404,9 @@ export function hangsFrom(chars: string[], from = 0, to = chars.length): number 
   return to;
 }
 
+/** Where a line's aligned start sits from its anchor, in its widths (ADR-0077). */
+const ALIGN = { left: 0, center: 0.5, right: 1, justify: 0 } as const;
+
 /** `layoutText`, with the metrics of every character of `content`, each line aligned (ADR-0077). */
 function layout(text: TextLayout) {
   const out = unaligned(text);
@@ -419,8 +422,8 @@ function layout(text: TextLayout) {
     const chars = [...l.text];
     const end = hangsFrom(chars);
     const w = span(m, l.start, l.start + end);
-    if (alignment === "center") l.x = area ? x + (width - w) / 2 : x - w / 2;
-    else if (alignment === "right") l.x = area ? x + width - w : x - w;
+    const k = ALIGN[alignment];
+    if (alignment !== "justify") l.x = area ? x + (width - w) * k : x - w * k;
     else {
       // A paragraph's last line, a line ending at a hard return or the last shown, stays left, as
       // does a line with no space between words to widen (Illustrator's Justify with last line
@@ -469,6 +472,25 @@ function lineBoxes(text: TextLayout, m: Metric[]) {
   return { first, lineBox };
 }
 
+type LineBox = ReturnType<ReturnType<typeof lineBoxes>["lineBox"]>;
+type Stacked = { baseline: number; drop: number; needs: number; leading: number };
+
+/**
+ * Where Area Type puts a line below `prev`, from the frame's top, and the frame height it needs to
+ * show. ponytail: Inkscape's thresholds, measured rather than specified: the first line shows while
+ * 90% of its height lies in the frame; a later one while 90% of its leading does, measured from its
+ * top, or all of it if the line rises above the strut. The first baseline is one line-box ascent
+ * below the frame's top; each later one is the line's leading below the one before, and what CJK
+ * adds (ADR-0064, ADR-0068).
+ */
+function stack(prev: Stacked | undefined, b: LineBox): Stacked {
+  const baseline = prev ? prev.baseline + prev.drop + b.leading + b.rise : b.ascent;
+  let shows = 0.9 * b.leading;
+  if (!prev) shows = 0.9 * (b.ascent + b.descent);
+  else if (b.rise > 0) shows = b.leading;
+  return { baseline, drop: b.drop, needs: baseline - b.ascent + shows, leading: b.leading };
+}
+
 /** The lines as ADR-0022 lays them out, each starting at `x`. */
 function unaligned(text: TextLayout) {
   const { x, y, content, fontSize } = text;
@@ -503,21 +525,13 @@ function unaligned(text: TextLayout) {
   const fits = (from: number, to: number) => span(m, from, hangsFrom(chars, from, to)) <= width;
   const lines: TextLine[] = [];
   let used = 0;
-  let prev: { baseline: number; drop: number } | undefined;
-  // ponytail: Inkscape's thresholds, measured rather than specified: the first line shows while 90%
-  // of its height lies in the frame; a later one while 90% of its leading does, measured from its
-  // top, or all of it if the line rises above the strut; and a unit wider than the frame overflows
-  // with all that follows. The first baseline is one line-box ascent below the frame's top; each
-  // later one is the line's leading below the one before, and what CJK adds (ADR-0064, ADR-0068).
+  let prev: Stacked | undefined;
+  // A unit wider than the frame overflows with all that follows.
   const push = (l: string, from: number, to: number) => {
-    const b = lineBox(from, to);
-    const baseline = prev ? prev.baseline + prev.drop + b.leading + b.rise : y + b.ascent;
-    let shows = 0.9 * b.leading;
-    if (!prev) shows = 0.9 * (b.ascent + b.descent);
-    else if (b.rise > 0) shows = b.leading;
-    if (baseline - b.ascent - y + shows > height + 1e-9 * b.leading) return false;
-    lines.push(line(l, baseline));
-    prev = { baseline, drop: b.drop };
+    const next = stack(prev, lineBox(from, to));
+    if (next.needs > height + 1e-9 * next.leading) return false;
+    lines.push(line(l, y + next.baseline));
+    prev = next;
     used += l.length;
     return true;
   };
@@ -688,16 +702,19 @@ export function textBox(text: TextLayout): Rect {
   return { x: left, y: top, width: right - left, height: bottom - top };
 }
 
-/** Where a line's aligned start sits from its anchor, in its widths (ADR-0077). */
-const ALIGN = { left: 0, center: 0.5, right: 1, justify: 0 } as const;
-/** A converted text's numbers keep 3 decimals, as the file does (REQUIREMENTS §6.5). */
-const r3 = (n: number) => Math.round(n * 1000) / 1000 || 0;
+/** Rounded up to the 3 decimals the file keeps (REQUIREMENTS §6.5), so a frame never shrinks. */
+function up3(n: number) {
+  // Dividing by 1000 can land just below n.
+  const up = Math.ceil(n * 1000) / 1000;
+  return up >= n ? up : round3(up + 0.001);
+}
 
 /**
  * Convert to Area Type (ADR-0079): the rectangle frame Point Type's lines lay out in unchanged. It
  * is as wide as the widest line and each unit or prefix greedy wrapping checks, so nothing wraps,
- * and as tall as the line boxes, so nothing overflows; its first baseline is the old one, to the
- * 3 decimals it keeps.
+ * and reaches the lowest line box's bottom as Area Type stacks them, so nothing overflows; its
+ * first baseline is the old one, to the 3 decimals it keeps. Area Type lays out no line for an
+ * empty last paragraph, so its height does not count.
  */
 export function areaFrame(text: TextLayout): Rect {
   const { lines, m } = layout({ ...text, kind: "point" });
@@ -705,32 +722,36 @@ export function areaFrame(text: TextLayout): Rect {
   const { lineBox } = lineBoxes(text, m);
   const width = (from: number, to: number) => span(m, from, hangsFrom(chars, from, to));
   let [widest, height] = [0, 0];
-  let ascent: number | undefined;
-  for (const l of lines) {
+  let prev: Stacked | undefined;
+  let ascent = 0;
+  lines.forEach((l, i) => {
     let to = l.start;
     for (const unit of lineBreakUnits(l.text)) {
       const n = [...unit].length;
       widest = Math.max(widest, width(l.start, to + n), width(to, to + n));
       to += n;
     }
+    if (i && i === lines.length - 1 && !l.text) return;
     const b = lineBox(l.start, Math.min(to + 1, m.length));
-    height += b.leading + b.rise + b.drop;
-    ascent ??= b.ascent;
-  }
-  // Every line empty or all spaces has no width; a frame needs one. Rounded up, so none wraps.
-  widest = Math.ceil((widest || text.fontSize) * 1000) / 1000;
+    prev = stack(prev, b);
+    ascent ||= prev.baseline;
+    // The line box's bottom: at least what the line needs to show, and lines × leading at one size.
+    height = Math.max(height, prev.baseline + b.descent);
+  });
+  // Every line empty or all spaces has no width; a frame needs one.
+  widest = up3(widest || text.fontSize);
   return {
-    x: r3(text.x - widest * ALIGN[text.alignment ?? "left"]),
-    y: r3(text.y - (ascent as number)),
+    x: round3(text.x - widest * ALIGN[text.alignment ?? "left"]),
+    y: round3(text.y - ascent),
     width: widest,
-    height: r3(height),
+    height: up3(height),
   };
 }
 
 /**
  * Convert to Point Type (ADR-0079): Area Type's shown lines, each soft wrap a hard return in place
  * of the line's last whitespace, or inserted after a CJK break, which shifts the ranges after it.
- * The overflow is discarded, and so is the last shown line's hard return; `discarded` counts both.
+ * The overflow is discarded, and so is the hard return before it; `discarded` counts both.
  * The first line keeps its baseline and aligned start. Undefined when no line shows.
  */
 export function pointType(
@@ -738,7 +759,7 @@ export function pointType(
 ):
   | { x: number; y: number; content: string; ranges: CharacterRange[]; discarded: number }
   | undefined {
-  const { lines, m } = layout(text);
+  const { lines, overflow, m } = layout(text);
   const head = lines[0];
   if (!head) return undefined;
   let ranges = text.ranges ?? [];
@@ -748,7 +769,7 @@ export function pointType(
     const t = [...l.text];
     const last = t.at(-1) as string;
     const soft = i < lines.length - 1 && last !== "\n";
-    if (i === lines.length - 1 && last === "\n") t.pop();
+    if (i === lines.length - 1 && last === "\n" && overflow) t.pop();
     else if (soft && /\s/.test(last)) t[t.length - 1] = "\n";
     else if (soft) {
       const p = out.length + t.length;
@@ -765,8 +786,8 @@ export function pointType(
   const w = span(m, head.start, head.start + hangsFrom([...head.text]));
   const k = ALIGN[text.alignment ?? "left"];
   return {
-    x: r3(head.x + w * k),
-    y: r3(head.y),
+    x: round3(head.x + w * k),
+    y: round3(head.y),
     content: out.join(""),
     ranges: ranges
       .map((r) => ({ ...r, end: Math.min(r.end, out.length) }))

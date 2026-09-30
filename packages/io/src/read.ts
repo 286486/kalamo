@@ -36,6 +36,7 @@ import {
   type RenderScope,
   readImage,
   round,
+  round3,
   type Segment,
   type Shape,
   scaleOf,
@@ -119,7 +120,6 @@ export function length(value: string | null | undefined): number | undefined {
 }
 
 /** At most 3 decimals and no -0, as the Document stores numbers (REQUIREMENTS §6.5). */
-export const n3 = (n: number) => Math.round(n * 1000) / 1000 || 0;
 
 const elements = (e: Element) =>
   [...(e.childNodes as unknown as Iterable<{ nodeType: number }>)].filter(
@@ -280,7 +280,7 @@ function lineHeight(value: string | undefined, fontSize: number, k: number) {
       : factor
         ? factor * fontSize
         : (length(v) ?? 0) * k;
-  return leading && leading > 0 ? n3(leading) : undefined;
+  return leading && leading > 0 ? round3(leading) : undefined;
 }
 
 /**
@@ -295,7 +295,7 @@ function trackingOf(style: Style, fontSize: number) {
       : /[\d.]em$/.test(spacing)
         ? Number.parseFloat(spacing)
         : (length(spacing) ?? 0) / fontSize;
-  return n3(Math.min(10_000, Math.max(-1000, em * 1000)));
+  return round3(Math.min(10_000, Math.max(-1000, em * 1000)));
 }
 
 /**
@@ -1136,9 +1136,9 @@ class Reader {
           end: i + 1,
           ...(fill && { fill }),
           ...(stroke && { stroke }),
-          ...(c.shift && { baselineShift: n3(c.shift * k) }),
-          ...(c.rotate && { rotation: n3(c.rotate % 360) }),
-          ...(size !== undefined && { fontSize: n3(size * k) }),
+          ...(c.shift && { baselineShift: round3(c.shift * k) }),
+          ...(c.rotate && { rotation: round3(c.rotate % 360) }),
+          ...(size !== undefined && { fontSize: round3(size * k) }),
           tracking: trackingOf(c.style, size ?? length(own["font-size"]) ?? 12),
           fontStyle: fontStyleOf(c.style),
           fontFamily: fontFamilyOf(c.style),
@@ -1160,7 +1160,7 @@ class Reader {
     );
     const [line] = tspans;
     const own = line ? computeStyle(line, style, this.rules) : style;
-    const fontSize = n3((length(own["font-size"]) ?? 12) * k);
+    const fontSize = round3((length(own["font-size"]) ?? 12) * k);
     const leading = lineHeight(own["line-height"], fontSize, k);
     const fontStyle = fontStyleOf(own);
     const tracking = trackingOf(own, length(own["font-size"]) ?? 12);
@@ -1221,10 +1221,10 @@ class Reader {
         "segments" in frame
           ? shapedFrame(transformSegments(frame.segments, [k, 0, 0, k, tx, ty]), "shape-inside")
           : {
-              x: n3(k * frame.rect.x + tx),
-              y: n3(k * frame.rect.y + ty),
-              width: n3(k * frame.rect.width),
-              height: n3(k * frame.rect.height),
+              x: round3(k * frame.rect.x + tx),
+              y: round3(k * frame.rect.y + ty),
+              width: round3(k * frame.rect.width),
+              height: round3(k * frame.rect.height),
             };
       const chars = clean(all);
       if (!preserve) rotate(chars);
@@ -1256,11 +1256,11 @@ class Reader {
       k,
       text,
     );
-    const y = n3(k * first("y") + ty);
+    const y = round3(k * first("y") + ty);
     const shape = {
       ...text,
       kind: "point",
-      x: n3(x),
+      x: round3(x),
       y,
       content,
       ...aligned,
@@ -1327,7 +1327,7 @@ class Reader {
     const k = scale ?? bake?.k ?? 1;
     const fill = this.paint(style.fill ?? "black", style, style["fill-opacity"], e, own);
     const stroke = this.paint(style.stroke ?? "none", style, style["stroke-opacity"], e, own);
-    const width = n3((length(style["stroke-width"]) ?? 1) * k);
+    const width = round3((length(style["stroke-width"]) ?? 1) * k);
     const join = JOINS.includes(style["stroke-linejoin"] ?? "")
       ? style["stroke-linejoin"]
       : SVG_STROKE.join;
@@ -1357,7 +1357,7 @@ class Reader {
                     : join === SVG_STROKE.join
                       ? SVG_STROKE.miterLimit
                       : MITER_LIMIT,
-                dash: dash.map((v) => n3(v * k)),
+                dash: dash.map((v) => round3(v * k)),
               },
             ]
           : [],
@@ -1440,7 +1440,7 @@ class Reader {
         // Offsets clamp to 0-1 and never decrease (SVG 1.1 §13.2.4).
         last = Math.max(last, Math.min(1, offset || 0));
         const hex = this.color(s["stop-color"] ?? "black", s, "1") ?? "#000000";
-        return { offset: n3(last), color: withAlpha(hex, alpha(s["stop-opacity"]) * opacity) };
+        return { offset: round3(last), color: withAlpha(hex, alpha(s["stop-opacity"]) * opacity) };
       });
     const [first] = stops;
     const end = stops.at(-1);
@@ -1670,10 +1670,10 @@ class Reader {
     const { k, tx, ty } = bake ?? UNBAKED;
     const frame = (width: number, height: number) => ({
       type: "image",
-      x: n3(k * (length(e.getAttribute("x")) ?? 0) + tx),
-      y: n3(k * (length(e.getAttribute("y")) ?? 0) + ty),
-      width: n3(k * width),
-      height: n3(k * height),
+      x: round3(k * (length(e.getAttribute("x")) ?? 0) + tx),
+      y: round3(k * (length(e.getAttribute("y")) ?? 0) + ty),
+      width: round3(k * width),
+      height: round3(k * height),
       // Absent, SVG's default, not Kalamo's none.
       preserveAspectRatio:
         preserveAspectRatio(e.getAttribute("preserveAspectRatio") ?? "") ?? "xMidYMid meet",
@@ -1730,9 +1730,9 @@ class Reader {
     const num = (name: string) => length(e.getAttribute(name)) ?? 0;
     const bake = this.bake(e, m);
     const { k, tx, ty } = bake ?? UNBAKED;
-    const x = (v: number) => n3(k * v + tx);
-    const y = (v: number) => n3(k * v + ty);
-    const size = (v: number) => n3(k * v);
+    const x = (v: number) => round3(k * v + tx);
+    const y = (v: number) => round3(k * v + ty);
+    const size = (v: number) => round3(k * v);
     const transform = bake ? [...IDENTITY] : round(m);
     const path = (segments: Segment[]) => ({
       type: "path",
@@ -1823,8 +1823,8 @@ class Reader {
         const common = {
           cx: x(cx),
           cy: y(cy),
-          angle: n3(shape.angle),
-          rounded: n3(shape.rounded),
+          angle: round3(shape.angle),
+          rounded: round3(shape.rounded),
           transform,
         };
         return shape.type === "polygon"
@@ -1834,7 +1834,7 @@ class Reader {
               ...common,
               outerRadius: size(shape.outerRadius),
               innerRadius: size(shape.innerRadius),
-              twist: n3(shape.twist),
+              twist: round3(shape.twist),
             };
       }
       default:
@@ -1892,10 +1892,10 @@ export function parseSvg(text: string, nameHint?: string): OpenedFile {
   // Inkscape's pages are in user units, like everything else; without any, the viewBox.
   const pages = all.filter((e) => e.namespaceURI === NS.inkscape && e.localName === "page");
   const rect = (r: { x: number; y: number; width: number; height: number }) => ({
-    x: n3(r.x),
-    y: n3(r.y),
-    width: n3(r.width),
-    height: n3(r.height),
+    x: round3(r.x),
+    y: round3(r.y),
+    width: round3(r.width),
+    height: round3(r.height),
   });
   const artboards: Artboard[] = pages.length
     ? pages.map((p, i) => {
@@ -1967,8 +1967,8 @@ export function resolveLinks(
         ...n,
         src: link.src,
         ...(size && {
-          width: n3(size.scale * (size.width ?? info.width)),
-          height: n3(size.scale * (size.height ?? info.height)),
+          width: round3(size.scale * (size.width ?? info.width)),
+          height: round3(size.scale * (size.height ?? info.height)),
         }),
       },
     ];

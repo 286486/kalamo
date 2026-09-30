@@ -1,9 +1,7 @@
 // SVG gradients folded into Kalamo's (ADR-0026): SVG's reflect and repeat are unrolled into stops, so
 // what is stored draws the same pixels. Core's mapGradient then applies whatever maps the gradient's
 // own space into the Node's coordinates (gradientTransform, objectBoundingBox, a leaf's bake).
-import type { ColorStop, Gradient, Point } from "@kalamo/core";
-
-const n3 = (n: number) => Math.round(n * 1000) / 1000 || 0;
+import { type ColorStop, type Gradient, type Point, round3 } from "@kalamo/core";
 
 /** A gradient's geometry in its own space, as SVG's attributes give it. */
 export type Geometry =
@@ -66,7 +64,7 @@ export function unroll(
       spread === "reflect" && Math.abs(k) % 2 === 1
         ? whole.map((s) => ({ ...s, offset: 1 - s.offset })).reverse()
         : whole;
-    for (const s of period) out.push({ ...s, offset: n3((k - from + s.offset) / (to - from)) });
+    for (const s of period) out.push({ ...s, offset: round3((k - from + s.offset) / (to - from)) });
   }
   if (g.type === "linear") {
     const [dx, dy] = [g.p2.x - g.p1.x, g.p2.y - g.p1.y];
