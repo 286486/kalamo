@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { join, resolve } from "node:path";
 import { crc32, deflateSync } from "node:zlib";
 import { httpCall } from "./agent-benchmarks/mcp.ts";
+import { anchoredBeforeLast, type TextView } from "./anchored.ts";
 import { decodePng, type Image } from "./png.ts";
 import { startServer } from "./wrangler.ts";
 
@@ -23,8 +24,8 @@ const TOLERANCE = 32;
  * its lines land up to a few points apart there: 25% is above the 21% measured (ADR-0068).
  * Inkscape anchors every line but the last of a centred or right-aligned Point Type as if its
  * trailing whitespace and the tracking after its last character counted, which the layout hangs:
- * such a line lands that far (half of it, centred) left of it there. 25% is above the 16.3%
- * measured for a one-letter-spacing shift (ADR-0077). */
+ * such a line lands that far (half of it, centred) left of it there. For a text with such a line
+ * (anchoredBeforeLast), 25% is above the 16.3% and 15.2% measured (ADR-0077). */
 const BUDGET = {
   vector: 0.007,
   text: 0.15,
@@ -260,15 +261,6 @@ interface Region {
   differ: number;
 }
 
-/** What a text region's budget reads of the text's full view. */
-interface TextView {
-  kind?: string;
-  content?: string;
-  alignment?: string;
-  tracking?: number;
-  ranges?: { fontSize?: number; tracking?: number }[];
-}
-
 /** A pixel in no region: counted by no budget. */
 const UNCHECKED = 0xffff;
 
@@ -350,16 +342,6 @@ async function main() {
     const mixedSize = (v: TextView) =>
       (v.kind === "area" || !!v.content?.includes("\n")) &&
       !!v.ranges?.some((r) => r.fontSize !== undefined);
-    /**
-     * A centred or right-aligned Point Type with a line before its last that Inkscape anchors
-     * differently: the text tracks, or that line ends in whitespace (ADR-0077).
-     */
-    const anchored = (v: TextView) => {
-      if (v.kind === "area" || (v.alignment !== "center" && v.alignment !== "right")) return false;
-      const lines = (v.content ?? "").split("\n").slice(0, -1);
-      const tracks = !!v.tracking || !!v.ranges?.some((r) => r.tracking !== undefined);
-      return lines.length > 0 && (tracks || lines.some((l) => /\s$/.test(l)));
-    };
     /** The regions of the Document `docId` in its PNG of `docRect`, at 1 px per pt: each pixel
      * goes to the first Artboard holding it, and there to text when it is in the bounds of a
      * drawn text or Image grown by MARGIN and half the widest Stroke on it or a container above. */
@@ -379,10 +361,8 @@ async function main() {
         visibleBounds?: Rect | null;
         worldTransform?: number[];
         name: string;
-        content?: string;
         src?: string;
         appearance?: { strokes?: { width: number }[] };
-        kind?: string;
       } & TextView)[];
       const byId = new Map(views.map((v) => [v.id, v]));
       const rects: {
@@ -415,7 +395,11 @@ async function main() {
           ),
           // Inkscape draws its own icon for a missing link (ADR-0042): no budget covers it.
           unchecked: v.type === "image" && !v.src,
-          kind: mixedSize(v) ? "mixed-size text" : anchored(v) ? "anchored Point Type" : undefined,
+          kind: mixedSize(v)
+            ? "mixed-size text"
+            : anchoredBeforeLast(v)
+              ? "anchored Point Type"
+              : undefined,
         });
       }
       const names = [...doc.artboards.map((a) => String(a.name)), "outside Artboards"];
