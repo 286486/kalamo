@@ -113,7 +113,7 @@ Text 的 `ranges` 中的一项 `{start, end, …}`：按字符（码点）索引
 _Avoid_: Run、Span、Character style（Character Style 是具名样式，F-TEXT-08）
 
 **Text Chunk（文本块）**：
-SVG 的 text chunk：从一个有自己 `x` 的字符开始、独立定位的一段字符，只在导出和渲染中出现，不存储。core 的字形（`Glyph.chunk`）在两处开始新块：含两端对齐行的 Text 中，行末单词前每个空格之后（`spacing`，ADR-0077）；绘制字体族与同行前一字符不同处（`family`，只有每块取一种字形的渲染器需要，ADR-0063）。
+SVG 的 text chunk：从一个有自己 `x` 的字符开始、独立定位的一段字符，只在导出和渲染中出现，不存储。core 的字形（`Glyph.chunk`）在两处开始新块：含两端对齐行的 Text 中，行末单词前每个空格之后（`spacing`，ADR-0077）；绘制字体族与同行前一字符（行首则与 Text 的第一个字体族）不同处（`family`，只有每块取一种字面的渲染器需要，ADR-0063）。
 _Avoid_: Run、Span
 
 ## 图像
