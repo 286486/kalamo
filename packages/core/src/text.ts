@@ -199,10 +199,6 @@ export function notdefBox(text: TextFont & { fontSize: number }, x: number, y: n
   }));
 }
 
-/** The bundled family a character of a text draws in (ADR-0063). */
-export const drawnFamily = (text: TextFont, char: string): BundledFamily =>
-  faceFor(facesOf(text), char).family;
-
 /**
  * The `line-height` a run of a text drawn in `family` at `size` takes in SVG, so that Inkscape 1.2.2,
  * which stacks lines as CSS inline boxes, stacks its line by leading alone (ADR-0080): the run's box

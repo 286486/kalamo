@@ -2,8 +2,8 @@ import {
   BUNDLED_FAMILIES,
   BUNDLED_FONT,
   type BundledFamily,
+  characterFamilies,
   type Document,
-  drawnFamily,
 } from "@kalamo/core";
 import krBoldUrl from "@kalamo/render/fonts/NotoSansKR-Bold.otf?url";
 import krRegularUrl from "@kalamo/render/fonts/NotoSansKR-Regular.otf?url";
@@ -74,14 +74,13 @@ export function loadFamily(family: BundledFamily) {
 }
 
 /**
- * The lazily loaded families some text in `doc` draws a character in (ADR-0063, ADR-0066). Source
- * Sans 3 loads with the page.
+ * The lazily loaded families some text in `doc` draws a character in, its Character Range's font
+ * and its hidden overflow included (ADR-0063, ADR-0066, ADR-0068). Source Sans 3 loads with the
+ * page.
  */
-export const drawnLazyFamilies = (doc: Document) =>
-  BUNDLED_FAMILIES.filter(
-    (family) =>
-      family !== BUNDLED_FONT &&
-      [...doc.nodes.values()].some(
-        (n) => n.type === "text" && [...n.content].some((c) => drawnFamily(n, c) === family),
-      ),
-  );
+export function drawnLazyFamilies(doc: Document) {
+  const drawn = new Set<BundledFamily>();
+  for (const n of doc.nodes.values())
+    if (n.type === "text") for (const f of characterFamilies(n)) drawn.add(f);
+  return BUNDLED_FAMILIES.filter((f) => f !== BUNDLED_FONT && drawn.has(f));
+}
