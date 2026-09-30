@@ -15,19 +15,29 @@ async function show(page: Page, docId: string) {
 }
 
 /** The Layer's children in full, without what a paste changes: id, index and parent. */
-async function children(request: APIRequestContext, docId: string, layerId: string) {
-  const { nodes } = (
-    await call(request, "kalamo_doc_outline", { docId, rootId: layerId, depth: 1 })
-  ).structuredContent as { nodes: { id: string }[] };
-  if (nodes.length === 0) return [];
-  const full = (
-    await call(request, "kalamo_node_get", {
+async function children(
+  request: APIRequestContext,
+  docId: string,
+  layerId: string,
+): Promise<Record<string, unknown>[]> {
+  // A write landing between the two reads, such as a cut's delete, makes node_get refuse ids the
+  // outline just listed. The reads start over, since expect.poll fails at once on a throw.
+  for (let attempt = 0; ; attempt++) {
+    const { nodes } = (
+      await call(request, "kalamo_doc_outline", { docId, rootId: layerId, depth: 1 })
+    ).structuredContent as { nodes: { id: string }[] };
+    if (nodes.length === 0) return [];
+    const got = await call(request, "kalamo_node_get", {
       docId,
       nodeIds: nodes.map((n) => n.id),
       detail: "full",
-    })
-  ).structuredContent.nodes as Record<string, unknown>[];
-  return full.map(({ id, index, parentId, ...n }) => n);
+    });
+    if (got.structuredContent) {
+      const full = got.structuredContent.nodes as Record<string, unknown>[];
+      return full.map(({ id, index, parentId, ...n }) => n);
+    }
+    if (attempt === 2) throw new Error(`node_get failed: ${got.content?.[0]?.text}`);
+  }
 }
 
 test("cut, copy and paste move Nodes between Document tabs, ungrouped, as one Transaction each", async ({
