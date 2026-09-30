@@ -41,7 +41,7 @@ The state is two values beside the previous character: the base before the curre
   - 1,981 positions where IS, CL, CP, PR or PO comes before NU, OP, PR or PO. Pango breaks `,|0`, `)|(`, `$|$` and `%|%`, and Kalamo does not.
   - 1,519 positions after a space: LB13 to LB16 across spaces, such as `a |,` and `a |/`.
   - 328 positions with a CJK neighbour, all as on `main`: a combining mark after an ideograph, CJK punctuation beside PR or PO, and a dash after a Hebrew letter before CJK.
-- **ADR-0064's alphabet.** 20,000 random strings from CJK, kana, Hangul, CJK and ASCII punctuation, Latin letters and digits. 1,211 strings change from `main`, and every changed position is a break after `/`, `-` or `|` with no CJK neighbour, where Kalamo now equals Pango. No position with a CJK neighbour changes. The `latin` strings give the same result: 6,392 change, all at such breaks.
+- **ADR-0064's alphabet.** 20,000 random strings from CJK, kana, Hangul, CJK and ASCII punctuation, Latin letters and digits. 1,211 strings change from `main`, and every changed position is a break after `/`, `-` or `|` with no CJK neighbour, where Kalamo now equals Pango. No position with a CJK neighbour changes. The `latin` strings give the same result: 6,392 change, all at such breaks. These counts come from running `check.ts`'s pools through `main`'s `line-break.ts` and this one's. `check.ts` itself compares only with Pango.
 
 ## What changes
 

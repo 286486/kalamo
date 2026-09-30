@@ -24,7 +24,7 @@ So `使用SVG格式` breaks as `使|用|SVG|格|式`, `「字」` is one unit, a
 **Left out:**
 
 - Breaks that need no CJK neighbour: emoji (ID), the B2 em dash, ZWSP as a break opportunity, and Latin punctuation such as `a!|b`. These would change Latin wrapping, which stays at spaces. Amended by ADR-0085: breaks after SY, HY and BA are added, and its "Left out" lists the rest.
-- Rules that look across spaces: LB14 (`OP SP* ×`), LB13 after a space (`SP × CL`), LB15 and LB16, and LB25's number sequences.
+- Rules that look across spaces: LB14 (`OP SP* ×`), LB13 after a space (`SP × CL`), LB15 and LB16, and LB25's number sequences. Amended by ADR-0085: LB25's hyphen before a digit and solidus inside a number apply, and its other rules stay out.
 - Thai, Lao, Khmer and other dictionary-based breaking.
 
 `Intl.Segmenter` has no line granularity, so the classes live in `core` as three regular-expression character classes and two small sign sets. That keeps the table compact, because `core` ships in the Worker, the browser and `io`.
