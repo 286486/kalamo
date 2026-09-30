@@ -494,7 +494,7 @@ function stack(prev: Stacked | undefined, b: LineBox): Stacked {
   return { baseline, needs: baseline - b.ascent + 0.9 * b.leading, leading: b.leading };
 }
 
-/** An unbreakable unit's code-point range in `content`, and whether a hard return or the end ends it. */
+/** An unbreakable unit's code-point range, and whether a hard return or the content ends it. */
 type Unit = { from: number; to: number; ends: boolean };
 
 /**
@@ -764,10 +764,13 @@ export function areaFrame(text: TextLayout): Rect {
   const units = unitsOf(text.content);
   let u = 0;
   lines.forEach((l, i) => {
-    for (let ends = false; !ends && u < units.length; u++) {
+    for (; u < units.length; u++) {
       const unit = units[u] as Unit;
-      ends = unit.ends;
       widest = Math.max(widest, width(l.start, unit.to), width(unit.from, unit.to));
+      if (unit.ends) {
+        u++;
+        break;
+      }
     }
     if (i && i === lines.length - 1 && !l.text) return;
     const to = l.start + [...l.text].length;
