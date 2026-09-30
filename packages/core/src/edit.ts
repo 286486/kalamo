@@ -33,6 +33,7 @@ import {
   type ReorderOp,
   type ReparentInput,
   SHAPES,
+  storedAlignment,
   TextShape,
   type TransformInput,
   TransformNodesInput,
@@ -312,7 +313,8 @@ function patched(doc: Document, raw: UpdateInput, i: number): Node {
     );
   }
   // From the merge, so null deletes an optional key such as leading.
-  const next = { ...merged, ...parsed.data } as Node;
+  let next = { ...merged, ...parsed.data } as Node;
+  if (next.type === "text") next = storedAlignment(next);
   // SVG clips everything away through a hidden clip path; Illustrator unclips (ADR-0021).
   if ("clipping" in next && next.clipping && !next.visible) {
     throw invalid(

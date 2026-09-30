@@ -26,6 +26,7 @@ const INHERITED = [
   "color",
   "visibility",
   "text-anchor",
+  "text-align",
   "line-height",
   "white-space",
   "letter-spacing",

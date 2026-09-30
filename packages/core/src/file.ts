@@ -23,6 +23,7 @@ import {
   SHAPES,
   StoredFill,
   StoredStroke,
+  storedAlignment,
   TextShape,
   textFrame,
   Writable,
@@ -181,7 +182,7 @@ export function parseNode(raw: unknown, at: string): Node {
   }
   if (n.type === "image") return n;
   if (n.type === "text") {
-    const { ranges, ...text } = n;
+    const { ranges, ...text } = storedAlignment(n);
     const canonical = canonicalRanges(ranges, `${at}.ranges`, text);
     const appearance = paint(text.appearance as AppearanceInput, `${at}.appearance`, text);
     return { ...text, ...(canonical && { ranges: canonical }), appearance } as Node;

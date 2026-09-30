@@ -1,9 +1,13 @@
 import {
+  type Alignment,
   createDocument,
   createNodes,
+  formatNumber,
   formatPath,
+  glyphs,
   LEGACY_NAME,
   LEGACY_SVG_NS,
+  layoutText,
   makeMask,
   type ShapeNode,
   serializeDocument,
@@ -421,6 +425,97 @@ it("writes Area Type's overflow in a hidden tspan, so every character stays in t
   expect(svg).toMatch(
     /y="30.25">one&#10;<\/tspan><tspan style="visibility:hidden">two&#10;three<\/tspan><\/text>/,
   );
+});
+
+describe("alignment (ADR-0077)", () => {
+  /** An SVG with its generated ids masked, to compare two Documents byte for byte. */
+  const bytes = (svg: string) => svg.replace(/z-\w+/g, "z-");
+  const pointText = (alignment?: Alignment) => {
+    const { doc, defaultLayerId: parentId } = newDoc();
+    createNodes(doc, [
+      {
+        type: "text",
+        parentId,
+        x: 100,
+        y: 50,
+        content: "Hi\nHHH",
+        ...(alignment && { alignment }),
+      },
+    ]);
+    return doc;
+  };
+
+  it("writes Point Type's text-align and text-anchor as Inkscape does, its lines at the anchor", () => {
+    const left = toSvg(pointText());
+    expect(bytes(toSvg(pointText("left")))).toBe(bytes(left));
+    for (const [alignment, style] of [
+      ["center", "text-align:center;text-anchor:middle"],
+      ["right", "text-align:end;text-anchor:end"],
+      ["justify", "text-align:justify;text-anchor:start"],
+    ] as const) {
+      const svg = toSvg(pointText(alignment));
+      expect(svg).toContain(`style="font-kerning:none;line-height:1.2;${style}"`);
+      expect(svg).toContain('<tspan sodipodi:role="line" x="100" y="50">Hi</tspan>');
+      expect(svg).toContain('<tspan sodipodi:role="line" x="100" y="64.4">HHH</tspan>');
+    }
+  });
+
+  it("starts resvg's Point Type lines where the layout puts them, with no anchor", () => {
+    const doc = pointText("right");
+    const svg = toSvg(doc, undefined, { resvg: true });
+    const [n] = [...doc.nodes.values()].filter((x) => x.type === "text") as TextNode[];
+    const lines = layoutText(n as TextNode).lines;
+    expect(svg).not.toContain("text-anchor");
+    for (const l of lines)
+      expect(svg).toContain(`x="${formatNumber(l.x)}" y="${formatNumber(l.y)}">${l.text}<`);
+  });
+
+  it("writes Area Type's text-align only, its lines at their aligned starts", () => {
+    const left = areaText("The quick brown fox jumps over the lazy dog again.").svg;
+    expect(
+      bytes(
+        areaText("The quick brown fox jumps over the lazy dog again.", { alignment: "left" }).svg,
+      ),
+    ).toBe(bytes(left));
+    const { svg } = areaText("The quick brown fox jumps over the lazy dog again.", {
+      alignment: "center",
+    });
+    expect(svg).toContain('line-height:1.2;text-align:center"');
+    expect(svg).not.toContain("text-anchor");
+    const xs = [...svg.matchAll(/<tspan x="([^"]+)"/g)].map((m) => Number(m[1]));
+    expect(xs.every((x) => x > 150)).toBe(true);
+  });
+
+  it("starts each word of a justified line at its own x, so resvg draws where the layout does", () => {
+    const content = "The quick brown fox jumps over the lazy dog again.";
+    const { svg, id } = areaText(content, { alignment: "justify" });
+    expect(svg).toContain("text-align:justify");
+    const { doc, defaultLayerId: parentId } = newDoc();
+    const [n] = createNodes(doc, [
+      {
+        type: "text",
+        kind: "area",
+        parentId,
+        x: 150,
+        y: 20,
+        width: 100,
+        height: 80,
+        content,
+        alignment: "justify",
+      },
+    ]).nodes as [TextNode];
+    const g = glyphs(n);
+    const first = layoutText(n).lines[0] as { text: string };
+    // "The quick brown ": "quick" and "brown" each start a chunk at their glyph's x.
+    expect(svg).toContain(
+      `<tspan x="150" y="30.25">The <tspan x="${formatNumber((g[4] as { x: number }).x)}">quick </tspan>`,
+    );
+    expect(first.text).toBe("The quick brown ");
+    expect(svg).toContain(`id="z-${id}"`);
+    expect(toSvg(doc, undefined, { resvg: true })).toContain(
+      `x="${formatNumber((g[10] as { x: number }).x)}">brown `,
+    );
+  });
 });
 
 it("writes one <defs> before an Area Type's stack, for every paint to flow in", () => {

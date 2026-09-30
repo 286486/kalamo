@@ -20,6 +20,7 @@ import {
   type GroupNode,
   glyphs,
   grown,
+  hangsFrom,
   IDENTITY,
   type ImageSource,
   invert,
@@ -718,6 +719,20 @@ function containerPaints(
   ];
 }
 
+/**
+ * A text's alignment as Inkscape 1.2.2 writes it (ADR-0077): Point Type both `text-align` and the
+ * `text-anchor` its lines align by; Area Type `text-align` only, which Inkscape reflows the frame by
+ * and drops `text-anchor` beside. Left writes neither, as before. resvg is given neither: its lines
+ * start where the layout puts them.
+ */
+function alignment(n: TextNode, chunked: boolean): string[] {
+  if (!n.alignment || chunked) return [];
+  const align = { left: "start", center: "center", right: "end", justify: "justify" }[n.alignment];
+  if (n.kind === "area") return [`text-align:${align}`];
+  const anchor = { left: "start", center: "middle", right: "end", justify: "start" }[n.alignment];
+  return [`text-align:${align}`, `text-anchor:${anchor}`];
+}
+
 /** The `font-weight` and `font-style` of a run's face that differ from its text's. */
 const runFace = (run: ReturnType<typeof fontFace>, own: ReturnType<typeof fontFace>): Attrs => ({
   "font-weight": run.weight === own.weight ? undefined : run.weight,
@@ -767,9 +782,20 @@ function text(n: TextNode, a: Attrs, extra: (string | false)[], chunked: boolean
     // What sets the range's style apart from the text's (ADR-0028, ADR-0068).
     ...(r.fontStyle && runFace(fontFace(r.fontStyle), face)),
   });
-  // For resvg, each shown character's origin, so a chunk can start at it.
+  // For resvg, each shown character's origin, so a chunk can start at it; and a justified line's,
+  // so each character after a widened space starts one (ADR-0077).
   const [first] = fontFamilies(n);
-  const origins = chunked ? glyphs(n).map((g) => g.x) : [];
+  const justified = lines.some((l) => l.wordSpacing);
+  const origins = chunked || justified ? glyphs(n).map((g) => g.x) : [];
+  // The shown characters that follow a widened space.
+  const widened = new Set<number>();
+  for (const l of justified ? lines : []) {
+    const chars = [...l.text];
+    const words = hangsFrom(chars);
+    chars.forEach((c, k) => {
+      if (c === " " && k < words) widened.add(l.start + k + 1);
+    });
+  }
   let shown = 0;
   /** The characters of `t` from code point `start`, and whether they are laid out, so may chunk. */
   const spans = (start: number, t: string, laidOut: boolean) => {
@@ -790,7 +816,7 @@ function text(n: TextNode, a: Attrs, extra: (string | false)[], chunked: boolean
       const font = characterFont(n, r);
       const origin = laidOut ? origins[shown++] : undefined;
       const drawn = chunked && laidOut && char !== "\n" ? drawnFamily(font, char) : family;
-      const chunk = drawn !== family && origin !== undefined;
+      const chunk = (drawn !== family || (laidOut && widened.has(index))) && origin !== undefined;
       family = drawn;
       let alone = false;
       if (!chunked) {
@@ -815,9 +841,12 @@ function text(n: TextNode, a: Attrs, extra: (string | false)[], chunked: boolean
       .join("");
   };
 
+  // Point Type's lines keep x at the anchor, which text-anchor aligns about, as Inkscape writes them;
+  // for resvg every line starts where the layout puts it, as Area Type's always do (ADR-0077).
+  const anchored = !area && !chunked;
   const tspans = lines.map(
     (l) =>
-      `<tspan${attrs({ ...role, ...num({ x: l.x, y: l.y }) })}>${spans(l.start, l.text, true)}</tspan>`,
+      `<tspan${attrs({ ...role, ...num({ x: anchored ? n.x : l.x, y: l.y }) })}>${spans(l.start, l.text, true)}</tspan>`,
   );
   const last = lines.at(-1);
   const hidden = last ? last.start + [...last.text].length : 0;
@@ -846,6 +875,7 @@ function text(n: TextNode, a: Attrs, extra: (string | false)[], chunked: boolean
       area && "white-space:pre",
       "font-kerning:none",
       `line-height:${leading}`,
+      ...alignment(n, chunked),
     ),
     "xml:space": "preserve",
   })}>${tspans.join("")}</text>`;

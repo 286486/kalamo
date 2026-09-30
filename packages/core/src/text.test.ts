@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { lineBreakUnits } from "./line-break.ts";
 import { NOTO_SANS_KR } from "./noto-sans-kr.ts";
 import { NOTO_SANS_SC } from "./noto-sans-sc.ts";
@@ -809,4 +809,139 @@ it("places the first face's .notdef outline at an origin, y down, in the text's 
   ]);
   expect(first("Noto Sans SC")[0]).toEqual({ cmd: "M", args: [10 + at12(100), 50 + at12(120)] });
   expect(first("Source Sans 3", "Black Italic")[1]?.args[0]).toBeCloseTo(10 + at12(156), 9);
+});
+
+describe("alignment (ADR-0077)", () => {
+  /** A line's width as alignment measures it: without trailing spaces and the tracking after. */
+  const inked = (t: Parameters<typeof glyphs>[0], line: number) => {
+    const { lines } = layoutText(t);
+    const l = lines[line] as (typeof lines)[number];
+    const chars = [...l.text.replace(/\s+$/, "")];
+    const g = glyphs(t).slice(glyphIndex(t, line), glyphIndex(t, line) + chars.length);
+    const last = g.at(-1);
+    return last ? last.x + last.width - l.x : 0;
+  };
+  const glyphIndex = (t: Parameters<typeof glyphs>[0], line: number) =>
+    layoutText(t)
+      .lines.slice(0, line)
+      .reduce((n, l) => n + [...l.text].length, 0);
+  const point = { x: 100, y: 50, content: "Hi\nHHH \ni", fontSize: 12, tracking: 50 };
+
+  it("aligns each Point Type line about x by its width, trailing spaces and tracking left out", () => {
+    const left = layoutText(point).lines;
+    const center = layoutText({ ...point, alignment: "center" }).lines;
+    const right = layoutText({ ...point, alignment: "right" }).lines;
+    left.forEach((l, i) => {
+      const w = inked(point, i);
+      expect(center[i]?.x).toBeCloseTo(100 - w / 2, 9);
+      expect(right[i]?.x).toBeCloseTo(100 - w, 9);
+      expect([center[i]?.y, right[i]?.y]).toEqual([l.y, l.y]);
+    });
+    expect(layoutText({ ...point, alignment: "justify" })).toEqual(layoutText(point));
+  });
+
+  it("bounds aligned Point Type by the union of its shifted lines", () => {
+    const box = textBox({ ...point, alignment: "right" });
+    const lines = layoutText({ ...point, alignment: "right" }).lines;
+    expect(box.x).toBeCloseTo(Math.min(...lines.map((l) => l.x)), 9);
+    // The widest ink ends at x; the second line's trailing space hangs past it.
+    expect(box.x + box.width).toBeGreaterThan(100);
+    expect(textBox({ ...point, alignment: "justify" })).toEqual(textBox(point));
+    const center = textBox({ ...point, content: "HH", alignment: "center" });
+    expect(center.x + center.width / 2).toBeCloseTo(100, 9);
+  });
+
+  const frame = { kind: "area" as const, x: 20, y: 20, width: 150, height: 200, fontSize: 12 };
+  const prose =
+    "The quick brown fox jumps over the lazy dog and keeps running far away.\nA second paragraph of several words, then a long one that wraps. End\nsupercalifragilistic\n";
+
+  it("aligns each Area Type line in the frame by its width without trailing spaces", () => {
+    const t = { ...frame, content: prose };
+    const left = layoutText(t);
+    for (const alignment of ["center", "right"] as const) {
+      const out = layoutText({ ...t, alignment });
+      expect(out.overflow).toBe(left.overflow);
+      expect(out.lines.map((l) => [l.text, l.y])).toEqual(left.lines.map((l) => [l.text, l.y]));
+      out.lines.forEach((l, i) => {
+        const w = inked(t, i);
+        expect(l.x).toBeCloseTo(alignment === "center" ? 20 + (150 - w) / 2 : 170 - w, 9);
+      });
+    }
+  });
+
+  it("justifies each line but a paragraph's last to the frame's width, on word spaces only", () => {
+    const t = { ...frame, content: prose, alignment: "justify" as const };
+    const { lines, overflow } = layoutText(t);
+    const plain = layoutText({ ...t, alignment: undefined });
+    expect([lines.map((l) => l.text), overflow]).toEqual([
+      plain.lines.map((l) => l.text),
+      plain.overflow,
+    ]);
+    const g = glyphs(t);
+    const ends = lines.map((l, i) => {
+      const chars = [...l.text.replace(/\s+$/, "")];
+      const at = glyphIndex(t, i);
+      const last = g[at + chars.length - 1] as (typeof g)[number];
+      return last.x + last.width;
+    });
+    lines.forEach((l, i) => {
+      const final = l.text.endsWith("\n") || i === lines.length - 1;
+      const oneWord = !l.text.trim().includes(" ");
+      if (final || oneWord) {
+        expect(l.wordSpacing).toBeUndefined();
+        expect(ends[i]).toBeCloseTo(20 + inked(t, i), 9);
+      } else expect(Math.abs((ends[i] as number) - 170)).toBeLessThan(1e-6);
+    });
+    // Only the spaces widen: a word's characters keep their spacing.
+    const plainGlyphs = glyphs({ ...t, alignment: undefined });
+    const first = [...(lines[0] as { text: string }).text];
+    let shift = 0;
+    first.forEach((ch, k) => {
+      expect((g[k] as { x: number }).x - (plainGlyphs[k] as { x: number }).x).toBeCloseTo(shift, 9);
+      if (ch === " " && k < first.length - 1) shift += lines[0]?.wordSpacing ?? 0;
+    });
+    // The first line widens, the paragraph ending at \n and the one-word line do not.
+    expect(lines[0]?.wordSpacing).toBeGreaterThan(0);
+    expect(lines.some((l) => l.text === "supercalifragilistic\n" && !l.wordSpacing)).toBe(true);
+  });
+
+  it("leaves a soft-wrapped one-word line of a paragraph left, the lines around it justified", () => {
+    const t = {
+      ...frame,
+      width: 70,
+      content: "Lorem ipsum consectetur sit amet dolor",
+      alignment: "justify" as const,
+    };
+    const { lines } = layoutText(t);
+    const i = lines.findIndex((l) => l.text === "consectetur ");
+    // Neither the paragraph's last line nor one ending at a return: only its one word keeps it left.
+    expect(i).toBeGreaterThan(0);
+    expect(i).toBeLessThan(lines.length - 1);
+    expect(lines[i]?.wordSpacing).toBeUndefined();
+    expect(lines[i]?.x).toBe(20);
+    expect(lines[0]?.wordSpacing).toBeGreaterThan(0);
+  });
+
+  it("gives a centred text's characters their line's offset, rotated cells inside the box", () => {
+    const t = {
+      ...point,
+      content: "Hello\nHi",
+      alignment: "center" as const,
+      ranges: [{ start: 6, end: 7, rotation: 90, baselineShift: 3 }],
+    };
+    const shifted = glyphs(t);
+    const plain = glyphs({ ...t, alignment: undefined });
+    const lines = layoutText(t).lines;
+    shifted.forEach((g, k) => {
+      // Point Type lays out no glyph for the hard return: the second line starts at glyph 5.
+      const line = k < 5 ? 0 : 1;
+      expect(g.x - (plain[k] as { x: number }).x).toBeCloseTo((lines[line]?.x ?? 0) - 100, 9);
+    });
+    const box = textBox(t);
+    const h = shifted[5] as (typeof shifted)[number];
+    // Turned 90° clockwise about its origin, the raised H's ascender points right: its cell reaches
+    // 12 + 3 pt right of the origin and one advance below it, and the box holds it.
+    expect(box.x + box.width).toBeGreaterThanOrEqual(h.x + 15 - 1e-9);
+    expect(box.y + box.height).toBeGreaterThanOrEqual(h.y + h.width - 1e-9);
+  });
 });

@@ -377,6 +377,17 @@ export type CharacterRange = Omit<z.output<typeof CharacterRange>, "fill" | "str
   stroke?: string;
 };
 
+/** Illustrator's Paragraph panel alignments (ADR-0077); absent is left, which is not stored. */
+export const ALIGNMENTS = ["left", "center", "right", "justify"] as const;
+export type Alignment = (typeof ALIGNMENTS)[number];
+
+/** A text as stored: left, the default alignment, is dropped wherever a text comes in (ADR-0077). */
+export function storedAlignment<T extends { alignment?: Alignment | undefined }>(t: T): T {
+  if (t.alignment !== "left") return t;
+  const { alignment: _, ...rest } = t;
+  return rest as T;
+}
+
 /**
  * A text (ADR-0013, ADR-0022): Point Type from its baseline origin, or Area Type in its frame,
  * measured in the one bundled font. `textFrame` checks that the frame matches the kind.
@@ -429,6 +440,12 @@ export const TextShape = z.object({
     .max(10_000)
     .optional()
     .describe("Space after each character in 1/1000 em, -1000 to 10000; omit for 0."),
+  alignment: z
+    .enum(ALIGNMENTS)
+    .optional()
+    .describe(
+      "The Paragraph panel's alignment of every line; omit for left. Point Type aligns about x: center puts each line's middle at x, right its end. Area Type aligns in the frame; justify stretches each line but a paragraph's last to the frame's width by widening its word spaces, and on Point Type lays out as left.",
+    ),
   ranges: z
     .array(CharacterRange)
     .max(10_000)

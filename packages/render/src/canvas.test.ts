@@ -4,6 +4,7 @@ import {
   createDocument,
   createNodes,
   glyphs,
+  layoutText,
   makeMask,
   type Node,
   type ShapeNode,
@@ -522,6 +523,35 @@ it("draws Point Type with fillText per Fill and strokeText per Stroke, unkerned"
     "setLineDash ",
     "strokeText Hi 10 50",
   ]);
+});
+
+it("draws an aligned text's lines, and a justified one's characters, where the layout puts them (ADR-0077)", () => {
+  const draw = (text: Record<string, unknown>) => {
+    const { doc, defaultLayerId: parentId } = newDoc();
+    const [n] = createNodes(doc, [{ type: "text", parentId, ...text } as never]).nodes as [Node];
+    const { ctx, log, layer } = recorder();
+    drawDocument(ctx, doc, layer);
+    return { n, texts: log.filter((l) => l.startsWith("fillText")) };
+  };
+  const centred = draw({ x: 100, y: 50, content: "Hi\nHHH", alignment: "center" });
+  const lines = layoutText(centred.n as never).lines;
+  expect(centred.texts).toEqual(lines.map((l) => `fillText ${l.text} ${l.x} ${l.y}`));
+  expect(lines[0]?.x).toBeLessThan(100);
+  const justified = draw({
+    kind: "area",
+    x: 10,
+    y: 10,
+    width: 60,
+    height: 80,
+    content: "Hi H Hi HH Hi",
+    alignment: "justify",
+  });
+  expect(layoutText(justified.n as never).lines[0]?.wordSpacing).toBeGreaterThan(0);
+  expect(justified.texts).toEqual(
+    glyphs(justified.n as never)
+      .filter((g) => g.char !== "\n")
+      .map((g) => `fillText ${g.char} ${g.x} ${g.y}`),
+  );
 });
 
 it("draws a tracked text per character, a turned one about its origin in its range's fill (ADR-0029)", () => {

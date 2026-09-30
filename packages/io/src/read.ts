@@ -1,4 +1,5 @@
 import {
+  type Alignment,
   type Appearance,
   type Artboard,
   applyTo,
@@ -13,7 +14,6 @@ import {
   fontStyleName,
   formatPath,
   frameShape,
-  glyphs,
   IDENTITY,
   IMAGE_ID,
   type ImageFile,
@@ -210,6 +210,27 @@ const PER_TEXT = [
   "stroke-linejoin",
   "stroke-miterlimit",
 ];
+
+/**
+ * Point Type's alignment (ADR-0077): its `text-anchor` start, middle or end, and justify for
+ * `text-align:justify` on a start anchor, as Inkscape writes it.
+ */
+function pointAlignment(style: Style): Alignment {
+  const anchor = style["text-anchor"];
+  if (anchor === "middle") return "center";
+  if (anchor === "end") return "right";
+  return style["text-align"] === "justify" ? "justify" : "left";
+}
+
+/** Area Type's alignment (ADR-0077): its `text-align`, else its `text-anchor`. */
+function areaAlignment(style: Style): Alignment {
+  const align = style["text-align"];
+  if (align === "center") return "center";
+  if (align === "end" || align === "right") return "right";
+  if (align === "justify") return "justify";
+  if (align === "start" || align === "left") return "left";
+  return pointAlignment({ "text-anchor": style["text-anchor"] ?? "start" });
+}
 
 /** The id in `url(#id)`, as `clip-path` and `shape-inside` name an element. */
 const urlId = (value: string) => /^url\(\s*['"]?#([^'")\s]+)['"]?\s*\)$/.exec(value.trim())?.[1];
@@ -1172,18 +1193,24 @@ class Reader {
     const all = this.chars(e, style, 0, { style });
     // A rotate list indexes the characters SVG addresses: preserved, every one; collapsed, those left.
     if (preserve) rotate(all);
-    const anchor = own["text-anchor"];
-    const centred = anchor === "middle" || anchor === "end";
-    // Lines are left-aligned until paragraph alignment (F-TEXT-03).
-    const unaligned = () =>
-      this.warn(
-        "UNSUPPORTED_ATTRIBUTE",
-        "text-anchor",
-        "text-anchor middle or end on Area Type or several lines is not supported yet; the lines are left-aligned.",
-      );
     const frame = this.frame(style);
+    // One alignment per text (ADR-0077): the first line's, a later line that differs warning once.
+    const alignment = frame ? areaAlignment(style) : pointAlignment(own);
+    if (!frame) {
+      for (const t of tspans.slice(1)) {
+        const other = computeStyle(t, style, this.rules);
+        if (pointAlignment(other) === alignment) continue;
+        const p = other["text-anchor"] !== own["text-anchor"] ? "text-anchor" : "text-align";
+        this.warn(
+          "UNSUPPORTED_ATTRIBUTE",
+          p,
+          `${p} differs between the lines of one text, which has one alignment; every line takes the first line's.`,
+        );
+        break;
+      }
+    }
+    const aligned = alignment === "left" ? {} : { alignment };
     if (frame) {
-      if (centred) unaligned();
       // The layout is recomputed from the characters; Inkscape's positioned lines are its fallback.
       const chars = clean(all);
       if (!preserve) rotate(chars);
@@ -1198,6 +1225,7 @@ class Reader {
         width: n3(k * frame.width),
         height: n3(k * frame.height),
         content,
+        ...aligned,
         ...(ranges && { ranges }),
       };
       return { shape, style };
@@ -1210,23 +1238,23 @@ class Reader {
     if (!content.trim()) return null;
     const first = (name: string) =>
       numbers(line?.getAttribute(name) ?? null)[0] ?? numbers(e.getAttribute(name))[0] ?? 0;
-    let x = k * first("x") + tx;
+    const x = k * first("x") + tx;
     const ranges = this.ranges(
       lines.flatMap((l, i) => (i ? [undefined, ...l] : l)),
       own,
       k,
       text,
     );
-    if (centred) {
-      // The first line's advance, its characters' own attributes and all (ADR-0068).
-      const [top = ""] = content.split("\n");
-      const last = glyphs({ ...text, x: 0, y: 0, content: top, ranges }).at(-1);
-      const width = last ? last.x + last.width : 0;
-      x -= anchor === "middle" ? width / 2 : width;
-      if (content.includes("\n")) unaligned();
-    }
     const y = n3(k * first("y") + ty);
-    const shape = { ...text, kind: "point", x: n3(x), y, content, ...(ranges && { ranges }) };
+    const shape = {
+      ...text,
+      kind: "point",
+      x: n3(x),
+      y,
+      content,
+      ...aligned,
+      ...(ranges && { ranges }),
+    };
     return { shape, style: own };
   }
 

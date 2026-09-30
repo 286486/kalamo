@@ -10,10 +10,11 @@ import {
   type Node,
   parseDocument,
   pathOp,
+  type Rect,
   transformNodes,
 } from "@kalamo/core";
 import { docRect, scopeRect, toSvg } from "@kalamo/io";
-import { expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { COMPOSITING, near } from "../../../fixtures/compositing.ts";
 import fixture from "../../../fixtures/documents/inkscape.kalamo.json?raw";
 import { RED_2x2_PNG } from "../../../fixtures/images.ts";
@@ -38,6 +39,61 @@ async function ink(svg: string) {
   }
   return out;
 }
+
+describe("alignment (ADR-0077)", () => {
+  /** The ink of one text, rendered as `render` does, and its layout's box. */
+  const drawn = async (text: Record<string, unknown>) => {
+    const { doc, defaultLayerId } = createDocument({
+      id: "d",
+      name: "Doc",
+      artboards: [{ width: 300, height: 200, background: "#FFFFFF" }],
+    });
+    const [n] = createNodes(doc, [
+      { type: "text", parentId: defaultLayerId, fontSize: 16, ...text } as never,
+    ]).nodes as [Node];
+    return { box: bounds(doc, n) as Rect, ink: await ink(renderSvg(doc)) };
+  };
+  const inside =
+    (b: Rect) =>
+    ([x, y]: [number, number]) =>
+      b.x - 1 <= x && x < b.x + b.width + 1 && b.y - 1 <= y && y < b.y + b.height + 1;
+  const point = { x: 150, y: 60, content: "Hello there\nHi\nwide wide line" };
+  const area = {
+    kind: "area",
+    x: 20,
+    y: 20,
+    width: 200,
+    height: 160,
+    content: "The quick brown fox jumps over the lazy dog and keeps going.\nA second paragraph.",
+  };
+
+  it.each(["left", "center", "right", "justify"])(
+    "draws %s Point Type and Area Type inside their boxes",
+    async (alignment) => {
+      for (const text of [point, area]) {
+        const { box, ink: pixels } = await drawn({ ...text, alignment });
+        expect(pixels.length).toBeGreaterThan(50);
+        expect(pixels.filter((p) => !inside(box)(p))).toEqual([]);
+      }
+    },
+  );
+
+  it("centres a Point Type line's ink on x within 1 pt", async () => {
+    const { ink: pixels } = await drawn({ x: 150, y: 60, content: "HHHH", alignment: "center" });
+    const xs = pixels.map(([x]) => x);
+    const [left, right] = [Math.min(...xs), Math.max(...xs) + 1];
+    expect(Math.abs((left + right) / 2 - 150)).toBeLessThanOrEqual(1);
+  });
+
+  it("draws a justified line out to the frame's right edge, as the layout does", async () => {
+    const { ink: pixels } = await drawn({ ...area, alignment: "justify" });
+    const firstLine = pixels.filter(([, y]) => y < 38);
+    const right = Math.max(...firstLine.map(([x]) => x)) + 1;
+    // A glyph's side bearing keeps its ink a little inside its advance.
+    expect(right).toBeGreaterThan(218);
+    expect(right).toBeLessThanOrEqual(221);
+  });
+});
 
 it("draws text in the bundled font, inside the bounds node_get reports", async () => {
   const { doc, defaultLayerId } = createDocument({
@@ -499,9 +555,10 @@ it("draws the fixture Document with known pixels", async () => {
   // holding texts whose Character Ranges override stroke, tracking, font style, family and size. This export SVG names no
   // Noto chunk, so its Chinese and Korean draw as .notdef boxes; render's does not.
   // By #175, the texts that named the product say Kalamo, one clipping text says KAL, and the
-  // namespace is kalamo.cc.
+  // namespace is kalamo.cc. By #58, an eighteenth holding Point Type and Area Type centred,
+  // right-aligned and justified.
   expect(await hash(toSvg(doc, docRect(doc), { images }))).toBe(
-    "2f9c2ded0dacea414a5868f9cb6bb6e298f06b1f165551066d24a173d0b5194e",
+    "0b407475354233a21dc83e9bc28bb0f97f22705112a61da2af97d54748ee7e93",
   );
   expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned, images }))).toBe(
     "24c1e7ad8db33f59933a1b355c879cb19bfdfd67d70b11427b196aa646ea4b60",
@@ -525,7 +582,7 @@ it("draws each fixture Artboard by its scope as the whole Document draws it ther
   const { doc, images } = fixtureDoc();
   const all = fit(docRect(doc), 2);
   const whole = await svgToPixels(renderSvg(doc, all.rect, { scale: 2, images }), 2);
-  expect(doc.artboards).toHaveLength(17);
+  expect(doc.artboards).toHaveLength(18);
   for (const a of doc.artboards) {
     const scope = { artboardId: a.id };
     const { rect, pixelSize } = fit(scopeRect(doc, scope), 2);
