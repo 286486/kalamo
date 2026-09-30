@@ -5,43 +5,28 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Kalamo</title>
 <meta name="description" content="Kalamo is a vector editor in the browser. AI agents draw on it through MCP, and people edit the same document on an Illustrator-style canvas.">
-<meta name="color-scheme" content="light dark">
+<meta name="color-scheme" content="light">
 <link rel="canonical" href="https://kalamo.cc/">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Source+Code+Pro:wght@400;600&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
 <style>
   :root {
-    --pasteboard: #d4d4d8;
+    --pasteboard: #ffffff;
     --artboard: #ffffff;
     --ink: #000000;
     --text: #26262b;
     --muted: #5c5c64;
-    --panel: #ececef;
-    --panel-line: #b9b9c0;
+    --panel: #f4f4f6;
+    --panel-line: #d6d6dc;
     --person: #3565e8;
     --agent: #b82fb5;
     --focus: #3565e8;
+    --sun: #ffd166;
+    --coral: #ff7a59;
+    --mint: #3cc6a8;
     --sans: "Source Sans 3", "Source Sans Pro", system-ui, sans-serif;
     --mono: "Source Code Pro", ui-monospace, monospace;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --pasteboard: #38383d;
-      --text: #ececf0;
-      --muted: #a8a8b1;
-      --panel: #2a2a2e;
-      --panel-line: #4b4b52;
-      --focus: #8fb0ff;
-    }
-  }
-  :root[data-theme="dark"] {
-    --pasteboard: #38383d;
-    --text: #ececf0;
-    --muted: #a8a8b1;
-    --panel: #2a2a2e;
-    --panel-line: #4b4b52;
-    --focus: #8fb0ff;
   }
 
   * { box-sizing: border-box; }
@@ -76,19 +61,29 @@
   .links svg { width: 20px; height: 20px; fill: currentColor; }
 
   /* Pasteboard and artboards */
-  main { max-width: 1280px; margin: 0 auto; padding: 40px 16px 24px; }
-  .board { margin-bottom: 56px; }
+  /* Full width so the shapes past the artboards' edges clip at the window, not at the column. */
+  main { padding: 40px max(16px, calc((100% - 1248px) / 2)) 24px; overflow-x: clip; }
+  .board { position: relative; isolation: isolate; margin-bottom: 72px; }
   .board-name { margin: 0 0 6px; font-size: 0.8125rem; color: var(--muted); }
   .artboard {
-    background: var(--artboard); color: var(--ink);
+    background: color-mix(in srgb, var(--artboard) 80%, transparent); color: var(--ink);
     padding: clamp(24px, 5vw, 64px);
-    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(0, 0, 0, 0.06);
+    border: 1px solid #dcdce2;
   }
   .artboard h2 {
     margin: 0 0 12px; font-size: clamp(1.75rem, 3.4vw, 2.25rem); line-height: 1.15;
     font-weight: 700; letter-spacing: -0.01em;
   }
   .artboard .intro { margin: 0 0 40px; max-width: 58ch; color: #3d3d44; }
+
+  /* The canvas around the artboards: shapes and curves behind them, seen faintly through the artboard. */
+  .deco { position: absolute; z-index: -1; pointer-events: none; overflow: visible; }
+  .deco .h { stroke: var(--person); stroke-width: 1; fill: none; }
+  .deco .a { fill: #fff; stroke: var(--person); stroke-width: 1; }
+  .deco .a.on { fill: var(--person); }
+  .spin { transform-box: fill-box; transform-origin: center; animation: spin 60s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
 
   /* Hero */
   .hero { display: grid; gap: 24px; }
@@ -165,8 +160,6 @@
   .panel .tool { display: block; font-weight: 600; color: var(--text); }
   .panel .args { display: block; color: var(--muted); }
   .panel .ret { display: block; color: var(--agent); }
-  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .panel .ret { color: #e07ade; } }
-  :root[data-theme="dark"] .panel .ret { color: #e07ade; }
   .call.pending { visibility: hidden; }
 
   /* What it draws */
@@ -250,6 +243,21 @@
 <main id="top">
   <section class="board" aria-labelledby="hero-title">
     <p class="board-name" aria-hidden="true">Artboard 1</p>
+    <svg class="deco" style="right:-90px;top:-10px;width:250px" viewBox="0 0 250 250" aria-hidden="true">
+      <circle cx="125" cy="125" r="100" fill="var(--sun)" opacity="0.6"/>
+      <rect class="h" x="25" y="25" width="200" height="200" stroke-dasharray="4 3"/>
+      <rect class="a" x="22" y="22" width="6" height="6"/><rect class="a" x="222" y="22" width="6" height="6"/>
+      <rect class="a" x="22" y="222" width="6" height="6"/><rect class="a on" x="222" y="222" width="6" height="6"/>
+    </svg>
+    <svg class="deco" style="left:-130px;top:0;width:320px" viewBox="0 0 320 200" aria-hidden="true">
+      <path d="M12 184 C 70 10, 190 210, 306 36" fill="none" stroke="var(--coral)" stroke-width="3" stroke-linecap="round"/>
+      <path class="h" d="M12 184 L70 10 M306 36 L190 210"/>
+      <circle class="a" cx="70" cy="10" r="3.5"/><circle class="a" cx="190" cy="210" r="3.5"/>
+      <rect class="a" x="9" y="181" width="7" height="7"/><rect class="a on" x="303" y="33" width="7" height="7"/>
+    </svg>
+    <svg class="deco" style="left:-56px;bottom:-72px;width:140px" viewBox="0 0 140 130" aria-hidden="true">
+      <path class="spin" d="M70 8 L132 118 L8 118 Z" fill="var(--mint)" fill-opacity="0.3" stroke="var(--mint)" stroke-width="2" stroke-linejoin="round"/>
+    </svg>
     <div class="hero">
       <div class="artboard">
         <h1 id="hero-title" class="sr-only">Kalamo</h1>
@@ -278,6 +286,18 @@
 
   <section class="board" aria-labelledby="draws-title">
     <p class="board-name" aria-hidden="true">Artboard 2</p>
+    <svg class="deco" style="right:-54px;top:-44px;width:150px" viewBox="0 0 150 150" aria-hidden="true">
+      <rect class="spin" x="30" y="30" width="90" height="90" rx="18" fill="var(--agent)" fill-opacity="0.12" stroke="var(--agent)" stroke-width="2"/>
+    </svg>
+    <svg class="deco" style="left:-110px;top:42%;width:230px" viewBox="0 0 230 80" aria-hidden="true">
+      <path d="M5 40 C 30 0, 60 0, 85 40 S 140 80, 165 40 S 205 0, 225 30" fill="none" stroke="var(--person)" stroke-width="2.5" stroke-linecap="round"/>
+      <rect class="a" x="2" y="37" width="6" height="6"/><rect class="a" x="82" y="37" width="6" height="6"/>
+      <rect class="a on" x="162" y="37" width="6" height="6"/><rect class="a" x="222" y="27" width="6" height="6"/>
+    </svg>
+    <svg class="deco" style="right:-36px;bottom:-56px;width:120px" viewBox="0 0 120 120" aria-hidden="true">
+      <defs><pattern id="dots" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="10" cy="10" r="2.5" fill="#c4c4cd"/></pattern></defs>
+      <rect width="120" height="120" fill="url(#dots)"/>
+    </svg>
     <div class="artboard">
       <h2 id="draws-title">Editable vectors, not pictures</h2>
       <p class="intro">Whatever an agent makes stays as paths, shapes and text. Pick any of it up and keep working by hand.</p>
@@ -324,6 +344,19 @@
 
   <section class="board" aria-labelledby="status-title">
     <p class="board-name" aria-hidden="true">Artboard 3</p>
+    <svg class="deco" style="right:-48px;top:-60px;width:140px" viewBox="0 0 140 140" aria-hidden="true">
+      <path class="spin" d="M70 8 L86 50 L131 52 L96 80 L108 124 L70 99 L32 124 L44 80 L9 52 L54 50 Z" fill="var(--sun)" fill-opacity="0.7" stroke="#e9a800" stroke-width="1.5" stroke-linejoin="round"/>
+    </svg>
+    <svg class="deco" style="left:-150px;bottom:-60px;width:300px" viewBox="0 0 300 160" aria-hidden="true">
+      <path d="M20 150 A 130 130 0 0 1 280 150" fill="none" stroke="var(--mint)" stroke-width="18" stroke-opacity="0.35"/>
+    </svg>
+    <svg class="deco" style="right:3%;bottom:-78px;width:260px" viewBox="0 0 260 200" aria-hidden="true">
+      <path d="M4 120 C 34 40, 84 40, 74 110 S 104 190, 130 178" fill="none" stroke="var(--text)" stroke-width="2" stroke-linecap="round"/>
+      <g transform="translate(180 20) rotate(35)" fill="none" stroke="var(--text)" stroke-width="2" stroke-linejoin="round">
+        <path d="M50 158 L20 70 C 20 42, 34 22, 50 8 C 66 22, 80 42, 80 70 Z" fill="var(--sun)"/>
+        <path d="M50 158 L50 82"/><circle cx="50" cy="76" r="6"/>
+      </g>
+    </svg>
     <div class="artboard">
       <h2 id="status-title">Not ready to use yet</h2>
       <p class="intro">Kalamo is being built in the open, one milestone at a time. The foundation works: an agent draws over MCP and the browser shows it live. The drawing tools, type, charts and hosting are being built now.</p>
