@@ -53,5 +53,5 @@ The three Inkscape cases score the same. Every other region is unchanged, and th
 
 - Korean draws real Hangul in `render`, PNG and SVG export, the canvas and text Clipping Paths. Its bounds and Area Type wrapping use Noto Sans KR's metrics, its lines stack by leading alone (ADR-0080), and it does not warn `MISSING_GLYPHS`. Characters none of the three families has, such as emoji, Thai, Arabic and Devanagari, still draw the first family's `.notdef` box (ADR-0065), and the canvas's box tests stay unchanged.
 - The canvas's `ctx.font` lists all three families, for example `12px "Source Sans 3", "Noto Sans SC", "Noto Sans KR"`.
-- The PNG render tests load each lazy family in a `beforeAll`, since the test pool's import of it takes seconds (#213).
+- The PNG render tests (`packages/render/src/png.test.ts`) and the edge render tests (`apps/edge/test/render.test.ts`) load each lazy family in a `beforeAll`, since the test pool's import of it takes seconds (#213, #214).
 - Adding a bundled family means one `FAMILIES` entry, its metrics output in `font-metrics.mjs`, and one entry in each font map, which the key tests enforce.
