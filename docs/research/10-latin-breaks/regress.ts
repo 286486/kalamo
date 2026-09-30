@@ -1,8 +1,9 @@
-// #203's layout check, as ADR-0084 ran it, for ADR-0085. Run from the repo root: `node
-// --experimental-transform-types docs/research/10-latin-breaks/regress.ts <ref> [n]`. It lays out n
-// random Area Types, 60,000 by default, with that ref's core, extracted to `out/`, and with this
-// checkout's, and counts the texts whose `layoutText`, `glyphs`, `pointType` or `areaFrame` differ.
-// Each changed text should hold a character in the new break-after set.
+// #203's layout check, as ADR-0084 ran it, for ADR-0086 (ADR-0085 ran it before the no-break joins).
+// Run from the repo root: `node --experimental-transform-types
+// docs/research/10-latin-breaks/regress.ts <ref> [n]`. It lays out n random Area Types, 60,000 by
+// default, with that ref's core, extracted to `out/`, and with this checkout's, and counts the texts
+// whose `layoutText`, `glyphs`, `pointType` or `areaFrame` differ. Against f14ce8c, each changed text
+// should hold a no-break space or U+FEFF.
 import { execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -41,7 +42,10 @@ const WORDS = [
   "x",
   "Supercalifragilistic",
 ];
-const JOIN = [" ", " ", " ", " ", "/", "-", "–", "|", "‐", "‒", "‧", ".", "\n", "  ", ", "];
+const JOIN = [
+  ...[" ", " ", " ", " ", "/", "-", "–", "|", "‐", "‒", "‧", ".", "\n", "  ", ", "],
+  ...["\u00A0", "\u2007", "\u202F", "\uFEFF", " \u00A0", "-\u00A0"],
+];
 const FRAMES = [
   undefined,
   undefined,
@@ -50,7 +54,7 @@ const FRAMES = [
   "M 0 0 L 240 0 L 120 300 Z",
   "M 0 0 L 30 0 L 30 100 L 200 100 L 200 300 L 0 300 Z",
 ];
-const NEW = /[-/|‐‒–‧⁖⁘-⁛⁝⁞]/u;
+const NEW = /[\u00A0\u2007\u202F\uFEFF]/u;
 
 let [changed, without, holding] = [0, 0, 0];
 for (let i = 0; i < Number(count); i++) {
@@ -97,5 +101,5 @@ for (let i = 0; i < Number(count); i++) {
   }
 }
 console.log(
-  `${count} texts, ${holding} hold a new break-after character; ${changed} changed, ${without} of them without one`,
+  `${count} texts, ${holding} hold a no-break space or U+FEFF; ${changed} changed, ${without} of them without one`,
 );
