@@ -433,7 +433,8 @@ export const characterFamilies = (text: TextLayout): BundledFamily[] =>
  * Where the trailing whitespace of `chars` from `from` up to `to` starts: the characters after it
  * hang past the frame's edge and past a line's alignment, and are never widened (ADR-0022,
  * ADR-0077). Whitespace is every character JavaScript's `/\s/` matches, a no-break space included:
- * it never ends a line at a break, but Inkscape 1.2.2 hangs it where a unit breaks after it (ADR-0086).
+ * a line never breaks after it, but Inkscape 1.2.2 hangs it where a unit breaks between characters
+ * after it or a breaking space follows it (ADR-0086).
  */
 function hangsFrom(chars: string[], from = 0, to = chars.length): number {
   while (to > from && /\s/.test(chars[to - 1] as string)) to--;

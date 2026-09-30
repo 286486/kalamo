@@ -10,7 +10,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { lineBreakUnits } from "../../../packages/core/src/line-break.ts";
+import { breakingSpace, lineBreakUnits } from "../../../packages/core/src/line-break.ts";
 
 const POOLS = {
   latin: [..."abcxyz0123  \u00A0\u202F/-–‐‒|()\"'.,$%́אב字中「」，。"],
@@ -69,14 +69,12 @@ const at = (cps: string[], i: number): At => {
 };
 const cjkNeighbour = ({ prev, base, next }: At) =>
   CJK.test(base) || CJK.test(next) || CJK.test(prev);
+const besideGlue = ({ prev, next }: At) => GLUE.test(prev) || GLUE.test(next);
 
 /** The rule a difference from Pango falls under: the first that matches. */
 const RULES: [string, (a: At) => boolean][] = [
-  [
-    "a space before it: LB13 to LB16, across spaces",
-    (a) => /\s/.test(a.prev) && !GLUE.test(a.prev),
-  ],
-  ["beside a no-break space", (a) => GLUE.test(a.prev) || GLUE.test(a.next)],
+  ["a space before it: LB13 to LB16, across spaces", (a) => breakingSpace(a.prev)],
+  ["beside a no-break space", besideGlue],
   ["a mark starting the string", (a) => a.leadingMark],
   ["a CJK neighbour: ADR-0064's pairs", cjkNeighbour],
   ["after / - or BA", (a) => BREAK_AFTER.test(a.base)],
@@ -126,8 +124,7 @@ if (ref) {
       if (m.has(i)) removed++;
       const a = at(cps, i);
       const latin = BREAK_AFTER.test(a.base) && !cjkNeighbour(a);
-      const glue = GLUE.test(a.prev) || GLUE.test(a.next);
-      if (!(latin || glue) || p.has(i) !== q.has(i)) other++;
+      if (!(latin || besideGlue(a)) || p.has(i) !== q.has(i)) other++;
     }
     if (c) changed++;
   });
