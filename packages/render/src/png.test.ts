@@ -556,9 +556,10 @@ it("draws the fixture Document with known pixels", async () => {
   // Noto chunk, so its Chinese and Korean draw as .notdef boxes; render's does not.
   // By #175, the texts that named the product say Kalamo, one clipping text says KAL, and the
   // namespace is kalamo.cc. By #58, an eighteenth holding Point Type and Area Type centred,
-  // right-aligned and justified.
+  // right-aligned and justified; by #196, its right-aligned Point Type tracks, beside a tracked
+  // centred one.
   expect(await hash(toSvg(doc, docRect(doc), { images }))).toBe(
-    "0b407475354233a21dc83e9bc28bb0f97f22705112a61da2af97d54748ee7e93",
+    "671110d658381cd3a2b52405653d1a57e07014312e66a6f7643b82297f21d549",
   );
   expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned, images }))).toBe(
     "24c1e7ad8db33f59933a1b355c879cb19bfdfd67d70b11427b196aa646ea4b60",

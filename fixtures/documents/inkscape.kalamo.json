@@ -3040,6 +3040,7 @@
       "opacity": 1,
       "parentId": "01M38T29S9B0JGME3PRR084TCX",
       "tags": [],
+      "tracking": 80,
       "transform": [1, 0, 0, 1, 0, 0],
       "type": "text",
       "visible": true,
@@ -3143,6 +3144,30 @@
       "width": 85,
       "x": 530,
       "y": 340
+    },
+    {
+      "alignment": "center",
+      "appearance": { "fills": [{ "color": "#000000", "type": "solid" }], "strokes": [] },
+      "blendMode": "normal",
+      "content": "Tracked centre \nits last line",
+      "fontFamily": "Source Sans 3",
+      "fontSize": 10,
+      "fontStyle": "Regular",
+      "id": "01M38T29T3A11GN000000000G0",
+      "index": "b08",
+      "kind": "point",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "tags": [],
+      "tracking": 100,
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "text",
+      "visible": true,
+      "x": 475,
+      "y": 345
     }
   ],
   "images": {
