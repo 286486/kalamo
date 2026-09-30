@@ -11,7 +11,7 @@ ADR-0022 wraps Area Type greedily at spaces. A Chinese, Japanese or Korean parag
 
 `core/line-break.ts` splits a paragraph into unbreakable units. The wrap loop of ADR-0022 then takes units where it took words, so `layoutText`'s signature, `glyphs`, the canvas, SVG export and `TEXT_OVERFLOW` do not change. A unit keeps the spaces after it, so lines and `overflow` still join back into `content`, and line `start` offsets are still code points.
 
-- **Spaces break as before.** A break follows every run of white space, trailing spaces hang past the frame, and a hard return ends a paragraph. Two non-space characters never break when neither is CJK, so Latin text wraps exactly as ADR-0022 wraps it.
+- **Spaces break as before.** A break follows every run of white space, trailing spaces hang past the frame, and a hard return ends a paragraph. Two non-space characters never break when neither is CJK, so Latin text wraps exactly as ADR-0022 wraps it. Amended by ADR-0085: Latin text also breaks after `/`, `-` and BA dashes where Pango 1.50.12 does, never inside a number such as `2026-09-30` or `1/2`.
 - **Between two non-space characters where one is CJK, a line breaks unless a class forbids it.** CJK means Han (with the CJK radicals, strokes and compatibility ideographs), kana, Hangul syllables and jamo, Bopomofo, Yi, the CJK symbols and punctuation block, and the full-width and half-width forms. This covers UAX #14's ID, H2, H3, JL, JV, JT, CJ, and the NS, CL and OP characters of CJK width.
 - **No break before** closing, non-starter, exclamation, infix, hyphen, quotation, inseparable, glue, word-joiner, zero-width and combining characters (CL, CP, EX, IS, SY, NS, CJ, IN, BA, HY, QU, GL, WJ, ZW, CM), and Hangul's vowel and trailing jamo (JV, JT). This includes `。，、．）」』】〉》！？：；`, `ー`, `々`, `・`, small kana, and ASCII `!),.:;?]}"'-/|`.
 - **No break after** opening, quotation, before-break, glue and word-joiner characters (OP, QU, BB, GL, WJ), and Hangul's leading jamo (JL), so conjoining jamo stay one syllable. This includes `（「『【〈《〔`, `“‘`, and ASCII `([{"'`.
@@ -23,7 +23,7 @@ So `使用SVG格式` breaks as `使|用|SVG|格|式`, `「字」` is one unit, a
 
 **Left out:**
 
-- Breaks that need no CJK neighbour: emoji (ID), the B2 em dash, ZWSP as a break opportunity, and Latin punctuation such as `a!|b`. These would change Latin wrapping, which stays at spaces.
+- Breaks that need no CJK neighbour: emoji (ID), the B2 em dash, ZWSP as a break opportunity, and Latin punctuation such as `a!|b`. These would change Latin wrapping, which stays at spaces. Amended by ADR-0085: breaks after SY, HY and BA are added, and its "Left out" lists the rest.
 - Rules that look across spaces: LB14 (`OP SP* ×`), LB13 after a space (`SP × CL`), LB15 and LB16, and LB25's number sequences.
 - Thai, Lao, Khmer and other dictionary-based breaking.
 
@@ -49,7 +49,7 @@ Illustrator also breaks between ideographs. Its Kinsoku Shock sets (Hard, Soft) 
 
 ## Considered Options
 
-- **The full UAX #14 pair table.** Its 40-odd classes and pair rules would also change Latin wrapping around punctuation and emoji, and would take a larger table in every bundle. The three-flag reduction matches Pango on every CJK pair checked.
+- **The full UAX #14 pair table.** Its 40-odd classes and pair rules would also change Latin wrapping around punctuation and emoji, and would take a larger table in every bundle. The three-flag reduction matches Pango on every CJK pair checked. Amended by ADR-0085: it adds a break-after set with LB9, LB21a, LB21b and LB25 state, and still no pair table.
 - **`Intl.Segmenter`.** It has no line granularity.
 - **Keeping the line pitch at the leading, as Illustrator does.** With it, Inkscape hid lines that Kalamo draws. The fixture's fifth line overflowed there.
 - **Noto's hhea metrics (1160 / −288).** Inkscape does not use them. The measured baselines match the typographic ones.
