@@ -122,9 +122,16 @@ it("draws a shaped Area Type's spans where the layout puts them, none in the fra
   expect(drawn.some(([x, y]) => x >= 130 && y < 30)).toBe(true);
 });
 
-it.each(["left", "center", "right"] as const)(
-  "draws %s text pixel for pixel alike before and after each Convert (ADR-0079)",
-  async (alignment) => {
+const CONVERTED = "Converted text keeps every line where it was.\nA second paragraph.";
+it.each([
+  ["left", CONVERTED],
+  ["center", CONVERTED],
+  ["right", CONVERTED],
+  // CJK in Noto Sans SC stacks by leading alone as Latin does (ADR-0080).
+  ["left", "Latin with 中文字 and 日本語の文 wraps.\n第二段 second"],
+] as const)(
+  "draws %s text pixel for pixel alike before and after each Convert: %s (ADR-0079)",
+  async (alignment, content) => {
     const { doc, defaultLayerId } = createDocument({
       id: "d",
       name: "Doc",
@@ -142,7 +149,7 @@ it.each(["left", "center", "right"] as const)(
         fontSize: 11,
         tracking: 40,
         alignment,
-        content: "Converted text keeps every line where it was.\nA second paragraph.",
+        content,
         ranges: [{ start: 3, end: 12, fill: "#FF0000", baselineShift: 2 }],
       },
     ]).nodes as [Node];
@@ -156,6 +163,8 @@ it.each(["left", "center", "right"] as const)(
     expect(doc.nodes.get(t.id)).toMatchObject({ kind: "area" });
     expect(await pixels()).toEqual(area);
   },
+  // Each render of the CJK case loads Noto Sans SC, as the other Noto tests here do.
+  30_000,
 );
 
 it("draws text in the bundled font, inside the bounds node_get reports", async () => {
@@ -620,9 +629,11 @@ it("draws the fixture Document with known pixels", async () => {
   // By #175, the texts that named the product say Kalamo, one clipping text says KAL, and the
   // namespace is kalamo.cc. By #58, an eighteenth holding Point Type and Area Type centred,
   // right-aligned and justified; by #196, its right-aligned Point Type tracks, beside a tracked
-  // centred one; by #56, a nineteenth holding Area Type in a circle and in a concave frame.
+  // centred one; by #56, a nineteenth holding Area Type in a circle and in a concave frame. By
+  // #199, CJK Area Type lines stack by leading alone, moving the CJK and Korean Area Types' later
+  // lines up, and a twentieth Artboard holds Point Type and Area Type mixing Latin and CJK lines.
   expect(await hash(toSvg(doc, docRect(doc), { images }))).toBe(
-    "a668042cf0ff0cebfdb89a0f7edf8a85699717564ddac99732590dce7c8608f5",
+    "bb9cda3f211bbdc835837657df6a2f6b778325f8958787c70aca5f66cc7cfa2f",
   );
   expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned, images }))).toBe(
     "24c1e7ad8db33f59933a1b355c879cb19bfdfd67d70b11427b196aa646ea4b60",
@@ -646,7 +657,7 @@ it("draws each fixture Artboard by its scope as the whole Document draws it ther
   const { doc, images } = fixtureDoc();
   const all = fit(docRect(doc), 2);
   const whole = await svgToPixels(renderSvg(doc, all.rect, { scale: 2, images }), 2);
-  expect(doc.artboards).toHaveLength(19);
+  expect(doc.artboards).toHaveLength(20);
   for (const a of doc.artboards) {
     const scope = { artboardId: a.id };
     const { rect, pixelSize } = fit(scopeRect(doc, scope), 2);

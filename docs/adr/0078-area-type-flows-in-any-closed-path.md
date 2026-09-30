@@ -39,7 +39,7 @@ Measured headless on Inkscape 1.2.2 with the bundled Source Sans 3, as ADR-0022 
 
 Inkscape writes its saved fallback as one tspan per band, joining a band's spans in one run from the first span's start, which draws the second span's words in the wrong place elsewhere. Kalamo writes one positioned tspan per span. The round trip compares a band's spans joined.
 
-Known limit: every band is the Node's own size and leading tall. A line holding CJK or a larger Character Range steps as a Latin line does in a shaped frame, where a rectangle frame stacks it by its fonts (ADR-0064, ADR-0068).
+Known limit: every band is the Node's own size and leading tall. A line holding CJK or a larger Character Range steps as a Latin line does in a shaped frame, where a rectangle frame stacks it by its fonts (ADR-0064, ADR-0068). Amended by ADR-0080: a rectangle frame now stacks a CJK line by leading alone, as a band does, so only a larger Character Range steps differently (#200).
 
 ## Everything that reads the frame
 

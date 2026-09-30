@@ -97,7 +97,7 @@ Text 的字符属性 `fontStyle`，Illustrator 字符面板里字体族旁的样
 _Avoid_: Font weight、Bold flag、Typeface
 
 **Leading（行距）**：
-Text 相邻两行基线之间的距离，单位 pt，属于下面那一行。未设置即 Auto，为该行最大字号的 120%（与 Illustrator 一致，ADR-0068），随字号变化；设置后每行固定。
+Text 相邻两行基线之间的距离，单位 pt，属于下面那一行，点文字与区域文字相同，不论该行的字符用哪个字体绘制（ADR-0080）。未设置即 Auto，为该行最大字号的 120%（与 Illustrator 一致，ADR-0068），随字号变化；设置后每行固定。
 _Avoid_: Line height、Line spacing
 
 **Alignment（对齐）**：

@@ -20,7 +20,7 @@ ADR-0022 fixed a text's kind after create. To change it, an Agent had to create 
 The frame is a rectangle chosen so that ADR-0022's Area layout gives Point Type's lines at the same baselines:
 
 - **`width`** is the widest line by ADR-0029's rule, trailing whitespace not counted. Greedy wrapping also measures each unit alone and each unit-ending prefix of a line (ADR-0064), and with negative tracking one of those can be wider than the whole line, so the widest of those counts too. It is rounded up at the third decimal, and never to a stored number below the width, so no line wraps. For center it is rounded up to an even thousandth, so the frame's middle, about which the lines centre, is a stored number and converting back gives the same `x`. If every line is empty or all spaces, the width is `fontSize`.
-- **`height`** reaches the bottom of the lowest line box, with the lines stacked as Area Type stacks them (ADR-0022, ADR-0064, ADR-0068), and rounded up like the width. Each line shows once 90% of its height or leading, or all of its leading, lies in the frame, and its box is at least that tall, so no line overflows and Point to Area never warns `TEXT_OVERFLOW`. This holds when a later line is larger than the first. With one size, the height is `lines × leading`, as #57 asks. Area Type lays out no line for an empty last paragraph, so a trailing hard return adds no height.
+- **`height`** reaches the bottom of the lowest line box, with the lines stacked as Area Type stacks them (ADR-0022, ADR-0068, ADR-0080), and rounded up like the width. Each line shows once 90% of its leading lies in the frame, and its box is at least that tall, so no line overflows and Point to Area never warns `TEXT_OVERFLOW`. This holds when a later line is larger than the first. With one size, the height is `lines × leading`, as #57 asks. Area Type lays out no line for an empty last paragraph, so a trailing hard return adds no height.
 - **`y`** is the first baseline less ADR-0022's first-baseline offset, which is the first line box's ascent.
 - **`x`** is Point Type's `x` for left and justify, less half the width for center, and less the width for right. Each line then aligns where it did (ADR-0077). A justified Point Type line ends at a hard return or is the last line, so Area Type does not widen it either.
 - Each hard return still ends a paragraph and each line fits the width, so the Area layout breaks at the same places.
@@ -37,13 +37,7 @@ The frame is a rectangle chosen so that ADR-0022's Area layout gives Point Type'
 
 ## CJK in a fallback family
 
-Illustrator stacks both kinds by leading, so its conversions never move a line. Kalamo's two kinds stack a line that draws in another family differently. Point Type puts each line one of its own leadings below the one before, as Inkscape keeps a line tspan's `y` (ADR-0064, ADR-0068). A rectangle frame also adds what a line's families rise above and drop below the strut, as Inkscape measured (ADR-0064). Both amounts are never negative. The conversion cannot close that gap: the frame sets only the first baseline, and #57 puts changing how either kind lays out out of scope. So the contract for a text whose lines hold a family taller than its first family's box, such as Latin text with CJK drawn in Noto Sans SC:
-
-- No character moves sideways, and the first line does not move.
-- Point to Area moves each later line down by what it and the lines above it rise and drop past the strut. Nothing overflows, since the frame is built on Area Type's stacking.
-- Area to Point moves each later line up by the same amount, so converting to Area and back returns the Node unchanged.
-
-A text whose characters all draw in its first family, such as all-Latin Source Sans 3 or all-CJK Noto Sans SC, converts in place.
+Superseded by ADR-0080. Area Type now stacks a line that draws in another family by leading alone, as Point Type and Illustrator do, so both conversions keep every glyph of such a text in place.
 
 ## Consequences
 

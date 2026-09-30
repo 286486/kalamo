@@ -1,0 +1,98 @@
+point	auto	cjk-second	current	first 0	steps 26.52 24 24
+point	auto	cjk-second	absolute	first 0	steps 26.52 24 24
+point	auto	cjk-second	noto-first	first 0	steps 24 24 24
+point	auto	cjk-second	run-line-height	first 0	steps 24 24 24
+point	auto	cjk-second	run-line-height-rounded	first 0	steps 24 24 24
+point	auto	cjk-first	current	first 0	steps 24 24 24
+point	auto	cjk-first	absolute	first 0	steps 24 24 24
+point	auto	cjk-first	noto-first	first 0	steps 24 24 24
+point	auto	cjk-first	run-line-height	first 0	steps 24 24 24
+point	auto	cjk-first	run-line-height-rounded	first 0	steps 24 24 24
+point	auto	cjk-larger	current	first 0	steps 36.32 24 24
+point	auto	cjk-larger	absolute	first 0	steps 30.32 24 24
+point	auto	cjk-larger	noto-first	first 0	steps 33.8 26.2 24
+point	auto	cjk-larger	run-line-height	first 0	steps 32.54 24 24
+point	auto	cjk-larger	run-line-height-rounded	first 0	steps 32.54 24 24
+point	auto	latin	current	first 0	steps 24 24 24
+point	auto	latin	absolute	first 0	steps 24 24 24
+point	auto	latin	noto-first	first 0	steps 24 24 24
+point	auto	latin	run-line-height	first 0	steps 24 24 24
+point	auto	latin	run-line-height-rounded	first 0	steps 24 24 24
+point	30	cjk-second	current	first 0	steps 32.52 30 30
+point	30	cjk-second	absolute	first 0	steps 32.52 30 30
+point	30	cjk-second	noto-first	first 0	steps 30 30 30
+point	30	cjk-second	run-line-height	first 0	steps 30 30 30
+point	30	cjk-second	run-line-height-rounded	first 0	steps 30 30 30
+point	30	cjk-first	current	first 0	steps 30 30 30
+point	30	cjk-first	absolute	first 0	steps 30 30 30
+point	30	cjk-first	noto-first	first 0	steps 30 30 30
+point	30	cjk-first	run-line-height	first 0	steps 30 30 30
+point	30	cjk-first	run-line-height-rounded	first 0	steps 30 30 30
+point	30	cjk-larger	current	first 0	steps 36.32 30 30
+point	30	cjk-larger	absolute	first 0	steps 36.32 30 30
+point	30	cjk-larger	noto-first	first 0	steps 33.8 30 30
+point	30	cjk-larger	run-line-height	first 0	steps 32.54 30 30
+point	30	cjk-larger	run-line-height-rounded	first 0	steps 32.54 30 30
+point	30	latin	current	first 0	steps 30 30 30
+point	30	latin	absolute	first 0	steps 30 30 30
+point	30	latin	noto-first	first 0	steps 30 30 30
+point	30	latin	run-line-height	first 0	steps 30 30 30
+point	30	latin	run-line-height-rounded	first 0	steps 30 30 30
+area	auto	cjk-second	current	first 17.08	steps 26.52 24 24
+area	auto	cjk-second	absolute	first 17.08	steps 26.52 24 24
+area	auto	cjk-second	noto-first	first 19.6	steps 24 24 24
+area	auto	cjk-second	run-line-height	first 17.08	steps 24 24 24
+area	auto	cjk-second	run-line-height-rounded	first 17.08	steps 24 24 24
+area	auto	cjk-first	current	first 19.6	steps 24 24 24
+area	auto	cjk-first	absolute	first 19.6	steps 24 24 24
+area	auto	cjk-first	noto-first	first 19.6	steps 24 24 24
+area	auto	cjk-first	run-line-height	first 17.08	steps 24 24 24
+area	auto	cjk-first	run-line-height-rounded	first 17.08	steps 24 24 24
+area	auto	cjk-larger	current	first 17.08	steps 36.32 24 24
+area	auto	cjk-larger	absolute	first 17.08	steps 30.32 24 24
+area	auto	cjk-larger	noto-first	first 19.6	steps 33.8 26.2 24
+area	auto	cjk-larger	run-line-height	first 17.08	steps 32.54 24 24
+area	auto	cjk-larger	run-line-height-rounded	first 17.08	steps 32.54 24 24
+area	auto	latin	current	first 17.08	steps 24 24 24
+area	auto	latin	absolute	first 17.08	steps 24 24 24
+area	auto	latin	noto-first	first 19.6	steps 24 24 24
+area	auto	latin	run-line-height	first 17.08	steps 24 24 24
+area	auto	latin	run-line-height-rounded	first 17.08	steps 24 24 24
+area	30	cjk-second	current	first 20.08	steps 32.52 30 30
+area	30	cjk-second	absolute	first 20.08	steps 32.52 30 30
+area	30	cjk-second	noto-first	first 22.6	steps 30 30 30
+area	30	cjk-second	run-line-height	first 20.08	steps 30 30 30
+area	30	cjk-second	run-line-height-rounded	first 20.08	steps 30 30 30
+area	30	cjk-first	current	first 22.6	steps 30 30 30
+area	30	cjk-first	absolute	first 22.6	steps 30 30 30
+area	30	cjk-first	noto-first	first 22.6	steps 30 30 30
+area	30	cjk-first	run-line-height	first 20.08	steps 30 30 30
+area	30	cjk-first	run-line-height-rounded	first 20.08	steps 30 30 30
+area	30	cjk-larger	current	first 20.08	steps 36.32 30 30
+area	30	cjk-larger	absolute	first 20.08	steps 36.32 30 30
+area	30	cjk-larger	noto-first	first 22.6	steps 33.8 30 30
+area	30	cjk-larger	run-line-height	first 20.08	steps 32.54 30 30
+area	30	cjk-larger	run-line-height-rounded	first 20.08	steps 32.54 30 30
+area	30	latin	current	first 20.08	steps 30 30 30
+area	30	latin	absolute	first 20.08	steps 30 30 30
+area	30	latin	noto-first	first 22.6	steps 30 30 30
+area	30	latin	run-line-height	first 20.08	steps 30 30 30
+area	30	latin	run-line-height-rounded	first 20.08	steps 30 30 30
+threshold	auto	cjk-first	current	shows lines 1-3 from 23.87 48.12 72.13
+threshold	auto	cjk-first	run-line-height	shows lines 1-3 from 21.61 45.6 69.61
+threshold	auto	cjk-first	run-line-height-rounded	shows lines 1-3 from 21.61 45.6 69.61
+threshold	auto	cjk-second	current	shows lines 1-3 from 21.61 48 72.13
+threshold	auto	cjk-second	run-line-height	shows lines 1-3 from 21.61 45.6 69.61
+threshold	auto	cjk-second	run-line-height-rounded	shows lines 1-3 from 21.61 45.6 69.61
+threshold	auto	latin	current	shows lines 1-3 from 21.61 45.6 69.61
+threshold	auto	latin	run-line-height	shows lines 1-3 from 21.61 45.6 69.61
+threshold	auto	latin	run-line-height-rounded	shows lines 1-3 from 21.61 45.6 69.61
+threshold	30	cjk-first	current	shows lines 1-3 from 29.27 59.52 89.52
+threshold	30	cjk-first	run-line-height	shows lines 1-3 from 27.01 57 87
+threshold	30	cjk-first	run-line-height-rounded	shows lines 1-3 from 27.01 57.01 87
+threshold	30	cjk-second	current	shows lines 1-3 from 27.01 60 89.52
+threshold	30	cjk-second	run-line-height	shows lines 1-3 from 27.01 57 87
+threshold	30	cjk-second	run-line-height-rounded	shows lines 1-3 from 27.01 60 87
+threshold	30	latin	current	shows lines 1-3 from 27.01 57 87
+threshold	30	latin	run-line-height	shows lines 1-3 from 27.01 57 87
+threshold	30	latin	run-line-height-rounded	shows lines 1-3 from 27.01 57 87
