@@ -8,7 +8,6 @@ import {
   type CharacterRange,
   type ContainerAppearance,
   canonicalRanges,
-  closed,
   cssColor,
   type Fill,
   fileProblem,
@@ -40,6 +39,7 @@ import {
   type Segment,
   type Shape,
   scaleOf,
+  shapedFrame,
   shapeSegments,
   textBox,
   transformSegments,
@@ -1217,9 +1217,15 @@ class Reader {
     if (frame) {
       // The layout is recomputed from the characters; Inkscape's positioned lines are its fallback.
       // A shaped frame bakes as the text's parameters do, and its bounds follow (ADR-0078).
-      const shaped =
-        "segments" in frame ? transformSegments(frame.segments, [k, 0, 0, k, tx, ty]) : undefined;
-      const box = "rect" in frame ? frame.rect : (pathBounds(shaped ?? []) as Rect);
+      const bounds =
+        "segments" in frame
+          ? shapedFrame(transformSegments(frame.segments, [k, 0, 0, k, tx, ty]), "shape-inside")
+          : {
+              x: n3(k * frame.rect.x + tx),
+              y: n3(k * frame.rect.y + ty),
+              width: n3(k * frame.rect.width),
+              height: n3(k * frame.rect.height),
+            };
       const chars = clean(all);
       if (!preserve) rotate(chars);
       const content = joined(chars);
@@ -1228,15 +1234,7 @@ class Reader {
       const shape = {
         ...text,
         kind: "area",
-        ...(shaped
-          ? { x: n3(box.x), y: n3(box.y), width: n3(box.width), height: n3(box.height) }
-          : {
-              x: n3(k * box.x + tx),
-              y: n3(k * box.y + ty),
-              width: n3(k * box.width),
-              height: n3(k * box.height),
-            }),
-        ...(shaped && { frame: formatPath(shaped) }),
+        ...bounds,
         content,
         ...aligned,
         ...(ranges && { ranges }),
@@ -1273,9 +1271,10 @@ class Reader {
 
   /**
    * The frame a text's `shape-inside` names, in the text's user space: an untransformed `<rect>` as
-   * a rectangle (ADR-0022); any other rect, circle, ellipse, polygon, polyline (closed as SVG fills
-   * it) or path as its outline through its own transform (ADR-0078). Undefined for Point Type, and,
-   * with a warning, for a missing reference, an open shape, a `<use>` or a list of shapes.
+   * a rectangle (ADR-0022); any other rect, circle, ellipse, polygon, polyline ending where it starts,
+   * or path closed with Z, as its outline through its own transform (ADR-0078). Undefined for Point
+   * Type, and, with a warning, for a missing reference, an open shape, an evenodd shape whose holes
+   * a nonzero frame would fill, a `<use>` or a list of shapes.
    */
   private frame(style: Style): { rect: Rect } | { segments: Segment[] } | undefined {
     const value = style["shape-inside"];
@@ -1294,15 +1293,25 @@ class Reader {
     let segments = shape
       ? transformSegments(shapeSegments(shape as Shape), shape.transform as Matrix)
       : [];
-    if (el?.localName === "polyline" && segments.at(-1)?.cmd !== "Z") {
+    // A polyline cannot write Z: it is closed when it ends where it starts.
+    const [first, last] = [segments[0]?.args, segments.at(-1)?.args.slice(-2)];
+    if (el?.localName === "polyline" && first?.[0] === last?.[0] && first?.[1] === last?.[1]) {
       segments = [...segments, { cmd: "Z", args: [] }];
     }
-    const box = pathBounds(segments);
-    if (closed(segments) && box && box.width > 0 && box.height > 0) return { segments };
+    // An evenodd shape whose holes the nonzero frame would fill is refused (ADR-0078).
+    const evenodd = el && computeStyle(el, {}, this.rules)["fill-rule"] === "evenodd";
+    if (shape) {
+      try {
+        shapedFrame(segments, "shape-inside", "INVALID_INPUT", evenodd ? "evenodd" : "nonzero");
+        return { segments };
+      } catch (e) {
+        if (!(e instanceof KalamoError)) throw e;
+      }
+    }
     this.warn(
       "UNSUPPORTED_ATTRIBUTE",
       "shape-inside",
-      "shape-inside flows text only in one closed rect, circle, ellipse, polygon, polyline or path: naming nothing, an open shape, a <use> or several shapes, it imports as Point Type.",
+      "shape-inside flows text only in one closed rect, circle, ellipse, polygon, polyline or path: naming nothing, an open shape, an evenodd shape with holes, a <use> or several shapes, it imports as Point Type.",
     );
     return undefined;
   }

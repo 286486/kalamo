@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { edgesOf, frameSpans } from "./frame.ts";
 import { lineBreakUnits } from "./line-break.ts";
 import { NOTO_SANS_KR } from "./noto-sans-kr.ts";
 import { NOTO_SANS_SC } from "./noto-sans-sc.ts";
@@ -948,6 +949,8 @@ describe("alignment (ADR-0077)", () => {
 });
 
 describe("Area Type in a closed path (ADR-0078)", () => {
+  /** The band around a 12 pt line's baseline at line-height 1.2, as ADR-0078 measured it. */
+  const [BAND_ABOVE, BAND_BELOW] = [8.8098, 2.7102];
   /** Area Type in the frame `d`, its bounds derived as core stores them. */
   const inFrame = (d: string, content: string, fontSize = 12) => {
     const b = pathBounds(parsePath(d, "d")) as NonNullable<ReturnType<typeof pathBounds>>;
@@ -1002,6 +1005,15 @@ describe("Area Type in a closed path (ADR-0078)", () => {
       [0, 82.2498, "frame.\n"],
       [0, 96.6498, "New paragraph here."],
     ]);
+    // Each arm band has the two 100 pt spans Inkscape filled; below the arms, one 300 pt span.
+    const spans = (y: number) => frameSpans(edgesOf(U), y - BAND_ABOVE, y + BAND_BELOW);
+    for (const y of [10.2498, 24.6498, 39.0498, 53.4498, 67.8498]) {
+      expect(spans(y)).toEqual([
+        { x: 0, width: 100 },
+        { x: 200, width: 100 },
+      ]);
+    }
+    expect(spans(82.2498)).toEqual([{ x: 0, width: 300 }]);
   });
 
   it("starts the next paragraph in the next span of the same band", () => {
@@ -1033,6 +1045,12 @@ describe("Area Type in a closed path (ADR-0078)", () => {
     got.forEach(([x], i) => {
       expect(Math.abs((x as number) - (inkscape[i]?.[0] as number))).toBeLessThan(0.6);
     });
+    // Each band's one span is centred on the circle, so Inkscape's start gives its width.
+    for (const [x, y] of inkscape) {
+      const [span, ...more] = frameSpans(edgesOf(circle), y - BAND_ABOVE, y + BAND_BELOW);
+      expect(more).toEqual([]);
+      expect(Math.abs((span?.width as number) - (240 - 2 * x))).toBeLessThan(1.2);
+    }
   });
 
   it("overflows what fits no band above the frame's bottom, and warns", () => {

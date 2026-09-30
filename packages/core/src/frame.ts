@@ -92,14 +92,48 @@ export function frameSpans(edges: Edge[], top: number, bottom: number): Span[] {
   return spans;
 }
 
-/** Frame edges by `frame` data, parsed once. ponytail: unbounded; key by Node if it grows. */
+/**
+ * Whether some region of the edges winds twice or more, where the evenodd rule leaves a hole the
+ * nonzero rule fills. Between consecutive heights where an edge ends or two edges cross, the
+ * crossings keep their order, so one scanline through each such band sees every region.
+ */
+export function windsTwice(edges: Edge[]): boolean {
+  const ys = new Set(edges.flatMap(([, y1, , y2]) => [y1, y2]));
+  for (const [i, [ax1, ay1, ax2, ay2]] of edges.entries()) {
+    for (const [bx1, by1, bx2, by2] of edges.slice(i + 1)) {
+      const d = (ax2 - ax1) * (by2 - by1) - (ay2 - ay1) * (bx2 - bx1);
+      if (d === 0) continue;
+      const t = ((bx1 - ax1) * (by2 - by1) - (by1 - ay1) * (bx2 - bx1)) / d;
+      const u = ((bx1 - ax1) * (ay2 - ay1) - (by1 - ay1) * (ax2 - ax1)) / d;
+      if (t > 0 && t < 1 && u > 0 && u < 1) ys.add(ay1 + t * (ay2 - ay1));
+    }
+  }
+  const sorted = [...ys].sort((a, b) => a - b);
+  for (let i = 1; i < sorted.length; i++) {
+    const y = ((sorted[i - 1] as number) + (sorted[i] as number)) / 2;
+    const crossings = edges
+      .filter(([, y1, , y2]) => y1 <= y !== y2 <= y)
+      .map(([x1, y1, x2, y2]) => [x1 + ((y - y1) / (y2 - y1)) * (x2 - x1), y2 > y1 ? 1 : -1])
+      .sort((a, b) => (a[0] as number) - (b[0] as number));
+    let winding = 0;
+    for (const [, step] of crossings) {
+      winding += step as number;
+      if (Math.abs(winding) > 1) return true;
+    }
+  }
+  return false;
+}
+
+/** Frame edges by `frame` data, parsed once; cleared when full, as reshaping adds entries. */
 const cache = new Map<string, Edge[]>();
+const CACHE_SIZE = 256;
 
 /** The edges of a stored `frame`. */
 export function edgesOf(frame: string): Edge[] {
   let edges = cache.get(frame);
   if (!edges) {
     edges = frameEdges(parsePath(frame, "frame"));
+    if (cache.size >= CACHE_SIZE) cache.clear();
     cache.set(frame, edges);
   }
   return edges;

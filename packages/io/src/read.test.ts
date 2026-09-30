@@ -12,6 +12,7 @@ import {
   type Node,
   normalizePath,
   parseDocument,
+  parseNode,
   readImage,
   type ShapeNode,
   serializeDocument,
@@ -3450,18 +3451,25 @@ describe("alignment (ADR-0077)", () => {
 });
 
 describe("Area Type in a closed path (ADR-0078)", () => {
-  const flowed = (defs: string, extra = "") =>
+  const flowed = (defs: string, extra = "", more = "") =>
     parseFile(
       svg(
         'width="400" height="300"',
-        `<defs>${defs}</defs><text font-size="12" style="shape-inside:url(#f);white-space:pre${extra}">Flowed words</text>`,
+        `<defs>${defs}</defs><text font-size="12" style="shape-inside:url(#f)${more};white-space:pre${extra}">Flowed words</text>`,
       ),
     );
   it.each([
     ['<circle id="f" cx="50" cy="50" r="40"/>', { x: 10, y: 10, width: 80, height: 80 }],
     ['<ellipse id="f" cx="50" cy="40" rx="40" ry="30"/>', { x: 10, y: 10, width: 80, height: 60 }],
     ['<polygon id="f" points="10 10 90 10 50 70"/>', { frame: "M 10 10 L 90 10 L 50 70 Z" }],
-    ['<polyline id="f" points="10 10 90 10 50 70"/>', { frame: "M 10 10 L 90 10 L 50 70 Z" }],
+    [
+      '<polyline id="f" points="10 10 90 10 50 70 10 10"/>',
+      { frame: "M 10 10 L 90 10 L 50 70 L 10 10 Z" },
+    ],
+    [
+      '<path id="f" style="fill-rule:evenodd" d="M 0 0 L 90 0 L 90 90 L 0 90 Z M 30 30 L 30 60 L 60 60 L 60 30 Z"/>',
+      { frame: "M 0 0 L 90 0 L 90 90 L 0 90 Z M 30 30 L 30 60 L 60 60 L 60 30 Z" },
+    ],
     [
       '<path id="f" d="M 10 10 L 90 10 L 90 60 L 10 60 Z"/>',
       { frame: "M 10 10 L 90 10 L 90 60 L 10 60 Z" },
@@ -3476,6 +3484,13 @@ describe("Area Type in a closed path (ADR-0078)", () => {
     expect(file.warnings).toEqual([]);
   });
 
+  it("stores a curved frame's bounds to 3 decimals, as the Document reads them back", () => {
+    const [t] = leaves(flowed('<path id="f" d="M 0 40 C 0 -13 70 -17 100 40 L 100 80 L 0 80 Z"/>'));
+    const y = (t as { y: number }).y;
+    expect(y).toBe(Math.round(y * 1000) / 1000);
+    expect(parseNode(t, "t")).toEqual(t);
+  });
+
   it("keeps a plain rect a rectangle frame", () => {
     const [t] = leaves(flowed('<rect id="f" x="5" y="5" width="80" height="40"/>'));
     expect(t).toMatchObject({ kind: "area", x: 5, y: 5, width: 80, height: 40 });
@@ -3485,10 +3500,20 @@ describe("Area Type in a closed path (ADR-0078)", () => {
   it.each([
     ["a missing reference", ""],
     ["an open path", '<path id="f" d="M 10 10 L 90 10 L 50 70"/>'],
+    ["an open polyline", '<polyline id="f" points="10 10 90 10 50 70"/>'],
+    [
+      "an evenodd path whose hole winds with its outline",
+      '<path id="f" fill-rule="evenodd" d="M 0 0 L 90 0 L 90 90 L 0 90 Z M 30 30 L 60 30 L 60 60 L 30 60 Z"/>',
+    ],
     ["a line", '<line id="f" x1="0" y1="0" x2="50" y2="50"/>'],
     ["a use", '<rect id="r" width="50" height="50"/><use id="f" href="#r"/>'],
-  ])("imports %s as Point Type with the warning", (_, defs) => {
-    const file = flowed(defs);
+    [
+      "an evenodd pentagram, its centre wound twice",
+      '<polygon id="f" fill-rule="evenodd" points="50 0 79 90 2 35 98 35 21 90"/>',
+    ],
+    ["several shapes", '<rect id="f" width="50" height="50"/>', " url(#g)"],
+  ])("imports %s as Point Type with the warning", (_, defs, more = "") => {
+    const file = flowed(defs, "", more);
     expect(leaves(file)[0]).toMatchObject({ kind: "point", content: "Flowed words" });
     expect(file.warnings.map((w) => [w.code, w.message.split(" ")[0]])).toEqual([
       ["UNSUPPORTED_ATTRIBUTE", "shape-inside"],

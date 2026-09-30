@@ -3,6 +3,7 @@ import { ulid } from "ulid";
 import type { z } from "zod";
 import { parseColor } from "./color.ts";
 import { collect, type Failed, KalamoError } from "./errors.ts";
+import { edgesOf, windsTwice } from "./frame.ts";
 import { fileProblem, MAX_FILE_LENGTH, preserveAspectRatio } from "./image.ts";
 import { applyTo, IDENTITY, multiply, scaleOf, transformSegments } from "./matrix.ts";
 import { formatPath, parsePath, pathBounds, type Segment, shapeSegments } from "./path.ts";
@@ -112,21 +113,23 @@ interface Out {
 }
 
 /** Whether every subpath of `segments` is closed with Z. */
-export const closed = (segments: Segment[]) =>
+const allSubpathsClosed = (segments: Segment[]) =>
   segments.at(-1)?.cmd === "Z" &&
   segments.every((s, i) => s.cmd !== "M" || i === 0 || segments[i - 1]?.cmd === "Z");
 
 /**
- * A shaped Area Type's frame, normalized, and its bounds, which the text stores as its `x, y,
- * width, height` (ADR-0078). Refuses open or empty path data.
+ * A shaped Area Type's frame, normalized, and its bounds to 3 decimals, which the text stores as
+ * its `x, y, width, height` (ADR-0078). Refuses open or empty path data, and an evenodd outline
+ * whose holes the frame's nonzero inside would fill.
  */
 export function shapedFrame(
   segments: Segment[],
   path: string,
   code: "INVALID_INPUT" | "INVALID_PATCH" = "INVALID_INPUT",
+  fillRule: "nonzero" | "evenodd" = "nonzero",
 ): { frame: string } & Rect {
   const invalid = (message: string, hint: string) => new KalamoError({ code, message, hint, path });
-  if (!closed(segments)) {
+  if (!allSubpathsClosed(segments)) {
     throw invalid(
       "The frame is open: Area Type flows only inside a closed path.",
       "End every subpath with Z, or use a closed Live Shape or Path.",
@@ -134,12 +137,37 @@ export function shapedFrame(
   }
   // The bounds of the frame as stored, to 3 decimals, so a file reads back the same (ADR-0078).
   const frame = formatPath(segments);
-  const b = pathBounds(parsePath(frame, path));
+  const exact = pathBounds(parsePath(frame, path));
+  const b = exact && {
+    x: r3(exact.x),
+    y: r3(exact.y),
+    width: r3(exact.width),
+    height: r3(exact.height),
+  };
   if (!b || b.width <= 0 || b.height <= 0) {
     throw invalid("The frame encloses no area.", "Give the frame a width and a height.");
   }
+  if (fillRule === "evenodd" && windsTwice(edgesOf(frame))) {
+    throw invalid(
+      "The frame's holes wind the same way as its outline: the evenodd rule leaves them empty, but a frame's inside is nonzero.",
+      "Reverse each hole's direction so it winds against the outline, or frame the text in a shape without holes.",
+    );
+  }
   return { frame, ...b };
 }
+
+/** The Nodes `frameNodeId` may name; the open ones among them are refused as open (ADR-0078). */
+const FRAMEABLE: ReadonlySet<string> = new Set<ShapeNode["type"]>([
+  "rect",
+  "ellipse",
+  "line",
+  "polygon",
+  "star",
+  "spiral",
+  "path",
+]);
+
+const isFrameable = (n: Node): n is ShapeNode => FRAMEABLE.has(n.type);
 
 /**
  * The frame, bounds, place and transform of Area Type whose `frameNodeId` names a closed Live Shape
@@ -157,20 +185,21 @@ function consume(
   const invalid = (message: string, hint: string) =>
     new KalamoError({ code: "INVALID_INPUT", message, hint, path: at });
   const node = doc.nodes.get(id);
-  if (!node || taken.has(id)) {
+  if (!node) {
     throw new KalamoError({
       code: "NODE_NOT_FOUND",
-      message: taken.has(id) ? `${id} is already a frame in this call.` : `No Node with id ${id}.`,
-      hint: "frameNodeId names a closed Live Shape or Path in the Document; each frames one text.",
+      message: `No Node with id ${id}.`,
+      hint: "frameNodeId names a closed Live Shape or Path in the Document.",
       path: at,
     });
   }
-  if (
-    node.type === "layer" ||
-    node.type === "group" ||
-    node.type === "text" ||
-    node.type === "image"
-  ) {
+  if (taken.has(id)) {
+    throw invalid(
+      `${id} is already a frame in this call.`,
+      "Each Live Shape or Path frames one text: give each text its own frameNodeId.",
+    );
+  }
+  if (!isFrameable(node)) {
     throw invalid(
       `A ${node.type} cannot be a frame.`,
       "frameNodeId names a closed Live Shape or Path: a rect, a closed ellipse, a polygon, a star or a closed path.",
@@ -195,13 +224,18 @@ function consume(
     );
   }
   const segments = node.type === "path" ? parsePath(node.d, at) : shapeSegments(node);
-  if (!closed(segments)) {
+  if (!allSubpathsClosed(segments)) {
     throw invalid(
       `The ${node.type} is open: Area Type flows only inside a closed path.`,
       "A line, a spiral and an ellipse with an open arc are open; close the path, or pick a closed shape.",
     );
   }
-  return { ...shapedFrame(segments, at), index: node.index, transform: node.transform };
+  const fillRule = node.type === "path" ? node.fillRule : "nonzero";
+  return {
+    ...shapedFrame(segments, at, "INVALID_INPUT", fillRule),
+    index: node.index,
+    transform: node.transform,
+  };
 }
 
 /**

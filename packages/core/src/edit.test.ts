@@ -7,6 +7,7 @@ import {
   createNodes,
   ellipseMatrix,
   outline,
+  paintedLeaves,
 } from "./document.ts";
 import {
   deleteNodes,
@@ -19,9 +20,17 @@ import {
 import { KalamoError } from "./errors.ts";
 import { parseDocument, serializeDocument } from "./file.ts";
 import { makeMask } from "./mask.ts";
-import { applyTo, compose, IDENTITY, invert } from "./matrix.ts";
+import { applyTo, compose, IDENTITY, invert, transformSegments } from "./matrix.ts";
 import { formatPath, parsePath, pathBounds, shapeSegments } from "./path.ts";
-import { type Document, type Gradient, type Node, NodeInput, type ShapeNode } from "./schema.ts";
+import {
+  type Document,
+  type Gradient,
+  type Matrix,
+  type Node,
+  NodeInput,
+  type Rect,
+  type ShapeNode,
+} from "./schema.ts";
 
 const newDoc = () => {
   const { doc, defaultLayerId } = createDocument({
@@ -1980,6 +1989,7 @@ describe("Area Type in a closed path (ADR-0078)", () => {
     const refuses = (inputs: object[], path: string, hint: RegExp) => {
       const before = new Map(doc.nodes);
       expect(errorOf(() => createNodes(doc, inputs as never))).toMatchObject({
+        code: "INVALID_INPUT",
         path,
         hint: expect.stringMatching(hint),
       });
@@ -1992,7 +2002,7 @@ describe("Area Type in a closed path (ADR-0078)", () => {
     refuses(
       [text(parentId, { frameNodeId: id("star") }), text(parentId, { frameNodeId: id("star") })],
       "nodes[1].frameNodeId",
-      /each frames one text/,
+      /frames one text/,
     );
     makeMask(doc, { clipNodeId: id("ellipse"), contentIds: [id("below")] });
     const clip = doc.nodes.get(id("ellipse")) as Node;
@@ -2001,6 +2011,79 @@ describe("Area Type in a closed path (ADR-0078)", () => {
       "nodes[0].frameNodeId",
       /mask_release/,
     );
+  });
+
+  it("refuses an Image, a Layer and an evenodd Compound Path whose holes a nonzero frame would fill", () => {
+    const { doc, parentId } = scene();
+    const src = "a".repeat(64);
+    doc.images.set(src, { mime: "image/png", width: 24, height: 16 });
+    // Both rings wind the same way: evenodd leaves the hole, nonzero would fill it.
+    const ring = "M 0 0 L 90 0 L 90 90 L 0 90 Z M 30 30 L 60 30 L 60 60 L 30 60 Z";
+    const [image, holed] = createNodes(doc, [
+      { type: "image", parentId, src, x: 0, y: 0 },
+      { type: "path", parentId, d: ring, fillRule: "evenodd" },
+    ] as never).nodes as [Node, Node];
+    const refused = (frameNodeId: string, at: string, hint: RegExp) => {
+      const before = new Map(doc.nodes);
+      expect(errorOf(() => createNodes(doc, [text(at, { frameNodeId })]))).toMatchObject({
+        code: "INVALID_INPUT",
+        path: "nodes[0].frameNodeId",
+        hint: expect.stringMatching(hint),
+      });
+      expect(doc.nodes).toEqual(before);
+    };
+    refused(image.id, parentId, /closed Live Shape or Path/);
+    refused(parentId, parentId, /closed Live Shape or Path/);
+    refused(holed.id, parentId, /Reverse each hole/);
+  });
+
+  it("flows in an evenodd Compound Path whose hole winds against its outline, where both rules agree", () => {
+    const { doc, parentId } = scene();
+    const d = "M 0 0 L 90 0 L 90 90 L 0 90 Z M 30 30 L 30 60 L 60 60 L 60 30 Z";
+    const [holed] = createNodes(doc, [{ type: "path", parentId, d, fillRule: "evenodd" }] as never)
+      .nodes as [Node];
+    const [t] = createNodes(doc, [text(parentId, { frameNodeId: holed.id })]).nodes;
+    expect(t).toMatchObject({ frame: d, x: 0, y: 0, width: 90, height: 90 });
+  });
+
+  it("stores a curved frame's bounds to 3 decimals, as a saved file reads them back", () => {
+    const { doc, parentId } = scene();
+    const frame = "M 0 40 C 0 -13 70 -17 100 40 L 100 80 L 0 80 Z";
+    const [t] = createNodes(doc, [text(parentId, { frame })]).nodes as [Node];
+    const exact = pathBounds(parsePath(frame, "d")) as { y: number };
+    expect(exact.y).not.toBe(Math.round(exact.y * 1000) / 1000);
+    expect(t).toMatchObject({ y: Math.round(exact.y * 1000) / 1000 });
+    const read = new Map(parseDocument(serializeDocument(doc)).nodes.map((n) => [n.id, n]));
+    expect(read).toEqual(doc.nodes);
+  });
+
+  it("paints and clips by a shaped frame's outline, not its bounds", () => {
+    const { doc, parentId } = scene();
+    const frame = "M 0 0 L 100 0 L 50 80 Z";
+    const [group, t, content] = createNodes(doc, [
+      {
+        type: "group",
+        parentId,
+        children: [
+          { type: "text", kind: "area", frame, content: "Words" },
+          { type: "rect", x: 0, y: 0, width: 200, height: 200 },
+        ],
+      },
+    ] as never).nodes as [Node, Node, Node];
+    expect(paintedLeaves(doc, group)[0]?.segments.map((s) => s.cmd)).toEqual(["M", "L", "L", "Z"]);
+    // Turned an eighth, the triangle's bounds are smaller than its bounding rectangle's.
+    const r = Math.SQRT1_2;
+    transformNodes(doc, { nodeIds: [t.id], matrix: [r, r, -r, r, 0, 0] } as never);
+    const turned = doc.nodes.get(t.id) as Node & { transform: Matrix };
+    const want = pathBounds(transformSegments(parsePath(frame, "d"), turned.transform)) as Rect;
+    const rectangle = parsePath("M 0 0 L 100 0 L 100 80 L 0 80 Z", "d");
+    const box = pathBounds(transformSegments(rectangle, turned.transform)) as Rect;
+    const { group: clipped } = makeMask(doc, { clipNodeId: t.id, contentIds: [content.id] });
+    const got = bounds(doc, clipped) as Rect;
+    for (const key of ["x", "y", "width", "height"] as const) {
+      expect(got[key]).toBeCloseTo(want[key], 3);
+    }
+    expect(box.width - want.width).toBeGreaterThan(10);
   });
 
   it("takes frame path data directly, refusing it open, beside width, or with frameNodeId", () => {

@@ -9,13 +9,14 @@ ADR-0022 gave Area Type a rectangular frame and left "Area Type in any closed pa
 
 ## The model
 
-- **`frame`** on Area Type: SVG path data for a closed path in the text's own coordinates, every subpath closed with `Z`, its inside by the nonzero rule. The stored form is `formatPath`'s, to 3 decimals. With `frame`, the stored `x, y, width, height` are its bounds, derived from the stored frame whenever it is written, created or read. So `textBox`, `bounds` and everything that reads them are unchanged, and the bounds are the frame's, as Illustrator reports an area type object's. Without `frame`, Area Type is ADR-0022's rectangle and writes the same bytes as before, so Nodes and files need no migration. Point Type never has `frame`.
+- **`frame`** on Area Type: SVG path data for a closed path in the text's own coordinates, every subpath closed with `Z`, its inside by the nonzero rule. The stored form is `formatPath`'s, to 3 decimals. With `frame`, the stored `x, y, width, height` are its bounds, also to 3 decimals, derived from the stored frame by one function (`shapedFrame`) whenever it is written, created, imported or read, so a saved file reads back unchanged. So `textBox`, `bounds` and everything that reads them are unchanged, and the bounds are the frame's, as Illustrator reports an area type object's. Without `frame`, Area Type is ADR-0022's rectangle and writes the same bytes as before, so Nodes and files need no migration. Point Type never has `frame`.
 - **`node_create`** takes Area Type in one of three forms: `x, y, width, height` (the rectangle); `frame`; or `frameNodeId`. Passing `x`, `y`, `width` or `height` beside `frame` or `frameNodeId`, or both of those, is `INVALID_INPUT` at that key. Open or empty `frame` data is `INVALID_INPUT`, and malformed data is `INVALID_PATH`.
-- **`frameNodeId`**, as Illustrator's Area Type tool clicks a path. It names an existing closed Live Shape or Path. The text takes that Node's parent, stacking key and `transform`, and its outline becomes `frame`: a Path's `d`, or a Live Shape's `shapeSegments`. The Node is deleted with its Appearance, as Illustrator discards the path's paint, in the same Transaction. The receipt lists it in `deletedIds`, and undo restores it. `parentId` must be its parent.
+- **`frameNodeId`**, as Illustrator's Area Type tool clicks a path. It names an existing closed Live Shape or Path: a rect, ellipse, polygon, star, spiral, line or Path, the open ones among them refused below. The list is closed: any other Node type, including one added later, is refused until its issue decides otherwise. The text takes that Node's parent, stacking key and `transform`, and its outline becomes `frame`: a Path's `d`, or a Live Shape's `shapeSegments`. The Node is deleted with its Appearance, as Illustrator discards the path's paint, in the same Transaction. The receipt lists it in `deletedIds`, and undo restores it. `parentId` must be its parent.
 - **Refused `frameNodeId`**, with nothing written:
   - a Layer, Group, text or Image;
   - an open outline: a line, a spiral, an ellipse with an open arc (ADR-0025), or a Path with an open subpath;
-  - a Clipping Path;
+  - a Path whose `fillRule` is evenodd and where some region winds twice or more, such as a Compound Path whose hole winds the same way as its outline. Evenodd leaves the hole empty, but the frame's inside is nonzero, so the text would flow across it. An evenodd Path whose holes wind against its outline flows, because both rules give the same inside;
+  - a Clipping Path. Kalamo has no Opacity Mask Node yet (F-MASK-02, M2; `CONTEXT.md` names the term only), so there is no mask to refuse. The issue that adds one refuses it here as a Clipping Path is;
   - a Node that is locked, itself or through an ancestor (the Area Type tool cannot click it either);
   - another parent;
   - a Node already consumed in the same call.
@@ -47,7 +48,7 @@ Known limit: every band is the Node's own size and leading tall. A line holding 
 ## SVG
 
 - **Export.** A shaped frame writes `<defs><path id="area-z-<id>" d="…"/></defs>` just before the text, where the `<rect>` goes. `shape-inside` names it, and the rest of ADR-0022's Area Type row is unchanged. A rectangle frame still writes the `<rect>`.
-- **Import.** A `shape-inside` naming a `<circle>`, `<ellipse>`, `<polygon>`, `<polyline>` (closed as SVG fills it), `<path>` or a transformed `<rect>` imports as Area Type. Its outline goes through the shape's own `transform` and the text's baked scale, and becomes `frame`, with no warning. A plain `<rect>` stays a rectangle frame. A missing reference, an open shape (an unclosed path, a `<line>`), a `<use>` and a list of shapes still import as Point Type, with `UNSUPPORTED_ATTRIBUTE` `shape-inside`.
+- **Import.** A `shape-inside` naming a `<circle>`, `<ellipse>`, `<polygon>`, a `<polyline>` that ends where it starts, a `<path>` whose every subpath ends with `Z`, or a transformed `<rect>` imports as Area Type. A polyline cannot write `Z`, so ending at its first point is how it is closed. Its outline goes through the shape's own `transform` and the text's baked scale, and becomes `frame`, with no warning. A plain `<rect>` stays a rectangle frame. A missing reference, an open shape (an unclosed path or polyline, a `<line>`), an evenodd shape where some region winds twice (by the rule `frameNodeId` uses, read from the shape's own `fill-rule`), a `<use>` and a list of shapes still import as Point Type, with `UNSUPPORTED_ATTRIBUTE` `shape-inside`. Import and `frameNodeId` check the frame with the same function, so they accept the same shapes.
 
 ## Considered Options
 
@@ -56,6 +57,8 @@ Known limit: every band is the Node's own size and leading tall. A line holding 
 - **The band as the whole line box.** Rejected: Inkscape's band is 10% of the leading shorter at each end, measured on slanted frames and on the notch step. That is also the rectangle's measured 0.9 threshold.
 - **A hard return starts the next band.** Rejected: Inkscape continues in the next span of the band.
 - **One tspan per band, as Inkscape saves.** Rejected: renderers would draw the second span's words straight after the first's.
+- **Close an open path with a straight line between its ends**, as Illustrator's Area Type tool does and as SVG fills an open path. Deferred: #56 refuses open outlines, both at `frameNodeId` and on import. Relaxing it changes both together, and a spiral or an open arc then becomes a frame.
+- **Store the fill rule with the frame.** Rejected for now: nonzero alone keeps the layout's inside test and the exported `<path>` simple. An evenodd frame that would differ is refused rather than filled wrongly.
 - **Illustrator's inset spacing, First Baseline options, threading and several shapes in one `shape-inside`.** Out of scope for #56.
 
 ## Consequences
