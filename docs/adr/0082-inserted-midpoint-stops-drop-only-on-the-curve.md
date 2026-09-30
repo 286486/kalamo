@@ -25,18 +25,21 @@ Import judges the marked stops span by span. A span runs from one unmarked stop 
 
 ## What Inkscape edits come to
 
-`fixtures/midpoint-edits.ts` makes each edit on a Kalamo export, black to white at 0.25. `io` checks the stops read back, and `render` checks that they draw what resvg draws of the edited file within the round trip's vector budget, 0.7 % of the pixels (ADR-0017).
+`fixtures/midpoint-edits.ts` makes each edit on a Kalamo export, black to white at 0.25, the way Inkscape makes it, since Inkscape 1.2.2's command line has no action that adds or recolours a stop. `io` checks the stops read back. `render` checks that they draw what resvg draws of the edited file within the round trip's vector budget, 0.7 % of the pixels (ADR-0017). `pnpm roundtrip` saves each edited file in Inkscape and checks two things: Open reads the saved file as it reads the edited one, warnings included, and Kalamo draws it within that budget of Inkscape's drawing.
 
 | Edit in Inkscape | Import |
 |---|---|
 | A plain save | the original stops, no warning |
 | A stop added between inserted stops, in the colour Inkscape gives it there | the original stops, no warning |
+| An inserted stop recoloured 2 steps off its curve, in one channel or the alpha | the original stops, no warning |
+| An inserted stop recoloured 3 steps off its curve, in one channel or the alpha | the span as drawn, warning |
 | A stop added after an inserted stop and recoloured (#204's repro) | the span as drawn, the new stop included, warning |
 | An inserted stop moved | the span as drawn, warning |
 | A marked stop copied before the first stop or after the last | kept, the span between as its midpoint, warning |
 | A real stop recoloured by a step | the midpoint kept, the new colour taken |
 | A real stop recoloured | the span as drawn, warning |
-| A stop added after a real stop with a midpoint | an ordinary stop with the copied midpoint, which judges the span after it |
+| A stop added after a real stop with a midpoint, which Inkscape puts within 0.001 of it | an ordinary stop at that stop's offset with the copied midpoint, which judges the span after it |
+| That stop then moved along the gradient | the span as drawn, warning |
 
 ## Considered Options
 
@@ -48,6 +51,6 @@ Import judges the marked stops span by span. A span runs from one unmarked stop 
 ## Consequences
 
 - Recolouring a real stop in Inkscape by more than 2 steps turns its span's inserted stops into real Color Stops. The pixels are kept, but the Gradient panel shows a dozen stops and no midpoint. Illustrator's panel would too for the same SVG, since it holds no midpoint either.
-- A stop added right after a real stop with a midpoint keeps that midpoint on the real stop, over the short span to the copy, where Inkscape draws a straight blend. The span is a fraction of the first inserted stop's distance, so it stays within the pixel budget.
+- Inkscape puts a stop added right after a real stop with a midpoint halfway to the first inserted stop, within 0.001 of the real stop. It reads back at the real stop's offset, so the span between them is empty and the copy's own curve draws the rest. Moved further along, the inserted stops lie on neither curve, and the span imports as drawn, with the warning.
 - The import warning codes gain `MIDPOINT_STOP_KEPT`. `kalamo_doc_open` and `kalamo_svg_import` name it, and ADR-0017's warning list does.
 - CONTEXT.md's **Midpoint** entry gives the new rule.

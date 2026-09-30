@@ -94,9 +94,10 @@ const ON_CURVE = 2;
  * The Color Stops of the stops read (ADR-0082). Between two unmarked stops, the marked ones are
  * dropped when every one lies within ON_CURVE of the first's midpoint curve. Otherwise, and outside the
  * unmarked stops, they are kept as SVG draws them, and so is the straight blend into each: only an
- * unmarked stop followed by an unmarked stop keeps its midpoint. `kept` is whether any was kept.
+ * unmarked stop followed by an unmarked stop keeps its midpoint. `keptInserted` is whether any
+ * marked stop was kept.
  */
-export function unmark(read: ReadStop[]): { stops: ColorStop[]; kept: boolean } {
+export function unmark(read: ReadStop[]): { stops: ColorStop[]; keptInserted: boolean } {
   const real = read.flatMap((s, i) => (s.marked ? [] : [i]));
   const dropped = new Set<ReadStop>();
   real.slice(0, -1).forEach((i, r) => {
@@ -110,8 +111,8 @@ export function unmark(read: ReadStop[]): { stops: ColorStop[]; kept: boolean } 
   const left = read.filter((s) => !dropped.has(s));
   const stops = left.map(({ marked, midpoint, ...s }, k) => {
     const next = left[k + 1];
-    const kept = midpoint !== undefined && !marked && next && !next.marked;
-    return { ...s, offset: round3(s.offset), ...(kept && { midpoint }) };
+    const keepsMidpoint = midpoint !== undefined && !marked && next && !next.marked;
+    return { ...s, offset: round3(s.offset), ...(keepsMidpoint && { midpoint }) };
   });
-  return { stops, kept: left.some((s) => s.marked) };
+  return { stops, keptInserted: left.some((s) => s.marked) };
 }

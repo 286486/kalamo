@@ -23,7 +23,7 @@ import {
 import { describe, expect, it } from "vitest";
 import kalamoExport from "../../../fixtures/documents/inkscape.svg?raw";
 import { RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
-import { MIDPOINT_EDITS, MIDPOINT_STOPS } from "../../../fixtures/midpoint-edits.ts";
+import { MIDPOINT_DOC, MIDPOINT_STOPS, midpointEdits } from "../../../fixtures/midpoint-edits.ts";
 import reference from "../../core/src/spiral.inkscape.json" with { type: "json" };
 import { NS as DIALECT_NS } from "./dialect.ts";
 import { MAX_DEPTH, parseFile, parseSvg, resolveLinks, SVG_LIMIT, toSvg } from "./index.ts";
@@ -2647,6 +2647,16 @@ describe("gradients (ADR-0026)", () => {
   });
 
   describe("midpoints edited in Inkscape (ADR-0082)", () => {
+    const file = parseDocument(MIDPOINT_DOC);
+    const MIDPOINT_EDITS = midpointEdits(
+      toSvg({
+        id: "",
+        version: 1,
+        rev: 0,
+        ...file,
+        nodes: new Map(file.nodes.map((n) => [n.id, n])),
+      }),
+    );
     const readText = (text: string) => {
       const file = parseFile(text);
       const [leaf] = leaves(file);
@@ -2705,6 +2715,21 @@ describe("gradients (ADR-0026)", () => {
         stops: [start, { offset: 0.1, color: "#010101", midpoint: 0.25 }, end],
         codes: [],
       });
+    });
+
+    it("keeps the span of a copied stop moved off its stop as drawn, the copy included", () => {
+      const name = "a stop added after the start stop, then moved";
+      expect(read(name)).toEqual({ stops: literal(name), codes: ["MIDPOINT_STOP_KEPT"] });
+      expect(literal(name)).toContainEqual({ offset: 0.3, color: "#010101" });
+    });
+
+    it("drops an inserted stop 2 steps off the curve in a channel or the alpha, and keeps it 3 off", () => {
+      for (const channel of ["red", "green", "blue", "alpha"] as const) {
+        const near = `an inserted stop's ${channel} 2 steps off the curve` as const;
+        expect(read(near), near).toEqual({ stops: MIDPOINT_STOPS, codes: [] });
+        const far = `an inserted stop's ${channel} 3 steps off the curve` as const;
+        expect(read(far), far).toEqual({ stops: literal(far), codes: ["MIDPOINT_STOP_KEPT"] });
+      }
     });
   });
 

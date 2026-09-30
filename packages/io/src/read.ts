@@ -1443,12 +1443,12 @@ class Reader {
         const color = withAlpha(hex, alpha(s["stop-opacity"]) * opacity);
         const m = Number.parseFloat(kalamoAttr(stop, "midpoint") ?? "");
         const midpoint = Math.min(MIDPOINT_MAX, Math.max(MIDPOINT_MIN, m));
-        const kept = Number.isFinite(m) && midpoint !== 0.5;
+        const hasMidpoint = Number.isFinite(m) && midpoint !== 0.5;
         const marked = kalamoAttr(stop, "simulated") === "true";
-        return { offset: last, color, ...(kept && { midpoint }), marked };
+        return { offset: last, color, ...(hasMidpoint && { midpoint }), marked };
       });
-    const { stops, kept } = unmark(read);
-    if (kept) {
+    const { stops, keptInserted } = unmark(read);
+    if (keptInserted) {
       const id = holder?.getAttribute("id") ?? "";
       this.warn(
         "MIDPOINT_STOP_KEPT",

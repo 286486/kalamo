@@ -20,7 +20,8 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { COMPOSITING, near } from "../../../fixtures/compositing.ts";
 import fixture from "../../../fixtures/documents/inkscape.kalamo.json?raw";
 import { RED_2x2_PNG } from "../../../fixtures/images.ts";
-import { MIDPOINT_EDITS } from "../../../fixtures/midpoint-edits.ts";
+import { MIDPOINT_DOC, midpointEdits } from "../../../fixtures/midpoint-edits.ts";
+import { differs, VECTOR_BUDGET } from "../../../fixtures/png.ts";
 import { LAZY_FONTS, renderFonts, svgToPixels, svgToPng } from "./png.ts";
 import { fit, renderSvg } from "./svg.ts";
 
@@ -1102,7 +1103,10 @@ it("draws a midpoint's 50/50 mix where it sits (ADR-0081)", async () => {
 });
 
 it("draws a midpoint edited in Inkscape as resvg draws the edited file (ADR-0082)", async () => {
-  for (const [name, svg] of Object.entries(MIDPOINT_EDITS)) {
+  const opened = parseDocument(MIDPOINT_DOC);
+  const midpoint = { id: "", version: 1 as const, rev: 0, ...opened };
+  const nodes = new Map(opened.nodes.map((n) => [n.id, n]));
+  for (const [name, svg] of Object.entries(midpointEdits(toSvg({ ...midpoint, nodes })))) {
     const file = parseFile(svg);
     const doc = {
       ...createDocument({ id: "d", name, artboards: [] }).doc,
@@ -1112,13 +1116,8 @@ it("draws a midpoint edited in Inkscape as resvg draws the edited file (ADR-0082
     const [want, got] = await Promise.all([svgToPixels(svg, 1), svgToPixels(renderSvg(doc), 1)]);
     expect([got.width, got.height], name).toEqual([want.width, want.height]);
     let differ = 0;
-    for (let i = 0; i < want.pixels.length; i += 4) {
-      const off = [0, 1, 2].some(
-        (k) => Math.abs((want.pixels[i + k] as number) - (got.pixels[i + k] as number)) > 32,
-      );
-      if (off) differ++;
-    }
-    // The round trip's budget for vector art (ADR-0017): 0.7 % of the pixels, a channel off by > 32.
-    expect(differ / (want.width * want.height), name).toBeLessThanOrEqual(0.007);
+    for (let i = 0; i < want.pixels.length; i += 4)
+      if (differs(want.pixels, got.pixels, i)) differ++;
+    expect(differ / (want.width * want.height), name).toBeLessThanOrEqual(VECTOR_BUDGET);
   }
 });

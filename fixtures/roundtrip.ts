@@ -1,13 +1,15 @@
 // `pnpm roundtrip`: each fixture Document goes Kalamo → SVG → Inkscape → Kalamo through a local
 // `wrangler dev` and must come back equal (ADR-0017, REQUIREMENTS §7.2); a painted Group transformed
-// in Inkscape must come back as kalamo_node_transform leaves it (ADR-0043). Needs `inkscape` ≥ 1.2.
+// in Inkscape must come back as kalamo_node_transform leaves it (ADR-0043); and each Inkscape edit of
+// a midpoint's stops must survive an Inkscape save (ADR-0082). Needs `inkscape` ≥ 1.2.
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { crc32, deflateSync } from "node:zlib";
 import { httpCall } from "./agent-benchmarks/mcp.ts";
 import { anchoredBeforeLast, type TextView } from "./anchored.ts";
-import { decodePng, type Image } from "./png.ts";
+import { MIDPOINT_DOC, midpointEdits } from "./midpoint-edits.ts";
+import { decodePng, differs, type Image, VECTOR_BUDGET } from "./png.ts";
 import { startServer } from "./wrangler.ts";
 
 const PORT = 8791;
@@ -16,8 +18,6 @@ const FIXTURES = join(import.meta.dirname, "documents");
 const WHITE = "#FFFFFF";
 /** Fails a hung Inkscape (a display or font-cache probe) instead of the CI job's 6 h limit. */
 const TIMEOUT_MS = 120_000;
-/** A pixel differs when a channel is off by more than this. */
-const TOLERANCE = 32;
 /** The share of a region's pixels that may differ (ADR-0017): twice the worst measured baseline
  * for vector art, and for a text or Image under what one hidden word differs by. A text whose lines
  * mix sizes is stacked by Illustrator's leading, which Inkscape's CSS line boxes do not follow, so
@@ -27,7 +27,7 @@ const TOLERANCE = 32;
  * such a line lands that far (half of it, centred) left of it there. For a text with such a line
  * (anchoredBeforeLast), 25% is above the 16.3% and 15.2% measured (ADR-0077). */
 const BUDGET = {
-  vector: 0.007,
+  vector: VECTOR_BUDGET,
   text: 0.15,
   "mixed-size text": 0.25,
   "anchored Point Type": 0.25,
@@ -295,7 +295,7 @@ const label = (r: Region) => [r.name, r.kind, r.subject].filter(Boolean).join(" 
 const against = (r: Region) => `${percent(share(r))} of ${percent(BUDGET[r.kind])}`;
 const describe = (r: Region) => `${label(r)} ${r.differ} px of ${r.area} (${against(r)})`;
 
-/** Counts the pixels where any channel differs by more than TOLERANCE into each region of `map`,
+/** Counts the pixels that differ into each region of `map`,
  * and draws them in magenta over a faded copy of resvg's PNG, as `diff`. */
 async function compare(
   map: RegionMap,
@@ -313,13 +313,11 @@ async function compare(
   const regions = map.regions.map((r) => ({ ...r, differ: 0 }));
   const out = new Uint8Array(a.data.length);
   for (let i = 0; i < a.data.length; i += 4) {
-    let differs = false;
-    for (let k = 0; k < 4; k++)
-      differs ||= Math.abs((a.data[i + k] ?? 0) - (b.data[i + k] ?? 0)) > TOLERANCE;
+    const off = differs(a.data, b.data, i);
     const region = regions[map.of[i / 4] ?? 0];
-    if (differs && region) region.differ++;
+    if (off && region) region.differ++;
     for (let k = 0; k < 3; k++)
-      out[i + k] = differs ? ([255, 0, 255][k] ?? 0) : 191 + ((a.data[i + k] ?? 0) >> 2);
+      out[i + k] = off ? ([255, 0, 255][k] ?? 0) : 191 + ((a.data[i + k] ?? 0) >> 2);
     out[i + 3] = 255;
   }
   writeFileSync(diff, encodePng({ width: a.width, height: a.height, data: out }));
@@ -631,6 +629,44 @@ async function main() {
         }
         console.log(`${`${fixture} ${edit}`.padEnd(12)}  ${line}`);
       }
+    }
+    // Each edit Inkscape makes to a midpoint's stops (ADR-0082), on Kalamo's export: saved by
+    // Inkscape, it must open as the edited file does, warnings and all, and draw as Inkscape draws it.
+    const midpoint = await open(MIDPOINT_DOC);
+    const exported = await text({ docId: midpoint.docId, format: "svg" });
+    for (const [edit, svg] of Object.entries(midpointEdits(exported))) {
+      let line: string;
+      try {
+        const editDir = join(STATE, "midpoint-edits", edit.replace(/\W+/g, "-"));
+        mkdirSync(join(editDir, "inkscape"), { recursive: true });
+        const saved = join(editDir, "inkscape", `${midpoint.name}.svg`);
+        writeFileSync(saved, svg);
+        inkscape("--export-type=svg", `--export-filename=${saved}`, saved);
+        const [edited, reopened] = await Promise.all([
+          open(svg),
+          open(readFileSync(saved, "utf8")),
+        ]);
+        const [want, got] = await Promise.all(
+          [edited, reopened].map(
+            async (d) => JSON.parse(await text({ docId: d.docId, format: "kalamo_json" })) as Doc,
+          ),
+        );
+        const codes = (d: typeof edited) => JSON.stringify(d.warnings.map((w) => w.code));
+        const structure =
+          codes(edited) !== codes(reopened)
+            ? `warnings: ${codes(reopened)}, want ${codes(edited)}`
+            : firstDifference(want, got);
+        // The export's viewBox is its one Artboard, the Document's whole rect.
+        const docRect = await resvg(editDir, reopened.docId);
+        line = report(
+          structure,
+          await inkscapeDiff(editDir, saved, await regionMap(reopened.docId, docRect)),
+        );
+      } catch (e) {
+        failed++;
+        line = `FAIL  ${(e as Error).message}`;
+      }
+      console.log(`midpoint ${edit}  ${line}`);
     }
   } finally {
     server.stop();
