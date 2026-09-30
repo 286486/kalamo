@@ -20,8 +20,17 @@ const TOLERANCE = 32;
 /** The share of a region's pixels that may differ (ADR-0017): twice the worst measured baseline
  * for vector art, and for a text or Image under what one hidden word differs by. A text whose lines
  * mix sizes is stacked by Illustrator's leading, which Inkscape's CSS line boxes do not follow, so
- * its lines land up to a few points apart there: 25% is above the 21% measured (ADR-0068). */
-const BUDGET = { vector: 0.007, text: 0.15, "mixed-size text": 0.25 };
+ * its lines land up to a few points apart there: 25% is above the 21% measured (ADR-0068).
+ * Inkscape anchors every line but the last of a centred or right-aligned Point Type as if its
+ * trailing whitespace and the tracking after its last character counted, which the layout hangs:
+ * such a line lands that far (half of it, centred) left of it there. 25% is above the 16.3%
+ * measured for a one-letter-spacing shift (ADR-0077). */
+const BUDGET = {
+  vector: 0.007,
+  text: 0.15,
+  "mixed-size text": 0.25,
+  "anchored Point Type": 0.25,
+};
 /** Text and Image bounds grow by this, in pt, to cover antialiasing, besides their Strokes. */
 const MARGIN = 2;
 /** The inkscape fixture's painted Group (ADR-0043), which the edit passes transform in Inkscape. */
@@ -251,6 +260,15 @@ interface Region {
   differ: number;
 }
 
+/** What a text region's budget reads of the text's full view. */
+interface TextView {
+  kind?: string;
+  content?: string;
+  alignment?: string;
+  tracking?: number;
+  ranges?: { fontSize?: number; tracking?: number }[];
+}
+
 /** A pixel in no region: counted by no budget. */
 const UNCHECKED = 0xffff;
 
@@ -328,6 +346,20 @@ async function main() {
         warnings: { code: string }[];
       };
     const text = async (args: object) => (await call("kalamo_export", args)).content[0]?.text ?? "";
+    /** A text whose lines mix sizes (ADR-0068). */
+    const mixedSize = (v: TextView) =>
+      (v.kind === "area" || !!v.content?.includes("\n")) &&
+      !!v.ranges?.some((r) => r.fontSize !== undefined);
+    /**
+     * A centred or right-aligned Point Type with a line before its last that Inkscape anchors
+     * differently: the text tracks, or that line ends in whitespace (ADR-0077).
+     */
+    const anchored = (v: TextView) => {
+      if (v.kind === "area" || (v.alignment !== "center" && v.alignment !== "right")) return false;
+      const lines = (v.content ?? "").split("\n").slice(0, -1);
+      const tracks = !!v.tracking || !!v.ranges?.some((r) => r.tracking !== undefined);
+      return lines.length > 0 && (tracks || lines.some((l) => /\s$/.test(l)));
+    };
     /** The regions of the Document `docId` in its PNG of `docRect`, at 1 px per pt: each pixel
      * goes to the first Artboard holding it, and there to text when it is in the bounds of a
      * drawn text or Image grown by MARGIN and half the widest Stroke on it or a container above. */
@@ -339,7 +371,7 @@ async function main() {
           nodeIds: doc.nodes.map((n) => n.id),
           detail: "full",
         })
-      ).structuredContent.nodes as {
+      ).structuredContent.nodes as ({
         id: string;
         type: string;
         parentId: string | null;
@@ -351,10 +383,14 @@ async function main() {
         src?: string;
         appearance?: { strokes?: { width: number }[] };
         kind?: string;
-        ranges?: { fontSize?: number }[];
-      }[];
+      } & TextView)[];
       const byId = new Map(views.map((v) => [v.id, v]));
-      const rects: { rect: Rect; subject: string; unchecked: boolean; mixed: boolean }[] = [];
+      const rects: {
+        rect: Rect;
+        subject: string;
+        unchecked: boolean;
+        kind?: "mixed-size text" | "anchored Point Type";
+      }[] = [];
       for (const v of views) {
         if ((v.type !== "text" && v.type !== "image") || !v.visibleBounds) continue;
         const chain = [];
@@ -379,9 +415,7 @@ async function main() {
           ),
           // Inkscape draws its own icon for a missing link (ADR-0042): no budget covers it.
           unchecked: v.type === "image" && !v.src,
-          mixed:
-            (v.kind === "area" || !!v.content?.includes("\n")) &&
-            !!v.ranges?.some((r) => r.fontSize !== undefined),
+          kind: mixedSize(v) ? "mixed-size text" : anchored(v) ? "anchored Point Type" : undefined,
         });
       }
       const names = [...doc.artboards.map((a) => String(a.name)), "outside Artboards"];
@@ -405,7 +439,7 @@ async function main() {
             if (i === regions.length) {
               index.set(key, i);
               const name = names[artboard] as string;
-              const kind = rect.mixed ? "mixed-size text" : "text";
+              const kind = rect.kind ?? "text";
               regions.push({ name, kind, subject: rect.subject, area: 0, differ: 0 });
             }
           }
