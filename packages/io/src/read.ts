@@ -67,7 +67,7 @@ import {
   starOf,
   xmlId,
 } from "./dialect.ts";
-import { asGradient, type Geometry, MIDPOINT_STOP_KEPT, unmark, unroll } from "./gradient.ts";
+import { asGradient, type Geometry, unmark, unroll } from "./gradient.ts";
 import { computeStyle, type Rule, type Style, stylesheet } from "./style.ts";
 
 /** A file read for Open: a Document's contents without its docId, and what did not come across. */
@@ -1450,7 +1450,11 @@ class Reader {
     const { stops, kept } = unmark(read);
     if (kept) {
       const id = holder?.getAttribute("id") ?? "";
-      this.warn("MIDPOINT_STOP_KEPT", id, MIDPOINT_STOP_KEPT);
+      this.warn(
+        "MIDPOINT_STOP_KEPT",
+        id,
+        "Stops Kalamo inserted to draw a midpoint were kept as Color Stops, since the gradient was edited.",
+      );
     }
     const [first] = stops;
     const end = stops.at(-1);

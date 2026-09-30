@@ -90,9 +90,6 @@ export type ReadStop = ColorStop & { marked: boolean };
 /** How far, in 8-bit steps, an inserted stop may lie from its midpoint's curve and be dropped. */
 const ON_CURVE = 2;
 
-export const MIDPOINT_STOP_KEPT =
-  "Stops Kalamo inserted to draw a midpoint were kept as Color Stops, since the gradient was edited.";
-
 /**
  * The Color Stops of the stops read (ADR-0082). Between two unmarked stops, the marked ones are
  * dropped when every one lies within ON_CURVE of the first's midpoint curve. Otherwise, and outside the

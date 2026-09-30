@@ -68,8 +68,7 @@ export function drawnStops(g: Pick<Gradient, "stops">): DrawnStop[] {
     const next = g.stops[i + 1];
     const span = next ? next.offset - s.offset : 0;
     if (!next || s.midpoint === undefined || s.midpoint === 0.5 || span === 0) return [s];
-    const [ca, cb] = [channels(s.color), channels(next.color)];
-    const reach = Math.max(...ca.map((v, k) => Math.abs((cb[k] as number) - v))) / 255;
+    const reach = colorSteps(s.color, next.color) / 255;
     if (reach === 0) return [s];
     const p = exponent(s.midpoint);
     let us = breaks(p, MIDPOINT_TOLERANCE / reach);

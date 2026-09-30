@@ -51,7 +51,7 @@ const copy = (stop: string, offset: number, color: string) =>
     .replace("/>", ` style="stop-color:${color.toLowerCase()};stop-opacity:1"/>`);
 /** `stop` recoloured in Inkscape's Fill and Stroke dialog. */
 const recolour = (stop: string, color: string) =>
-  stop.replace("/>", ` style="stop-color:${color};stop-opacity:1"/>`);
+  stop.replace("/>", ` style="stop-color:${color.toLowerCase()};stop-opacity:1"/>`);
 
 const marked = (stops: string[]) =>
   stops.flatMap((s, i) => (s.includes("kalamo:simulated") ? [i] : []));
@@ -76,15 +76,16 @@ export const MIDPOINT_EDITS = {
     return s.map((stop, k) => (k === i ? stop.replace(/ offset="[^"]*"/, ' offset="0.45"') : stop));
   }),
   "inserted stops copied before the first stop and after the last": edit((s) => {
-    const [first, last] = [marked(s)[0] as number, marked(s).at(-1) as number];
+    const m = marked(s);
+    const [first, last] = [m[0] as number, m.at(-1) as number];
     return [copy(s[first] as string, 0, "#0000FF"), ...s, copy(s[last] as string, 1, "#FF0000")];
   }),
   "the end stop recoloured by a step": edit((s) => [
     ...s.slice(0, -1),
-    recolour(s.at(-1) as string, "#fefefe"),
+    recolour(s.at(-1) as string, "#FEFEFE"),
   ]),
   "the start stop recoloured": edit(([start, ...rest]) => [
-    recolour(start as string, "#0000ff"),
+    recolour(start as string, "#0000FF"),
     ...rest,
   ]),
   // Inkscape copies kalamo:midpoint onto a stop added after a stop with one.
