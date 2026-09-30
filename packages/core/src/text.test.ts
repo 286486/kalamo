@@ -385,6 +385,18 @@ describe("a unit wider than its span (ADR-0084)", () => {
     }
   });
 
+  it("leaves a piece line left under justify and aligns it like any line under center and right", () => {
+    // A 13-H piece is 169.52 wide in the 180-wide span from x 20 (ADR-0077: no space to widen).
+    const piece = (alignment: "justify" | "center" | "right") =>
+      glyphs(rect(180, WIDE, { alignment }))
+        .filter((g) => g.y.toFixed(2) === "81.08")
+        .map((g) => +g.x.toFixed(2));
+    const at = (x0: number) => Array.from({ length: 13 }, (_, k) => +(x0 + k * 13.04).toFixed(2));
+    expect(piece("justify")).toEqual(at(20));
+    expect(piece("center")).toEqual(at(20 + 10.48 / 2));
+    expect(piece("right")).toEqual(at(20 + 10.48));
+  });
+
   it("keeps a broken unit's hard return on its last piece, the next paragraph on the line after", () => {
     expect(texts(rect(180, `${hs(20)}\nabc`))).toEqual([hs(13), `${hs(7)}\n`, "abc"]);
   });

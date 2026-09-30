@@ -472,8 +472,8 @@ function layout(text: TextLayout) {
  * at least the strut's bottom (#200, #203). The strut's ascent is not used: a band's top follows its
  * own size, as ADR-0080's first baseline does. A line shows while its band lies in the frame.
  *
- * The narrowest span a unit may break in (ADR-0084): four of Inkscape's line boxes, the box and the
- * strut's joined, ascent included.
+ * The narrowest span a unit may break in, `minBreakWidth` (ADR-0084): four of Inkscape's line
+ * boxes, the box and the strut's joined, ascent included.
  */
 function lineBoxes(text: TextLayout, m: Metric[]) {
   const first = FAMILIES[fontFamilies(text)[0]].ascent;
@@ -492,9 +492,9 @@ function lineBoxes(text: TextLayout, m: Metric[]) {
     const cut = 0.1 * (b.ascent + descent);
     return { top: baseline - b.ascent + cut, bottom: baseline + descent - cut };
   };
-  const breaksIn = (b: ReturnType<typeof lineBox>) =>
+  const minBreakWidth = (b: ReturnType<typeof lineBox>) =>
     4 * (Math.max(b.ascent, strut.ascent) + Math.max(b.descent, strut.descent));
-  return { lineBox, band, breaksIn };
+  return { lineBox, band, minBreakWidth };
 }
 
 type LineBoxes = ReturnType<typeof lineBoxes>;
@@ -574,7 +574,7 @@ function unaligned(text: TextLayout) {
  * (ADR-0068): its width does not follow its height, so that never moves a break. A span too narrow
  * for the next word is skipped, and so is a band with no span it fits, one of its leadings down; a
  * hard return ends the span, the next paragraph starting in the next one. A unit that starts a span
- * it does not fit, in a span at least `breaksIn` wide, is broken there between grapheme clusters
+ * it does not fit, in a span at least `minBreakWidth` wide, is broken there between grapheme clusters
  * instead: the span takes its widest prefix, and the rest starts the next span (ADR-0084). A piece
  * sizes a shaped band up to the cluster that did not fit. What fits no band above the frame's
  * bottom overflows (ADR-0022). Each line's span, for alignment.
@@ -583,7 +583,7 @@ function area(
   text: TextLayout,
   m: Metric[],
   chars: string[],
-  { lineBox, band, breaksIn }: LineBoxes,
+  { lineBox, band, minBreakWidth }: LineBoxes,
 ): { lines: TextLine[]; overflow: string; spans: Span[] } {
   const { x, y, content, width: frameWidth = 0, height = 0 } = text;
   const edges = text.frame ? edgesOf(text.frame) : undefined;
@@ -595,11 +595,10 @@ function area(
    * wide ends, `from` when none is, and where the cluster after it ends.
    */
   const prefix = (from: number, to: number, w: number) => {
-    let [end, over, sum] = [from, to, 0];
+    let [end, over] = [from, to];
     for (const { segment } of GRAPHEMES.segment(chars.slice(from, to).join(""))) {
       const next = end + [...segment].length;
-      for (let i = end; i < next; i++) sum += (m[i] as Metric).advance + (m[i] as Metric).tracking;
-      if (sum - (m[next - 1] as Metric).tracking > w) {
+      if (span(m, from, next) > w) {
         over = next;
         break;
       }
@@ -611,7 +610,7 @@ function area(
    * The lines greedy filling puts in `spans` from unit `u`, its characters from `at` on, where the
    * characters it tried end, and the unit and character it stopped at.
    */
-  const fill = (spans: Span[], u: number, at: number, narrowest: number) => {
+  const fill = (spans: Span[], u: number, at: number, minBreakWidth: number) => {
     const placed: { from: number; to: number; span: Span }[] = [];
     let s = 0;
     let from = at;
@@ -620,6 +619,7 @@ function area(
     for (; u < units.length; u++) {
       const unit = units[u] as Unit;
       rest = Math.max(unit.from, at);
+      // A unit that ends the band unbroken sizes it whole; a piece narrows this, a fit resets it.
       tried = unit.to;
       const slot = spans[s];
       if (slot && from < rest && width(from, unit.to) > slot.width) {
@@ -628,7 +628,7 @@ function area(
       }
       // The unit starts span s. A billionth's tolerance keeps Inkscape's `>=` where the widths are equal.
       for (let sp = spans[s]; sp && width(rest, unit.to) > sp.width; sp = spans[++s]) {
-        if (sp.width < narrowest * (1 - 1e-9)) continue;
+        if (sp.width < minBreakWidth * (1 - 1e-9)) continue;
         const piece = prefix(rest, unit.to, sp.width);
         if (piece.end === rest) continue;
         placed.push({ from: rest, to: piece.end, span: sp });
@@ -666,7 +666,7 @@ function area(
       const { top, bottom: bandBottom } = band(baseline, box);
       if (edges && top > bottom) return overflow();
       const bandSpans = edges ? frameSpans(edges, top, bandBottom) : [{ x, width: frameWidth }];
-      const { placed, next: after, rest, tried } = fill(bandSpans, u, at, breaksIn(box));
+      const { placed, next: after, rest, tried } = fill(bandSpans, u, at, minBreakWidth(box));
       const grown = lineBox(at, edges ? tried : (placed.at(-1)?.to ?? at));
       if (grown.size > box.size) {
         box = grown;

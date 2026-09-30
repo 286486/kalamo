@@ -4,6 +4,8 @@
 // each `rect` text, each line's baseline and word count, then, for each threshold case, the frame
 // height at which Kalamo first shows the line, 90 % of that line's leading (the rule before
 // ADR-0083) and the line's baseline below the frame's top.
+// Then each `break` case's rows (#221), and it fails when they drift from `results.tsv`.
+import { readFileSync } from "node:fs";
 import { parsePath, pathBounds } from "../../../packages/core/src/path.ts";
 import type { Rect } from "../../../packages/core/src/schema.ts";
 import { layoutText } from "../../../packages/core/src/text.ts";
@@ -117,6 +119,7 @@ const BREAKS: Break[] = [
     ],
   ),
 ];
+const kalamo = new Map<string, string>();
 for (const [frameName, name, content, leadings = [undefined, 30], extra = {}] of BREAKS) {
   for (const leading of leadings) {
     const { lines, overflow } = layoutText({
@@ -134,7 +137,25 @@ for (const [frameName, name, content, leadings = [undefined, 30], extra = {}] of
       else rows.push({ y: l.y, x: l.x, text: l.text });
     }
     const id = `break\t${frameName}\t${name}\t${leading ?? "auto"}`;
-    for (const r of rows) console.log(`${id}\t${r.y.toFixed(2)}\t${+r.x.toFixed(2)}\t${r.text}`);
-    if (overflow) console.log(`${id}\toverflow\t\t${overflow}`);
+    const out = rows.map((r) => `${id}\t${r.y.toFixed(2)}\t${+r.x.toFixed(2)}\t${r.text}`);
+    // Inkscape writes an overflowing line at the frame's left.
+    if (overflow) out.push(`${id}\toverflow\t${frameOf(frameName).x}\t${overflow}`);
+    for (const row of out) console.log(row);
+    kalamo.set(id, out.join("\n"));
   }
 }
+
+// Drift guard: every case gives Inkscape's rows in `results.tsv` exactly, but `big-tail`, ADR-0084's
+// model differences, so a case edited here or in `probe.mjs` alone fails the run.
+const inkscape = new Map<string, string>();
+for (const row of readFileSync(new URL("results.tsv", import.meta.url), "utf8").split("\n")) {
+  if (!row.startsWith("break\t")) continue;
+  const id = row.split("\t").slice(0, 4).join("\t");
+  inkscape.set(id, inkscape.has(id) ? `${inkscape.get(id)}\n${row}` : row);
+}
+const drift = [...new Set([...inkscape.keys(), ...kalamo.keys()])].filter(
+  (id) =>
+    !(id.includes("\tbig-tail\t") && inkscape.has(id) && kalamo.has(id)) &&
+    inkscape.get(id) !== kalamo.get(id),
+);
+if (drift.length) throw new Error(`break cases differ from results.tsv: ${drift.join(", ")}`);
