@@ -11,7 +11,10 @@ const POOLS = {
 };
 const pool = POOLS[(process.argv[2] ?? "latin") as keyof typeof POOLS];
 let seed = 1;
-const rnd = (k: number) => ((seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) >>> 8) % k;
+const rnd = (k: number) => {
+  seed = (Math.imul(seed, 1103515245) + 12345) >>> 0;
+  return (seed >>> 8) % k;
+};
 const strings = Array.from({ length: 20_000 }, () =>
   Array.from({ length: 2 + rnd(10) }, () => pool[rnd(pool.length)]).join(""),
 );
@@ -27,7 +30,10 @@ const pango: string[][] = execFileSync("python3", [new URL("pango.py", import.me
 const breaks = (units: string[]) => {
   const at = new Set<number>();
   let i = 0;
-  for (const u of units.slice(0, -1)) at.add((i += [...u].length));
+  for (const u of units.slice(0, -1)) {
+    i += [...u].length;
+    at.add(i);
+  }
   return at;
 };
 const CJK = /[　-〿぀-ヿ一-鿿가-힯！-ￜ]/u;
