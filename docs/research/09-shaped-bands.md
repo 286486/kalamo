@@ -35,7 +35,7 @@ A band is the line's CSS line box less a tenth of that box's height at its top a
 | 40 px | Auto | 34.4 at 74.17 | 9.03 | 34.16 + 13.84 | 4.8 |
 | 40 px | 30 | 30.52 at 65.17 | 6.39 | 25.16 + 9.92 | 3.508 |
 
-At Auto, a larger size's box holds the strut, so the band is the larger size's box less a tenth of its leading, 0.1 × 48. At a set leading, a larger size's box reaches less far below the baseline than the strut does, 4.84 against 9.92, and the band reaches the strut's bottom. The mirrored slant (`x = 120 − (y − 40) / 3`, a line starting where the edge is at its band's top), probed during the investigation, gave the top: 14.68, 29.37 and 21.66 above the baseline, the same boxes less the same tenths. A line of one size is ADR-0078's band.
+The bottoms are Inkscape's, read from each line's start, which `results.tsv` rounds to a hundredth. ADR-0078's rule gives 4.52, 9.04 and 6.41 (9.92 − 3.508). At Auto, a larger size's box holds the strut, so the band is the larger size's box less a tenth of its leading, 0.1 × 48. At a set leading, a larger size's box reaches less far below the baseline than the strut does, 4.84 against 9.92, and the band reaches the strut's bottom. The mirrored slant (`x = 120 − (y − 40) / 3`, a line starting where the edge is at its band's top), probed during the investigation, gave the top: 14.68, 29.37 and 21.66 above the baseline, the same boxes less the same tenths. A line of one size is ADR-0078's band.
 
 ### Which words a band takes [M]
 
@@ -61,7 +61,7 @@ With ADR-0080's run `line-height`, a CJK line at the text's size steps by the te
 
 A throwaway test laid out every case with core and compared the words on each line. 46 of the 48 cases give the same words. A baseline is the same as Inkscape's until a line taller than the text's size comes before it, is made taller by a larger word, or follows a band skipped under a set leading (see Stacking). The two that differ are model differences:
 
-- `triangle heading` at Auto: Kalamo's line after the heading is 6.91 higher, where the triangle is wider, and takes one word more.
+- `triangle heading` at Auto: every line after the heading is 6.91 higher in Kalamo, where the triangle is wider. The same words fill the first body line, and the second takes one word more, words 7 to 11 where Inkscape's takes 7 to 10.
 - `triangle cjk-larger` at Auto: Inkscape's band for the 30 px CJK run is shorter at its bottom (see CJK), so it is wider and takes one word more.
 
 ## Round trip [M]

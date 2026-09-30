@@ -1125,6 +1125,17 @@ describe("Area Type in a closed path (ADR-0078)", () => {
       expect((auto[2]?.y as number) - (auto[1]?.y as number)).toBeCloseTo(24, 9);
       const set = layoutText(mixed(SLANT, [words], 30)).lines;
       expect(set.slice(0, 3).map((l) => +l.y.toFixed(2))).toEqual([65.17, 95.17, 125.17]);
+      // Under either leading the first band's box, sized by the 40 pt word it tried, runs one
+      // leading down from the frame's top at 40, and the 40 pt line's box, half its leading above
+      // and below its em box, starts where it ends: they do not overlap. With one size's bands, at
+      // 30 the 40 pt box reached 5.08 into the 20 pt box above.
+      for (const [lines, leading] of [
+        [auto, 48],
+        [set, 30],
+      ] as const) {
+        const top = (lines[1]?.y as number) - (leading - 40) / 2 - 40 * ascent;
+        expect(top).toBeCloseTo(40 + leading, 9);
+      }
     });
 
     it("keeps ADR-0080's step for a CJK line, as a rectangle frame does, beside a larger range", () => {

@@ -460,11 +460,11 @@ function layout(text: TextLayout) {
 }
 
 /**
- * Each line's box. A line's leading, as Illustrator's (ADR-0068): the
- * Node's, or with Auto 120% of the largest size among its characters, its hard return included; an
- * empty last line's is the Node's size. The box is the text's first family's em box at that size,
- * with half the leading above and below: the families a line's characters draw in never change it,
- * as Illustrator stacks by leading alone (ADR-0080).
+ * Each line's box. A line's leading, as Illustrator's (ADR-0068): the Node's, or with Auto 120% of
+ * the largest size among its characters, its hard return included; an empty last line's is the
+ * Node's size. The box is the text's first family's em box at that size, with half the leading
+ * above and below: the families a line's characters draw in never change it, as Illustrator stacks
+ * by leading alone (ADR-0080).
  */
 function lineBoxes(text: TextLayout, m: Metric[]) {
   const first = FAMILIES[fontFamilies(text)[0]].ascent;
@@ -578,8 +578,9 @@ function shaped(
   const edges = edgesOf(text.frame as string);
   const bottom = y + (text.height ?? 0);
   // Inkscape's line box also holds the text's own strut, which reaches lower than a larger size's
-  // box under a set leading. An empty range past the last character is the Node's own size.
-  const strut = lineBox(m.length, m.length).descent;
+  // box under a set leading. An empty range past the last character is the Node's own size. Its
+  // ascent is not used: a band's top follows its own size, as ADR-0080's first baseline does.
+  const strutDescent = lineBox(m.length, m.length).descent;
   /** An unbreakable unit's code-point range, and whether a hard return or the content ends it. */
   type Unit = { from: number; to: number; ends: boolean };
   const units: Unit[] = [];
@@ -592,9 +593,9 @@ function shaped(
     }
     const last = units.at(-1);
     if (last) last.ends = true;
-    // Empty content is one empty line.
-    else units.push({ from: 0, to: 0, ends: true });
   }
+  // Empty content is one empty line.
+  if (!units.length) units.push({ from: 0, to: 0, ends: true });
   const width = (from: number, to: number) => span(m, from, hangsFrom(chars, from, to));
   /** The lines greedy filling puts in `spans` from unit `u`, and where the characters it tried end. */
   const fill = (spans: Span[], u: number) => {
@@ -635,7 +636,7 @@ function shaped(
     for (;;) {
       const next = stack(prev, box);
       const baseline = y + next.baseline;
-      const descent = Math.max(box.descent, strut);
+      const descent = Math.max(box.descent, strutDescent);
       const cut = 0.1 * (box.ascent + descent);
       if (baseline - box.ascent + cut > bottom) {
         return { lines, overflow: chars.slice(first.from).join(""), spans };
