@@ -790,10 +790,11 @@ function text(n: TextNode, a: Attrs, extra: (string | false)[], chunked: boolean
     // What sets the range's style apart from the text's (ADR-0028, ADR-0068).
     ...(r.fontStyle && runFace(fontFace(r.fontStyle), face)),
   });
-  // Each shown character's origin and the chunk it starts, and the family each character draws in.
+  // Each shown character's origin, family and the chunk it starts (ADR-0063, ADR-0077), and the
+  // family each hidden character draws in.
   const [first] = fontFamilies(n);
   const placed = glyphs(n);
-  const families = characterFamilies(n);
+  const families = overflow ? characterFamilies(n) : [];
   let shown = 0;
   /** The characters of `t` from code point `start`, and whether they are laid out, so may chunk. */
   const spans = (start: number, t: string, laidOut: boolean) => {
@@ -811,7 +812,7 @@ function text(n: TextNode, a: Attrs, extra: (string | false)[], chunked: boolean
       while ((ranges[range]?.end ?? Infinity) <= index) range++;
       const r = (ranges[range]?.start ?? Infinity) <= index ? ranges[range] : undefined;
       const g = laidOut ? placed[shown++] : undefined;
-      const face = char === "\n" ? undefined : families[index];
+      const face = char === "\n" ? undefined : (g?.family ?? families[index]);
       // resvg starts a chunk wherever the family changes too; others only after a widened space.
       const chunk = chunked ? g?.chunk !== undefined : g?.chunk === "spacing";
       if (chunked && g && face) family = face;

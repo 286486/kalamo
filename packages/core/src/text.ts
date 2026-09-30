@@ -356,7 +356,7 @@ interface Metric {
  * The font a character of a text draws in: the text's, with the overrides of the Character Range
  * that holds it (ADR-0068).
  */
-export const characterFont = (text: TextFont, overrides: Overrides | undefined): TextFont => ({
+const characterFont = (text: TextFont, overrides: Overrides | undefined): TextFont => ({
   fontFamily: overrides?.fontFamily ?? text.fontFamily,
   fontStyle: overrides?.fontStyle ?? text.fontStyle,
 });
@@ -438,7 +438,7 @@ export const characterFamilies = (text: TextLayout): BundledFamily[] =>
  * hang past the frame's edge and past a line's alignment, and are never widened (ADR-0022,
  * ADR-0077). Whitespace is every character JavaScript's `/\s/` matches.
  */
-export function hangsFrom(chars: string[], from = 0, to = chars.length): number {
+function hangsFrom(chars: string[], from = 0, to = chars.length): number {
   while (to > from && /\s/.test(chars[to - 1] as string)) to--;
   return to;
 }
@@ -724,17 +724,17 @@ export interface Glyph extends Omit<CharacterRange, "start" | "end"> {
   /**
    * Why a new text chunk starts at the character: `spacing` after a space before its line's last
    * word in a text with a justified line, which every writer positions (ADR-0077); `family` where
-   * the family it draws in differs from the
-   * one before it on its line, the text's first family at a line's start, and a hard return
-   * starting none, which a renderer that picks one face per chunk needs (ADR-0063).
+   * the family it draws in differs from the one before it on its line, the text's first family at a
+   * line's start, a hard return starting none, which a renderer that picks one face per chunk needs
+   * (ADR-0063).
    */
   chunk?: "spacing" | "family";
 }
 
 /**
  * Every character of a text's shown lines, a line's hard return included, each one tracking past the
- * one before by its own tracking, with the overrides of the Character Range that holds it (ADR-0029,
- * ADR-0068).
+ * one before by its own tracking, with the family it draws in, the chunk it starts and the overrides
+ * of the Character Range that holds it (ADR-0029, ADR-0063, ADR-0068, ADR-0077).
  */
 export function glyphs(text: TextLayout): Glyph[] {
   const { lines, m } = layout(text);
@@ -743,19 +743,20 @@ export function glyphs(text: TextLayout): Glyph[] {
   return lines.flatMap((line) => {
     let x = line.x;
     let drawn = first;
-    let widened = false;
+    let afterSpace = false;
     const chars = [...line.text];
-    // A justified line widens each space before its last word (ADR-0077).
+    // In a justified text a chunk starts after each space before a line's last word, and a
+    // justified line widens those spaces (ADR-0077).
     const words = hangsFrom(chars);
     return chars.map((char, k) => {
       const { advance, tracking, family, overrides } = m[line.start + k] as Metric;
       const glyph: Glyph = { char, x, y: line.y, width: advance, family, ...overrides };
-      if (widened) glyph.chunk = "spacing";
+      if (afterSpace) glyph.chunk = "spacing";
       else if (char !== "\n" && family !== drawn) glyph.chunk = "family";
       if (char !== "\n") drawn = family;
       x += advance + tracking;
-      widened = justified && char === " " && k < words;
-      if (widened && line.wordSpacing) x += line.wordSpacing;
+      afterSpace = justified && char === " " && k < words;
+      if (afterSpace && line.wordSpacing) x += line.wordSpacing;
       return glyph;
     });
   });

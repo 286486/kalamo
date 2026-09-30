@@ -829,30 +829,41 @@ describe("each glyph's drawn family and chunk start", () => {
     ]);
   });
 
-  it("starts a chunk after each widened space of a justified line, before a family change (ADR-0077)", () => {
+  it("starts a chunk after each space of a justified text's lines, before a family change (ADR-0077)", () => {
     const t = {
       kind: "area" as const,
       x: 0,
       y: 0,
       width: 60,
       height: 100,
-      content: "a 小 b c d e f g h",
+      content: "a 小 b c d e f g h\nx y",
       fontSize: 12,
       alignment: "justify" as const,
     };
-    const first = layoutText(t).lines[0] as { text: string; wordSpacing?: number };
-    expect(first.wordSpacing).toBeGreaterThan(0);
-    const g = drawn(t).slice(0, [...first.text].length);
-    expect(g.slice(0, 4)).toEqual([
+    const { lines } = layoutText(t);
+    expect(lines.map((l) => [l.text, !!l.wordSpacing])).toEqual([
+      ["a 小 b c d e ", true],
+      ["f g h\n", false],
+      ["x y", false],
+    ]);
+    const g = drawn(t);
+    expect(g.slice(0, 13)).toEqual([
       ["a", "Source Sans 3", undefined],
       [" ", "Source Sans 3", undefined],
       ["小", "Noto Sans SC", "spacing"],
       [" ", "Source Sans 3", "family"],
+      ["b", "Source Sans 3", "spacing"],
+      [" ", "Source Sans 3", undefined],
+      ["c", "Source Sans 3", "spacing"],
+      [" ", "Source Sans 3", undefined],
+      ["d", "Source Sans 3", "spacing"],
+      [" ", "Source Sans 3", undefined],
+      ["e", "Source Sans 3", "spacing"],
+      [" ", "Source Sans 3", undefined],
+      ["f", "Source Sans 3", undefined],
     ]);
-    const words = first.text.trimEnd().length;
-    g.forEach(([, , chunk], k) => {
-      if (k > 3) expect(chunk).toBe(k < words && first.text[k - 1] === " " ? "spacing" : undefined);
-    });
+    // An unwidened line of a justified text chunks after its spaces too, as export positions them.
+    expect(g.slice(-3).map(([, , chunk]) => chunk)).toEqual([undefined, undefined, "spacing"]);
   });
 });
 
