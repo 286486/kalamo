@@ -746,7 +746,7 @@ export function glyphs(text: TextLayout): Glyph[] {
   const justified = lines.some((l) => l.wordSpacing);
   return lines.flatMap((line) => {
     let x = line.x;
-    let drawn = first;
+    let previous = first;
     let afterSpace = false;
     const chars = [...line.text];
     // In a justified text a chunk starts after each space before a line's last word, and a
@@ -756,8 +756,8 @@ export function glyphs(text: TextLayout): Glyph[] {
       const { advance, tracking, family, overrides } = m[line.start + k] as Metric;
       const glyph: Glyph = { char, x, y: line.y, width: advance, family, ...overrides };
       if (afterSpace) glyph.chunk = "spacing";
-      else if (char !== "\n" && family !== drawn) glyph.chunk = "family";
-      if (char !== "\n") drawn = family;
+      else if (char !== "\n" && family !== previous) glyph.chunk = "family";
+      if (char !== "\n") previous = family;
       x += advance + tracking;
       afterSpace = justified && char === " " && k < words;
       if (afterSpace && line.wordSpacing) x += line.wordSpacing;

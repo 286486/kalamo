@@ -112,6 +112,10 @@ _Avoid_: Letter spacing、Character spacing、Kerning（Kerning 是字符对之�
 Text 的 `ranges` 中的一项 `{start, end, …}`：按字符（码点）索引 `content` 的 `[start, end)`，为这些字符覆盖 Node 的字符属性，目前是 `fill`（替换每个 Fill 的颜色）、`stroke`（替换每个 Stroke 的颜色，无 Stroke 的文字不描边）、`baselineShift`（pt，向上为正）和 `rotation`（度，顺时针，绕字符基线原点）、`tracking`（字符自身 em 的千分之一）、`fontStyle`（Illustrator 样式名）、`fontFamily`（任意字体名，原样保存）与 `fontSize`（pt）。存储为规范形式：有序、不重叠、相邻相同合并，等于 Node 自身值的覆盖即无覆盖；写 `content` 而不给 `ranges` 会清空它们（ADR-0029、ADR-0068）。
 _Avoid_: Run、Span、Character style（Character Style 是具名样式，F-TEXT-08）
 
+**Text Chunk（文本块）**：
+SVG 的 text chunk：从一个有自己 `x` 的字符开始、独立定位的一段字符，只在导出和渲染中出现，不存储。core 的字形（`Glyph.chunk`）在两处开始新块：含两端对齐行的 Text 中，行末单词前每个空格之后（`spacing`，ADR-0077）；绘制字体族与同行前一字符不同处（`family`，只有每块取一种字形的渲染器需要，ADR-0063）。
+_Avoid_: Run、Span
+
 ## 图像
 
 **Image（图像）**：

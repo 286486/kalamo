@@ -17,9 +17,9 @@ After a character Kalamo draws in Noto Sans SC or Noto Sans KR, Inkscape drew th
 
 Pango, and so Inkscape, is the renderer that differs. Pango 1.50.12's itemizer (`itemize.c`, `consider_as_space`) gives every `G_UNICODE_SPACE_SEPARATOR`, U+0020 and U+00A0 included, no font of its own: it joins the current item and takes the previous character's font, even when the next character is Latin. Pango's move of trailing spaces to a less-fallback font (its issue 249) fires only when `font_position < state->font_position`, and does not in Inkscape's layout: H → A and C → A measure 224.
 
-**The export rule.** When `io` writes an SVG for Inkscape and browsers (not `render`'s chunked SVG for resvg), each run of U+0020 or U+00A0 that `core`'s `drawnFamily` draws in another bundled family than the last character before it on the same line that is not one of them is written as its own `<tspan>`, even with no attributes. Pango starts a new item at a span boundary, and an item holding only spaces takes the fontset's font for U+0020, the text's own family. So:
+**The export rule.** When `io` writes an SVG for Inkscape and browsers (not `render`'s chunked SVG for resvg), each run of U+0020 or U+00A0 that `core` draws in (a shown character's `Glyph.family`, a hidden one's `characterFamilies`) another bundled family than the last character before it on the same line that is not one of them is written as its own `<tspan>`, even with no attributes. Pango starts a new item at a span boundary, and an item holding only spaces takes the fontset's font for U+0020, the text's own family. So:
 
-- The test is `drawnFamily`, the lookup that picks `render`'s chunk families, not a script test in `io`. The rule is "the family differs", not "the advance differs": in a `Noto Sans SC` text, a space after Hangul (Noto Sans KR) is split although both Noto spaces are 224 units.
+- The test is `core`'s drawn family, the one that picks `render`'s chunk families, not a script test in `io`. The rule is "the family differs", not "the advance differs": in a `Noto Sans SC` text, a space after Hangul (Noto Sans KR) is split although both Noto spaces are 224 units.
 - A space at the start of a line tspan needs no span: it is already in an item of its own.
 - The span has no `x` or `y`, so it starts no text chunk. Export still writes one `<text>` per text and one line tspan per line, and names no Noto family in `font-family` (ADR-0063, ADR-0066).
 - A space inside a Character Range keeps the range's attributes on its own span (ADR-0029), next to the range's other spans with the same attributes.
@@ -125,4 +125,4 @@ Every region's score in each `pnpm roundtrip` case, before this ADR (`main@5e6f2
 
 - Inkscape draws a Korean or Chinese line's words where Kalamo does, and wraps Area Type at Kalamo's offsets, from Kalamo's export. Its own re-save of Area Type loses the spans until Kalamo exports it again.
 - Other space separators (U+2000–U+200A, U+202F, U+205F) keep Pango's behaviour: no bundled font shows a divergence the fixture measures. They join the rule if a measurement shows one. Pango's trailing-space move, should a later Pango enable it here, is not emulated.
-- #67 (per-range font family) changes which family a character draws in; the rule reads `drawnFamily`, so it follows.
+- #67 (per-range font family) changes which family a character draws in; the rule reads `core`'s drawn family, so it follows.
