@@ -7,7 +7,7 @@ import { parsePath, pathBounds } from "./path.ts";
 import { SOURCE_SANS_3 } from "./source-sans-3.ts";
 import {
   canonicalRanges,
-  drawnFamily,
+  characterFamilies,
   type FontStyle,
   fileGlyphWarnings,
   fontFamilies,
@@ -72,16 +72,19 @@ it("draws and measures a text in Noto Sans SC in it, without FONT_MISSING", () =
     "Noto Sans SC Black is not bundled, so it renders in Noto Sans SC Bold; the name is kept.",
   ]);
   expect(fontFamilies(noto)).toEqual(["Noto Sans SC", "Source Sans 3", "Noto Sans KR"]);
-  expect(drawnFamily(noto, "H")).toBe("Noto Sans SC");
-  expect(drawnFamily(noto, "\u{1F600}")).toBe("Noto Sans SC");
+  expect(characterFamilies({ ...noto, content: "H\u{1F600}" })).toEqual(
+    Array(2).fill("Noto Sans SC"),
+  );
   expect(fontFamilies({ fontFamily: "Helvetica" })).toEqual([
     "Source Sans 3",
     "Noto Sans SC",
     "Noto Sans KR",
   ]);
-  expect(drawnFamily({ fontFamily: "Helvetica" }, "H")).toBe("Source Sans 3");
-  expect(drawnFamily({ fontFamily: "Helvetica" }, "小")).toBe("Noto Sans SC");
-  expect(drawnFamily({ fontFamily: "Helvetica" }, "한")).toBe("Noto Sans KR");
+  expect(characterFamilies({ ...noto, fontFamily: "Helvetica", content: "H小한" })).toEqual([
+    "Source Sans 3",
+    "Noto Sans SC",
+    "Noto Sans KR",
+  ]);
 });
 
 // Read straight from NotoSansKR-Regular.otf and -Bold.otf: 한, 국 and 어 920 in both, H 728 and
@@ -91,8 +94,9 @@ it("measures Hangul by Noto Sans KR's advance, after Source Sans 3 and Noto Sans
     textBox({ x: 0, y: 0, content, fontSize: 1000, fontStyle }).width;
   expect(width("Hi 한국어")).toBeCloseTo(652 + 246 + 200 + 3 * 920);
   expect(glyphWarnings([typed("a", "Hi 한국어")])).toEqual([]);
-  expect(drawnFamily({}, "小")).toBe("Noto Sans SC");
-  expect(drawnFamily({}, "漢")).toBe("Noto Sans SC");
+  expect(characterFamilies({ x: 0, y: 0, content: "小漢", fontSize: 1 })).toEqual(
+    Array(2).fill("Noto Sans SC"),
+  );
   expect(width("小")).toBe(1000);
   expect(glyphWarnings([typed("a", "한\u{1F600}")]).map((w) => w.message)).toEqual([
     expect.stringContaining("has glyphs for \u{1F600};"),
@@ -113,7 +117,7 @@ it("draws and measures a text in Noto Sans KR in it, Latin and Hanja included, w
   const text = (fontStyle: FontStyle) => ({ id: "a", type: "text", ...kr, fontStyle }) as never;
   expect(fontWarnings([text("Regular"), text("Bold")])).toEqual([]);
   expect(fontFamilies(kr)).toEqual(["Noto Sans KR", "Source Sans 3", "Noto Sans SC"]);
-  expect([..."H漢한"].map((c) => drawnFamily(kr, c))).toEqual(Array(3).fill("Noto Sans KR"));
+  expect(characterFamilies({ ...kr, content: "H漢한" })).toEqual(Array(3).fill("Noto Sans KR"));
 });
 
 it("gives both faces of each Noto family the same code points", () => {

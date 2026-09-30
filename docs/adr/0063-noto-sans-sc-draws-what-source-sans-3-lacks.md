@@ -26,7 +26,7 @@ So `render` splits every line where the drawing family changes. `io`'s `toSvg` d
 
 ## Browser
 
-`Viewer.tsx` still loads the six Source Sans 3 faces eagerly. The two Noto files, 17 MB, load lazily and once per page: only after a Document holds a text with a character whose drawing family is Noto Sans SC (`drawnFamily`, answered synchronously from the tables), then the canvas redraws. The Source Sans 3 load does not wait for them, and a Latin-only Document never requests them. Each file is fetched once and registered for both styles. `ctx.font` lists the fallback order, for example `italic 700 48px "Source Sans 3", "Noto Sans SC"`, and the text Clipping Path mask (ADR-0052) uses the same `font()`.
+`Viewer.tsx` still loads the six Source Sans 3 faces eagerly. The two Noto files, 17 MB, load lazily and once per page: only after a Document holds a text with a character whose drawing family is Noto Sans SC (`characterFamilies`, answered synchronously from the tables; since ADR-0068 a Character Range's font counts), then the canvas redraws. The Source Sans 3 load does not wait for them, and a Latin-only Document never requests them. Each file is fetched once and registered for both styles. `ctx.font` lists the fallback order, for example `italic 700 48px "Source Sans 3", "Noto Sans SC"`, and the text Clipping Path mask (ADR-0052) uses the same `font()`.
 
 ## Considered Options
 
