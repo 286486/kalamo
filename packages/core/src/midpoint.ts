@@ -18,6 +18,12 @@ export const blend = (u: number, m = 0.5) => (m === 0.5 ? u : u ** exponent(m));
 const channels = (c: string) =>
   [1, 3, 5, 7].map((i) => (i < c.length ? Number.parseInt(c.slice(i, i + 2), 16) : 255));
 
+/** The most `a` and `b` differ in a channel, the alpha included, in 8-bit steps. */
+export function colorSteps(a: string, b: string): number {
+  const [ca, cb] = [channels(a), channels(b)];
+  return Math.max(...ca.map((v, k) => Math.abs((cb[k] as number) - v)));
+}
+
 /** `a` and `b` mixed, `w` of the way to `b`, each channel and the alpha alike. */
 export function mix(a: string, b: string, w: number): string {
   const [ca, cb] = [channels(a), channels(b)];
@@ -62,8 +68,7 @@ export function drawnStops(g: Pick<Gradient, "stops">): DrawnStop[] {
     const next = g.stops[i + 1];
     const span = next ? next.offset - s.offset : 0;
     if (!next || s.midpoint === undefined || s.midpoint === 0.5 || span === 0) return [s];
-    const [ca, cb] = [channels(s.color), channels(next.color)];
-    const reach = Math.max(...ca.map((v, k) => Math.abs((cb[k] as number) - v))) / 255;
+    const reach = colorSteps(s.color, next.color) / 255;
     if (reach === 0) return [s];
     const p = exponent(s.midpoint);
     let us = breaks(p, MIDPOINT_TOLERANCE / reach);

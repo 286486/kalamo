@@ -190,7 +190,7 @@ Gradient 上的一个位置（0–1）与颜色，透明度即颜色的 alpha。
 _Avoid_: Stop（泛指时）、Key、Color point
 
 **Midpoint（中点）**：
-一个 Color Stop 与下一个之间，两者颜色各半混合的位置，以两者间距的比例计，13%–87%，缺省 50%（不存储）。它属于前一个 Color Stop，最后一个没有。SVG 与画布没有中点，绘制时沿混合曲线插入额外色标，导出时这些色标带 `kalamo:simulated` 标记，导入时去掉并还原中点（ADR-0081）。
+一个 Color Stop 与下一个之间，两者颜色各半混合的位置，以两者间距的比例计，13%–87%，缺省 50%（不存储）。它属于前一个 Color Stop，最后一个没有。SVG 与画布没有中点，绘制时沿混合曲线插入额外色标，导出时这些色标带 `kalamo:simulated` 标记。导入时，两个无标记色标之间的标记色标若都在前者中点的曲线上（各通道 2 级以内），就去掉并还原中点；否则（如在 Inkscape 中被改色、移动或复制）该段按所画保留为普通 Color Stop，前者不再带中点，并警告 `SIMULATED_STOP_KEPT`（ADR-0081、ADR-0082）。
 _Avoid_: Midpoint stop、Bias、Diamond（那是它在面板上的图标）
 
 **Gradient panel（渐变面板）**：

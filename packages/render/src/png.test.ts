@@ -15,11 +15,13 @@ import {
   transformNodes,
   updateNodes,
 } from "@kalamo/core";
-import { docRect, scopeRect, toSvg } from "@kalamo/io";
+import { docRect, parseFile, scopeRect, toSvg } from "@kalamo/io";
 import { beforeAll, describe, expect, it } from "vitest";
 import { COMPOSITING, near } from "../../../fixtures/compositing.ts";
 import fixture from "../../../fixtures/documents/inkscape.kalamo.json?raw";
 import { RED_2x2_PNG } from "../../../fixtures/images.ts";
+import { MIDPOINT_DOC, midpointEdits } from "../../../fixtures/midpoint-edits.ts";
+import { differs, VECTOR_BUDGET } from "../../../fixtures/png.ts";
 import { LAZY_FONTS, renderFonts, svgToPixels, svgToPng } from "./png.ts";
 import { fit, renderSvg } from "./svg.ts";
 
@@ -1098,4 +1100,24 @@ it("draws a midpoint's 50/50 mix where it sits (ADR-0081)", async () => {
   // The pixel from 50 to 51 pt, a quarter of the way along.
   const [r, g, b] = pixels.subarray((5 * width + 50) * 4);
   for (const v of [r, g, b]) expect(Math.abs((v as number) - 127.5)).toBeLessThanOrEqual(2);
+});
+
+it("draws a midpoint edited in Inkscape as resvg draws the edited file (ADR-0082)", async () => {
+  const opened = parseDocument(MIDPOINT_DOC);
+  const midpoint = { id: "", version: 1 as const, rev: 0, ...opened };
+  const nodes = new Map(opened.nodes.map((n) => [n.id, n]));
+  for (const [name, svg] of Object.entries(midpointEdits(toSvg({ ...midpoint, nodes })))) {
+    const file = parseFile(svg);
+    const doc = {
+      ...createDocument({ id: "d", name, artboards: [] }).doc,
+      artboards: file.artboards,
+      nodes: new Map(file.nodes.map((n) => [n.id, n])),
+    };
+    const [want, got] = await Promise.all([svgToPixels(svg, 1), svgToPixels(renderSvg(doc), 1)]);
+    expect([got.width, got.height], name).toEqual([want.width, want.height]);
+    let differ = 0;
+    for (let i = 0; i < want.pixels.length; i += 4)
+      if (differs(want.pixels, got.pixels, i)) differ++;
+    expect(differ / (want.width * want.height), name).toBeLessThanOrEqual(VECTOR_BUDGET);
+  }
 });

@@ -50,3 +50,12 @@ export async function decodePng(png: Uint8Array): Promise<Image> {
   }
   return { width, height, data: out };
 }
+
+/** A pixel differs when a channel, the alpha included, is off by more than this (ADR-0017). */
+const TOLERANCE = 32;
+/** The share of a vector region's pixels that may differ (ADR-0017). */
+export const VECTOR_BUDGET = 0.007;
+
+/** Whether the pixel at byte `i` of two RGBA8 images differs. */
+export const differs = (a: Uint8Array, b: Uint8Array, i: number) =>
+  [0, 1, 2, 3].some((k) => Math.abs((a[i + k] ?? 0) - (b[i + k] ?? 0)) > TOLERANCE);

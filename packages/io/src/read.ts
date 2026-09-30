@@ -6,7 +6,6 @@ import {
   BlendMode,
   BUNDLED_FONT,
   type CharacterRange,
-  type ColorStop,
   type ContainerAppearance,
   canonicalRanges,
   cssColor,
@@ -68,7 +67,7 @@ import {
   starOf,
   xmlId,
 } from "./dialect.ts";
-import { asGradient, type Geometry, unroll } from "./gradient.ts";
+import { asGradient, type Geometry, unmark, unroll } from "./gradient.ts";
 import { computeStyle, type Rule, type Style, stylesheet } from "./style.ts";
 
 /** A file read for Open: a Document's contents without its docId, and what did not come across. */
@@ -1432,10 +1431,9 @@ class Reader {
     const holder = chain.find((g) => elements(g).some((c) => c.localName === "stop"));
     const inherited = holder ? computeStyle(holder, {}, this.rules) : {};
     let last = 0;
-    const stops: ColorStop[] = elements(holder ?? (chain[0] as Element))
-      // The stops export inserted to draw a midpoint are dropped, and it goes back on its stop.
-      .filter((c) => c.localName === "stop" && kalamoAttr(c, "simulated") !== "true")
-      .map((stop, k, all) => {
+    const read = elements(holder ?? (chain[0] as Element))
+      .filter((c) => c.localName === "stop")
+      .map((stop) => {
         const s = computeStyle(stop, inherited, this.rules);
         const raw = stop.getAttribute("offset")?.trim() || "0";
         const offset = raw.endsWith("%") ? Number.parseFloat(raw) / 100 : Number(raw);
@@ -1445,9 +1443,19 @@ class Reader {
         const color = withAlpha(hex, alpha(s["stop-opacity"]) * opacity);
         const m = Number.parseFloat(kalamoAttr(stop, "midpoint") ?? "");
         const midpoint = Math.min(MIDPOINT_MAX, Math.max(MIDPOINT_MIN, m));
-        const kept = Number.isFinite(m) && midpoint !== 0.5 && k < all.length - 1;
-        return { offset: round3(last), color, ...(kept && { midpoint }) };
+        const hasMidpoint = Number.isFinite(m) && midpoint !== 0.5;
+        const marked = kalamoAttr(stop, "simulated") === "true";
+        return { offset: last, color, ...(hasMidpoint && { midpoint }), marked };
       });
+    const { stops, keptInserted } = unmark(read);
+    if (keptInserted) {
+      const id = holder?.getAttribute("id") ?? "";
+      this.warn(
+        "SIMULATED_STOP_KEPT",
+        id,
+        "Stops Kalamo inserted to draw a midpoint were kept as Color Stops, since the gradient was edited.",
+      );
+    }
     const [first] = stops;
     const end = stops.at(-1);
     if (!first || !end) return null;

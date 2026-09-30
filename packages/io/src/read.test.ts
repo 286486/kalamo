@@ -1,4 +1,5 @@
 import {
+  type ColorStop,
   childrenOf,
   createDocument,
   createNodes,
@@ -22,6 +23,7 @@ import {
 import { describe, expect, it } from "vitest";
 import kalamoExport from "../../../fixtures/documents/inkscape.svg?raw";
 import { RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
+import { MIDPOINT_DOC, MIDPOINT_STOPS, midpointEdits } from "../../../fixtures/midpoint-edits.ts";
 import reference from "../../core/src/spiral.inkscape.json" with { type: "json" };
 import { NS as DIALECT_NS } from "./dialect.ts";
 import { MAX_DEPTH, parseFile, parseSvg, resolveLinks, SVG_LIMIT, toSvg } from "./index.ts";
@@ -2599,12 +2601,31 @@ describe("gradients (ADR-0026)", () => {
       expect(stops.every((s) => s.midpoint === undefined)).toBe(true);
     });
 
-    it("keeps the midpoint when a stop's colour was changed", () => {
-      const edited = exported().text.replace(
-        '<stop offset="0" stop-color="#000000"',
-        '<stop offset="0" stop-color="#0000FF"',
-      );
-      expect(stopsOf(edited)).toEqual([{ ...mid[0], color: "#0000FF" }, mid[1], mid[2]]);
+    it("reads a clamped midpoint's inserted stops against the curve of the clamped value", () => {
+      const { doc, defaultLayerId: parentId } = createDocument({
+        id: "D",
+        name: "Doc",
+        artboards: [{ width: 50, height: 30 }],
+      });
+      const stops = [
+        { offset: 0, color: "#000000", midpoint: 0.13 },
+        { offset: 1, color: "#FFFFFF" },
+      ];
+      const fill = { type: "gradient", gradient: { type: "linear", stops } } as const;
+      createNodes(doc, [
+        {
+          type: "rect",
+          parentId,
+          x: 0,
+          y: 0,
+          width: 50,
+          height: 30,
+          appearance: { fills: [fill] },
+        },
+      ]);
+      const text = toSvg(doc).replace('kalamo:midpoint="0.13"', 'kalamo:midpoint="0.05"');
+      expect(parseFile(text).warnings).toEqual([]);
+      expect(stopsOf(text)).toEqual(stops);
     });
 
     it("clamps a midpoint to 13%-87%, and drops an empty one, one at halfway and one on the last stop", () => {
@@ -2622,6 +2643,93 @@ describe("gradients (ADR-0026)", () => {
         { offset: 0.75, color: "#00FF00" },
         { offset: 1, color: "#FFFFFF" },
       ]);
+    });
+  });
+
+  describe("midpoints edited in Inkscape (ADR-0082)", () => {
+    const file = parseDocument(MIDPOINT_DOC);
+    const MIDPOINT_EDITS = midpointEdits(
+      toSvg({
+        id: "",
+        version: 1,
+        rev: 0,
+        ...file,
+        nodes: new Map(file.nodes.map((n) => [n.id, n])),
+      }),
+    );
+    const readText = (text: string) => {
+      const file = parseFile(text);
+      const [leaf] = leaves(file);
+      const fill = leaf && "appearance" in leaf ? leaf.appearance.fills[0] : undefined;
+      if (fill?.type !== "gradient") throw new Error("not a gradient");
+      return { stops: fill.gradient.stops, codes: file.warnings.map((w) => w.code) };
+    };
+    const read = (name: keyof typeof MIDPOINT_EDITS) => readText(MIDPOINT_EDITS[name]);
+    /** Every stop as drawn, as a file without the marks reads. */
+    const literal = (name: keyof typeof MIDPOINT_EDITS) =>
+      readText(MIDPOINT_EDITS[name].replace(/ kalamo:(simulated|midpoint)="[^"]*"/g, "")).stops;
+    const [start, end] = MIDPOINT_STOPS as [ColorStop, ColorStop];
+
+    it("drops inserted stops still on the curve, with no warning", () => {
+      for (const name of [
+        "a plain save",
+        "a stop added between inserted stops, in the colour drawn there",
+      ] as const) {
+        expect(read(name), name).toEqual({ stops: MIDPOINT_STOPS, codes: [] });
+      }
+    });
+
+    it("keeps a span's stops as drawn, and warns once, when one is off the curve", () => {
+      for (const name of [
+        "a red stop added after an inserted stop",
+        "an inserted stop moved",
+        "the start stop recoloured",
+      ] as const) {
+        const { stops, codes } = read(name);
+        expect(stops, name).toEqual(literal(name));
+        expect(stops.length, name).toBeGreaterThan(10);
+        expect(codes, name).toEqual(["SIMULATED_STOP_KEPT"]);
+      }
+      expect(read("a red stop added after an inserted stop").stops).toContainEqual({
+        offset: 0.5,
+        color: "#FF0000",
+      });
+    });
+
+    it("keeps the midpoint and takes the new colour when a real stop's recolouring leaves the curve within 2 steps", () => {
+      expect(read("the end stop recoloured by a step")).toEqual({
+        stops: [start, { ...end, color: "#FEFEFE" }],
+        codes: [],
+      });
+    });
+
+    it("keeps inserted stops outside the first and last stops, the midpoint between them", () => {
+      expect(read("inserted stops copied before the first stop and after the last")).toEqual({
+        stops: [{ offset: 0, color: "#0000FF" }, start, end, { offset: 1, color: "#FF0000" }],
+        codes: ["SIMULATED_STOP_KEPT"],
+      });
+    });
+
+    it("judges the inserted stops after a copied stop against the curve of its copied midpoint", () => {
+      expect(read("a stop added after the start stop")).toEqual({
+        stops: [start, { offset: 0.1, color: "#010101", midpoint: 0.25 }, end],
+        codes: [],
+      });
+    });
+
+    it("keeps the span of a copied stop moved off its stop as drawn, the copy included", () => {
+      const name = "a stop added after the start stop, then moved";
+      expect(read(name)).toEqual({ stops: literal(name), codes: ["SIMULATED_STOP_KEPT"] });
+      expect(literal(name)).toContainEqual({ offset: 0.3, color: "#010101" });
+    });
+
+    it("drops an inserted stop 2 steps off the curve in a channel or the alpha, and keeps it 3 off", () => {
+      for (const channel of ["red", "green", "blue", "alpha"] as const) {
+        const near = `an inserted stop's ${channel} 2 steps off the curve` as const;
+        expect(read(near), near).toEqual({ stops: MIDPOINT_STOPS, codes: [] });
+        const far = `an inserted stop's ${channel} 3 steps off the curve` as const;
+        expect(read(far), far).toEqual({ stops: literal(far), codes: ["SIMULATED_STOP_KEPT"] });
+      }
     });
   });
 
