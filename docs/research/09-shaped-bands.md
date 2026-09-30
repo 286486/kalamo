@@ -1,0 +1,69 @@
+# Shaped Area Type bands whose lines mix sizes (research notes, 2026-09-30)
+
+For #200: how tall a band of a shaped Area Type (ADR-0078) is when its line holds a larger Character Range or CJK in a fallback family, where it sits, and which words it takes. Decision: ADR-0078's #200 amendment. The stacking rule itself is ADR-0080's.
+
+Legend as in `06-illustrator-drawing-tools.md`: **[A]** the Adobe doc states it; **[M]** measured here.
+
+## Illustrator
+
+Access note: helpx.adobe.com returns 403 to WebFetch and to `curl` from this host on 2026-09-30, as `08-line-stacking.md` records. The sentences are quoted from the search index's extract of the live pages.
+
+- **[A]** "Add text and work with type objects", https://helpx.adobe.com/illustrator/using/add-text-work-with-type-objects.html: "Area type (also called paragraph type) uses the boundaries of an object to control the flow of characters, either horizontally or vertically. When the text reaches the border, it automatically wraps to fit inside the defined area."
+- **[A]** "Line and character spacing in Illustrator", https://helpx.adobe.com/illustrator/using/line-character-spacing.html: "Leading is measured from the baseline of one line of text to the baseline of the line above it." "The default auto-leading option sets the leading at 120% of the typeface size." ADR-0068 records the rest as Kalamo follows it: the largest leading on a line sets the line's leading.
+
+**The rule they give.** A shaped frame only bounds where each line may run. A line's baseline is its leading below the previous line's, the same as in a rectangle frame, and a larger Character Range raises that line's leading. So a shaped band steps exactly as ADR-0080 steps a rectangle frame's line.
+
+**What they leave open.** No passage says how tall a strip of the shape a line's width is measured over, whether it is the full line box or a narrower one, or how a taller line narrows the width it can use. None says what happens when a larger word does not fit a line: whether it still makes the line taller. None says how far down the next try goes when no part of a line's strip is wide enough. Each gap is settled below by Inkscape 1.2.2, which draws the exported file. Checking Illustrator itself needs a live copy, which this host does not have.
+
+## Inkscape 1.2.2
+
+`09-shaped-bands/probe.mjs` writes each case as an SVG under `09-shaped-bands/out/` and runs `inkscape --query-all` on it with the bundled fonts, through a `fonts.conf` built as `pnpm roundtrip` builds its own. Reproduce with `node docs/research/09-shaped-bands/probe.mjs`, which prints `results.tsv` in a few seconds.
+
+The text is 20 px Source Sans 3 flowed with `shape-inside` in a `<path>`, Auto leading (`line-height:1.2`) or leading 30 (`30px`). Every word is a tspan of its own. A word of H's gives its line's baseline, the bottom of its ink, and its origin, its ink's left less the H's side bearing of 0.09 em. A CJK word is one `字`, which falls back to Noto Sans SC and carries ADR-0080's run `line-height`, as export writes it. Its baseline is read as its ink's bottom less 0.0791 em, calibrated on the U frame. `results.tsv` lists each drawn line: frame, text, leading, baseline, and each word as `index[@size][cjk]:x`.
+
+**Frames** (`FRAMES`): `U`, a concave frame whose arms, 120 wide and 80 deep, give each band two spans; `triangle`, whose bands narrow downward; `slant`, whose left edge is `x = 20 + (y − 40) / 3`, so a line starts where the edge is at its band's bottom; `neck`, 30 wide above y 100, too narrow for any word.
+
+**Texts** (`TEXTS`): `heading`, a 40 px paragraph then 20 px words; `big-3rd`, `big-4th` and `big-5th`, a 40 px word third, fourth or fifth on the first line; `cjk`, `字` beside the words; `cjk-larger`, one of them at 30 px.
+
+### The band's height [M]
+
+A band is the line's CSS line box less a tenth of that box's height at its top and at its bottom. The line box is the union of the text's own strut and each run's box, each half its leading above and below its em box: 1.2 × its size with Auto, the text's leading otherwise. On the slanted frame, a line's start gives its band's bottom:
+
+| Line | Leading | Start | Band's bottom below the baseline | Line box | Tenth |
+|---|---|---|---|---|---|
+| 20 px | Auto | 27.2 at 57.08 | 4.52 | 17.08 + 6.92 | 2.4 |
+| 40 px | Auto | 34.4 at 74.17 | 9.03 | 34.16 + 13.84 | 4.8 |
+| 40 px | 30 | 30.52 at 65.17 | 6.39 | 25.16 + 9.92 | 3.508 |
+
+At Auto, a larger size's box holds the strut, so the band is the larger size's box less a tenth of its leading, 0.1 × 48. At a set leading, a larger size's box reaches less far below the baseline than the strut does, 4.84 against 9.92, and the band reaches the strut's bottom. The mirrored slant (`x = 120 − (y − 40) / 3`, a line starting where the edge is at its band's top), probed during the investigation, gave the top: 14.68, 29.37 and 21.66 above the baseline, the same boxes less the same tenths. A line of one size is ADR-0078's band.
+
+### Which words a band takes [M]
+
+Inkscape starts each line with the strut's box. When a run's box is taller, it grows the line box to hold it and rebuilds the line from its first word, at the same line top, so the baseline moves down. It grows the box when it measures the run, before it knows whether the run fits. So a larger word that does not fit still sizes the line it could not join:
+
+- `slant big-3rd`: the 40 px third word fits, and the band takes the words before it from 34.4, not 27.2.
+- `slant big-5th` at Auto: four 20 px words fit a 20 px band from 27.2, but not the 40 px fifth. It grows the band, which then takes three words from 34.4 at 74.17. The fourth and the 40 px word start the next band, at 122.17, 48 lower.
+- `U big-4th` at Auto: the 40 px word fits neither arm. The first band still takes the 40 px box, at 74.17, and the next band, holding it, is 48 lower.
+
+### Skipped bands [M]
+
+A band with no span wide enough for the next word is skipped, and the next try is one of that band's line boxes lower. It keeps the height the word gave it. `neck heading`: the 40 px heading is tried at 74.17 and at 122.17, 48 apart at Auto, and shows at 170.17 below the neck.
+
+### Stacking [M]
+
+Inkscape puts each line's top at the bottom of the line box before it. Kalamo follows Illustrator and steps each baseline by the line's leading (ADR-0080). The two agree while no taller line comes before. After a taller line they differ by ADR-0068's model difference: in `slant heading` at Auto, Inkscape's 20 px line is 30.91 below the heading and Kalamo's is 24 below it. They also differ on a line that a larger word makes taller. Inkscape keeps that line's top and moves its baseline down. Kalamo keeps its step, so the taller band reaches higher. In `neck big-3rd`, Inkscape's first line is at 146.17 at Auto and 125.17 at leading 30. Kalamo's is at 153.08 and 150.08. At 30 it is a band lower, because its taller band reaches into the neck.
+
+### CJK [M]
+
+With ADR-0080's run `line-height`, a CJK line at the text's size steps by the text's leading in every frame: 57.08, 81.08, 105.08 at Auto and 60.08, 90.08, 120.08 at leading 30 on the U. A 30 px CJK run on the first line puts its baseline at ADR-0022's first baseline for 30 px, 65.62 at Auto and 62.62 at leading 30, as Kalamo does. On a later line, Inkscape puts it 32.54 below the one before, where Illustrator's rule gives 36 or 30 (ADR-0080). The run's box under its shrunk `line-height` reaches 2.82 below the baseline, where a 30 px Source Sans 3 box reaches 10.38. So its line box is 32.54 tall at Auto, not 36, and its band is correspondingly shorter.
+
+### Kalamo against Inkscape
+
+A throwaway test laid out every case with core and compared the words on each line. 46 of the 48 cases give the same words. Each baseline is the same as Inkscape's until a taller line comes before (see Stacking). The two that differ are model differences:
+
+- `triangle heading` at Auto: Kalamo's line after the heading is 6.91 higher, where the triangle is wider, and takes one word more.
+- `triangle cjk-larger` at Auto: Inkscape's band for the 30 px CJK run is shorter at its bottom (see CJK), so it is wider and takes one word more.
+
+## Round trip [M]
+
+`pnpm roundtrip` passes with a new "Shaped Mixed Sizes" Artboard. It holds a U-frame text whose first paragraph is an 18 pt range in a 10 pt text, with `中文字` in a later band, at 8.11 % of the 25 % `mixed-size text` budget. It also holds a triangle at leading 14 whose first line holds a 20 pt range and whose third holds `汉字`, at 2.28 %. Inkscape saves the same lines. With #199's layout, whose bands were all the Node's own size, the triangle's third band took one word more than Inkscape's, and the line check failed. The first draft of the triangle's text had a first line only 0.06 pt narrower than Kalamo's unshaped width of "Big words start a", which Inkscape fit (ADR-0013's known difference). Its third word was changed.

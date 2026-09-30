@@ -460,7 +460,7 @@ function layout(text: TextLayout) {
 }
 
 /**
- * The first family's ascent and each line's box. A line's leading, as Illustrator's (ADR-0068): the
+ * Each line's box. A line's leading, as Illustrator's (ADR-0068): the
  * Node's, or with Auto 120% of the largest size among its characters, its hard return included; an
  * empty last line's is the Node's size. The box is the text's first family's em box at that size,
  * with half the leading above and below: the families a line's characters draw in never change it,
@@ -474,9 +474,9 @@ function lineBoxes(text: TextLayout, m: Metric[]) {
     size ||= m[to]?.size ?? text.fontSize;
     const leading = text.leading ?? 1.2 * size;
     const half = (leading - size) / 2;
-    return { leading, ascent: half + first * size, descent: half + (1 - first) * size };
+    return { size, leading, ascent: half + first * size, descent: half + (1 - first) * size };
   };
-  return { first, lineBox };
+  return { lineBox };
 }
 
 type LineBox = ReturnType<ReturnType<typeof lineBoxes>["lineBox"]>;
@@ -499,7 +499,7 @@ function unaligned(text: TextLayout) {
   const { x, y, content, fontSize } = text;
   const m = metrics(text);
   const chars = m.map((c) => c.char);
-  const { first, lineBox } = lineBoxes(text, m);
+  const { lineBox } = lineBoxes(text, m);
   let start = 0;
   const line = (t: string, lineY: number): TextLine => {
     const l = { text: t, x, y: lineY, start };
@@ -520,7 +520,7 @@ function unaligned(text: TextLayout) {
     return { lines, overflow: "", m };
   }
   if (text.frame) {
-    const out = shaped(text, m, chars, first, line);
+    const out = shaped(text, m, chars, lineBox);
     return { ...out, m };
   }
   const { width = 0, height = 0 } = text;
@@ -559,84 +559,107 @@ function unaligned(text: TextLayout) {
 }
 
 /**
- * A shaped Area Type's lines (ADR-0078), as Inkscape 1.2.2 flows `shape-inside`: bands one leading
- * apart from ADR-0022's first baseline, each ADR-0022's line box less a tenth of the leading at its
- * top and bottom; each band's spans, left to right, take words greedily with ADR-0022's width
- * rules, each span its own line; a span too narrow for the next word is skipped, and so is a band
- * with no span it fits; a hard return ends the span, the next paragraph starting in the next one.
- * What fits no band above the frame's bottom overflows. Each line's span, for alignment.
- * ponytail: every band is the Node's own size and leading tall, so a line holding a larger
- * Character Range steps as the Node's size does here, where a rectangle frame steps it by its own
- * leading (#200).
+ * A shaped Area Type's lines (ADR-0078), as Inkscape 1.2.2 flows `shape-inside`. Each band is a line
+ * box stacked as a rectangle frame's line (ADR-0080), less a tenth of its height at its top and
+ * bottom, and its spans, left to right, take words greedily with ADR-0022's width rules, each span
+ * its own line. A band is sized by every character it tries, the unit it could not fit included,
+ * and when one is larger it is sized again and refilled from its first unit (#200). A span too
+ * narrow for the next word is skipped, and so is a band with no span it fits, one of its leadings
+ * down; a hard return ends the span, the next paragraph starting in the next one. What fits no band
+ * above the frame's bottom overflows. Each line's span, for alignment.
  */
 function shaped(
   text: TextLayout,
   m: Metric[],
   chars: string[],
-  first: number,
-  line: (t: string, lineY: number) => TextLine,
+  lineBox: (from: number, to: number) => LineBox,
 ): { lines: TextLine[]; overflow: string; spans: Span[] } {
-  const { y, fontSize, content } = text;
+  const { y, content } = text;
   const edges = edgesOf(text.frame as string);
-  const leading = text.leading ?? 1.2 * fontSize;
-  const half = (leading - fontSize) / 2;
-  const [ascent, descent] = [half + first * fontSize, half + (1 - first) * fontSize];
   const bottom = y + (text.height ?? 0);
-  let band = -1;
-  let queue: Span[] = [];
-  /** The next band with a span, or undefined past the frame's bottom. */
-  const nextBand = () => {
-    for (band++; ; band++) {
-      const baseline = y + ascent + band * leading;
-      const top = baseline - ascent + 0.1 * leading;
-      if (top > bottom) return undefined;
-      queue = frameSpans(edges, top, baseline + descent - 0.1 * leading);
-      if (queue.length) return baseline;
+  // Inkscape's line box also holds the text's own strut, which reaches lower than a larger size's
+  // box under a set leading.
+  const strut = lineBox(m.length, m.length).descent;
+  /** Each unbreakable unit's code-point range, and whether a hard return or the content ends it. */
+  const units: { from: number; to: number; ends: boolean }[] = [];
+  let at = 0;
+  for (const paragraph of content.split(/(?<=\n)/)) {
+    for (const unit of lineBreakUnits(paragraph)) {
+      const from = at;
+      at += [...unit].length;
+      units.push({ from, to: at, ends: false });
     }
+    const last = units.at(-1);
+    if (last) last.ends = true;
+    // Empty content is one empty line.
+    else units.push({ from: 0, to: 0, ends: true });
+  }
+  const width = (from: number, to: number) => span(m, from, hangsFrom(chars, from, to));
+  /** The lines greedy filling puts in `spans` from unit `u`, and where the characters it tried end. */
+  const fill = (spans: Span[], u: number) => {
+    const placed: { from: number; to: number; span: Span }[] = [];
+    let s = 0;
+    let from = (units[u] as { from: number }).from;
+    let tried = from;
+    for (; u < units.length; u++) {
+      const unit = units[u] as (typeof units)[number];
+      tried = unit.to;
+      const slot = spans[s];
+      if (slot && from < unit.from && width(from, unit.to) > slot.width) {
+        placed.push({ from, to: unit.from, span: slot });
+        [from, s] = [unit.from, s + 1];
+      }
+      while (spans[s] && width(unit.from, unit.to) > (spans[s] as Span).width) s++;
+      if (!spans[s]) break;
+      if (unit.ends) {
+        // After a hard return the next paragraph starts in the next span, as Inkscape flows it.
+        placed.push({ from, to: unit.to, span: spans[s] as Span });
+        [from, s] = [unit.to, s + 1];
+        if (!spans[s]) {
+          u++;
+          break;
+        }
+      }
+    }
+    return { placed, next: u, tried };
   };
-  let baseline = nextBand();
-  let slot = queue.shift();
-  /** The next span, on this band or a lower one. */
-  const next = () => {
-    slot = queue.shift();
-    if (slot) return;
-    baseline = nextBand();
-    if (baseline !== undefined) slot = queue.shift();
-  };
-  const fits = (from: number, to: number) =>
-    !!slot && span(m, from, hangsFrom(chars, from, to)) <= slot.width;
   const lines: TextLine[] = [];
   const spans: Span[] = [];
-  let used = 0;
-  const push = (l: string) => {
-    const s = slot as Span;
-    lines.push({ ...line(l, baseline as number), x: s.x });
-    spans.push(s);
-    used += l.length;
-  };
-  let [from, to] = [0, 0];
-  wrap: for (const paragraph of content.split(/(?<=\n)/)) {
-    let l = "";
-    from = to;
-    for (const unit of lineBreakUnits(paragraph)) {
-      const n = [...unit].length;
-      if (l && !fits(from, to + n)) {
-        push(l);
-        [l, from] = ["", to];
-        next();
+  let prev: Stacked | undefined;
+  let u = 0;
+  while (u < units.length) {
+    const first = units[u] as (typeof units)[number];
+    let box = lineBox(first.from, first.to);
+    for (;;) {
+      const next = stack(prev, box);
+      const baseline = y + next.baseline;
+      const descent = Math.max(box.descent, strut);
+      const cut = 0.1 * (box.ascent + descent);
+      if (baseline - box.ascent + cut > bottom) {
+        return { lines, overflow: chars.slice(first.from).join(""), spans };
       }
-      while (slot && !fits(to, to + n)) next();
-      if (!slot) break wrap;
-      l += unit;
-      to += n;
+      const band = frameSpans(edges, baseline - box.ascent + cut, baseline + descent - cut);
+      const { placed, next: after, tried } = fill(band, u);
+      const grown = lineBox(first.from, tried);
+      if (grown.size > box.size) {
+        box = grown;
+        continue;
+      }
+      for (const p of placed) {
+        lines.push({
+          text: chars.slice(p.from, p.to).join(""),
+          x: p.span.x,
+          y: baseline,
+          start: p.from,
+        });
+        spans.push(p.span);
+      }
+      prev = next;
+      u = after;
+      break;
     }
-    if (!slot) break;
-    push(l);
-    // After a hard return the next paragraph starts in the next span, as Inkscape flows it.
-    next();
-    if (!slot && used < content.length) break;
   }
-  return { lines, overflow: content.slice(used), spans };
+  return { lines, overflow: "", spans };
 }
 
 /** A laid-out character: its origin on the unshifted baseline, advance width and overrides. */

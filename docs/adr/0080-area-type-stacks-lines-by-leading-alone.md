@@ -37,5 +37,5 @@ A CJK run larger than the line's other characters puts that line where Inkscape 
 - `layoutText` has no `rise` or `drop`. Its line box is the first family's em box at the line's size and leading. `stack` gives each later baseline one leading below the one before, and `areaFrame` uses the same step.
 - `drawing-conventions.md` no longer says CJK lines move on conversion, and says `leading` is the baseline distance in both kinds whatever fonts a line draws in.
 - The inkscape fixture gains the "CJK Line Stacking" Artboard. The CJK and Korean Area Types' later lines move up, which changes the render golden and the export snapshot.
-- Shaped Area Type's bands are unchanged. #200 moves them to per-line leading by this rule.
+- Shaped Area Type's bands are unchanged. #200 moves them to per-line leading by this rule (ADR-0078's #200 amendment).
 - Illustrator's top-to-top leading and Area Type Options' First Baseline stay out of scope.
