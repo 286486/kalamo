@@ -394,8 +394,7 @@ export function layoutText(text: TextLayout): { lines: TextLine[]; overflow: str
 /**
  * Where the trailing whitespace of `chars` from `from` up to `to` starts: the characters after it
  * hang past the frame's edge and past a line's alignment, and are never widened (ADR-0022,
- * ADR-0077). Whitespace is JavaScript's `\s`: the space, the hard return, the no-break space U+00A0,
- * the ideographic space U+3000 and the other Unicode spaces.
+ * ADR-0077). Whitespace is every character JavaScript's `/\s/` matches.
  */
 export function hangsFrom(chars: string[], from = 0, to = chars.length): number {
   while (to > from && /\s/.test(chars[to - 1] as string)) to--;
