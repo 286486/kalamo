@@ -494,6 +494,29 @@ function stack(prev: Stacked | undefined, b: LineBox): Stacked {
   return { baseline, needs: baseline - b.ascent + 0.9 * b.leading, leading: b.leading };
 }
 
+/** An unbreakable unit's code-point range, and whether a hard return or the content ends it. */
+type Unit = { from: number; to: number; ends: boolean };
+
+/**
+ * `content`'s unbreakable units (ADR-0064), paragraph by paragraph, each hard return in its
+ * paragraph's last unit. Empty content is one empty unit, so it lays out one empty line.
+ */
+function unitsOf(content: string): Unit[] {
+  const units: Unit[] = [];
+  let at = 0;
+  for (const paragraph of content.split(/(?<=\n)/)) {
+    for (const unit of lineBreakUnits(paragraph)) {
+      const from = at;
+      at += [...unit].length;
+      units.push({ from, to: at, ends: false });
+    }
+    const last = units.at(-1);
+    if (last) last.ends = true;
+  }
+  if (!units.length) units.push({ from: 0, to: 0, ends: true });
+  return units;
+}
+
 /** The lines as ADR-0022 lays them out, each starting at `x`. */
 function unaligned(text: TextLayout) {
   const { x, y, content, fontSize } = text;
@@ -527,35 +550,29 @@ function unaligned(text: TextLayout) {
   // Trailing whitespace hangs past the frame's edge.
   const fits = (from: number, to: number) => span(m, from, hangsFrom(chars, from, to)) <= width;
   const lines: TextLine[] = [];
-  let used = 0;
   let prev: Stacked | undefined;
   // A unit wider than the frame overflows with all that follows.
-  const push = (l: string, from: number, to: number) => {
+  const push = (from: number, to: number) => {
     const next = stack(prev, lineBox(from, to));
     if (next.needs > height + 1e-9 * next.leading) return false;
-    lines.push(line(l, y + next.baseline));
+    lines.push(line(chars.slice(from, to).join(""), y + next.baseline));
     prev = next;
-    used += l.length;
     return true;
   };
-  // The code-point index of the current line's first character, and of the next unit's.
-  let [from, to] = [0, 0];
-  wrap: for (const paragraph of content.split(/(?<=\n)/)) {
-    let l = "";
-    from = to;
-    for (const unit of lineBreakUnits(paragraph)) {
-      const n = [...unit].length;
-      if (l && !fits(from, to + n)) {
-        if (!push(l, from, to)) break wrap;
-        [l, from] = ["", to];
-      }
-      if (!fits(to, to + n)) break wrap;
-      l += unit;
-      to += n;
+  // The code-point index of the current line's first character.
+  let from = 0;
+  for (const unit of unitsOf(content)) {
+    if (from < unit.from && !fits(from, unit.to)) {
+      if (!push(from, unit.from)) break;
+      from = unit.from;
     }
-    if (!push(l, from, to)) break;
+    if (!fits(unit.from, unit.to)) break;
+    if (unit.ends) {
+      if (!push(from, unit.to)) break;
+      from = unit.to;
+    }
   }
-  return { lines, overflow: content.slice(used), m };
+  return { lines, overflow: chars.slice(start).join(""), m };
 }
 
 /**
@@ -581,21 +598,7 @@ function shaped(
   // box under a set leading. An empty range past the last character is the Node's own size. Its
   // ascent is not used: a band's top follows its own size, as ADR-0080's first baseline does.
   const strutDescent = lineBox(m.length, m.length).descent;
-  /** An unbreakable unit's code-point range, and whether a hard return or the content ends it. */
-  type Unit = { from: number; to: number; ends: boolean };
-  const units: Unit[] = [];
-  let at = 0;
-  for (const paragraph of content.split(/(?<=\n)/)) {
-    for (const unit of lineBreakUnits(paragraph)) {
-      const from = at;
-      at += [...unit].length;
-      units.push({ from, to: at, ends: false });
-    }
-    const last = units.at(-1);
-    if (last) last.ends = true;
-  }
-  // Empty content is one empty line.
-  if (!units.length) units.push({ from: 0, to: 0, ends: true });
+  const units = unitsOf(content);
   const width = (from: number, to: number) => span(m, from, hangsFrom(chars, from, to));
   /** The lines greedy filling puts in `spans` from unit `u`, and where the characters it tried end. */
   const fill = (spans: Span[], u: number) => {
@@ -757,14 +760,20 @@ export function areaFrame(text: TextLayout): Rect {
   let [widest, height] = [0, 0];
   let prev: Stacked | undefined;
   let ascent = 0;
+  // Each Point Type line is a paragraph, its units in turn up to the one its hard return ends.
+  const units = unitsOf(text.content);
+  let u = 0;
   lines.forEach((l, i) => {
-    let to = l.start;
-    for (const unit of lineBreakUnits(l.text)) {
-      const n = [...unit].length;
-      widest = Math.max(widest, width(l.start, to + n), width(to, to + n));
-      to += n;
+    for (; u < units.length; u++) {
+      const unit = units[u] as Unit;
+      widest = Math.max(widest, width(l.start, unit.to), width(unit.from, unit.to));
+      if (unit.ends) {
+        u++;
+        break;
+      }
     }
     if (i && i === lines.length - 1 && !l.text) return;
+    const to = l.start + [...l.text].length;
     const b = lineBox(l.start, Math.min(to + 1, m.length));
     prev = stack(prev, b);
     if (!i) ascent = prev.baseline;
