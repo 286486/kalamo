@@ -676,8 +676,9 @@ it("draws the fixture Document with known pixels", async () => {
   // #200, a twenty-first holding shaped Area Type with a larger Character Range and CJK. By #64,
   // the linear rect's first stop has a midpoint, and the elliptical ellipse a radial Stroke with two.
   // By #221, a twenty-second holding Area Type whose words are wider than a rectangle and a triangle.
+  // By #222, a twenty-third holding Area Type that wraps after `/` and hyphens.
   expect(await hash(toSvg(doc, docRect(doc), { images }))).toBe(
-    "443f7fa110fd51fea987fc9bf12a1993305403836bd8d5aa2797d6178673d702",
+    "c013b8a20b1f7151eab80f8ed42acfaf9464f383cadfac2bb35654b1baeca756",
   );
   expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned, images }))).toBe(
     "24c1e7ad8db33f59933a1b355c879cb19bfdfd67d70b11427b196aa646ea4b60",
@@ -701,7 +702,7 @@ it("draws each fixture Artboard by its scope as the whole Document draws it ther
   const { doc, images } = fixtureDoc();
   const all = fit(docRect(doc), 2);
   const whole = await svgToPixels(renderSvg(doc, all.rect, { scale: 2, images }), 2);
-  expect(doc.artboards).toHaveLength(22);
+  expect(doc.artboards).toHaveLength(23);
   for (const a of doc.artboards) {
     const scope = { artboardId: a.id };
     const { rect, pixelSize } = fit(scopeRect(doc, scope), 2);
