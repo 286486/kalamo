@@ -7,6 +7,7 @@ import {
   worldTransform,
 } from "@kalamo/core";
 import { memo, useEffect, useRef, useState } from "react";
+import { TEAR_OFF } from "./annotator.ts";
 import {
   activeGradient,
   addStop,
@@ -32,8 +33,6 @@ import { canEdit, useStore } from "./store.ts";
 
 /** The slider's width in CSS px. */
 const WIDTH = 220;
-/** CSS px a stop is dragged down off the slider before it is removed. */
-const TEAR_OFF = 24;
 
 /** The gradient's drawn stops as a CSS gradient, as the canvas draws them. */
 const css = (stops: ColorStop[]) =>

@@ -1443,7 +1443,7 @@ class Reader {
         last = Math.max(last, Math.min(1, offset || 0));
         const hex = this.color(s["stop-color"] ?? "black", s, "1") ?? "#000000";
         const color = withAlpha(hex, alpha(s["stop-opacity"]) * opacity);
-        const m = Number(kalamoAttr(stop, "midpoint") ?? Number.NaN);
+        const m = Number.parseFloat(kalamoAttr(stop, "midpoint") ?? "");
         const midpoint = Math.min(MIDPOINT_MAX, Math.max(MIDPOINT_MIN, m));
         const kept = Number.isFinite(m) && midpoint !== 0.5 && k < all.length - 1;
         return { offset: round3(last), color, ...(kept && { midpoint }) };

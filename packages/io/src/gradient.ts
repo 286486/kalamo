@@ -53,7 +53,7 @@ export function unroll(
   }
   // Each period holds its first and last colours out to its ends, so periods meet at a hard edge.
   const [first, last] = [stops[0], stops.at(-1)] as [ColorStop, ColorStop];
-  // ponytail: midpoints are dropped here; Kalamo never writes reflect or repeat to carry them.
+  // Midpoints are dropped: Kalamo never writes reflect or repeat to carry them (ADR-0081).
   const whole = [
     ...(first.offset > 0 ? [{ ...first, offset: 0 }] : []),
     ...stops,

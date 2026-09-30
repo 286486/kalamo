@@ -53,12 +53,17 @@ function updatesAt(to: Point, shift: boolean): PaintUpdate[] {
   });
 }
 
+/** The picker a double-click on a stop opened; a dismissed one fires no change, so the next goes. */
+let picker: HTMLInputElement | null = null;
+
 /** Opens the browser's colour picker for stop `index`, one Transaction when it is chosen. */
 function pickColor(node: LeafNode, g: Gradient, index: number, box: Box) {
-  const input = document.createElement("input");
-  input.type = "color";
-  input.value = (g.stops[index]?.color ?? "#000000").slice(0, 7).toLowerCase();
+  picker?.remove();
   const alpha = g.stops[index]?.color.slice(7) ?? "";
+  const input = Object.assign(document.createElement("input"), {
+    type: "color",
+    value: (g.stops[index]?.color ?? "#000000").slice(0, 7).toLowerCase(),
+  });
   const updates = () => {
     const stops = setColor(g.stops, index, input.value.toUpperCase() + alpha);
     return paintUpdates([node], box, () => ({ ...g, stops }));
@@ -70,6 +75,7 @@ function pickColor(node: LeafNode, g: Gradient, index: number, box: Box) {
   });
   input.style.cssText = "position:fixed;opacity:0;pointer-events:none";
   document.body.append(input);
+  picker = input;
   input.click();
 }
 

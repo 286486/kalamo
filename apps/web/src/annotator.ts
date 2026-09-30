@@ -1,7 +1,7 @@
 // The Gradient Annotator's geometry (ADR-0081): where its parts are drawn, which one a pointer is
 // on, and what dragging each does to the gradient. Pointers are in document coordinates; the
 // gradient is in the leaf's own, which its world transform maps into them (ADR-0026).
-import { applyTo, type Gradient, invert, type Matrix } from "@kalamo/core";
+import { applyTo, type Gradient, invert, type Matrix, round3 } from "@kalamo/core";
 import { moveStop, RAD, removeStop, setMidpoint } from "./gradient.ts";
 
 export type Point = { x: number; y: number };
@@ -20,7 +20,7 @@ export type Handle =
 export const HIT = 6;
 export const STOP_GAP = 12;
 export const MIDPOINT_GAP = 9;
-/** Screen px off the bar past which a dragged stop is removed, while more than two remain. */
+/** Screen px beyond a stop's row, on the Annotator or the panel's slider, past which a dragged stop is removed while more than two remain. */
 export const TEAR_OFF = 24;
 
 /** The Annotator's parts, in document coordinates. */
@@ -47,10 +47,7 @@ const lerp = (a: Point, b: Point, t: number): Point => ({
   y: a.y + (b.y - a.y) * t,
 });
 /** Rounded to 3 decimals, as export writes positions. */
-const tidy = (p: Point): Point => ({
-  x: Math.round(p.x * 1e3) / 1e3 || 0,
-  y: Math.round(p.y * 1e3) / 1e3 || 0,
-});
+const roundPoint = (p: Point): Point => ({ x: round3(p.x), y: round3(p.y) });
 
 /** The bar's ends in the leaf's own coordinates. */
 function ownBar(g: Gradient): [Point, Point] {
@@ -138,8 +135,8 @@ function inside(g: Extract<Gradient, { type: "radial" }>, f: Point): Point {
 
 /**
  * `g` with the handle dragged from `from` to `to`, document points, on a leaf whose world
- * transform is `m`; null for a stop torn off while only two remain would leave, so nothing changes.
- * A stop dragged TEAR_OFF px off the bar is removed.
+ * transform is `m`. A stop dragged TEAR_OFF px beyond its row is removed while more than two
+ * remain; with two, `g` comes back unchanged.
  */
 export function dragHandle(
   g: Gradient,
@@ -152,7 +149,7 @@ export function dragHandle(
   const own = (p: Point) => at(invert(m), p);
   const [p0, p] = [own(from), own(to)];
   const d = { x: p.x - p0.x, y: p.y - p0.y };
-  const plus = (q: Point) => tidy({ x: q.x + d.x, y: q.y + d.y });
+  const plus = (q: Point) => roundPoint({ x: q.x + d.x, y: q.y + d.y });
   const l = layout(g, m, scale);
   switch (h.kind) {
     case "origin":
@@ -161,12 +158,12 @@ export function dragHandle(
         : { ...g, center: plus(g.center), focus: plus(g.focus) };
     case "end": {
       if (g.type === "linear") {
-        const end = tidy(p);
+        const end = roundPoint(p);
         return end.x === g.start.x && end.y === g.start.y ? g : { ...g, end };
       }
-      const radius = Math.round(Math.hypot(p.x - g.center.x, p.y - g.center.y) * 1e3) / 1e3;
+      const radius = round3(Math.hypot(p.x - g.center.x, p.y - g.center.y));
       if (!(radius > 0)) return g;
-      const angle = Math.round((Math.atan2(p.y - g.center.y, p.x - g.center.x) / RAD) * 1e3) / 1e3;
+      const angle = round3(Math.atan2(p.y - g.center.y, p.x - g.center.x) / RAD);
       const turned = { ...g, radius, angle };
       return { ...turned, focus: inside(turned, g.focus) };
     }
@@ -174,12 +171,12 @@ export function dragHandle(
       if (g.type !== "radial") return g;
       const t = g.angle * RAD;
       const across = Math.abs(-(p.x - g.center.x) * Math.sin(t) + (p.y - g.center.y) * Math.cos(t));
-      const aspectRatio = Math.max(0.01, Math.round((across / g.radius) * 1e3) / 1e3);
+      const aspectRatio = Math.max(0.01, round3(across / g.radius));
       const flattened = { ...g, aspectRatio };
       return { ...flattened, focus: inside(flattened, g.focus) };
     }
     case "focus":
-      return g.type === "radial" ? { ...g, focus: tidy(inside(g, p)) } : g;
+      return g.type === "radial" ? { ...g, focus: roundPoint(inside(g, p)) } : g;
     case "stop": {
       const { t, off } = onBar(l, to, scale);
       if (off > TEAR_OFF + STOP_GAP) {
@@ -208,9 +205,9 @@ export function dragHandle(
  * drag has no length in the leaf's coordinates.
  */
 export function dragVector(g: Gradient, m: Matrix, from: Point, to: Point): Gradient | null {
-  const [a, b] = [tidy(at(invert(m), from)), tidy(at(invert(m), to))];
+  const [a, b] = [roundPoint(at(invert(m), from)), roundPoint(at(invert(m), to))];
   if (a.x === b.x && a.y === b.y) return null;
   if (g.type === "linear") return { ...g, start: a, end: b };
-  const radius = Math.round(Math.hypot(b.x - a.x, b.y - a.y) * 1e3) / 1e3;
+  const radius = round3(Math.hypot(b.x - a.x, b.y - a.y));
   return radius > 0 ? { ...g, center: a, radius, focus: a } : null;
 }

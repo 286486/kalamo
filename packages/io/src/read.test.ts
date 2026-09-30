@@ -2607,17 +2607,19 @@ describe("gradients (ADR-0026)", () => {
       expect(stopsOf(edited)).toEqual([{ ...mid[0], color: "#0000FF" }, mid[1], mid[2]]);
     });
 
-    it("clamps a midpoint to 13%-87% and drops one on the last stop", () => {
+    it("clamps a midpoint to 13%-87%, and drops an empty one, one at halfway and one on the last stop", () => {
       const g = gradientOf(
         '<rect x="0" y="0" width="10" height="10" fill="url(#g)"/>',
         '<linearGradient id="g" gradientUnits="userSpaceOnUse" x2="10">' +
           '<stop offset="0" stop-color="#000" kalamo:midpoint="0.05"/>' +
-          '<stop offset=".5" stop-color="#F00" kalamo:midpoint="0.5"/>' +
+          '<stop offset=".5" stop-color="#F00" kalamo:midpoint=""/>' +
+          '<stop offset=".75" stop-color="#0F0" kalamo:midpoint="0.5"/>' +
           '<stop offset="1" stop-color="#FFF" kalamo:midpoint="0.3"/></linearGradient>',
       );
       expect(g.stops).toEqual([
         { offset: 0, color: "#000000", midpoint: 0.13 },
         { offset: 0.5, color: "#FF0000" },
+        { offset: 0.75, color: "#00FF00" },
         { offset: 1, color: "#FFFFFF" },
       ]);
     });

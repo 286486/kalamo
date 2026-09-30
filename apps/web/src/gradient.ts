@@ -14,8 +14,10 @@ import {
   MIDPOINT_MIN,
   type Node,
   paint,
+  round3,
   type Stroke,
 } from "@kalamo/core";
+import { isLeaf } from "./isolation.ts";
 import { editable } from "./selection.ts";
 import { send, useStore } from "./store.ts";
 
@@ -118,7 +120,7 @@ export function withPaints(doc: Document, updates: PaintUpdate[]): Document {
   const nodes = new Map(doc.nodes);
   for (const { nodeId, appearance } of updates) {
     const n = nodes.get(nodeId);
-    if (n && "appearance" in n && n.type !== "group" && n.type !== "layer") {
+    if (n && isLeaf(n) && "appearance" in n) {
       nodes.set(nodeId, { ...n, appearance: { ...n.appearance, ...appearance } } as Node);
     }
   }
@@ -144,13 +146,13 @@ export function sendPaint(updates: PaintUpdate[]) {
 
 const clamp01 = (t: number) => Math.min(1, Math.max(0, t));
 /** Offsets at 1e-6, so arithmetic leaves no 1e-17 behind. */
-const tidy = (t: number) => Math.round(t * 1e6) / 1e6;
+const round6 = (t: number) => Math.round(t * 1e6) / 1e6;
 
 /** A midpoint as stored: 13%–87%, and none at halfway. */
 function withMidpoint(s: ColorStop, m: number | undefined): ColorStop {
   const { midpoint: _, ...rest } = s;
   if (m === undefined) return rest;
-  const kept = tidy(Math.min(MIDPOINT_MAX, Math.max(MIDPOINT_MIN, m)));
+  const kept = round6(Math.min(MIDPOINT_MAX, Math.max(MIDPOINT_MIN, m)));
   return kept === 0.5 ? rest : { ...rest, midpoint: kept };
 }
 
@@ -163,7 +165,7 @@ function canonical(stops: ColorStop[], moved = -1): { stops: ColorStop[]; index:
 
 /** A stop added at `t` in the colour the gradient has there; its span's midpoint goes back to 50%. */
 export function addStop(stops: ColorStop[], t: number): { stops: ColorStop[]; index: number } {
-  const offset = tidy(clamp01(t));
+  const offset = round6(clamp01(t));
   const before = stops.findLastIndex((s) => s.offset <= offset);
   const added = { offset, color: colorAt(stops, offset) };
   const kept = stops.map((s, i) => (i === before ? withMidpoint(s, undefined) : s));
@@ -172,7 +174,7 @@ export function addStop(stops: ColorStop[], t: number): { stops: ColorStop[]; in
 
 /** Stop `i` moved to `t`, keeping its colour and midpoint; `index` is where it sorts to. */
 export function moveStop(stops: ColorStop[], i: number, t: number) {
-  const moved = stops.map((s, k) => (k === i ? { ...s, offset: tidy(clamp01(t)) } : s));
+  const moved = stops.map((s, k) => (k === i ? { ...s, offset: round6(clamp01(t)) } : s));
   return canonical(moved, i);
 }
 
@@ -199,7 +201,10 @@ export function reverseStops(stops: ColorStop[]): ColorStop[] {
   return stops.toReversed().map((s, k) => {
     // The stop at k was at n − 1 − k; the span it now starts was the one ending at it.
     const m = stops[n - 2 - k]?.midpoint;
-    return withMidpoint({ ...s, offset: tidy(1 - s.offset) }, m === undefined ? undefined : 1 - m);
+    return withMidpoint(
+      { ...s, offset: round6(1 - s.offset) },
+      m === undefined ? undefined : 1 - m,
+    );
   });
 }
 
@@ -228,7 +233,7 @@ export const angleOf = (g: Gradient, m: Matrix) =>
 /** The own-coordinate angle that shows as `degrees` on the page, for a linear gradient's input `angle`. */
 export const ownAngle = (m: Matrix, degrees: number) => {
   const [x, y] = ownDirection(m, degrees);
-  return Math.round((Math.atan2(y, x) / RAD) * 1e3) / 1e3;
+  return round3(Math.atan2(y, x) / RAD);
 };
 
 /**
@@ -239,6 +244,5 @@ export function withAngle(g: Gradient, degrees: number, m: Matrix): Gradient {
   if (g.type === "radial") return { ...g, angle: ownAngle(m, degrees) };
   const length = Math.hypot(g.end.x - g.start.x, g.end.y - g.start.y);
   const [ux, uy] = ownDirection(m, degrees);
-  const at = (v: number) => Math.round(v * 1e3) / 1e3 || 0;
-  return { ...g, end: { x: at(g.start.x + length * ux), y: at(g.start.y + length * uy) } };
+  return { ...g, end: { x: round3(g.start.x + length * ux), y: round3(g.start.y + length * uy) } };
 }
