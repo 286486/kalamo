@@ -16,12 +16,16 @@ import {
   updateNodes,
 } from "@kalamo/core";
 import { docRect, scopeRect, toSvg } from "@kalamo/io";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { COMPOSITING, near } from "../../../fixtures/compositing.ts";
 import fixture from "../../../fixtures/documents/inkscape.kalamo.json?raw";
 import { RED_2x2_PNG } from "../../../fixtures/images.ts";
 import { LAZY_FONTS, renderFonts, svgToPixels, svgToPng } from "./png.ts";
 import { fit, renderSvg } from "./svg.ts";
+
+// The workers pool hands workerd each Data module as JSON, one number per byte, so importing a
+// lazy family takes seconds here, not in a deployed Worker. Load each once, before any test's timeout.
+for (const family of Object.keys(LAZY_FONTS)) beforeAll(() => renderFonts(family));
 
 it("rasterises SVG with resvg-wasm inside workerd", async () => {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" width="10" height="10"><rect width="10" height="10" fill="#FF0000"/></svg>`;
@@ -200,8 +204,6 @@ it.each([
     expect(doc.nodes.get(t.id)).toMatchObject({ kind: "area" });
     expect(await pixels()).toEqual(area);
   },
-  // Each render of the CJK case loads Noto Sans SC, as the other Noto tests here do.
-  30_000,
 );
 
 it("draws text in the bundled font, inside the bounds node_get reports", async () => {
@@ -338,7 +340,7 @@ it("draws tracking, baseline shift, rotation and range overrides inside the boun
   expect(rangeTracked.right).toBe(tracked.right);
   expect(shifted.top).toBeLessThanOrEqual(plain.top - 14);
   expect(rotated.bottom).toBeGreaterThanOrEqual(plain.bottom + 15);
-}, 30_000);
+});
 
 it("draws a range stroke in its colour, inside the bounds node_get reports (ADR-0068)", async () => {
   const stroked = (ranges?: object[]) => ({
@@ -462,7 +464,7 @@ it("draws a character Source Sans 3 lacks in Noto Sans SC, the rest of its line 
   expect(await cjk("Italic")).toBe(await cjk("Regular"));
   expect(await cjk("Black")).toBe(await cjk("Bold"));
   expect(await cjk("Bold")).not.toBe(await cjk("Regular"));
-}, 30_000);
+});
 
 it("keeps an Area Type's last line in Source Sans 3 when CJK overflows after it", async () => {
   const drawn = async (content: string) => {
@@ -508,7 +510,7 @@ it("draws Hangul in Noto Sans KR, the rest of its line as before", async () => {
   expect(await hangul("Bold Italic")).toBe(await hangul("Bold"));
   expect(await hangul("Black")).toBe(await hangul("Bold"));
   expect(await hangul("Bold")).not.toBe(await hangul("Regular"));
-}, 30_000);
+});
 
 // 直 has distinct Simplified Chinese and Korean forms, so the face it draws in shows.
 it("draws each character of a line mixing Han and Hangul in its own face", async () => {
@@ -517,7 +519,7 @@ it("draws each character of a line mixing Han and Hangul in its own face", async
   const mixed = await drawnText("直한");
   expect(mixed.columns(0, 110)).toBe(sc.columns(0, 110));
   expect(mixed.columns(110, 400)).not.toBe((await drawnText("直ก")).columns(110, 400));
-}, 30_000);
+});
 
 it("has font files for every bundled family, and only those (ADR-0066)", () => {
   expect([BUNDLED_FONT, ...Object.keys(LAZY_FONTS)].sort()).toEqual([...BUNDLED_FAMILIES].sort());
@@ -539,7 +541,7 @@ it("copies into resvg only the files of the families an SVG draws in", async () 
   expect(await sizes("Hi 한")).toEqual([...sourceSans3, krRegular, krBold]);
   expect(await sizes("Hi 小")).toEqual([...sourceSans3, scRegular, scBold]);
   expect(await sizes("小한")).toEqual([...sourceSans3, scRegular, scBold, krRegular, krBold]);
-}, 30_000);
+});
 
 it("draws a text in Noto Sans SC in it, and what it lacks in Source Sans 3", async () => {
   const noto = await drawnText("Hi", "Regular", "Noto Sans SC");
@@ -861,7 +863,7 @@ it("clips by a text's Noto Sans KR glyphs, not by .notdef boxes (ADR-0052, ADR-0
   // Source Sans 3's .notdef box is 660 units tall, so it reaches y = 34; 한's ㅎ rises above it.
   expect(notdef.every(([, y]) => y >= 33)).toBe(true);
   expect(hangul.some(([, y]) => y < 30)).toBe(true);
-}, 30_000);
+});
 
 it("draws an Image's pixels in its frame and nowhere else", async () => {
   const { doc, defaultLayerId } = createDocument({
