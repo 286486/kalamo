@@ -1,7 +1,14 @@
 // SVG gradients folded into Kalamo's (ADR-0026): SVG's reflect and repeat are unrolled into stops, so
 // what is stored draws the same pixels. Core's mapGradient then applies whatever maps the gradient's
 // own space into the Node's coordinates (gradientTransform, objectBoundingBox, a leaf's bake).
-import { type ColorStop, type Gradient, type Point, round3 } from "@kalamo/core";
+import {
+  type ColorStop,
+  colorAt,
+  colorSteps,
+  type Gradient,
+  type Point,
+  round3,
+} from "@kalamo/core";
 
 /** A gradient's geometry in its own space, as SVG's attributes give it. */
 export type Geometry =
@@ -75,4 +82,39 @@ export function unroll(
   // Scaling the circles about the focus by `to` keeps every t / to on the same circle.
   const c = { x: g.f.x + to * (g.c.x - g.f.x), y: g.f.y + to * (g.c.y - g.f.y) };
   return { g: { ...g, c, r: g.r * to }, stops: out };
+}
+
+/** A stop as read, and whether export inserted it to draw a midpoint (`kalamo:simulated`). */
+export type ReadStop = ColorStop & { marked: boolean };
+
+/** How far, in 8-bit steps, an inserted stop may lie from its midpoint's curve and be dropped. */
+const ON_CURVE = 2;
+
+export const MIDPOINT_STOP_KEPT =
+  "Stops Kalamo inserted to draw a midpoint were kept as Color Stops, since the gradient was edited.";
+
+/**
+ * The Color Stops of the stops read (ADR-0082). Between two unmarked stops, the marked ones are
+ * dropped when every one lies within ON_CURVE of the first's midpoint curve. Otherwise, and outside the
+ * unmarked stops, they are kept as SVG draws them, and so is the straight blend into each: only an
+ * unmarked stop followed by an unmarked stop keeps its midpoint. `kept` is whether any was kept.
+ */
+export function unmark(read: ReadStop[]): { stops: ColorStop[]; kept: boolean } {
+  const real = read.flatMap((s, i) => (s.marked ? [] : [i]));
+  const dropped = new Set<ReadStop>();
+  real.slice(0, -1).forEach((i, r) => {
+    const j = real[r + 1] as number;
+    const curve = [read[i], read[j]] as ColorStop[];
+    const span = read.slice(i + 1, j);
+    if (span.every((m) => colorSteps(m.color, colorAt(curve, m.offset)) <= ON_CURVE)) {
+      for (const m of span) dropped.add(m);
+    }
+  });
+  const left = read.filter((s) => !dropped.has(s));
+  const stops = left.map(({ marked, midpoint, ...s }, k) => {
+    const next = left[k + 1];
+    const kept = midpoint !== undefined && !marked && next && !next.marked;
+    return { ...s, offset: round3(s.offset), ...(kept && { midpoint }) };
+  });
+  return { stops, kept: left.some((s) => s.marked) };
 }

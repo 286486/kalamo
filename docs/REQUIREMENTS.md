@@ -319,7 +319,7 @@ Kalamo 要填的空位是：**Agent 能生成、人能精修、二者共享同�
 - **F-APP-01** 颜色面板：HEX / RGB / HSB / 灰度输入，色轮 / 色带，取色器（Eyedropper I，可拾取外观 / 仅颜色 / 文字属性）。（P0）
 - **F-APP-02** Swatches 面板：文档色板、颜色组、渐变 / 图案色板、全局色（修改即同步所有使用处）、色板库导入导出（ASE、JSON）。（P0，ASE P1）
 - **F-APP-03** Stroke 面板：宽度、cap、join、miter limit、对齐描边、虚线（多段 dash / gap、对齐到角点）、箭头（起止样式、缩放、对齐方式）、可变宽度配置文件、画笔定义。（P0；可变宽度与画笔 P1）
-- **F-APP-04** Gradient 面板（Window > Gradient，Ctrl+F9）+ 画布上的 Gradient Annotator（G 工具）：线性 / 径向（含椭圆比例与焦点）、色标增删、中点（SVG 中以带标记的插值色标模拟，导入还原；ADR-0081）、角度、扭曲；渐变可用于 fill 与 stroke（描边渐变支持沿描边 / 跨描边，P2）。（P0 线性径向填充；P1 描边渐变）
+- **F-APP-04** Gradient 面板（Window > Gradient，Ctrl+F9）+ 画布上的 Gradient Annotator（G 工具）：线性 / 径向（含椭圆比例与焦点）、色标增删、中点（SVG 中以带标记的插值色标模拟，导入还原，编辑过的按所画保留；ADR-0081、ADR-0082）、角度、扭曲；渐变可用于 fill 与 stroke（描边渐变支持沿描边 / 跨描边，P2）。（P0 线性径向填充；P1 描边渐变）
 - **F-APP-05** Freeform Gradient（点模式 / 线模式）。（P2）
 - **F-APP-06** 图案填充：图案定义（瓦片、间距、偏移排布）、Pattern 编辑模式、图案随对象变换或独立变换。（P1）
 - **F-APP-07** Transparency 面板：不透明度、16 种混合模式、隔离混合 / 挖空组（P2）。（P0）
@@ -998,6 +998,7 @@ kalamo/
 | 58 | 复制出新 Node（2026-09-30） | `node_duplicate` 与 Selection 工具的 Alt 拖拽复制是同一核心编辑：Node 连同子树复制为新 id，其余不变，image 按哈希共享像素、清扫照计；MCP 缺省每个副本紧贴原件之上（Layer 仍为 Layer），给 `targetParentId` 则全部一块按绘制次序置顶；`count` 1–100，第 *k* 份平移 *k* × `offset`（同 Transform Again），自下而上；与祖先同列或重复只复制一次；单独复制的 Clipping Path 失去 `clipping`，整个复制的 Clip Group、被剪切的 Layer 照旧裁切；违反树规则为 `INVALID_PARENT`、不写入；不检查锁定；无 `partial`；一个事务、一个回执（`copies` 映射）、一次撤销。浏览器以松开时的 Alt 为准，预览随 Alt 切换；副本一块放进最上面被拖 Node 的父级、紧贴其上，成为 Selection；隔离模式内留在隔离容器中；viewer 拖动不发送任何命令。Shift 约束与智能参考线待拖动移动具备后一并继承 | ADR-0076、#193 |
 | 59 | 按行距堆叠回退字体行（2026-09-30） | 矩形区域文字每行基线为上一行基线加该行行距（与点文字、Illustrator 一致），首行基线仍按 ADR-0022，回退字体（中文、日文、韩文所用 Noto）的字框不再抬高或压低行；每行在其行距的 90% 落入框内时显示；导出给字框与首个字体不同的回退片段写 `line-height`（Auto 为 0.948，固定行距为 `行距 − 2·Δ·字号` px，向下取整到千分位），Inkscape 1.2.2 据此按行距排出同样的行并保持换行与溢出；导入忽略该 tspan 属性；点文字与区域文字互转时回退字体的每个字形都留在原位；只用首个字体的文字排版与导出不变 | ADR-0080、#199 |
 | 60 | 渐变中点、Gradient 面板与 Annotator（2026-09-30） | Color Stop 可带 `midpoint`（13%–87%，缺省不存储），绘制与导出沿 `u^(ln 0.5 / ln m)` 曲线插入色标（每通道误差半个 8 位色阶，每段至多 32 个），导出标 `kalamo:simulated` 与 `kalamo:midpoint`，导入去掉插入色标并还原；Gradient 面板与 Gradient 工具编辑当前 Fill 或 Stroke，浏览器以 `appearance` 命令写入，一次手势一个 Transaction | ADR-0081、#64 |
+| 61 | 编辑过的中点插入色标（2026-09-30） | 导入时两个无标记色标之间的 `kalamo:simulated` 色标都在前者中点曲线 2 个 8 位色阶以内才去掉；否则（Inkscape 中改色、移动、复制）该段按所画保留为普通 Color Stop、前者去掉中点，端点之外的标记色标同样保留，每个渐变警告一次 `MIDPOINT_STOP_KEPT` | ADR-0082、#204 |
 
 **剩余开放问题**
 
