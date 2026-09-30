@@ -754,7 +754,7 @@ it("stacks Area Type lines by each line's largest size, as Illustrator does (ADR
   ]);
 });
 
-it("shows an Area Type line holding a larger size while 90% of its own leading fits (ADR-0068)", () => {
+it("shows an Area Type line holding a larger size while its band fits (ADR-0068, #203)", () => {
   const shown = (content: string, height: number, size = 24, leading?: number) =>
     layoutText({
       kind: "area",
@@ -768,22 +768,28 @@ it("shows an Area Type line holding a larger size while 90% of its own leading f
       ranges: [{ start: content.indexOf("B"), end: content.indexOf("B") + 1, fontSize: size }],
     }).lines.length;
   const a12 = 1.2 + 12 * A;
-  // A later line's top is its baseline less its ascent; it shows while 90% of its leading fits.
-  const at = (size: number, leading = 1.2 * size) =>
-    a12 +
-    (leading === 1.2 * size ? leading : 14.4) -
-    ((leading - size) / 2 + size * A) +
-    0.9 * leading;
+  // The text's own 12 pt strut reaches 1.2 + 12 · (1 − A) below a baseline, Auto or 14.4.
+  const strut = 1.2 + 12 * (1 - A);
+  // A line shows while its band, its box reaching at least the strut's bottom less a tenth of
+  // it, fits: with Auto, 90% of its leading below its top.
+  const bandBottom = (baseline: number, size: number, leading = 1.2 * size) => {
+    const half = (leading - size) / 2;
+    const [ascent, descent] = [half + size * A, Math.max(half + size * (1 - A), strut)];
+    return baseline + descent - 0.1 * (ascent + descent);
+  };
   for (const [size, leading] of [[24], [14], [24, 14.4]] as [number, number?][]) {
-    const h = at(size, leading);
+    const h = bandBottom(a12 + (leading ?? 1.2 * size), size, leading);
     expect([
       shown("HH\nHBH", h + 0.01, size, leading),
       shown("HH\nHBH", h - 0.01, size, leading),
     ]).toEqual([2, 1]);
   }
-  // The first line shows while 90% of its line box does: 1.2 × 24, or the 14.4 leading.
+  // With Auto the first line shows while 90% of its 28.8 box does. Under the 14.4 leading a 24 pt
+  // box reaches 1.1 below its baseline and the strut 4.15, so the band ends 15.705 below the top,
+  // not 12.96, as Inkscape 1.2.2 measures it (#203).
   expect([shown("HBH", 25.93), shown("HBH", 25.91)]).toEqual([1, 0]);
-  expect([shown("HBH", 12.97, 24, 14.4), shown("HBH", 12.95, 24, 14.4)]).toEqual([1, 0]);
+  expect(bandBottom(24 * A - 4.8, 24, 14.4)).toBeCloseTo(15.705, 3);
+  expect([shown("HBH", 15.71, 24, 14.4), shown("HBH", 15.7, 24, 14.4)]).toEqual([1, 0]);
 });
 
 it("grows Point Type's box to hold a shifted or rotated character", () => {

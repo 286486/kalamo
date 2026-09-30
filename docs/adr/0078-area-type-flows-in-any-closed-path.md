@@ -76,6 +76,6 @@ Every band used to be the Node's own size and leading tall, so a line holding a 
 ## Consequences
 
 - `TextShape` gains `frame`. The `node_create` text item gains `frameNodeId`, and takes `x` and `y` optionally for it. `createNodes` returns `deletedIds`, which the Durable Object's receipt carries.
-- `layoutText` has a band and span branch for a shaped frame. The rectangle's branch is untouched, and its tests pass unchanged. Since #200 each band is sized by its line and stacked by the rectangle's step.
+- `layoutText` has a band and span branch for a shaped frame. The rectangle's branch is untouched, and its tests pass unchanged. Since #200 each band is sized by its line and stacked by the rectangle's step. Since ADR-0083 the rectangle lays out through the same filler, one span per band.
 - `pnpm roundtrip` carries a Shaped Area Type Artboard, with Area Type in a circle and in a concave U-frame. Both come back from Inkscape 1.2.2 equal, `frame` included, and Inkscape's reflowed bands match the layout's. Each region is within the 15% text budget. #200 adds a Shaped Mixed Sizes Artboard: a U-frame with an 18 pt heading range and CJK in a 10 pt text, at 8.11 %, and a triangle at leading 14 with a 20 pt first line and CJK, at 2.28 %, of the 25 % `mixed-size text` budget.
 - The browser has no Area Type tool yet; when it does, clicking a path will call the same core edit.

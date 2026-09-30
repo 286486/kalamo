@@ -70,6 +70,14 @@ U	cjk-larger	30	62.62	3:200 4:243.12 5@30cjk:288.31
 U	cjk-larger	30	92.62	6:20 7:63.12
 U	cjk-larger	30	92.62	8:200 9:243.12 10cjk:287.62
 U	cjk-larger	30	122.62	11:20
+U	wide	auto	57.08	0:20 1:63.12
+U	wide	auto	105.08	2:20
+U	wide	auto	105.08	3:256.16
+U	wide	auto	129.08	4:20
+U	wide	30	60.08	0:20 1:63.12
+U	wide	30	120.08	2:20
+U	wide	30	120.08	3:256.16
+U	wide	30	150.08	4:20
 triangle	heading	auto	74.17	0@40:41.6 1@40:123.84
 triangle	heading	auto	105.08	2:54.8 3:97.92 4:141.04 5:184.16 6:227.28
 triangle	heading	auto	129.08	7:66.8 8:109.92 9:153.04 10:196.16
@@ -104,6 +112,12 @@ triangle	cjk-larger	auto	65.62	0:34.64 1cjk:79.14 2:101.76 3:144.88 4:188 5@30cj
 triangle	cjk-larger	auto	89.62	7:47.07 8:90.19 9:133.31 10cjk:177.81 11:200.43
 triangle	cjk-larger	30	62.62	0:34.64 1cjk:79.14 2:101.76 3:144.88 4:188 5@30cjk:233.19 6:265.12
 triangle	cjk-larger	30	92.62	7:49.77 8:92.89 9:136.01 10cjk:180.51 11:203.13
+triangle	wide	auto	57.08	0:30.8 1:73.92
+triangle	wide	auto	129.08	2:42.8
+triangle	wide	auto	129.08	3:122.96 4:166.08
+triangle	wide	30	60.08	0:33.5 1:76.62
+triangle	wide	30	150.08	2:48.5
+triangle	wide	30	150.08	3:160.74 4:203.86
 slant	heading	auto	74.17	0@40:34.4 1@40:116.64
 slant	heading	auto	105.08	2:43.2 3:86.32 4:129.44
 slant	heading	auto	129.08	5:51.2 6:94.32 7:137.44
@@ -154,6 +168,13 @@ slant	cjk-larger	auto	113.62	8:46.05 9:89.17 10cjk:133.67 11:156.29
 slant	cjk-larger	30	60.08	0:29 1cjk:73.5 2:96.12 3:139.24
 slant	cjk-larger	30	92.62	4:39.76 5@30cjk:84.95 6:116.88 7:160
 slant	cjk-larger	30	122.62	8:49.85 9:92.97 10cjk:137.47 11:160.09
+slant	wide	auto	57.08	0:27.2 1:70.32
+slant	wide	auto	153.08	2:35.2
+slant	wide	auto	153.08	3:128.4
+slant	wide	auto	177.08	4:67.2
+slant	wide	30	60.08	0:29 1:72.12
+slant	wide	30	180.08	2:39
+slant	wide	30	210.08	3:79 4:122.12
 neck	heading	auto	170.17	0@40:20 1@40:102.24
 neck	heading	auto	201.08	2:20 3:63.12 4:106.24 5:149.36 6:192.48 7:235.6 8:278.72
 neck	heading	auto	225.08	9:20 10:63.12 11:106.24 12:149.36 13:192.48
@@ -180,3 +201,67 @@ neck	cjk-larger	auto	137.62	0:20 1cjk:64.5 2:87.12 3:130.24 4:173.36 5@30cjk:218
 neck	cjk-larger	auto	161.62	7:20 8:63.12 9:106.24 10cjk:150.74 11:173.36
 neck	cjk-larger	30	122.62	0:20 1cjk:64.5 2:87.12 3:130.24 4:173.36 5@30cjk:218.55 6:250.48
 neck	cjk-larger	30	152.62	7:20 8:63.12 9:106.24 10cjk:150.74 11:173.36
+neck	wide	auto	129.08	0:20 1:63.12
+neck	wide	auto	177.08	2:20
+neck	wide	auto	177.08	3:245.68
+neck	wide	auto	201.08	4:20
+neck	wide	30	120.08	0:20 1:63.12
+neck	wide	30	180.08	2:20
+neck	wide	30	180.08	3:245.68
+neck	wide	30	210.08	4:20
+rect	heading	auto	74.17	0@40:20 1@40:102.24
+rect	heading	auto	105.08	2:20 3:63.12 4:106.24 5:149.36
+rect	heading	auto	129.08	6:20 7:63.12 8:106.24 9:149.36
+rect	heading	auto	153.08	10:20 11:63.12 12:106.24 13:149.36
+rect	heading	30	65.17	0@40:20 1@40:102.24
+rect	heading	30	95.17	2:20 3:63.12 4:106.24 5:149.36
+rect	heading	30	125.17	6:20 7:63.12 8:106.24 9:149.36
+rect	heading	30	155.17	10:20 11:63.12 12:106.24 13:149.36
+rect	big-3rd	auto	74.17	0:20 1:63.12 2@40:106.24
+rect	big-3rd	auto	105.08	3:20 4:63.12 5:106.24 6:149.36
+rect	big-3rd	auto	129.08	7:20 8:63.12 9:106.24 10:149.36
+rect	big-3rd	auto	153.08	11:20
+rect	big-3rd	30	65.17	0:20 1:63.12 2@40:106.24
+rect	big-3rd	30	95.17	3:20 4:63.12 5:106.24 6:149.36
+rect	big-3rd	30	125.17	7:20 8:63.12 9:106.24 10:149.36
+rect	big-3rd	30	155.17	11:20
+rect	big-4th	auto	74.17	0:20 1:63.12 2:106.24
+rect	big-4th	auto	122.17	3@40:20 4:102.24 5:145.36
+rect	big-4th	auto	153.08	6:20 7:63.12 8:106.24 9:149.36
+rect	big-4th	auto	177.08	10:20 11:63.12
+rect	big-4th	30	65.17	0:20 1:63.12 2:106.24
+rect	big-4th	30	100.25	3@40:20 4:102.24 5:145.36
+rect	big-4th	30	130.25	6:20 7:63.12 8:106.24 9:149.36
+rect	big-4th	30	160.25	10:20 11:63.12
+rect	big-5th	auto	74.17	0:20 1:63.12 2:106.24 3:149.36
+rect	big-5th	auto	122.17	4@40:20 5:102.24 6:145.36
+rect	big-5th	auto	153.08	7:20 8:63.12 9:106.24 10:149.36
+rect	big-5th	auto	177.08	11:20 12:63.12
+rect	big-5th	30	65.17	0:20 1:63.12 2:106.24 3:149.36
+rect	big-5th	30	100.25	4@40:20 5:102.24 6:145.36
+rect	big-5th	30	130.25	7:20 8:63.12 9:106.24 10:149.36
+rect	big-5th	30	160.25	11:20 12:63.12
+rect	cjk	auto	57.08	0:20 1cjk:64.5 2:87.12 3:130.24
+rect	cjk	auto	81.08	4:20 5cjk:64.5 6:87.12 7:130.24
+rect	cjk	auto	105.08	8:20 9:63.12 10cjk:107.62 11:130.24
+rect	cjk	30	60.08	0:20 1cjk:64.5 2:87.12 3:130.24
+rect	cjk	30	90.08	4:20 5cjk:64.5 6:87.12 7:130.24
+rect	cjk	30	120.08	8:20 9:63.12 10cjk:107.62 11:130.24
+rect	cjk-larger	auto	57.08	0:20 1cjk:64.5 2:87.12 3:130.24
+rect	cjk-larger	auto	89.62	4:20 5@30cjk:65.19 6:97.12 7:140.24
+rect	cjk-larger	auto	113.62	8:20 9:63.12 10cjk:107.62 11:130.24
+rect	cjk-larger	30	60.08	0:20 1cjk:64.5 2:87.12 3:130.24
+rect	cjk-larger	30	92.62	4:20 5@30cjk:65.19 6:97.12 7:140.24
+rect	cjk-larger	30	122.62	8:20 9:63.12 10cjk:107.62 11:130.24
+rect	wide	auto	57.08	0:20 1:63.12
+rect	wide	auto	153.08	2:20
+rect	wide	auto	153.08	3:37.04 4:80.16
+rect	wide	30	60.08	0:20 1:63.12
+rect	wide	30	180.08	2:20
+rect	wide	30	180.08	3:37.04 4:80.16
+threshold	20px	auto	21.601	17.08
+threshold	20px	30	26.999	20.08
+threshold	40px	auto	43.200	34.17
+threshold	40px	30	31.575	25.17
+threshold	10px	auto	21.601	17.08
+threshold	10px	30	29.288	20.08

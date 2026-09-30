@@ -438,7 +438,7 @@ function layout(text: TextLayout) {
   const area = text.kind === "area";
   if (alignment === "left" || (alignment === "justify" && !area)) return { lines, overflow, m };
   lines.forEach((l, i) => {
-    // A shaped frame aligns each line in its span (ADR-0078).
+    // Area Type aligns each line in its span (ADR-0078).
     const { x, width = 0 } = "spans" in out ? (out.spans[i] as Span) : text;
     // Trailing whitespace hangs past the edge, and so does the tracking after the last character,
     // as Inkscape 1.2.2 measures an aligned line (ADR-0077).
@@ -465,6 +465,12 @@ function layout(text: TextLayout) {
  * Node's size. The box is the text's first family's em box at that size, with half the leading
  * above and below: the families a line's characters draw in never change it, as Illustrator stacks
  * by leading alone (ADR-0080).
+ *
+ * A line's band, from its baseline: its box less a tenth of its height at its top and bottom
+ * (ADR-0078). Inkscape's line box also holds the text's own strut, which reaches lower than a
+ * larger size's box under a set leading, and than a smaller size's with Auto, so the band reaches
+ * at least the strut's bottom (#200, #203). The strut's ascent is not used: a band's top follows its
+ * own size, as ADR-0080's first baseline does. A line shows while its band lies in the frame.
  */
 function lineBoxes(text: TextLayout, m: Metric[]) {
   const first = FAMILIES[fontFamilies(text)[0]].ascent;
@@ -476,22 +482,27 @@ function lineBoxes(text: TextLayout, m: Metric[]) {
     const half = (leading - size) / 2;
     return { size, leading, ascent: half + first * size, descent: half + (1 - first) * size };
   };
-  return { lineBox };
+  // An empty range past the last character is the Node's own size.
+  const strutDescent = lineBox(m.length, m.length).descent;
+  const band = (baseline: number, b: ReturnType<typeof lineBox>) => {
+    const descent = Math.max(b.descent, strutDescent);
+    const cut = 0.1 * (b.ascent + descent);
+    return { top: baseline - b.ascent + cut, bottom: baseline + descent - cut };
+  };
+  return { lineBox, band };
 }
 
-type LineBox = ReturnType<ReturnType<typeof lineBoxes>["lineBox"]>;
-type Stacked = { baseline: number; needs: number; leading: number };
+type LineBoxes = ReturnType<typeof lineBoxes>;
+type LineBox = ReturnType<LineBoxes["lineBox"]>;
+type Stacked = { baseline: number };
 
 /**
- * Where Area Type puts a line below `prev`, from the frame's top, and the frame height it needs to
- * show. ponytail: Inkscape's threshold, measured rather than specified: a line shows while 90% of
- * its leading lies in the frame, measured from its top (ADR-0064, ADR-0080). The first baseline is
- * one line-box ascent below the frame's top; each later one is the line's leading below the one
- * before (ADR-0068).
+ * Where Area Type puts a line's baseline below `prev`, from the frame's top. The first is one
+ * line-box ascent below the frame's top; each later one is the line's leading below the one before
+ * (ADR-0068, ADR-0080).
  */
 function stack(prev: Stacked | undefined, b: LineBox): Stacked {
-  const baseline = prev ? prev.baseline + b.leading : b.ascent;
-  return { baseline, needs: baseline - b.ascent + 0.9 * b.leading, leading: b.leading };
+  return { baseline: prev ? prev.baseline + b.leading : b.ascent };
 }
 
 /** An unbreakable unit's code-point range, and whether a hard return or the content ends it. */
@@ -517,12 +528,13 @@ function unitsOf(content: string): Unit[] {
   return units;
 }
 
-/** The lines as ADR-0022 lays them out, each starting at `x`. */
+/** The lines as ADR-0022 lays them out, each starting at `x`, and Area Type's spans. */
 function unaligned(text: TextLayout) {
   const { x, y, content, fontSize } = text;
   const m = metrics(text);
   const chars = m.map((c) => c.char);
-  const { lineBox } = lineBoxes(text, m);
+  const boxes = lineBoxes(text, m);
+  const { lineBox } = boxes;
   let start = 0;
   const line = (t: string, lineY: number): TextLine => {
     const l = { text: t, x, y: lineY, start };
@@ -542,62 +554,31 @@ function unaligned(text: TextLayout) {
     });
     return { lines, overflow: "", m };
   }
-  if (text.frame) {
-    const out = shaped(text, m, chars, lineBox);
-    return { ...out, m };
-  }
-  const { width = 0, height = 0 } = text;
-  // Trailing whitespace hangs past the frame's edge.
-  const fits = (from: number, to: number) => span(m, from, hangsFrom(chars, from, to)) <= width;
-  const lines: TextLine[] = [];
-  let prev: Stacked | undefined;
-  // A unit wider than the frame overflows with all that follows.
-  const push = (from: number, to: number) => {
-    const next = stack(prev, lineBox(from, to));
-    if (next.needs > height + 1e-9 * next.leading) return false;
-    lines.push(line(chars.slice(from, to).join(""), y + next.baseline));
-    prev = next;
-    return true;
-  };
-  // The code-point index of the current line's first character.
-  let from = 0;
-  for (const unit of unitsOf(content)) {
-    if (from < unit.from && !fits(from, unit.to)) {
-      if (!push(from, unit.from)) break;
-      from = unit.from;
-    }
-    if (!fits(unit.from, unit.to)) break;
-    if (unit.ends) {
-      if (!push(from, unit.to)) break;
-      from = unit.to;
-    }
-  }
-  return { lines, overflow: chars.slice(start).join(""), m };
+  return { ...area(text, m, chars, boxes), m };
 }
 
 /**
- * A shaped Area Type's lines (ADR-0078), as Inkscape 1.2.2 flows `shape-inside`. Each band is a line
- * box stacked as a rectangle frame's line (ADR-0080), less a tenth of its height at its top and
- * bottom, and its spans, left to right, take words greedily with ADR-0022's width rules, each span
- * its own line. A band is sized by every character it tries, the unit it could not fit included,
- * and when one is larger it is sized again and refilled from its first unit (#200). A span too
- * narrow for the next word is skipped, and so is a band with no span it fits, one of its leadings
- * down; a hard return ends the span, the next paragraph starting in the next one. What fits no band
- * above the frame's bottom overflows. Each line's span, for alignment.
+ * Area Type's lines (ADR-0022, ADR-0078), as Inkscape 1.2.2 flows `shape-inside`. Each band is a
+ * line's band (`lineBoxes`), stacked by `stack`, and its spans, left to right, take words greedily
+ * with ADR-0022's width rules, each span its own line; a rectangle's band is one span, the frame's
+ * width, while it lies in the frame (#203). A shaped band is sized by every character it tries, the
+ * unit it could not fit included, and when one is larger it is sized again and refilled from its
+ * first unit (#200). A rectangle's line is sized by the characters it holds, Illustrator's rule
+ * (ADR-0068): its width does not follow its height, so that never moves a break. A span too narrow
+ * for the next word is skipped, and so is a band with no span it fits, one of its leadings down; a
+ * hard return ends the span, the next paragraph starting in the next one. What fits no band above
+ * the frame's bottom overflows, so in a rectangle a unit wider than the frame overflows with all
+ * that follows (ADR-0022). Each line's span, for alignment.
  */
-function shaped(
+function area(
   text: TextLayout,
   m: Metric[],
   chars: string[],
-  lineBox: (from: number, to: number) => LineBox,
+  { lineBox, band: bandOf }: LineBoxes,
 ): { lines: TextLine[]; overflow: string; spans: Span[] } {
-  const { y, content } = text;
-  const edges = edgesOf(text.frame as string);
-  const bottom = y + (text.height ?? 0);
-  // Inkscape's line box also holds the text's own strut, which reaches lower than a larger size's
-  // box under a set leading. An empty range past the last character is the Node's own size. Its
-  // ascent is not used: a band's top follows its own size, as ADR-0080's first baseline does.
-  const strutDescent = lineBox(m.length, m.length).descent;
+  const { x, y, content, width: frameWidth = 0, height = 0 } = text;
+  const edges = text.frame ? edgesOf(text.frame) : undefined;
+  const bottom = y + height;
   const units = unitsOf(content);
   const width = (from: number, to: number) => span(m, from, hangsFrom(chars, from, to));
   /** The lines greedy filling puts in `spans` from unit `u`, and where the characters it tried end. */
@@ -639,18 +620,19 @@ function shaped(
     for (;;) {
       const next = stack(prev, box);
       const baseline = y + next.baseline;
-      const descent = Math.max(box.descent, strutDescent);
-      const cut = 0.1 * (box.ascent + descent);
-      if (baseline - box.ascent + cut > bottom) {
-        return { lines, overflow: chars.slice(first.from).join(""), spans };
-      }
-      const band = frameSpans(edges, baseline - box.ascent + cut, baseline + descent - cut);
+      const { top, bottom: below } = bandOf(baseline, box);
+      const overflow = { lines, overflow: chars.slice(first.from).join(""), spans };
+      if (edges && top > bottom) return overflow;
+      const band = edges ? frameSpans(edges, top, below) : [{ x, width: frameWidth }];
       const { placed, next: after, tried } = fill(band, u);
-      const grown = lineBox(first.from, tried);
+      const grown = lineBox(first.from, edges ? tried : (placed.at(-1)?.to ?? first.to));
       if (grown.size > box.size) {
         box = grown;
         continue;
       }
+      // A rectangle's line shows while its band, at the line's own size, lies in the frame: under
+      // a set leading a larger size can end it higher. It may reach a billionth of its leading past.
+      if (!edges && below > bottom + 1e-9 * box.leading) return overflow;
       for (const p of placed) {
         lines.push({
           text: chars.slice(p.from, p.to).join(""),
@@ -755,7 +737,7 @@ function roundUp(n: number, per = 1000) {
 export function areaFrame(text: TextLayout): Rect {
   const { lines, m } = layout({ ...text, kind: "point" });
   const chars = m.map((c) => c.char);
-  const { lineBox } = lineBoxes(text, m);
+  const { lineBox, band } = lineBoxes(text, m);
   const width = (from: number, to: number) => span(m, from, hangsFrom(chars, from, to));
   let [widest, height] = [0, 0];
   let prev: Stacked | undefined;
@@ -777,8 +759,9 @@ export function areaFrame(text: TextLayout): Rect {
     const b = lineBox(l.start, Math.min(to + 1, m.length));
     prev = stack(prev, b);
     if (!i) ascent = prev.baseline;
-    // The line box's bottom: at least what the line needs to show, and lines × leading at one size.
-    height = Math.max(height, prev.baseline + b.descent);
+    // The line box's bottom, lines × leading at one size, or its band's where the strut reaches
+    // lower, so the line shows.
+    height = Math.max(height, prev.baseline + b.descent, band(prev.baseline, b).bottom);
   });
   // Every line empty or all spaces has no width; a frame needs one. A centred frame's width is an
   // even thousandth, so its middle, where the lines centre, is Point Type's x on the way back.
