@@ -532,6 +532,9 @@ function unitsOf(content: string): Unit[] {
   return units;
 }
 
+/** Where a broken unit may break (ADR-0084). */
+const GRAPHEMES = new Intl.Segmenter();
+
 /** The lines as ADR-0022 lays them out, each starting at `x`, and Area Type's spans. */
 function unaligned(text: TextLayout) {
   const { x, y, content, fontSize } = text;
@@ -593,7 +596,7 @@ function area(
    */
   const prefix = (from: number, to: number, w: number) => {
     let [end, over, sum] = [from, to, 0];
-    for (const { segment } of new Intl.Segmenter().segment(chars.slice(from, to).join(""))) {
+    for (const { segment } of GRAPHEMES.segment(chars.slice(from, to).join(""))) {
       const next = end + [...segment].length;
       for (let i = end; i < next; i++) sum += (m[i] as Metric).advance + (m[i] as Metric).tracking;
       if (sum - (m[next - 1] as Metric).tracking > w) {

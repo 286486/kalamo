@@ -4,6 +4,8 @@
 // each `rect` text, each line's baseline and word count, then, for each threshold case, the frame
 // height at which Kalamo first shows the line, 90 % of that line's leading (the rule before
 // ADR-0083) and the line's baseline below the frame's top.
+import { parsePath, pathBounds } from "../../../packages/core/src/path.ts";
+import type { Rect } from "../../../packages/core/src/schema.ts";
 import { layoutText } from "../../../packages/core/src/text.ts";
 
 const SIZE = 20;
@@ -89,19 +91,12 @@ const PATHS: Record<string, string> = {
   slant: "M 20 40 L 200 40 L 200 340 L 120 340 Z",
   neck: "M 20 40 L 50 40 L 50 100 L 320 100 L 320 340 L 20 340 Z",
 };
-const bounds = (d: string) => {
-  const n = d.match(/[\d.]+/g)?.map(Number) ?? [];
-  const [xs, ys] = [n.filter((_, i) => i % 2 === 0), n.filter((_, i) => i % 2 === 1)];
-  const [x, y] = [Math.min(...xs), Math.min(...ys)];
-  return { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y };
-};
 const frameOf = (name: string) => {
   const d = PATHS[name] ?? (name.startsWith("arm") ? arm(Number(name.slice(3))) : undefined);
-  if (d) return { frame: d, ...bounds(d) };
+  if (d) return { frame: d, ...(pathBounds(parsePath(d, "d")) as Rect) };
   return { x: 20, y: 40, width: Number(name.slice(4)), height: 300 };
 };
 const WIDE = `${H} ${H} ${"H".repeat(40)} ${H} ${H}`;
-const tail = `${H} ${H} ${"H".repeat(40)} ${H} ${H}`;
 type Break = [string, string, string, (number | undefined)[]?, object?];
 const BREAKS: Break[] = [
   ...["rect180", "U", "triangle", "slant", "neck"].map((f): Break => [f, "wide", WIDE]),
@@ -116,7 +111,7 @@ const BREAKS: Break[] = [
     (f): Break => [
       f,
       "big-tail",
-      tail,
+      WIDE,
       [undefined, 30],
       { ranges: [{ start: 28, end: 48, fontSize: 40 }] },
     ],

@@ -385,6 +385,10 @@ describe("a unit wider than its span (ADR-0084)", () => {
     }
   });
 
+  it("keeps a broken unit's hard return on its last piece, the next paragraph on the line after", () => {
+    expect(texts(rect(180, `${hs(20)}\nabc`))).toEqual([hs(13), `${hs(7)}\n`, "abc"]);
+  });
+
   it("breaks it only in a span at least four line boxes wide, else overflows it", () => {
     // Four boxes are 96 at Auto and 120 at leading 30.
     expect(layoutText(rect(95))).toMatchObject({
