@@ -1,6 +1,6 @@
 // The landing page Worker kalamo-site (#185), under a local `wrangler dev` of site/wrangler.jsonc:
-// the page at / byte for byte, a 404 for every other path (or a 307 to /index.html, which 404s), and a
-// config with nothing but assets.
+// the page at / byte for byte, its og:image at /og.png, a 404 for every other path (or a 307 to
+// /index.html, which 404s), and a config with nothing but assets.
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { request } from "node:http";
 import { createServer } from "node:net";
@@ -150,7 +150,14 @@ describe("kalamo-site", () => {
     expect(config).toMatchObject({ name: "kalamo-site", workers_dev: false, preview_urls: false });
   });
 
-  it("uploads nothing but the page and its _redirects", () => {
-    expect(readdirSync("site/public").sort()).toEqual(["_redirects", "index.html"]);
+  it("serves the social preview image the page names in og:image", async () => {
+    const res = await send("/og.png");
+    expect(res.status).toBe(200);
+    expect(res.body.equals(readFileSync("site/public/og.png"))).toBe(true);
+    expect(page.toString()).toContain('<meta property="og:image" content="https://kalamo.cc/og.png">');
+  }, 30_000);
+
+  it("uploads nothing but the page, its preview image and its _redirects", () => {
+    expect(readdirSync("site/public").sort()).toEqual(["_redirects", "index.html", "og.png"]);
   });
 });
