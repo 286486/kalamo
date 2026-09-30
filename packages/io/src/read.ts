@@ -119,8 +119,6 @@ export function length(value: string | null | undefined): number | undefined {
   return m && unit !== undefined ? Number(m[1]) * unit : undefined;
 }
 
-/** At most 3 decimals and no -0, as the Document stores numbers (REQUIREMENTS §6.5). */
-
 const elements = (e: Element) =>
   [...(e.childNodes as unknown as Iterable<{ nodeType: number }>)].filter(
     (c): c is Element => c.nodeType === 1,

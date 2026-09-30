@@ -702,11 +702,14 @@ export function textBox(text: TextLayout): Rect {
   return { x: left, y: top, width: right - left, height: bottom - top };
 }
 
-/** Rounded up to the 3 decimals the file keeps (REQUIREMENTS §6.5), so a frame never shrinks. */
-function up3(n: number) {
-  // Dividing by 1000 can land just below n.
-  const up = Math.ceil(n * 1000) / 1000;
-  return up >= n ? up : round3(up + 0.001);
+/**
+ * Rounded up to a multiple of 1 / `per`, within the 3 decimals the file keeps (REQUIREMENTS §6.5),
+ * so a frame never shrinks.
+ */
+function roundUp(n: number, per = 1000) {
+  // Dividing by `per` can land just below n.
+  const up = Math.ceil(n * per) / per;
+  return up >= n ? up : round3(up + 1 / per);
 }
 
 /**
@@ -734,24 +737,27 @@ export function areaFrame(text: TextLayout): Rect {
     if (i && i === lines.length - 1 && !l.text) return;
     const b = lineBox(l.start, Math.min(to + 1, m.length));
     prev = stack(prev, b);
-    ascent ||= prev.baseline;
+    if (!i) ascent = prev.baseline;
     // The line box's bottom: at least what the line needs to show, and lines × leading at one size.
     height = Math.max(height, prev.baseline + b.descent);
   });
-  // Every line empty or all spaces has no width; a frame needs one.
-  widest = up3(widest || text.fontSize);
+  // Every line empty or all spaces has no width; a frame needs one. A centred frame's width is an
+  // even thousandth, so its middle, where the lines centre, is Point Type's x on the way back.
+  const center = text.alignment === "center";
+  widest = roundUp(widest || text.fontSize, center ? 500 : 1000);
   return {
     x: round3(text.x - widest * ALIGN[text.alignment ?? "left"]),
     y: round3(text.y - ascent),
     width: widest,
-    height: up3(height),
+    height: roundUp(height),
   };
 }
 
 /**
  * Convert to Point Type (ADR-0079): Area Type's shown lines, each soft wrap a hard return in place
  * of the line's last whitespace, or inserted after a CJK break, which shifts the ranges after it.
- * The overflow is discarded, and so is the hard return before it; `discarded` counts both.
+ * The overflow is discarded, and so is the hard return before it unless it is all that shows;
+ * `discarded` counts what goes.
  * The first line keeps its baseline and aligned start. Undefined when no line shows.
  */
 export function pointType(
@@ -769,7 +775,8 @@ export function pointType(
     const t = [...l.text];
     const last = t.at(-1) as string;
     const soft = i < lines.length - 1 && last !== "\n";
-    if (i === lines.length - 1 && last === "\n" && overflow) t.pop();
+    // Kept when it is all that shows, as Point Type needs content.
+    if (i === lines.length - 1 && last === "\n" && overflow && out.length + t.length > 1) t.pop();
     else if (soft && /\s/.test(last)) t[t.length - 1] = "\n";
     else if (soft) {
       const p = out.length + t.length;

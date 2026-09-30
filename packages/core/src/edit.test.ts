@@ -2285,6 +2285,37 @@ describe("Convert to Area Type and Point Type (ADR-0079)", () => {
     ]);
   });
 
+  it("Area to Point keeps an empty paragraph that is all that shows, deleting the overflow", () => {
+    const { doc, t } = make({
+      kind: "area",
+      width: 90,
+      height: 35,
+      fontSize: 20,
+      content: "\nlazy xyz",
+      ranges: [{ start: 0, end: 5, fill: "#ff0000" }],
+    });
+    const { warnings } = convert(doc, t.id, { kind: "point" });
+    expect(doc.nodes.get(t.id)).toMatchObject({
+      kind: "point",
+      content: "\n",
+      ranges: [{ start: 0, end: 1, fill: "#ff0000" }],
+    });
+    expect(warnings).toEqual([
+      { code: "TEXT_DISCARDED", nodeId: t.id, message: expect.stringMatching(/^8 characters/) },
+    ]);
+  });
+
+  it("Point to Area and back returns a centred text unchanged", () => {
+    const { doc, t } = make({ content: "the W", fontSize: 24, alignment: "center", x: 100 });
+    convert(doc, t.id, { kind: "area" });
+    const a = doc.nodes.get(t.id) as Text;
+    // An even thousandth, so the frame's middle is a stored number.
+    expect(Math.round((a.width as number) * 1000) % 2).toBe(0);
+    expectSame(a, t);
+    convert(doc, t.id, { kind: "point" });
+    expect(doc.nodes.get(t.id)).toEqual(t);
+  });
+
   it("Point to Area of empty or all-space lines is fontSize wide", () => {
     const { doc, t } = make({ content: "\n  \n", fontSize: 20 });
     convert(doc, t.id, { kind: "area" });
