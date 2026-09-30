@@ -5,7 +5,7 @@
 // its left edge and, for a word of H's, its baseline. Fonts are the bundled ones, through fonts.conf
 // as `pnpm roundtrip` sets them.
 import { spawnSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 const HERE = import.meta.dirname;
@@ -201,5 +201,91 @@ for (const [name, size] of THRESHOLDS) {
     console.log(
       `threshold\t${name}\t${leading ?? "auto"}\t${hi.toFixed(3)}\t${baseline.toFixed(2)}`,
     );
+  }
+}
+
+/**
+ * A unit wider than its span (#221). Each case is saved through Inkscape, which writes each drawn
+ * line as a tspan with its `x` and `y`; a line's row is its baseline, its start and its characters,
+ * so a broken word's pieces read off exactly. A line Inkscape writes below the frame is overflow.
+ * Frames beyond FRAMES: a rectangle `rect<width>` 300 tall from (20, 40), and an `arm<width>`, a
+ * left arm that wide and 80 deep on a body 300 wide below y 120. Inkscape 1.2.2 breaks a unit
+ * between characters when it is the first thing in a span that it does not fit and the span is at
+ * least four line boxes wide (`_buildChunksInScanRun`, Layout-TNG-Compute.cpp): the rect95/rect97
+ * and rect119/rect121 pairs sit either side of that width at Auto and at leading 30, and the arms
+ * tell it from "the unit fits no later band".
+ */
+const arm = (w) => `M 20 40 L ${20 + w} 40 L ${20 + w} 120 L 320 120 L 320 340 L 20 340 Z`;
+const rect = (width) => ({ x: 20, y: 40, width, height: 300 });
+/** A run of `n` H's, at `size` when given, as one tspan. */
+const hs = (n, size) =>
+  size ? `<tspan style="font-size:${size}px">${"H".repeat(n)}</tspan>` : "H".repeat(n);
+const WIDE = `${H} ${H} ${"H".repeat(40)} ${H} ${H}`;
+/** `[frame, name, body, leadings, text style]`: the body is the text's inner markup. */
+const BREAKS = [
+  ...["rect180", "U", "triangle", "slant", "neck"].map((f) => [f, "wide", WIDE]),
+  // Four line boxes at Auto are 96, at leading 30 120.
+  ...[95, 97, 119, 121].map((w) => [`rect${w}`, "wide", WIDE]),
+  // A 15-H word, 195.6 wide: it fits the body, not an arm 90, 110 or 120 wide.
+  ...[90, 110, 120].map((w) => [`arm${w}`, "mid", `${"H".repeat(15)} ${H} ${H}`]),
+  // Tracking: a piece is as wide as its characters and the tracking between them, not after.
+  ["rect180", "tracked", WIDE, [undefined, 30], "letter-spacing:2px"],
+  // An ADR-0064 unit: an ideograph and eleven closing brackets, which never break before.
+  [
+    "rect180",
+    "cjk-unit",
+    `${H} <tspan style="line-height:${runLineHeight(undefined, SIZE)}">字${"」".repeat(11)}</tspan> ${H}`,
+    [undefined],
+  ],
+  // A Latin word in the CJK family.
+  ["rect180", "noto", WIDE, [undefined, 30], "font-family:'Noto Sans SC'"],
+  // A span narrower than one H, yet more than four line boxes wide at leading 2.
+  ["rect10", "narrow", "HHHHH", [2]],
+  // A word whose last 20 H's are 40 px: which lines their size makes taller.
+  ...["rect180", "slant"].map((f) => [f, "big-tail", `${H} ${H} ${hs(20)}${hs(20, 40)} ${H} ${H}`]),
+];
+const frameOf = (name) =>
+  FRAMES[name] ??
+  (name.startsWith("arm") ? arm(Number(name.slice(3))) : rect(Number(name.slice(4))));
+
+for (const [frameName, name, body, leadings = [undefined, 30], style = ""] of BREAKS) {
+  for (const leading of leadings) {
+    const id = `break-${frameName}-${name}-${leading ?? "auto"}`;
+    if (only && !id.includes(only)) continue;
+    const file = join(OUT, `${id}.svg`);
+    const lh = leading ? `${leading}px` : "1.2";
+    writeFileSync(
+      file,
+      `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400">
+<defs>${shape(frameOf(frameName))}</defs>
+<text id="t" font-family="Source Sans 3" font-size="${SIZE}" style="shape-inside:url(#frame);white-space:pre;font-kerning:none;line-height:${lh};${style}" xml:space="preserve">${body}</text>
+</svg>`,
+    );
+    const saved = join(OUT, `${id}.saved.svg`);
+    const run = spawnSync("inkscape", [file, "--export-type=svg", `--export-filename=${saved}`], {
+      env: { ...process.env, FONTCONFIG_FILE: conf },
+    });
+    if (run.status !== 0) throw new Error(`inkscape failed on ${id}`);
+    const text = readFileSync(saved, "utf8").match(/<text\b[\s\S]*?<\/text>/)?.[0] ?? "";
+    // Each top-level tspan is a line; nested tspans hold a run's style.
+    let [depth, line] = [0, null];
+    for (const [tag, close, attrs] of text.matchAll(/<(\/?)tspan\b([^>]*?)\/?>|[^<]+/g)) {
+      if (!tag.startsWith("<")) {
+        if (line) line.text += tag.replaceAll("&lt;", "<").replaceAll("&amp;", "&");
+        continue;
+      }
+      if (!close && depth === 0) {
+        const num = (n) => Number(new RegExp(`\\s${n}="([^"]*)"`).exec(attrs)?.[1]);
+        line = { x: num("x"), y: num("y"), text: "" };
+      }
+      depth += close ? -1 : tag.endsWith("/>") ? 0 : 1;
+      if (depth === 0 && line) {
+        const shown = line.y <= 340 ? line.y.toFixed(2) : "overflow";
+        console.log(
+          `break\t${frameName}\t${name}\t${leading ?? "auto"}\t${shown}\t${+line.x.toFixed(2)}\t${line.text}`,
+        );
+        line = null;
+      }
+    }
   }
 }

@@ -2384,6 +2384,29 @@ describe("Convert to Area Type and Point Type (ADR-0079)", () => {
     expectSame(p, t);
   });
 
+  it("Area to Point inserts a hard return where a unit wider than the frame broke, and back is unchanged", () => {
+    // A 40-H word in a 180-wide frame breaks into pieces of 13, 13, 13 and 1 (ADR-0084).
+    const content = `HHH ${"H".repeat(40)} HHH`;
+    const { doc, t } = make({
+      kind: "area",
+      width: 180,
+      height: 300,
+      fontSize: 20,
+      content,
+      ranges: [{ start: 10, end: 30, fill: "#00ff00" }],
+    });
+    const { warnings } = convert(doc, t.id, { kind: "point" });
+    const p = doc.nodes.get(t.id) as Text;
+    expect(warnings).toEqual([]);
+    const h13 = "H".repeat(13);
+    expect(p.content).toBe(`HHH\n${h13}\n${h13}\n${h13}\nH HHH`);
+    expect(p.ranges).toEqual([{ start: 10, end: 31, fill: "#00ff00" }]);
+    expectSame(p, t);
+    convert(doc, t.id, { kind: "area" });
+    convert(doc, t.id, { kind: "point" });
+    expect(doc.nodes.get(t.id)).toEqual(p);
+  });
+
   it("Area to Point deletes the overflow, clipping ranges, and warns TEXT_DISCARDED", () => {
     const content = "one two three four five six";
     const { doc, t } = make({

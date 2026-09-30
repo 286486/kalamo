@@ -137,6 +137,11 @@
       "frame": { "height": 220, "width": 320, "x": 1240, "y": 260 },
       "id": "01M38T29T6S1ZESARTB0ARD000",
       "name": "Shaped Mixed Sizes"
+    },
+    {
+      "frame": { "height": 90, "width": 240, "x": 980, "y": 390 },
+      "id": "01M38T29T7W1DEARTB0ARD0000",
+      "name": "Wide Units"
     }
   ],
   "nodes": [
@@ -3388,6 +3393,55 @@
       "width": 120,
       "x": 1430,
       "y": 275
+    },
+    {
+      "appearance": { "fills": [{ "color": "#000000", "type": "solid" }], "strokes": [] },
+      "blendMode": "normal",
+      "content": "The word Pneumonoultramicroscopicsilicovolcanoconiosis breaks here.",
+      "fontFamily": "Source Sans 3",
+      "fontSize": 10,
+      "fontStyle": "Regular",
+      "height": 80,
+      "id": "01M38T29T7W1DE00000000000A",
+      "index": "b0F",
+      "kind": "area",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "text",
+      "visible": true,
+      "width": 110,
+      "x": 990,
+      "y": 395
+    },
+    {
+      "appearance": { "fills": [{ "color": "#000000", "type": "solid" }], "strokes": [] },
+      "blendMode": "normal",
+      "content": "Honorificabilitudinitatibus breaks in a triangle too.",
+      "fontFamily": "Source Sans 3",
+      "fontSize": 10,
+      "fontStyle": "Regular",
+      "frame": "M 1110 395 L 1215 395 L 1162.5 475 Z",
+      "height": 80,
+      "id": "01M38T29T7W1DE00000000000B",
+      "index": "b0G",
+      "kind": "area",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "text",
+      "visible": true,
+      "width": 105,
+      "x": 1110,
+      "y": 395
     }
   ],
   "images": {

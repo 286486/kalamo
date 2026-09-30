@@ -1,6 +1,6 @@
 # Shaped Area Type bands whose lines mix sizes (research notes, 2026-09-30)
 
-For #200 and #203: how tall a band of a shaped Area Type (ADR-0078) is when its line holds a larger Character Range or CJK in a fallback family, where it sits, and which words it takes. Decision: ADR-0078's #200 amendment, and for a rectangle frame ADR-0083. The stacking rule itself is ADR-0080's.
+For #200, #203 and #221: how tall a band of a shaped Area Type (ADR-0078) is when its line holds a larger Character Range or CJK in a fallback family, where it sits, and which words it takes. Decision: ADR-0078's #200 amendment, for a rectangle frame ADR-0083, and for a unit wider than its span ADR-0084. The stacking rule itself is ADR-0080's.
 
 Legend as in `06-illustrator-drawing-tools.md`: **[A]** the Adobe doc states it; **[M]** measured here.
 
@@ -74,7 +74,7 @@ For #203: whether rectangular Area Type can lay out through the shaped band fill
 
 ### A unit wider than the frame
 
-`rect wide`: Inkscape does not hide the 40-H word. It breaks it between characters: `HHH HHH`, then 14 H's on each of the next three lines, then `H HHH HHH`. The word's tspan box spans those lines, so its row in `results.tsv` gives the bottom of its last piece, 153.08, not a line of its own. The same content in one text node, with no tspans, breaks the same way. Every path frame breaks the word too. In `U wide` it starts in the right arm, after the left arm's two words, and breaks there. Only a narrower span that a later band widens is skipped: in `neck`, a 39-wide word skips the 30-wide neck. ADR-0022 says Inkscape overflows such a word and everything after it, and Kalamo does that in both frame kinds. The band filler, with one span per band, gives the same overflow as the rectangle's fill, since every band has the same span. #221 takes up the mid-word break.
+`rect wide`: Inkscape does not hide the 40-H word. It breaks it between characters: `HHH HHH`, then 13 H's on each of the next three lines, then `H HHH HHH` (recounted by #221 from Inkscape's saved lines; this note first said 14). The word's tspan box spans those lines, so its row in `results.tsv` gives the bottom of its last piece, 153.08, not a line of its own. The same content in one text node, with no tspans, breaks the same way. Every path frame breaks the word too. In `U wide` it starts in the right arm, after the left arm's two words, and breaks there. Only a narrower span that a later band widens is skipped: in `neck`, a 39-wide word skips the 30-wide neck. ADR-0022 says Inkscape overflows such a word and everything after it, and Kalamo does that in both frame kinds. The band filler, with one span per band, gives the same overflow as the rectangle's fill, since every band has the same span. #221 takes up the mid-word break: see "A unit wider than its span (#221)" below, which also corrects the claim that only a narrower span that a later band widens is skipped.
 
 ### What sizes a line
 
@@ -108,3 +108,55 @@ The band is the line's box less a tenth of its height at its top and bottom, rea
 
 `pnpm roundtrip` on this layout prints the same per-region figures as on `main` (32346ee), byte for byte. No fixture line has a box that the strut reaches below near its frame's bottom.
 
+## A unit wider than its span (#221)
+
+For #221: when Inkscape 1.2.2 breaks a unit that fits no span between characters, where the break falls, and what the Adobe pages say. Decision: ADR-0084.
+
+`node docs/research/09-shaped-bands/probe.mjs break-` prints the `break` rows of `results.tsv`. Each case is saved through Inkscape (`--export-type=svg`), which writes each drawn line as a tspan with its `x` and `y`. A row is a line's frame, text, leading, baseline (`overflow` for a line written below the frame), start and characters, so every piece reads off exactly. `node --experimental-transform-types docs/research/09-shaped-bands/kalamo.ts | grep ^break` prints Kalamo's rows for the same cases, a band's spans joined as Inkscape joins them. The run fails when a case gives rows other than its `results.tsv` rows, or is in only one of the two, so a case changed in one script alone shows. Only ADR-0084's model differences, below, are compared less: `big-tail` at leading 30 compares each line's characters but not where it sits, and `slant big-tail` at Auto is not compared. The frames beyond those above are `rect<w>`, a rectangle `w` wide and 300 tall from (20, 40), and `arm<w>`, a left arm `w` wide and 80 deep on a body 300 wide below y 120. Text is 20 px Source Sans 3, whose H is 13.04 wide. `wide` is two `HHH`, a word of 40 H's and two more `HHH`.
+
+### 1. Illustrator [A]: not documented
+
+No Adobe page found says what Area Type does with a unit wider than its frame. Searched on 2026-09-30 through the search index's extracts, since helpx.adobe.com returns 403 here: "Add text and work with type objects", "Set hyphenation and line breaks in Illustrator" (its composers and hyphenation, nothing on a unit with no break), "Resize text areas", the Area Type tool page, and the Illustrator scripting guide's `TextFrameItem`. Community threads mention scripts that detect "force-wrapped" words, and a reported limit of about 6,187 characters in one word, past which the text vanishes. They are not Adobe's documentation, so they are not [A]. ADR-0022's "Illustrator breaks the word" is unverified. What follows is Inkscape's rule, [M].
+
+### 2. Skip or break [M]
+
+Inkscape's source states the rule: `_buildChunksInScanRun`, `src/libnrtype/Layout-TNG-Compute.cpp`, tag `INKSCAPE_1_2_2`, the "non-SVG spec bit" for bug #1191102. If nothing up to a break opportunity fits a span from its start, and the span is at least four line boxes wide (`scan_run.width() >= 4.0 * line_height->emSize()`), the span ends at the last character boundary that fits. A line box is 24 at 20 px Auto and 30 at leading 30, so the width is 96 and 120. The probe checks both edges and tells the rule from #221's candidates:
+
+| Case | Auto | Leading 30 |
+|---|---|---|
+| `rect95 wide` | overflows from the word | overflows |
+| `rect97 wide` | breaks, 7 H's a piece | overflows |
+| `rect119 wide` | breaks, 9 a piece | overflows |
+| `rect121 wide` | breaks, 9 a piece | breaks, 9 a piece |
+| `arm90 mid` (a 15-H word) | carried below the arm, unbroken, at 153.08 | carried, at 150.08 |
+| `arm110 mid` | breaks in the arm: 8, then 7 | carried, at 150.08 |
+| `arm120 mid` | breaks in the arm: 9, then 6 | breaks: 9, then 6 |
+| `neck wide` | skips the 30-wide neck, breaks below it: 23, then 17 | the same |
+
+In `arm110`, the 300-wide body fits the word, and yet at Auto it breaks in the 110-wide arm. So "fits no later band" and "wider than the widest span" are both wrong. "First in its band" is wrong too, since the same word is carried at leading 30. The four-box width decides it. A unit breaks only when it starts its span: in `rect wide` the word goes to the next line after `HHH HHH`, and in `U wide` it starts in the right arm after the left arm's two words.
+
+### 3. Where the break falls [M]
+
+Each piece is the widest prefix that fits its span. In `rect180 wide` the pieces are 13, 13, 13 and 1 (13 H's are 169.52, 14 are 182.56), and `H HHH HHH` shares the last line. The earlier note's "14 H's on each of the next three lines" was wrong. In the U, 9 H's fit each 120-wide arm: 9 on the first band's right arm, then 9 and 9, then 9 and 4, and `HHHH HHH` shares the right arm. The triangle breaks 19 and 17, and the slant 12, 12, 11 and 5, each band's own width. Tracking counts between a piece's characters and not after the last one. In `rect180 tracked` (letter-spacing 2 px) the pieces are 12: that is 178.48 wide, and 180.48 with the tracking after the last. A piece ends at a Pango `is_char_break`, which falls between grapheme clusters. H's cannot tell a grapheme break from a code-point break, and an `e` with a combining acute has the width of `é` (the mark is 0 wide), so the probe has no cluster case. Kalamo breaks with `Intl.Segmenter`, and its test uses `👍🏽`: two `.notdef` code points in one cluster, never split.
+
+### 4. Units that are not Latin words [M]
+
+`rect180 cjk-unit`: `字` and eleven `」`, one ADR-0064 unit 240 wide, go to the line after `HHH` and break after nine characters (180), leaving `」」」 HHH`. `rect180 noto`: the `wide` text in Noto Sans SC breaks 12, 12, 12 and 4, at Noto's wider H, at Auto and at leading 30. The first baseline moves, 59.60, since ADR-0080's first baseline takes Noto's ascent.
+
+### 5. A piece that fits nowhere [M]
+
+`rect10 narrow`: `HHHHH` in a 10-wide rectangle at leading 2. Four line boxes are 8, so the span passes the width test, but no H fits it. Inkscape draws nothing, and writes the whole text as overflow.
+
+### 6. Line height of a broken line [M]
+
+`big-tail` is `HHH HHH`, a 40-H word whose last 20 H's are 40 px, then `HHH HHH`. Inkscape grows a line's box as it measures each run, and stops measuring at the character that overflows. So the first piece's line, 13 small H's, is a 20 px line at 81.08 in `rect180` at Auto. The next line reaches the 40 px run, and its box grows to 48. Four boxes are 192, and the 180-wide span can no longer break. Inkscape writes the rest, 7 small and 20 large H's and the words after them, as overflow. At leading 30 the 40 px box is 35.09, so the width is 140.3. The rest breaks 10 (7 small and 3 large, 169.52), 6, 6, and then `HHHHH HHH `, with the last `HHH` on the line after. Its baselines step by 35.09, Inkscape's line box, where Kalamo steps by the leading, 30 (ADR-0068's model difference). In `slant big-tail` at leading 30 the band at 125.17 takes 9 H's. Every lower band is narrower than 140.3, so the rest overflows.
+
+### Kalamo against Inkscape
+
+Kalamo puts the same characters on every line in every `break` case but one, and at the same baselines wherever no larger range moves them. The exception is `slant big-tail` at Auto. There the first band tries the word unbroken after `HHH HHH` and is sized by the whole unit, 40 px, as #200 sizes a band by a unit it could not fit. Inkscape stops measuring that unit at its first overflowing H, so its band is 20 px, and every line after it differs. The two differ only when a larger Character Range starts inside a unit past the point where it overflows. ADR-0084 records it as a known gap.
+
+A URL is not such a unit in Inkscape. Pango breaks it after each `/`, and Kalamo only at spaces (#222).
+
+### Round trip [M]
+
+`pnpm roundtrip` passes with a "Wide Units" Artboard. It holds a 10 pt rectangle 110 wide with `Pneumonoultramicroscopicsilicovolcanoconiosis`, which breaks after its 22nd letter, and a triangle 105 wide with `Honorificabilitudinitatibus`, which breaks on its first band. Inkscape saves the same lines. The rectangle's text differs by 5.22 % and the triangle's by 1.71 % of the 15 % text budget. Every other region prints `main`'s figures (3b1b722). Only the pixel count outside the Artboards shrinks, by the new Artboard's 21,600.

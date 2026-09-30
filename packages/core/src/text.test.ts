@@ -337,9 +337,188 @@ it("shows a line while 90% of its leading fits the frame, and holds the rest as 
   );
 });
 
-it("overflows a word wider than the frame and everything after it, as Inkscape does", () => {
+it("overflows a word wider than a frame narrower than four line boxes, and everything after it, as Inkscape does", () => {
   const text = "Supercalifragilistic word  two   spaces";
   expect(area(text, { width: 50, height: 100 })).toEqual({ lines: [], overflow: text });
+});
+
+// Inkscape 1.2.2's lines for `probe.mjs`'s `break` cases (results.tsv): 20 pt Source Sans 3, whose
+// H is 13.04 wide, in frames from (20, 40), each 300 tall (ADR-0084).
+describe("a unit wider than its span (ADR-0084)", () => {
+  const H = "HHH";
+  const WIDE = `${H} ${H} ${"H".repeat(40)} ${H} ${H}`;
+  const hs = (n: number) => "H".repeat(n);
+  const rect = (
+    width: number,
+    content = WIDE,
+    extra: Partial<Parameters<typeof layoutText>[0]> = {},
+  ) => ({
+    kind: "area" as const,
+    x: 20,
+    y: 40,
+    width,
+    height: 300,
+    content,
+    fontSize: 20,
+    ...extra,
+  });
+  const shaped = (d: string, content: string, leading?: number) => {
+    const b = pathBounds(parsePath(d, "d")) as NonNullable<ReturnType<typeof pathBounds>>;
+    return { kind: "area" as const, ...b, frame: d, content, fontSize: 20, leading };
+  };
+  const texts = (t: Parameters<typeof layoutText>[0]) => layoutText(t).lines.map((l) => l.text);
+
+  it("breaks it between characters, each piece the widest that fits, the words after it on the last", () => {
+    for (const leading of [undefined, 30]) {
+      const { lines, overflow } = layoutText(rect(180, WIDE, { leading }));
+      expect(lines.map((l) => l.text)).toEqual([
+        `${H} ${H} `,
+        hs(13),
+        hs(13),
+        hs(13),
+        `H ${H} ${H}`,
+      ]);
+      expect(lines.map((l) => +l.y.toFixed(2))).toEqual(
+        leading ? [60.08, 90.08, 120.08, 150.08, 180.08] : [57.08, 81.08, 105.08, 129.08, 153.08],
+      );
+      expect(overflow).toBe("");
+    }
+  });
+
+  it("leaves a piece line left under justify and aligns it like any line under center and right", () => {
+    // A 13-H piece is 169.52 wide in the 180-wide span from x 20 (ADR-0077: no space to widen).
+    const piece = (alignment: "justify" | "center" | "right") =>
+      glyphs(rect(180, WIDE, { alignment }))
+        .filter((g) => g.y.toFixed(2) === "81.08")
+        .map((g) => +g.x.toFixed(2));
+    const at = (x0: number) => Array.from({ length: 13 }, (_, k) => +(x0 + k * 13.04).toFixed(2));
+    expect(piece("justify")).toEqual(at(20));
+    expect(piece("center")).toEqual(at(20 + 10.48 / 2));
+    expect(piece("right")).toEqual(at(20 + 10.48));
+  });
+
+  it("keeps a broken unit's hard return on its last piece, the next paragraph on the line after", () => {
+    expect(texts(rect(180, `${hs(20)}\nabc`))).toEqual([hs(13), `${hs(7)}\n`, "abc"]);
+  });
+
+  it("breaks it only in a span at least four line boxes wide, else overflows it", () => {
+    // Four boxes are 96 at Auto and 120 at leading 30.
+    expect(layoutText(rect(95))).toMatchObject({
+      lines: [{ text: `${H} ${H} ` }],
+      overflow: WIDE.slice(8),
+    });
+    expect(texts(rect(97))).toEqual([`${H} ${H} `, ...Array(5).fill(hs(7)), "HHHHH ", `${H} ${H}`]);
+    expect(layoutText(rect(119, WIDE, { leading: 30 })).overflow).toBe(WIDE.slice(8));
+    expect(texts(rect(121, WIDE, { leading: 30 }))).toEqual([
+      `${H} ${H} `,
+      ...Array(4).fill(hs(9)),
+      `HHHH ${H} `,
+      H,
+    ]);
+  });
+
+  it("breaks it in a wide enough span though a band below fits it, and carries it down past a narrower one", () => {
+    // A 15-H word, 195.6 wide, fits the 300-wide body below y 120, not the arm above it.
+    const arm = (w: number) =>
+      `M 20 40 L ${20 + w} 40 L ${20 + w} 120 L 320 120 L 320 340 L 20 340 Z`;
+    const mid = `${hs(15)} ${H} ${H}`;
+    expect(texts(shaped(arm(110), mid))).toEqual([hs(8), `${hs(7)} `, `${H} ${H}`]);
+    expect(layoutText(shaped(arm(110), mid, 30)).lines).toEqual([
+      expect.objectContaining({ text: mid, y: expect.closeTo(150.08, 2) }),
+    ]);
+    expect(texts(shaped(arm(90), mid))).toEqual([mid]);
+    expect(texts(shaped(arm(120), mid, 30))).toEqual([hs(9), `${hs(6)} `, `${H} ${H}`]);
+  });
+
+  it("breaks it in each span of a shaped band, the first in the span after the band's other words", () => {
+    const U = "M 20 40 L 140 40 L 140 120 L 200 120 L 200 40 L 320 40 L 320 340 L 20 340 Z";
+    const lines = layoutText(shaped(U, WIDE)).lines;
+    expect(lines.map((l) => [l.x, +l.y.toFixed(2), l.text])).toEqual([
+      [20, 57.08, `${H} ${H} `],
+      [200, 57.08, hs(9)],
+      [20, 81.08, hs(9)],
+      [200, 81.08, hs(9)],
+      [20, 105.08, hs(9)],
+      [200, 105.08, `HHHH ${H} `],
+      [20, 129.08, H],
+    ]);
+    const triangle = "M 20 40 L 320 40 L 170 340 Z";
+    expect(texts(shaped(triangle, WIDE))).toEqual([`${H} ${H} `, hs(19), hs(17), `HHHH ${H} ${H}`]);
+  });
+
+  it("measures a piece with the tracking between its characters, not after the last", () => {
+    // 2 px of tracking: twelve tracked H's are 178.48, thirteen 193.52.
+    expect(texts(rect(180, WIDE, { tracking: 100 }))).toEqual([
+      `${H} ${H} `,
+      hs(12),
+      hs(12),
+      hs(12),
+      `HHHH ${H} ${H}`,
+    ]);
+  });
+
+  it("breaks a CJK unit and a word in the CJK family the same way", () => {
+    // 字 and eleven 」, which never break before, each 20 wide in Noto Sans SC.
+    expect(texts(rect(180, `${H} 字${"」".repeat(11)} ${H}`))).toEqual([
+      `${H} `,
+      `字${"」".repeat(8)}`,
+      `」」」 ${H}`,
+    ]);
+    expect(texts(rect(180, WIDE, { fontFamily: "Noto Sans SC" }))).toEqual([
+      `${H} ${H} `,
+      hs(12),
+      hs(12),
+      hs(12),
+      `HHHH ${H} ${H}`,
+    ]);
+  });
+
+  it("never breaks inside a grapheme cluster", () => {
+    // 👍🏽 is one cluster of two code points, each a 13.06 .notdef: three fit 97, not three and a half.
+    const thumbs = "👍🏽".repeat(8);
+    const lines = texts(rect(97, thumbs));
+    expect(lines).toEqual(["👍🏽👍🏽👍🏽", "👍🏽👍🏽👍🏽", "👍🏽👍🏽"]);
+  });
+
+  it("hides a unit of which not one cluster fits a span wide enough to break in", () => {
+    // At leading 2 four line boxes are 8: a 10-wide span passes, but no H fits it.
+    expect(layoutText(rect(10, "HHHHH", { leading: 2 }))).toEqual({ lines: [], overflow: "HHHHH" });
+  });
+
+  it("sizes a piece's line by its characters, and breaks no more once a larger rest outgrows the span", () => {
+    // The word's last 20 H's are 40 pt, 26.08 wide each.
+    const content = `${H} ${H} ${hs(40)} ${H} ${H}`;
+    const ranges = [{ start: 28, end: 48, fontSize: 40 }];
+    // At Auto the first piece's line is a 20 pt line; the rest's 48 pt box needs 192, and 180
+    // overflows it, as Inkscape does.
+    const auto = layoutText(rect(180, content, { ranges }));
+    expect(auto.lines.map((l) => [+l.y.toFixed(2), l.text])).toEqual([
+      [57.08, `${H} ${H} `],
+      [81.08, hs(13)],
+    ]);
+    expect(auto.overflow).toBe(content.slice(21));
+    // At leading 30 the 40 pt box is 35.09 tall, and 180 breaks it.
+    expect(texts(rect(180, content, { ranges, leading: 30 }))).toEqual([
+      `${H} ${H} `,
+      hs(13),
+      hs(10),
+      hs(6),
+      hs(6),
+      `HHHHH ${H} `,
+      H,
+    ]);
+  });
+
+  it("warns TEXT_OVERFLOW only when the pieces run past the frame's bottom", () => {
+    const node = (height: number) =>
+      ({ id: "t", type: "text", ...rect(180), height }) as Parameters<
+        typeof overflowWarnings
+      >[0][number];
+    expect(overflowWarnings([node(300)])).toEqual([]);
+    expect(overflowWarnings([node(60)])).toEqual([
+      expect.objectContaining({ code: "TEXT_OVERFLOW", nodeId: "t" }),
+    ]);
+  });
 });
 
 // Break opportunities as Pango 1.50.12's pango_get_log_attrs gives them, which Inkscape 1.2.2 wraps at.
