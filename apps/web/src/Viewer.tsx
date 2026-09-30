@@ -64,12 +64,9 @@ export function Viewer({ docId }: { docId: string }) {
     live,
     viewport,
     selection,
-    anchors,
-    segments,
     drag,
     edit,
     opPreview,
-    pen,
     pending,
     notice,
     isolated,
@@ -78,7 +75,6 @@ export function Viewer({ docId }: { docId: string }) {
     gradientShown,
     paintPreview,
     tool,
-    fillStroke,
   } = useStore();
   /** Space held: drag pans. */
   const [hand, setHand] = useState(false);
@@ -96,7 +92,7 @@ export function Viewer({ docId }: { docId: string }) {
   /** The tool that captured the pointer, which gets its moves and release even if the tool changes. */
   const pressed = useRef<CanvasTool | null>(null);
   /** Counts changes to a tool's overlay, so the canvas redraws. */
-  const [overlay, redraw] = useReducer((n: number) => n + 1, 0);
+  const [, redraw] = useReducer((n: number) => n + 1, 0);
   /** True once the faces have settled; until then text draws in a fallback font. */
   const [fontReady, setFontReady] = useState(false);
   /** The families besides Source Sans 3 that have settled, each loaded once a Document draws in it. */
@@ -197,8 +193,8 @@ export function Viewer({ docId }: { docId: string }) {
     drawDocument(ctx, shown, layer, images.get, isolated);
   }, [doc, shown, isolated, docId, viewport, size, fontReady, lazyReady, images, imagesLoaded]);
 
-  // The overlay redraws on its own canvas, without repainting the Document's Nodes.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: anchors, segments, pen, pending, fillStroke and overlay redraw the tools' overlays
+  // The overlay redraws on its own canvas after every render, without repainting the Document's Nodes.
+  // The Viewer renders on every store change, so no tool can read a slice this misses.
   useEffect(() => {
     if (!doc || !shown || doc.id !== docId || !viewport) return;
     const ctx = sized(overlayCanvas.current, size, viewport);
@@ -223,22 +219,7 @@ export function Viewer({ docId }: { docId: string }) {
         if (hasAnchors(node)) ctx.stroke(new Path2D(formatPath(fromAnchors(anchorsOf(doc, node)))));
       }
     }
-  }, [
-    doc,
-    shown,
-    opPreview,
-    docId,
-    viewport,
-    size,
-    selection,
-    anchors,
-    segments,
-    tool,
-    pen,
-    pending,
-    fillStroke,
-    overlay,
-  ]);
+  });
 
   // Ctrl+wheel (and trackpad pinch) zooms at the cursor; plain wheel and two-finger scroll pan.
   // A native listener, because React's onWheel is passive and cannot preventDefault.
