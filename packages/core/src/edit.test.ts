@@ -2249,24 +2249,30 @@ describe("Convert to Area Type and Point Type (ADR-0079)", () => {
     expectSame(a, t);
   });
 
-  it("Point to Area of CJK in a fallback family keeps x and moves later lines only down", () => {
-    // ADR-0079's contract: a rectangle frame stacks CJK line boxes as Inkscape does (ADR-0064),
-    // which Point Type does not, and converting back restores the Node.
-    const content = "Hello 中文 world\nsecond 日本語 line\nlast";
-    const { doc, t } = make({ content, ranges: [{ start: 6, end: 8, fontSize: 40 }] });
-    convert(doc, t.id, { kind: "area" });
-    const a = doc.nodes.get(t.id) as Text;
-    expect(layoutText(a).overflow).toBe("");
-    const [before, after] = [drawn(t), drawn(a)];
-    expect(after.map((g) => g.char)).toEqual(before.map((g) => g.char));
-    after.forEach((g, i) => {
-      const was = before[i] as Glyph;
-      expect(g.x).toBeCloseTo(was.x, 3);
-      if (was.y === before[0]?.y) expect(g.y).toBeCloseTo(was.y, 3);
-      else expect(g.y).toBeGreaterThan(was.y);
-    });
+  it.each([
+    ["Auto", undefined],
+    ["a set", 20],
+  ])(
+    "Point to Area keeps every glyph of CJK in a fallback family under %s leading, and back (ADR-0080)",
+    (_, leading) => {
+      const content = "Hello 中文 world\nsecond 日本語 line\nlast";
+      const { doc, t } = make({ content, leading, ranges: [{ start: 6, end: 8, fontSize: 40 }] });
+      expect(convert(doc, t.id, { kind: "area" }).warnings).toEqual([]);
+      const a = doc.nodes.get(t.id) as Text;
+      expect(layoutText(a).overflow).toBe("");
+      expectSame(a, t);
+      expect(convert(doc, t.id, { kind: "point" }).warnings).toEqual([]);
+      expect(doc.nodes.get(t.id)).toEqual(t);
+    },
+  );
+
+  it("Area to Point keeps every glyph of soft-wrapped CJK in a fallback family (ADR-0080)", () => {
+    const content = "Latin words 中文字 and 日本語の文 wrap here";
+    const ranges = [{ start: 12, end: 14, fontSize: 20 }];
+    const { doc, t } = make({ kind: "area", width: 70, height: 200, content, ranges });
+    expect(layoutText(t).lines.length).toBeGreaterThan(3);
     expect(convert(doc, t.id, { kind: "point" }).warnings).toEqual([]);
-    expect(doc.nodes.get(t.id)).toEqual(t);
+    expectSame(doc.nodes.get(t.id) as Text, t);
   });
 
   it("a trailing hard return survives Point to Area and back", () => {

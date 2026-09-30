@@ -3,7 +3,7 @@ import { edgesOf, frameSpans, type Span } from "./frame.ts";
 import { lineBreakUnits } from "./line-break.ts";
 import { NOTO_SANS_KR } from "./noto-sans-kr.ts";
 import { NOTO_SANS_SC } from "./noto-sans-sc.ts";
-import { parsePath, round3, type Segment } from "./path.ts";
+import { formatNumber, parsePath, round3, type Segment } from "./path.ts";
 import type { Alignment, CharacterRange, Node, Rect, Warning } from "./schema.ts";
 import { SOURCE_SANS_3 } from "./source-sans-3.ts";
 
@@ -202,6 +202,26 @@ export function notdefBox(text: TextFont & { fontSize: number }, x: number, y: n
 /** The bundled family a character of a text draws in (ADR-0063). */
 export const drawnFamily = (text: TextFont, char: string): BundledFamily =>
   faceFor(facesOf(text), char).family;
+
+/**
+ * The `line-height` a run of a text drawn in `family` at `size` takes in SVG, so that Inkscape 1.2.2,
+ * which stacks lines as CSS inline boxes, stacks its line by leading alone (ADR-0080): the run's box
+ * shrunk by twice what its family's em-box ascent differs from the text's first family's, so it lies
+ * inside the box a first-family run of its size and leading has. Rounded down, since a box a
+ * thousandth taller needs its whole leading in the frame. Undefined for the first family's box.
+ */
+export function runLineHeight(
+  text: TextFont & { leading?: number },
+  family: BundledFamily,
+  size: number,
+): string | undefined {
+  const shrink = 2 * Math.abs(FAMILIES[family].ascent - FAMILIES[fontFamilies(text)[0]].ascent);
+  if (!shrink) return undefined;
+  const floor = (v: number) => formatNumber(Math.max(0, Math.floor(v * 1000) / 1000));
+  return text.leading === undefined
+    ? floor(1.2 - shrink)
+    : `${floor(text.leading - shrink * size)}px`;
+}
 
 type Overrides = Omit<CharacterRange, "start" | "end">;
 /** A Character Range as written, its colours not parsed yet. */
@@ -439,56 +459,36 @@ function layout(text: TextLayout) {
 /**
  * The first family's ascent and each line's box. A line's leading, as Illustrator's (ADR-0068): the
  * Node's, or with Auto 120% of the largest size among its characters, its hard return included; an
- * empty last line's is the Node's size. CSS inline boxes at that size and leading stack a line
- * holding CJK as Inkscape does (ADR-0064): half the leading above and below each family's em box,
- * and the line as tall as the union of the text's first family's box, the strut, and the boxes of
- * the families its characters draw in, trailing spaces left out. `rise` and `drop` are what the line
- * exceeds the strut by, above and below; a Latin line has neither.
+ * empty last line's is the Node's size. The box is the text's first family's em box at that size,
+ * with half the leading above and below: the families a line's characters draw in never change it,
+ * as Illustrator stacks by leading alone (ADR-0080).
  */
 function lineBoxes(text: TextLayout, m: Metric[]) {
-  const chars = m.map((c) => c.char);
   const first = FAMILIES[fontFamilies(text)[0]].ascent;
   const lineBox = (from: number, to: number) => {
     let size = 0;
     for (let i = from; i < to; i++) size = Math.max(size, (m[i] as Metric).size);
     size ||= m[to]?.size ?? text.fontSize;
     const leading = text.leading ?? 1.2 * size;
-    to = hangsFrom(chars, from, to);
-    let [top, bottom] = [first, first];
-    for (let i = from; i < to; i++) {
-      const { ascent } = FAMILIES[(m[i] as Metric).family];
-      [top, bottom] = [Math.max(top, ascent), Math.min(bottom, ascent)];
-    }
     const half = (leading - size) / 2;
-    const [rise, drop] = [(top - first) * size, (first - bottom) * size];
-    return {
-      leading,
-      ascent: half + first * size + rise,
-      descent: half + (1 - first) * size + drop,
-      rise,
-      drop,
-    };
+    return { leading, ascent: half + first * size, descent: half + (1 - first) * size };
   };
   return { first, lineBox };
 }
 
 type LineBox = ReturnType<ReturnType<typeof lineBoxes>["lineBox"]>;
-type Stacked = { baseline: number; drop: number; needs: number; leading: number };
+type Stacked = { baseline: number; needs: number; leading: number };
 
 /**
  * Where Area Type puts a line below `prev`, from the frame's top, and the frame height it needs to
- * show. ponytail: Inkscape's thresholds, measured rather than specified: the first line shows while
- * 90% of its height lies in the frame; a later one while 90% of its leading does, measured from its
- * top, or all of it if the line rises above the strut. The first baseline is one line-box ascent
- * below the frame's top; each later one is the line's leading below the one before, and what CJK
- * adds (ADR-0064, ADR-0068).
+ * show. ponytail: Inkscape's threshold, measured rather than specified: a line shows while 90% of
+ * its leading lies in the frame, measured from its top (ADR-0064, ADR-0080). The first baseline is
+ * one line-box ascent below the frame's top; each later one is the line's leading below the one
+ * before (ADR-0068).
  */
 function stack(prev: Stacked | undefined, b: LineBox): Stacked {
-  const baseline = prev ? prev.baseline + prev.drop + b.leading + b.rise : b.ascent;
-  let shows = 0.9 * b.leading;
-  if (!prev) shows = 0.9 * (b.ascent + b.descent);
-  else if (b.rise > 0) shows = b.leading;
-  return { baseline, drop: b.drop, needs: baseline - b.ascent + shows, leading: b.leading };
+  const baseline = prev ? prev.baseline + b.leading : b.ascent;
+  return { baseline, needs: baseline - b.ascent + 0.9 * b.leading, leading: b.leading };
 }
 
 /** The lines as ADR-0022 lays them out, each starting at `x`. */
@@ -562,8 +562,9 @@ function unaligned(text: TextLayout) {
  * rules, each span its own line; a span too narrow for the next word is skipped, and so is a band
  * with no span it fits; a hard return ends the span, the next paragraph starting in the next one.
  * What fits no band above the frame's bottom overflows. Each line's span, for alignment.
- * ponytail: every band is the Node's own size and leading tall; a line holding CJK or a larger
- * Character Range steps as Latin does here, where a rectangle frame stacks it by its fonts.
+ * ponytail: every band is the Node's own size and leading tall, so a line holding a larger
+ * Character Range steps as the Node's size does here, where a rectangle frame steps it by its own
+ * leading (#200).
  */
 function shaped(
   text: TextLayout,

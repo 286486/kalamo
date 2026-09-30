@@ -37,6 +37,7 @@ import {
   type Rect,
   type RenderScope,
   round,
+  runLineHeight,
   type ShapeNode,
   type Stroke,
   scaleOf,
@@ -827,10 +828,17 @@ function text(n: TextNode, a: Attrs, extra: (string | false)[], chunked: boolean
         if (char === " " || char === "\u00a0") alone = before !== undefined && f !== before;
         else before = char === "\n" ? undefined : f;
       }
-      // resvg is told the bundled family each chunk draws in; others the range's, as written.
+      // resvg is told the bundled family each chunk draws in; others the range's, as written. For
+      // them, a character another family's box draws shrinks its line-height, so Inkscape stacks
+      // the line by leading alone (ADR-0080); resvg keeps each line's y.
+      const lineHeight =
+        !chunked && char !== "\n"
+          ? runLineHeight(n, drawnFamily(font, char), r?.fontSize ?? n.fontSize)
+          : undefined;
       const own = attrs({
         ...(r && overrides(r)),
         "font-family": chunked ? (family === first ? undefined : family) : r?.fontFamily,
+        style: lineHeight && `line-height:${lineHeight}`,
       });
       const last = runs.at(-1);
       if (!chunk && last?.attrs === own && last.alone === alone) last.text += char;

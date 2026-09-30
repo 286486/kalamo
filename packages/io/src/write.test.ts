@@ -339,8 +339,12 @@ it("splits a line for resvg where its drawing family changes, each chunk at its 
     'H<tspan rotate="5">i </tspan><tspan x="13.98" rotate="5" font-family="Noto Sans SC">小</tspan>' +
       '<tspan font-family="Noto Sans SC">动</tspan><tspan x="35.98">x</tspan>',
   );
-  // Export keeps one run per override, as Inkscape and browsers fall back per character.
-  expect(line(toSvg(doc))).toBe('H<tspan rotate="5">i 小</tspan>动x');
+  // Export keeps one run per override, as Inkscape and browsers fall back per character, and a
+  // fallback run shrinks its line-height so Inkscape stacks by leading alone (ADR-0080).
+  expect(line(toSvg(doc))).toBe(
+    'H<tspan rotate="5">i </tspan><tspan rotate="5" style="line-height:0.948">小</tspan>' +
+      '<tspan style="line-height:0.948">动</tspan>x',
+  );
 });
 
 it("writes a range's family as written, and for resvg the bundled family each chunk draws in (ADR-0068)", () => {
@@ -362,7 +366,7 @@ it("writes a range's family as written, and for resvg the bundled family each ch
   const line = (svg: string) =>
     /<tspan sodipodi:role="line"[^>]*>(.*?)<\/tspan><\/text>/.exec(svg)?.[1];
   expect(line(toSvg(doc))).toBe(
-    '<tspan font-family="Helvetica">Hi</tspan> <tspan font-family="Noto Sans SC">Hi</tspan>',
+    `<tspan font-family="Helvetica">Hi</tspan> <tspan font-family="Noto Sans SC" style="line-height:0.948">Hi</tspan>`,
   );
   // Helvetica draws in Source Sans 3, the text's first family; Noto Sans SC in itself, from its x:
   // H 6.52, i 2.46 and the space 2.
@@ -1467,13 +1471,13 @@ describe("a space after a character in another bundled family (ADR-0067)", () =>
   const lines = (svg: string) =>
     [
       ...svg.matchAll(
-        /<tspan (?:sodipodi:role="line" )?x="[^"]*" y="[^"]*">(.*?)<\/tspan>(?=<tspan [sx]|<\/text>)/g,
+        /<tspan (?:sodipodi:role="line" )?x="[^"]*" y="[^"]*">(.*?)<\/tspan>(?=<tspan (?:sodipodi|x)|<\/text>)/g,
       ),
     ].map((m) => m[1]);
 
   it("writes each run of spaces after Hangul as its own tspan, and not one after Latin", () => {
     expect(lines(exported("Hi 한국 어  Kalamo").svg)).toEqual([
-      "Hi 한국<tspan> </tspan>어<tspan>  </tspan>Kalamo",
+      `Hi <tspan style="line-height:0.948">한국</tspan><tspan> </tspan><tspan style="line-height:0.948">어</tspan><tspan>  </tspan>Kalamo`,
     ]);
   });
 
@@ -1484,7 +1488,7 @@ describe("a space after a character in another bundled family (ADR-0067)", () =>
       height: 80,
     });
     expect(lines(svg)).toEqual([
-      "Hi 한국<tspan> </tspan>어<tspan> </tspan>Kalamo 小<tspan> </tspan>x",
+      `Hi <tspan style="line-height:0.948">한국</tspan><tspan> </tspan><tspan style="line-height:0.948">어</tspan><tspan> </tspan>Kalamo <tspan style="line-height:0.948">小</tspan><tspan> </tspan>x`,
     ]);
   });
 
@@ -1494,13 +1498,16 @@ describe("a space after a character in another bundled family (ADR-0067)", () =>
   });
 
   it("keeps a Latin-only text and a space at a line's start as they were", () => {
-    expect(lines(exported("Hi there\n 한").svg)).toEqual(["Hi there", " 한"]);
+    expect(lines(exported("Hi there\n 한").svg)).toEqual([
+      "Hi there",
+      ` <tspan style="line-height:0.948">한</tspan>`,
+    ]);
   });
 
   it("keeps a space's Character Range attributes in its own tspan", () => {
     const { svg } = exported("한 국", { ranges: [{ start: 0, end: 3, fill: "#FF0000" }] });
     expect(lines(svg)).toEqual([
-      '<tspan fill="#FF0000">한</tspan><tspan fill="#FF0000"> </tspan><tspan fill="#FF0000">국</tspan>',
+      `<tspan fill="#FF0000" style="line-height:0.948">한</tspan><tspan fill="#FF0000"> </tspan><tspan fill="#FF0000" style="line-height:0.948">국</tspan>`,
     ]);
   });
 
@@ -1519,6 +1526,42 @@ describe("a space after a character in another bundled family (ADR-0067)", () =>
     expect(toSvg(doc, undefined, { resvg: true })).not.toContain("<tspan> </tspan>");
   });
 });
+
+it.each([
+  ["Point", {}],
+  ["Area", { kind: "area", width: 200, height: 120 }],
+])(
+  "writes a fallback run's line-height, so Inkscape stacks %s Type by leading alone, and Opens it back (ADR-0080)",
+  (_, extra) => {
+    const { doc, defaultLayerId: parentId } = newDoc();
+    const text = (content: string, more: object) =>
+      createNodes(doc, [
+        { type: "text", parentId, x: 10, y: 30, fontSize: 20, content, ...extra, ...more } as never,
+      ]).nodes[0] as Node;
+    const nodes = [
+      // Auto: 1.2 less twice what Noto Sans SC's ascent, 0.88, exceeds Source Sans 3's, 1000 / 1326.
+      text("Hi 中文\nnext", {}),
+      // A set leading, at the run's own size: 30 − 0.251704 × 30, rounded down.
+      text("Hi 中文\nnext", { leading: 30, ranges: [{ start: 3, end: 5, fontSize: 30 }] }),
+      // Source Sans 3 in a Noto Sans SC text drops below its box by as much.
+      text("中文 Hi", {
+        fontFamily: "Noto Sans SC",
+        ranges: [{ start: 3, end: 5, fontFamily: "Source Sans 3" }],
+      }),
+      text("Latin only\nnext", {}),
+    ];
+    const svg = toSvg(doc);
+    expect(svg).toContain('<tspan style="line-height:0.948">中文</tspan>');
+    expect(svg).toContain('<tspan font-size="30" style="line-height:22.448px">中文</tspan>');
+    expect(svg).toContain(
+      '<tspan font-family="Source Sans 3" style="line-height:0.948">Hi</tspan>',
+    );
+    expect(svg.match(/line-height/g)).toHaveLength(nodes.length + 3);
+    const file = parseSvg(svg);
+    expect(file.warnings).toEqual([]);
+    for (const n of nodes) expect(file.nodes.find((m) => m.id === n.id)).toEqual(n);
+  },
+);
 
 it.each([
   ["Point", {}],

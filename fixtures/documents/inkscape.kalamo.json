@@ -127,6 +127,11 @@
       "frame": { "height": 220, "width": 320, "x": 640, "y": 260 },
       "id": "01M38T29T4SHAPEDARTB0ARD00",
       "name": "Shaped Area Type"
+    },
+    {
+      "frame": { "height": 120, "width": 240, "x": 980, "y": 260 },
+      "id": "01M38T29T5CJKSTACKARTB0RD0",
+      "name": "CJK Line Stacking"
     }
   ],
   "nodes": [
@@ -3223,6 +3228,67 @@
       "width": 145,
       "x": 790,
       "y": 275
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#000000",
+            "type": "solid"
+          }
+        ],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "content": "Latin line first\nthen 中文 in Noto\n最后 the last",
+      "fontFamily": "Source Sans 3",
+      "fontSize": 14,
+      "id": "01M38T29T5CJKSTACK0000000P",
+      "index": "b0B",
+      "kind": "point",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "text",
+      "visible": true,
+      "x": 990,
+      "y": 285
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#000000",
+            "type": "solid"
+          }
+        ],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "content": "Latin words, then 中文字 and 日本語の文 on the lines after",
+      "fontFamily": "Source Sans 3",
+      "fontSize": 12,
+      "height": 53,
+      "id": "01M38T29T5CJKSTACK0000000A",
+      "index": "b0C",
+      "kind": "area",
+      "leading": 18,
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "text",
+      "visible": true,
+      "width": 100,
+      "x": 1110,
+      "y": 270
     }
   ],
   "images": {

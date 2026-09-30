@@ -371,29 +371,48 @@ it("wraps a CJK paragraph between characters, each line within the frame", () =>
   expect(lines.every((l) => [...l.text].length * 12 <= 60)).toBe(true);
   expect(lines.map((l) => l.start)).toEqual([0, 5, 10, 14, 19, 24]);
   expect(overflow).toBe("");
-  expect(area(content, { width: 60, height: 93.9 }).lines).toHaveLength(5);
+  expect(area(content, { width: 60, height: 84.95 }).lines).toHaveLength(5);
 });
 
-// Inkscape 1.2.2 measured headless: Noto's typographic box, 880 above and 120 below, with half the
-// leading, rises 1.76 above Source Sans 3's at 12 pt, so a line holding CJK is 1.76 taller, and a
-// later line then shows only while all of its leading, not 90%, lies in the frame.
-it("stacks Area Type lines by the em boxes of the families they draw in, as Inkscape (ADR-0064)", () => {
-  const { lines } = area("Hi\n中文\nHi\n\n中文", { width: 100, height: 100 });
-  expect(lines.map((l) => l.y - 20)).toEqual(
-    [10.249774, 26.16, 40.56, 54.96, 70.870226].map((y) => expect.closeTo(y, 5)),
-  );
-  expect(area("中文", { width: 100, height: 14.319 }).lines).toHaveLength(0);
-  expect(area("中文", { width: 100, height: 14.32 }).lines).toHaveLength(1);
-  expect(area("Hi\n中文", { width: 100, height: 28.799 }).lines).toHaveLength(1);
-  expect(area("Hi\n中文", { width: 100, height: 28.8 }).lines).toHaveLength(2);
-  expect(area("中文\nHi", { width: 100, height: 28.87 }).lines).toHaveLength(1);
-  expect(area("中文\nHi", { width: 100, height: 28.871 }).lines).toHaveLength(2);
-  // Noto Sans KR's typographic box is Noto Sans SC's, 880 above and 120 below (ADR-0066).
-  expect(area("Hi\n한국\nHi\n\n한국", { width: 100, height: 100 }).lines.map((l) => l.y)).toEqual(
-    area("Hi\n中文\nHi\n\n中文", { width: 100, height: 100 }).lines.map((l) => l.y),
-  );
-  expect(area("한국", { width: 100, height: 14.319 }).lines).toHaveLength(0);
-  expect(area("한국", { width: 100, height: 14.32 }).lines).toHaveLength(1);
+// Illustrator stacks by leading alone, whatever family a line draws in (ADR-0080), as Inkscape 1.2.2
+// does once each fallback run's line-height shrinks its box inside Source Sans 3's.
+it("stacks Area Type lines by leading alone, CJK in a fallback family included (ADR-0080)", () => {
+  const baselines = (content: string, extra: Partial<Parameters<typeof layoutText>[0]> = {}) =>
+    layoutText({
+      kind: "area",
+      x: 0,
+      y: 20,
+      width: 100,
+      height: 200,
+      content,
+      fontSize: 12,
+      ...extra,
+    }).lines.map((l) => l.y - 20);
+  const steps = (ys: number[]) => ys.slice(1).map((y, i) => y - (ys[i] as number));
+  // The first baseline is ADR-0022's: (leading - size) / 2 + size · 1000 / 1326.
+  const first = 1.2 + (12 * 1000) / 1326;
+  const auto = baselines("Hi\n中文\nHi\n\n中文");
+  expect(auto[0]).toBeCloseTo(first, 9);
+  expect(steps(auto)).toEqual([14.4, 14.4, 14.4, 14.4].map((s) => expect.closeTo(s, 9)));
+  expect(baselines("中文\nHi")[0]).toBeCloseTo(first, 9);
+  const set = baselines("Hi\n中文\nHi", { leading: 20 });
+  expect(set[0]).toBeCloseTo(4 + (12 * 1000) / 1326, 9);
+  expect(steps(set)).toEqual([20, 20].map((s) => expect.closeTo(s, 9)));
+  // A 24 pt range on the CJK line: that line's Auto leading is 28.8, the next line's 14.4.
+  const larger = baselines("Hi\n中文\nHi", { ranges: [{ start: 3, end: 5, fontSize: 24 }] });
+  expect(steps(larger)).toEqual([28.8, 14.4].map((s) => expect.closeTo(s, 9)));
+  // Noto Sans KR stacks the same way (ADR-0066).
+  expect(baselines("Hi\n한국\nHi\n\n한국")).toEqual(auto);
+  // A line shows while 90% of its leading lies in the frame, as a Latin line does.
+  for (const [content, height, shown] of [
+    ["中文", 12.959, 0],
+    ["中文", 12.96, 1],
+    ["Hi\n中文", 27.359, 1],
+    ["Hi\n中文", 27.36, 2],
+    ["中文\nHi", 27.36, 2],
+  ] as const) {
+    expect(area(content, { width: 100, height }).lines).toHaveLength(shown);
+  }
 });
 
 it("never starts an Area Type line with closing punctuation, small kana or ー, nor ends one with opening", () => {
@@ -630,17 +649,12 @@ it("draws a range's characters in its family's fallback order, its family kept a
   ).toEqual([{ start: 0, end: 1, fontFamily: "Helvetica" }]);
 });
 
-it("stacks an Area Type line by the families its range characters draw in (ADR-0064, ADR-0068)", () => {
+it("stacks an Area Type line of a range's family as a line of the text's own (ADR-0068, ADR-0080)", () => {
   const frame = { kind: "area" as const, x: 0, y: 0, width: 200, height: 100, fontSize: 10 };
   const lines = (ranges?: { start: number; end: number; fontFamily: string }[]) =>
     layoutText({ ...frame, content: "ab\ncd\nef", ranges }).lines.map((l) => l.y);
   const latin = lines();
-  const noto = lines([{ start: 3, end: 4, fontFamily: "Noto Sans SC" }]);
-  // The Noto line rises by its em box's ascent over Source Sans 3's, 10 × (0.88 - 1000/1326).
-  const rise = 10 * (0.88 - 1000 / 1326);
-  expect(noto[0]).toBeCloseTo(latin[0] as number);
-  expect(noto[1]).toBeCloseTo((latin[1] as number) + rise);
-  expect(noto[2]).toBeCloseTo((latin[2] as number) + rise);
+  expect(lines([{ start: 3, end: 4, fontFamily: "Noto Sans SC" }])).toEqual(latin);
 });
 
 it("measures a range's characters at its size, its tracking in their em (ADR-0068)", () => {
