@@ -1,6 +1,6 @@
 import { parseColor } from "./color.ts";
 import { edgesOf, frameSpans, type Span } from "./frame.ts";
-import { lineBreakUnits } from "./line-break.ts";
+import { breakingSpace, lineBreakUnits } from "./line-break.ts";
 import { NOTO_SANS_KR } from "./noto-sans-kr.ts";
 import { NOTO_SANS_SC } from "./noto-sans-sc.ts";
 import { formatNumber, parsePath, round3, type Segment } from "./path.ts";
@@ -432,7 +432,8 @@ export const characterFamilies = (text: TextLayout): BundledFamily[] =>
 /**
  * Where the trailing whitespace of `chars` from `from` up to `to` starts: the characters after it
  * hang past the frame's edge and past a line's alignment, and are never widened (ADR-0022,
- * ADR-0077). Whitespace is every character JavaScript's `/\s/` matches.
+ * ADR-0077). Whitespace is every character JavaScript's `/\s/` matches, a no-break space included:
+ * it never ends a line at a break, but Inkscape 1.2.2 hangs it where a unit breaks after it (ADR-0086).
  */
 function hangsFrom(chars: string[], from = 0, to = chars.length): number {
   while (to > from && /\s/.test(chars[to - 1] as string)) to--;
@@ -882,7 +883,7 @@ export function pointType(
     const soft = i < lines.length - 1 && last !== "\n";
     // Kept when it is all that shows, as Point Type needs content.
     if (i === lines.length - 1 && last === "\n" && overflow && out.length + t.length > 1) t.pop();
-    else if (soft && /\s/.test(last)) t[t.length - 1] = "\n";
+    else if (soft && breakingSpace(last)) t[t.length - 1] = "\n";
     else if (soft) {
       const p = out.length + t.length;
       ranges = ranges.map((r) => ({

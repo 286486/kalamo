@@ -320,7 +320,7 @@ it("wraps Area Type at spaces where Inkscape does, trailing spaces and returns k
   expect(overflow).toBe("");
 });
 
-// Inkscape 1.2.2's saved line tspans for each text, 12 px Source Sans 3 in a <rect> (#222).
+// Inkscape 1.2.2's saved line tspans for each text, 12 px Source Sans 3 in a <rect> (#222, #224).
 it.each([
   [
     120,
@@ -337,20 +337,40 @@ it.each([
   // No break inside a number or before a digit, so the unit breaks between characters (ADR-0084).
   [60, "xxxxx 12/12345678", ["xxxxx ", "12/1234567", "8"]],
   [60, "xxxxx aa-12345678", ["xxxxx ", "aa-1234567", "8"]],
-])(
-  "wraps Area Type %d wide after a solidus or hyphen where Inkscape does: %s",
-  (width, content, want) => {
-    const { lines, overflow } = area(content, { width, height: 300 });
-    expect(lines.map((l) => l.text)).toEqual(want);
-    let start = 0;
-    for (const l of lines) {
-      expect(l.start).toBe(start);
-      start += [...l.text].length;
-    }
-    expect(lines.map((l) => l.text).join("")).toBe(content);
-    expect(overflow).toBe("");
-  },
-);
+  // A no-break space keeps its unit whole, broken between characters when wider (ADR-0086).
+  [60, "xxxxx aa\u00A0bbbbbbbb", ["xxxxx ", "aa\u00A0bbbbbb", "bb"]],
+  [60, "xxxxx 10\u00A0km/h", ["xxxxx ", "10\u00A0km/h"]],
+  [60, "xxxxx aa\u202Fbbbbbbbb", ["xxxxx ", "aa\u202Fbbbbbbb", "b"]],
+  [60, "xxxxx aa\u2007bbbbbbbb", ["xxxxx ", "aa\u2007bbbbbb", "bb"]],
+])("wraps Area Type %d wide where Inkscape does: %s", (width, content, want) => {
+  const { lines, overflow } = area(content, { width, height: 300 });
+  expect(lines.map((l) => l.text)).toEqual(want);
+  let start = 0;
+  for (const l of lines) {
+    expect(l.start).toBe(start);
+    start += [...l.text].length;
+  }
+  expect(lines.map((l) => l.text).join("")).toBe(content);
+  expect(overflow).toBe("");
+});
+
+// Inkscape 1.2.2 right-aligns `aaaaaaaaa` with and without a no-break space after it at the same x.
+it("hangs a no-break space that ends a line at a character break past a right-aligned frame, as Inkscape does (ADR-0086)", () => {
+  const { lines } = layoutText({
+    kind: "area",
+    x: 0,
+    y: 0,
+    width: 60,
+    height: 300,
+    content: "xxxxx aaaaaaaaa\u00A0bbbb",
+    fontSize: 12,
+    alignment: "right",
+  });
+  expect(lines.map((l) => l.text)).toEqual(["xxxxx ", "aaaaaaaaa\u00A0", "bbbb"]);
+  expect(lines.map((l) => l.x)).toEqual(
+    [33.240051, 5.5680313, 33.456024].map((x) => expect.closeTo(x, 3)),
+  );
+});
 
 it("keeps empty paragraphs, and no line for a final return", () => {
   const { lines } = area("a\n\nb\n", { width: 100, height: 100 }, 15);
@@ -624,6 +644,39 @@ it("breaks Latin after a solidus, a hyphen and BA dashes, where Pango 1.50.12 do
   for (const unit of whole) expect(lineBreakUnits(unit)).toEqual([unit]);
   // Pango keeps `a /` together (LB13 across a space); spaces break as before (ADR-0064).
   expect(lineBreakUnits("a /b")).toEqual(["a ", "/", "b"]);
+});
+
+it("never breaks after a no-break space or word joiner, nor before one but after a space, BA or HY, as Pango 1.50.12 does (ADR-0086)", () => {
+  // U+00A0, U+2007 and U+202F are UAX #14's GL; U+FEFF and U+2060 its WJ.
+  const breaks = [
+    ["a\u00A0b ", "c"],
+    ["a ", "\u00A0b"],
+    ["a-", "\u00A0b"],
+    ["a|", "\u00A0b"],
+    ["a–", "\u00A0b"],
+    ["a-́", "\u00A0b"],
+    ["a\u00A0/", "b"],
+    ["a\u00A0-", "b"],
+    ["a\u00A0 ", "b"],
+    ["a\uFEFF ", "b"],
+    ["字 ", "\u00A0字"],
+    ["字-", "\u00A0字"],
+  ];
+  for (const units of breaks) expect(lineBreakUnits(units.join(""))).toEqual(units);
+  const whole = [
+    ...["10\u00A0km", "a\u202Fb", "a\u2007b", "a\uFEFFb", "a\u00A0\u00A0b", "a\u00A0́b"],
+    ...["a/\u00A0b", "1/\u00A02", "a \uFEFFb", "a \u2060b", "字\uFEFF字"],
+    ...[
+      "字\u00A0字",
+      "a\u00A0字",
+      "字\u00A0a",
+      "$\u00A0字",
+      "字\u00A0%",
+      "「\u00A0字",
+      "字\u00A0」",
+    ],
+  ];
+  for (const unit of whole) expect(lineBreakUnits(unit)).toEqual([unit]);
 });
 
 // Noto Sans SC draws each ideograph and CJK punctuation mark 1000 units wide, 12pt at fontSize 12.

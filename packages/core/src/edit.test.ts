@@ -2275,6 +2275,36 @@ describe("Convert to Area Type and Point Type (ADR-0079)", () => {
     expectSame(doc.nodes.get(t.id) as Text, t);
   });
 
+  // Each ends the first line where its unit breaks between characters (ADR-0084).
+  it.each([
+    ["U+00A0", "aaaaaaaaa\u00A0bbbb"],
+    ["U+2007", "aaaaaaaa\u2007bbbb"],
+    ["U+202F", "aaaaaaaaa\u202Fbbbb"],
+    ["U+FEFF", "aaaaaaaaa\uFEFFbbbb"],
+  ])(
+    "Area to Point keeps %s where it ends a line, only inserting the returns (ADR-0086)",
+    (_, content) => {
+      const { doc, t } = make({ kind: "area", width: 60, height: 200, content });
+      expect(layoutText(t).lines[0]?.text).toBe(content.slice(0, content.length - 4));
+      expect(convert(doc, t.id, { kind: "point" }).warnings).toEqual([]);
+      const p = doc.nodes.get(t.id) as Text;
+      expect(p.content.replaceAll("\n", "")).toBe(content);
+      expectSame(p, t);
+    },
+  );
+
+  it("Area to Point keeps a no-break space before a soft wrap's space, and inside a unit (ADR-0086)", () => {
+    for (const [content, want] of [
+      ["xxxxx aa\u00A0 bbbbbbbb", "xxxxx aa\u00A0\nbbbbbbbb"],
+      ["xxxxx aa\u00A0bbbbbbbb", "xxxxx\naa\u00A0bbbbbb\nbb"],
+    ]) {
+      const { doc, t } = make({ kind: "area", width: 60, height: 200, content });
+      expect(convert(doc, t.id, { kind: "point" }).warnings).toEqual([]);
+      expect(doc.nodes.get(t.id)).toMatchObject({ kind: "point", content: want });
+      expectSame(doc.nodes.get(t.id) as Text, t);
+    }
+  });
+
   it("a trailing hard return survives Point to Area and back", () => {
     const { doc, t } = make({ content: "ab\n" });
     convert(doc, t.id, { kind: "area" });
