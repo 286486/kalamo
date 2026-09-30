@@ -265,3 +265,139 @@ threshold	40px	auto	43.200	34.17
 threshold	40px	30	31.575	25.17
 threshold	10px	auto	21.601	17.08
 threshold	10px	30	29.288	20.08
+break	rect180	wide	auto	57.08	20	HHH HHH 
+break	rect180	wide	auto	81.08	20	HHHHHHHHHHHHH
+break	rect180	wide	auto	105.08	20	HHHHHHHHHHHHH
+break	rect180	wide	auto	129.08	20	HHHHHHHHHHHHH
+break	rect180	wide	auto	153.08	20	H HHH HHH
+break	rect180	wide	30	60.08	20	HHH HHH 
+break	rect180	wide	30	90.08	20	HHHHHHHHHHHHH
+break	rect180	wide	30	120.08	20	HHHHHHHHHHHHH
+break	rect180	wide	30	150.08	20	HHHHHHHHHHHHH
+break	rect180	wide	30	180.08	20	H HHH HHH
+break	U	wide	auto	57.08	20	HHH HHH HHHHHHHHH
+break	U	wide	auto	81.08	20	HHHHHHHHHHHHHHHHHH
+break	U	wide	auto	105.08	20	HHHHHHHHHHHHH HHH 
+break	U	wide	auto	129.08	20	HHH
+break	U	wide	30	60.08	20	HHH HHH HHHHHHHHH
+break	U	wide	30	90.08	20	HHHHHHHHHHHHHHHHHH
+break	U	wide	30	120.08	20	HHHHHHHHHHHHH HHH 
+break	U	wide	30	150.08	20	HHH
+break	triangle	wide	auto	57.08	30.8	HHH HHH 
+break	triangle	wide	auto	81.08	42.8	HHHHHHHHHHHHHHHHHHH
+break	triangle	wide	auto	105.08	54.8	HHHHHHHHHHHHHHHHH
+break	triangle	wide	auto	129.08	66.8	HHHH HHH HHH
+break	triangle	wide	30	60.08	33.5	HHH HHH 
+break	triangle	wide	30	90.08	48.5	HHHHHHHHHHHHHHHHHH
+break	triangle	wide	30	120.08	63.5	HHHHHHHHHHHHHHHH
+break	triangle	wide	30	150.08	78.5	HHHHHH HHH HHH
+break	slant	wide	auto	57.08	27.2	HHH HHH 
+break	slant	wide	auto	81.08	35.2	HHHHHHHHHHHH
+break	slant	wide	auto	105.08	43.2	HHHHHHHHHHHH
+break	slant	wide	auto	129.08	51.2	HHHHHHHHHHH
+break	slant	wide	auto	153.08	59.2	HHHHH HHH 
+break	slant	wide	auto	177.08	67.2	HHH
+break	slant	wide	30	60.08	29	HHH HHH 
+break	slant	wide	30	90.08	39	HHHHHHHHHHHH
+break	slant	wide	30	120.08	49	HHHHHHHHHHH
+break	slant	wide	30	150.08	59	HHHHHHHHHH
+break	slant	wide	30	180.08	69	HHHHHHH 
+break	slant	wide	30	210.08	79	HHH HHH
+break	neck	wide	auto	129.08	20	HHH HHH 
+break	neck	wide	auto	153.08	20	HHHHHHHHHHHHHHHHHHHHHHH
+break	neck	wide	auto	177.08	20	HHHHHHHHHHHHHHHHH HHH 
+break	neck	wide	auto	201.08	20	HHH
+break	neck	wide	30	120.08	20	HHH HHH 
+break	neck	wide	30	150.08	20	HHHHHHHHHHHHHHHHHHHHHHH
+break	neck	wide	30	180.08	20	HHHHHHHHHHHHHHHHH HHH 
+break	neck	wide	30	210.08	20	HHH
+break	rect95	wide	auto	57.08	20	HHH HHH 
+break	rect95	wide	auto	overflow	20	HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH HHH HHH
+break	rect95	wide	30	60.08	20	HHH HHH 
+break	rect95	wide	30	overflow	20	HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH HHH HHH
+break	rect97	wide	auto	57.08	20	HHH HHH 
+break	rect97	wide	auto	81.08	20	HHHHHHH
+break	rect97	wide	auto	105.08	20	HHHHHHH
+break	rect97	wide	auto	129.08	20	HHHHHHH
+break	rect97	wide	auto	153.08	20	HHHHHHH
+break	rect97	wide	auto	177.08	20	HHHHHHH
+break	rect97	wide	auto	201.08	20	HHHHH 
+break	rect97	wide	auto	225.08	20	HHH HHH
+break	rect97	wide	30	60.08	20	HHH HHH 
+break	rect97	wide	30	overflow	20	HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH HHH HHH
+break	rect119	wide	auto	57.08	20	HHH HHH 
+break	rect119	wide	auto	81.08	20	HHHHHHHHH
+break	rect119	wide	auto	105.08	20	HHHHHHHHH
+break	rect119	wide	auto	129.08	20	HHHHHHHHH
+break	rect119	wide	auto	153.08	20	HHHHHHHHH
+break	rect119	wide	auto	177.08	20	HHHH HHH 
+break	rect119	wide	auto	201.08	20	HHH
+break	rect119	wide	30	60.08	20	HHH HHH 
+break	rect119	wide	30	overflow	20	HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH HHH HHH
+break	rect121	wide	auto	57.08	20	HHH HHH 
+break	rect121	wide	auto	81.08	20	HHHHHHHHH
+break	rect121	wide	auto	105.08	20	HHHHHHHHH
+break	rect121	wide	auto	129.08	20	HHHHHHHHH
+break	rect121	wide	auto	153.08	20	HHHHHHHHH
+break	rect121	wide	auto	177.08	20	HHHH HHH 
+break	rect121	wide	auto	201.08	20	HHH
+break	rect121	wide	30	60.08	20	HHH HHH 
+break	rect121	wide	30	90.08	20	HHHHHHHHH
+break	rect121	wide	30	120.08	20	HHHHHHHHH
+break	rect121	wide	30	150.08	20	HHHHHHHHH
+break	rect121	wide	30	180.08	20	HHHHHHHHH
+break	rect121	wide	30	210.08	20	HHHH HHH 
+break	rect121	wide	30	240.08	20	HHH
+break	arm90	mid	auto	153.08	20	HHHHHHHHHHHHHHH HHH HHH
+break	arm90	mid	30	150.08	20	HHHHHHHHHHHHHHH HHH HHH
+break	arm110	mid	auto	57.08	20	HHHHHHHH
+break	arm110	mid	auto	81.08	20	HHHHHHH 
+break	arm110	mid	auto	105.08	20	HHH HHH
+break	arm110	mid	30	150.08	20	HHHHHHHHHHHHHHH HHH HHH
+break	arm120	mid	auto	57.08	20	HHHHHHHHH
+break	arm120	mid	auto	81.08	20	HHHHHH 
+break	arm120	mid	auto	105.08	20	HHH HHH
+break	arm120	mid	30	60.08	20	HHHHHHHHH
+break	arm120	mid	30	90.08	20	HHHHHH 
+break	arm120	mid	30	120.08	20	HHH HHH
+break	rect180	tracked	auto	57.08	20	HHH HHH 
+break	rect180	tracked	auto	81.08	20	HHHHHHHHHHHH
+break	rect180	tracked	auto	105.08	20	HHHHHHHHHHHH
+break	rect180	tracked	auto	129.08	20	HHHHHHHHHHHH
+break	rect180	tracked	auto	153.08	20	HHHH HHH HHH
+break	rect180	tracked	30	60.08	20	HHH HHH 
+break	rect180	tracked	30	90.08	20	HHHHHHHHHHHH
+break	rect180	tracked	30	120.08	20	HHHHHHHHHHHH
+break	rect180	tracked	30	150.08	20	HHHHHHHHHHHH
+break	rect180	tracked	30	180.08	20	HHHH HHH HHH
+break	rect180	cjk-unit	auto	57.08	20	HHH 
+break	rect180	cjk-unit	auto	81.08	20	字」」」」」」」」
+break	rect180	cjk-unit	auto	105.08	20	」」」 HHH
+break	rect180	noto	auto	59.60	20	HHH HHH 
+break	rect180	noto	auto	83.60	20	HHHHHHHHHHHH
+break	rect180	noto	auto	107.60	20	HHHHHHHHHHHH
+break	rect180	noto	auto	131.60	20	HHHHHHHHHHHH
+break	rect180	noto	auto	155.60	20	HHHH HHH HHH
+break	rect180	noto	30	62.60	20	HHH HHH 
+break	rect180	noto	30	92.60	20	HHHHHHHHHHHH
+break	rect180	noto	30	122.60	20	HHHHHHHHHHHH
+break	rect180	noto	30	152.60	20	HHHHHHHHHHHH
+break	rect180	noto	30	182.60	20	HHHH HHH HHH
+break	rect10	narrow	2	overflow	20	HHHHH
+break	rect180	big-tail	auto	57.08	20	HHH HHH 
+break	rect180	big-tail	auto	81.08	20	HHHHHHHHHHHHH
+break	rect180	big-tail	auto	overflow	20	HHHHHHHHHHHHHHHHHHHHHHHHHHH HHH HHH
+break	rect180	big-tail	30	60.08	20	HHH HHH 
+break	rect180	big-tail	30	90.08	20	HHHHHHHHHHHHH
+break	rect180	big-tail	30	125.17	20	HHHHHHHHHH
+break	rect180	big-tail	30	160.25	20	HHHHHH
+break	rect180	big-tail	30	195.33	20	HHHHHH
+break	rect180	big-tail	30	230.41	20	HHHHH HHH 
+break	rect180	big-tail	30	260.41	20	HHH
+break	slant	big-tail	auto	57.08	27.2	HHH HHH 
+break	slant	big-tail	auto	81.08	35.2	HHHHHHHHHHHH
+break	slant	big-tail	auto	overflow	20	HHHHHHHHHHHHHHHHHHHHHHHHHHHH HHH HHH
+break	slant	big-tail	30	60.08	29	HHH HHH 
+break	slant	big-tail	30	90.08	39	HHHHHHHHHHHH
+break	slant	big-tail	30	125.17	50.52	HHHHHHHHH
+break	slant	big-tail	30	overflow	20	HHHHHHHHHHHHHHHHHHH HHH HHH

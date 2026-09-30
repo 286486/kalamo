@@ -408,9 +408,9 @@ function span(m: Metric[], from: number, to: number) {
 /**
  * A text's lines (ADR-0022). Point Type breaks at hard returns, from the baseline origin `x, y`, each
  * later line one of its own leadings below the one before (ADR-0068). Area Type wraps in its frame
- * as Inkscape 1.2 draws it, at spaces and between CJK characters (ADR-0064): each line keeps its
- * trailing spaces and hard return, so its lines and `overflow`, the text that does not fit, join
- * back into `content`.
+ * as Inkscape 1.2 draws it, at spaces, between CJK characters (ADR-0064) and inside a unit wider
+ * than its span (ADR-0084): each line keeps its trailing spaces and hard return, so its lines and
+ * `overflow`, the text that does not fit, join back into `content`.
  */
 export function layoutText(text: TextLayout): { lines: TextLine[]; overflow: string } {
   const { lines, overflow } = layout(text);
@@ -471,6 +471,9 @@ function layout(text: TextLayout) {
  * larger size's box under a set leading, and than a smaller size's with Auto, so the band reaches
  * at least the strut's bottom (#200, #203). The strut's ascent is not used: a band's top follows its
  * own size, as ADR-0080's first baseline does. A line shows while its band lies in the frame.
+ *
+ * The narrowest span a unit may break in (ADR-0084): four of Inkscape's line boxes, the box and the
+ * strut's joined, ascent included.
  */
 function lineBoxes(text: TextLayout, m: Metric[]) {
   const first = FAMILIES[fontFamilies(text)[0]].ascent;
@@ -483,13 +486,15 @@ function lineBoxes(text: TextLayout, m: Metric[]) {
     return { size, leading, ascent: half + first * size, descent: half + (1 - first) * size };
   };
   // An empty range past the last character is the Node's own size.
-  const strutDescent = lineBox(m.length, m.length).descent;
+  const strut = lineBox(m.length, m.length);
   const band = (baseline: number, b: ReturnType<typeof lineBox>) => {
-    const descent = Math.max(b.descent, strutDescent);
+    const descent = Math.max(b.descent, strut.descent);
     const cut = 0.1 * (b.ascent + descent);
     return { top: baseline - b.ascent + cut, bottom: baseline + descent - cut };
   };
-  return { lineBox, band };
+  const breaksIn = (b: ReturnType<typeof lineBox>) =>
+    4 * (Math.max(b.ascent, strut.ascent) + Math.max(b.descent, strut.descent));
+  return { lineBox, band, breaksIn };
 }
 
 type LineBoxes = ReturnType<typeof lineBoxes>;
@@ -565,38 +570,71 @@ function unaligned(text: TextLayout) {
  * first unit (#200). A rectangle's line is sized by the characters it holds, Illustrator's rule
  * (ADR-0068): its width does not follow its height, so that never moves a break. A span too narrow
  * for the next word is skipped, and so is a band with no span it fits, one of its leadings down; a
- * hard return ends the span, the next paragraph starting in the next one. What fits no band above
- * the frame's bottom overflows, so in a rectangle a unit wider than the frame overflows with all
- * that follows (ADR-0022). Each line's span, for alignment.
+ * hard return ends the span, the next paragraph starting in the next one. A unit that starts a span
+ * it does not fit, in a span at least `breaksIn` wide, is broken there between grapheme clusters
+ * instead: the span takes its widest prefix, and the rest starts the next span (ADR-0084). A piece
+ * sizes a shaped band up to the cluster that did not fit. What fits no band above the frame's
+ * bottom overflows (ADR-0022). Each line's span, for alignment.
  */
 function area(
   text: TextLayout,
   m: Metric[],
   chars: string[],
-  { lineBox, band }: LineBoxes,
+  { lineBox, band, breaksIn }: LineBoxes,
 ): { lines: TextLine[]; overflow: string; spans: Span[] } {
   const { x, y, content, width: frameWidth = 0, height = 0 } = text;
   const edges = text.frame ? edgesOf(text.frame) : undefined;
   const bottom = y + height;
   const units = unitsOf(content);
   const width = (from: number, to: number) => span(m, from, hangsFrom(chars, from, to));
-  /** The lines greedy filling puts in `spans` from unit `u`, and where the characters it tried end. */
-  const fill = (spans: Span[], u: number) => {
+  /**
+   * Where the widest prefix of whole grapheme clusters from `from` up to `to` that is at most `w`
+   * wide ends, `from` when none is, and where the cluster after it ends.
+   */
+  const prefix = (from: number, to: number, w: number) => {
+    let [end, over, sum] = [from, to, 0];
+    for (const { segment } of new Intl.Segmenter().segment(chars.slice(from, to).join(""))) {
+      const next = end + [...segment].length;
+      for (let i = end; i < next; i++) sum += (m[i] as Metric).advance + (m[i] as Metric).tracking;
+      if (sum - (m[next - 1] as Metric).tracking > w) {
+        over = next;
+        break;
+      }
+      end = next;
+    }
+    return { end, over };
+  };
+  /**
+   * The lines greedy filling puts in `spans` from unit `u`, its characters from `at` on, where the
+   * characters it tried end, and the unit and character it stopped at.
+   */
+  const fill = (spans: Span[], u: number, at: number, narrowest: number) => {
     const placed: { from: number; to: number; span: Span }[] = [];
     let s = 0;
-    let from = (units[u] as Unit).from;
-    let tried = from;
+    let from = at;
+    let rest = at;
+    let tried = at;
     for (; u < units.length; u++) {
       const unit = units[u] as Unit;
+      rest = Math.max(unit.from, at);
       tried = unit.to;
       const slot = spans[s];
-      if (slot && from < unit.from && width(from, unit.to) > slot.width) {
-        placed.push({ from, to: unit.from, span: slot });
-        [from, s] = [unit.from, s + 1];
+      if (slot && from < rest && width(from, unit.to) > slot.width) {
+        placed.push({ from, to: rest, span: slot });
+        [from, s] = [rest, s + 1];
       }
-      while (spans[s] && width(unit.from, unit.to) > (spans[s] as Span).width) s++;
+      // The unit starts span s. A billionth's tolerance keeps Inkscape's `>=` where the widths are equal.
+      for (let sp = spans[s]; sp && width(rest, unit.to) > sp.width; sp = spans[++s]) {
+        if (sp.width < narrowest * (1 - 1e-9)) continue;
+        const piece = prefix(rest, unit.to, sp.width);
+        if (piece.end === rest) continue;
+        placed.push({ from: rest, to: piece.end, span: sp });
+        from = rest = piece.end;
+        tried = piece.over;
+      }
       const fits = spans[s];
       if (!fits) break;
+      tried = unit.to;
       if (unit.ends) {
         // After a hard return the next paragraph starts in the next span, as Inkscape flows it.
         placed.push({ from, to: unit.to, span: fits });
@@ -607,24 +645,26 @@ function area(
         }
       }
     }
-    return { placed, next: u, tried };
+    return { placed, next: u, rest: Math.max(rest, units[u]?.from ?? rest), tried };
   };
   const lines: TextLine[] = [];
   const spans: Span[] = [];
   let prev: number | undefined;
   let u = 0;
+  // The first character not laid out, inside unit u once a piece of it is.
+  let at = 0;
   while (u < units.length) {
-    const first = units[u] as Unit;
-    const overflow = () => ({ lines, overflow: chars.slice(first.from).join(""), spans });
-    let box = lineBox(first.from, first.to);
+    const overflow = () => ({ lines, overflow: chars.slice(at).join(""), spans });
+    // A line is sized from its first character up, so a piece is not sized by the rest of its unit.
+    let box = lineBox(at, at);
     for (;;) {
       const next = stack(prev, box);
       const baseline = y + next;
       const { top, bottom: bandBottom } = band(baseline, box);
       if (edges && top > bottom) return overflow();
       const bandSpans = edges ? frameSpans(edges, top, bandBottom) : [{ x, width: frameWidth }];
-      const { placed, next: after, tried } = fill(bandSpans, u);
-      const grown = lineBox(first.from, edges ? tried : (placed.at(-1)?.to ?? first.to));
+      const { placed, next: after, rest, tried } = fill(bandSpans, u, at, breaksIn(box));
+      const grown = lineBox(at, edges ? tried : (placed.at(-1)?.to ?? at));
       if (grown.size > box.size) {
         box = grown;
         continue;
@@ -645,7 +685,7 @@ function area(
         spans.push(p.span);
       }
       prev = next;
-      u = after;
+      [u, at] = [after, rest];
       break;
     }
   }
@@ -779,7 +819,8 @@ export function areaFrame(text: TextLayout): Rect {
 
 /**
  * Convert to Point Type (ADR-0079): Area Type's shown lines, each soft wrap a hard return in place
- * of the line's last whitespace, or inserted after a CJK break, which shifts the ranges after it.
+ * of the line's last whitespace, or inserted after a CJK break or a broken unit's piece (ADR-0084),
+ * which shifts the ranges after it.
  * The overflow is discarded, and so is the hard return before it unless it is all that shows;
  * `discarded` counts what goes.
  * The first line keeps its baseline and aligned start. Undefined when no line shows.

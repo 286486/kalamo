@@ -17,7 +17,7 @@ ADR-0022 wraps Area Type greedily at spaces. A Chinese, Japanese or Korean parag
 - **No break after** opening, quotation, before-break, glue and word-joiner characters (OP, QU, BB, GL, WJ), and Hangul's leading jamo (JL), so conjoining jamo stay one syllable. This includes `（「『【〈《〔`, `“‘`, and ASCII `([{"'`.
 - **Prefix and postfix signs** (PR, PO) stay with an ideograph: `$字` and `字%` do not break, while `$「` and `」%` do.
 
-So `使用SVG格式` breaks as `使|用|SVG|格|式`, `「字」` is one unit, and a single ideograph, or a cluster such as `「字」`, overflows only when it alone is wider than the frame.
+So `使用SVG格式` breaks as `使|用|SVG|格|式`, `「字」` is one unit, and a single ideograph, or a cluster such as `「字」`, overflows only when it alone is wider than the frame. Amended by ADR-0084: such a unit breaks between grapheme clusters instead, as a Latin word does, when the span it starts is at least four line boxes wide.
 
 **How it was checked.** Pango 1.50.12, the version Inkscape 1.2.2 links on this machine, was called through `pango_get_log_attrs`. Every assigned code point in the Han, kana, Hangul, Yi, CJK punctuation and full-width blocks, and in ASCII, Latin-1, General Punctuation, currency and letterlike symbols, was placed after and before `字`, and the CJK blocks also after and before `a`. Every result equals the table's, except for combining marks tested at the start of a string, characters that Unicode added after GLib's tables, and conjoining jamo beside a non-jamo, which Kalamo keeps attached so that a decomposed syllable stays whole, as Pango does. On 20,000 random strings of CJK, kana, Hangul, CJK and ASCII punctuation, Latin letters and digits, the only CJK-adjacent differences are 22 inside number sequences (UAX #14 LB25).
 

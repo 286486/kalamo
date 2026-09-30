@@ -1240,6 +1240,27 @@ it("wraps a CJK Area Type between characters, so one that fits warns no TEXT_OVE
   expect(created.structuredContent.warnings).toEqual([]);
 });
 
+it("breaks a URL wider than its Area Type frame, warning TEXT_OVERFLOW only once it runs past the bottom (ADR-0084)", async () => {
+  const doc = await newDoc();
+  const url = (height: number) => ({
+    type: "text",
+    kind: "area",
+    parentId: doc.defaultLayerId,
+    x: 10,
+    y: 10,
+    width: 120,
+    height,
+    content: "See https://example.com/a/very/long/path/that/fits/no/line for details.",
+  });
+  const created = await call("kalamo_node_create", { docId: doc.docId, nodes: [url(200)] });
+  expect(created.structuredContent.warnings).toEqual([]);
+  const short = await call("kalamo_node_create", { docId: doc.docId, nodes: [url(30)] });
+  const [id] = short.structuredContent.createdIds as string[];
+  expect(short.structuredContent.warnings).toEqual([
+    expect.objectContaining({ code: "TEXT_OVERFLOW", nodeId: id }),
+  ]);
+});
+
 it("creates a rect in the default Layer and reads it back from doc_outline", async () => {
   const doc = await newDoc();
   expect(doc).toMatchObject({
