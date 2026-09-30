@@ -143,6 +143,7 @@ it("disables every entry that changes the Document for a viewer, and Share… fo
     "Fit Artboard in Window",
     "Actual Size",
     "Layers",
+    "Gradient",
     "Isolate Selected Path",
   ];
   expect(enabled("viewer").sort()).toEqual(reading.sort());

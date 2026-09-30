@@ -9,6 +9,7 @@ export * from "./image.ts";
 export * from "./legacy.ts";
 export * from "./mask.ts";
 export * from "./matrix.ts";
+export * from "./midpoint.ts";
 export * from "./path.ts";
 export * from "./path-op.ts";
 export * from "./place.ts";

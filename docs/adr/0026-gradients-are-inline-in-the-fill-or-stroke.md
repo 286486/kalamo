@@ -35,7 +35,7 @@ The names are Illustrator's: a gradient's stops are Color Stops, its type Linear
 
 **A Stroke's gradient is Illustrator's "apply gradient within stroke"**: the stroke's area is painted by the same field a Fill would be. Along and across the stroke (F-APP-04, P2) wait.
 
-**Not in this ADR:** midpoints between Color Stops, which SVG and Inkscape cannot hold and only the Gradient panel edits (they join with it, as an optional per-stop field defaulting to halfway); Freeform gradients (F-APP-05, M4); gradient Swatches.
+**Not in this ADR:** midpoints between Color Stops, which SVG and Inkscape cannot hold and only the Gradient panel edits (they join with it, as an optional per-stop field defaulting to halfway; ADR-0081 adds them); Freeform gradients (F-APP-05, M4); gradient Swatches.
 
 ## Inline, not an Asset
 
@@ -101,7 +101,7 @@ Replace (ADR-0017 step 2) needs nothing new: export rounds the positions to 3 de
 - **Illustrator's origin, angle and length for linear.** Equivalent to `start` and `end`, but `start` and `end` are what the Annotator shows, what SVG and Canvas2D take, and what an Agent can check against bounds.
 - **A general gradient `transform` matrix**, as F-DOC-04 sketched. Any affine map of a linear or radial gradient reduces to the fields above, so a matrix adds a second way to say the same thing, and one an Agent cannot read at a glance.
 - **Reflect and repeat as a stored `spread`.** SVG has them, but Illustrator does not, and Canvas2D would need the unrolling anyway; unrolling at import keeps the pixels.
-- **Midpoints now.** Illustrator has them, but SVG, Inkscape and Canvas2D do not: they would export as extra stops that come back as real ones. Their only editor is the Gradient panel.
+- **Midpoints now.** Illustrator has them, but SVG, Inkscape and Canvas2D do not: they would export as extra stops that come back as real ones. Their only editor is the Gradient panel. ADR-0081 adds them with the panel, and marks the extra stops so they do not come back as real ones.
 
 ## Consequences
 

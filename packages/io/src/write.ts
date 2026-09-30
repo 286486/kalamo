@@ -10,6 +10,7 @@ import {
   crossedFrame,
   type Document,
   drawnFamily,
+  drawnStops,
   ellipseMatrix,
   type Fill,
   fontFace,
@@ -321,13 +322,17 @@ export function toSvg(doc: Document, rect?: Rect, opts: SvgOptions = {}): string
 
 /** A gradient as one self-contained `userSpaceOnUse` element (ADR-0026). */
 function gradient(id: string, g: Gradient): string {
-  const stops = g.stops.map((s) => {
+  const stops = drawnStops(g).map((s) => {
     const opacity = s.color.length === 9 ? Number.parseInt(s.color.slice(7), 16) / 255 : 1;
     return `<stop${attrs({
-      offset: formatNumber(s.offset),
+      // An inserted stop keeps its 6 decimals: a midpoint's curve is steep near its stop.
+      offset: s.simulated ? String(s.offset) : formatNumber(s.offset),
       "stop-color": s.color.slice(0, 7),
       // Inkscape 1.2 draws #RRGGBBAA black (ADR-0017).
       "stop-opacity": opacity === 1 ? undefined : formatNumber(opacity),
+      // Import drops the inserted stops and puts the midpoint back on its stop (ADR-0081).
+      [kalamo("simulated")]: s.simulated && "true",
+      [kalamo("midpoint")]: s.midpoint === undefined ? undefined : String(s.midpoint),
     })}/>`;
   });
   const units = { id, gradientUnits: "userSpaceOnUse" };

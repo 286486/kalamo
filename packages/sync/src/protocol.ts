@@ -3,6 +3,7 @@ import {
   type Document,
   DuplicateInput,
   type ErrorData,
+  Fill,
   MaskInput,
   type Node,
   NodeInput,
@@ -10,6 +11,7 @@ import {
   PathOpInput,
   ReorderOp,
   ReparentInput,
+  Stroke,
   TransformInput,
   Writable,
 } from "@kalamo/core";
@@ -85,6 +87,22 @@ export const ClientMessage = z.object({
       nodeId: z.string(),
       // One Layers panel toggle (ADR-0012); an empty patch would commit a no-op Transaction.
       patch: Writable.pick({ visible: true }).or(Writable.pick({ locked: true })),
+    }),
+    // The Gradient panel and Gradient tool: each Node's Fills or Strokes, in one Transaction,
+    // parsed as node_update's (ADR-0081).
+    z.object({
+      type: z.literal("appearance"),
+      updates: z
+        .array(
+          z.object({
+            nodeId: z.string(),
+            appearance: z
+              .strictObject({ fills: z.array(Fill), strokes: z.array(Stroke) })
+              .partial()
+              .refine((a) => a.fills || a.strokes, "Give fills or strokes."),
+          }),
+        )
+        .min(1),
     }),
     // Object > Embed: the linked Images with pixels, embedded in one Transaction (ADR-0042).
     z.object({ type: z.literal("embed"), nodeIds: z.array(z.string()).min(1) }),

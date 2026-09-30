@@ -1308,7 +1308,7 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
     expect(described("kalamo_node_create")).toContain(param);
     expect(JSON.stringify(byName.kalamo_node_update?.inputSchema)).toContain(`"${param}"`);
   }
-  for (const word of ["gradient", "stops", "radial", "aspectRatio", "focus"]) {
+  for (const word of ["gradient", "stops", "radial", "aspectRatio", "focus", "midpoint"]) {
     expect(described("kalamo_node_create")).toContain(word);
     expect(JSON.stringify(byName.kalamo_node_update?.inputSchema)).toContain(`"${word}"`);
   }

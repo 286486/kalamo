@@ -31,7 +31,9 @@ export type KalamoAttr =
   | "background"
   | "tags"
   | "meta"
-  | "src";
+  | "src"
+  | "midpoint"
+  | "simulated";
 
 export const kalamo = (name: KalamoAttr) => `kalamo:${name}` as const;
 

@@ -6,6 +6,7 @@ import {
   BlendMode,
   BUNDLED_FONT,
   type CharacterRange,
+  type ColorStop,
   type ContainerAppearance,
   canonicalRanges,
   cssColor,
@@ -21,6 +22,8 @@ import {
   invert,
   KalamoError,
   type Matrix,
+  MIDPOINT_MAX,
+  MIDPOINT_MIN,
   MIGRATIONS,
   mapGradient,
   multiply,
@@ -1429,16 +1432,21 @@ class Reader {
     const holder = chain.find((g) => elements(g).some((c) => c.localName === "stop"));
     const inherited = holder ? computeStyle(holder, {}, this.rules) : {};
     let last = 0;
-    const stops = elements(holder ?? (chain[0] as Element))
-      .filter((c) => c.localName === "stop")
-      .map((stop) => {
+    const stops: ColorStop[] = elements(holder ?? (chain[0] as Element))
+      // The stops export inserted to draw a midpoint are dropped, and it goes back on its stop.
+      .filter((c) => c.localName === "stop" && kalamoAttr(c, "simulated") !== "true")
+      .map((stop, k, all) => {
         const s = computeStyle(stop, inherited, this.rules);
         const raw = stop.getAttribute("offset")?.trim() || "0";
         const offset = raw.endsWith("%") ? Number.parseFloat(raw) / 100 : Number(raw);
         // Offsets clamp to 0-1 and never decrease (SVG 1.1 §13.2.4).
         last = Math.max(last, Math.min(1, offset || 0));
         const hex = this.color(s["stop-color"] ?? "black", s, "1") ?? "#000000";
-        return { offset: round3(last), color: withAlpha(hex, alpha(s["stop-opacity"]) * opacity) };
+        const color = withAlpha(hex, alpha(s["stop-opacity"]) * opacity);
+        const m = Number(kalamoAttr(stop, "midpoint") ?? Number.NaN);
+        const midpoint = Math.min(MIDPOINT_MAX, Math.max(MIDPOINT_MIN, m));
+        const kept = Number.isFinite(m) && midpoint !== 0.5 && k < all.length - 1;
+        return { offset: round3(last), color, ...(kept && { midpoint }) };
       });
     const [first] = stops;
     const end = stops.at(-1);

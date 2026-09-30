@@ -2553,6 +2553,76 @@ describe("gradients (ADR-0026)", () => {
     }
   });
 
+  describe("midpoints (ADR-0081)", () => {
+    const mid = [
+      { offset: 0, color: "#000000", midpoint: 0.25 },
+      { offset: 0.4, color: "#FF000080", midpoint: 0.8 },
+      { offset: 1, color: "#FFFFFF" },
+    ];
+    const exported = () => {
+      const { doc, defaultLayerId: parentId } = createDocument({
+        id: "D",
+        name: "Doc",
+        artboards: [{ width: 200, height: 200 }],
+      });
+      const fill = { type: "gradient", gradient: { type: "linear", stops: mid } } as const;
+      const [rect] = createNodes(doc, [
+        {
+          type: "rect",
+          parentId,
+          x: 0,
+          y: 0,
+          width: 50,
+          height: 30,
+          appearance: { fills: [fill] },
+        },
+      ]).nodes;
+      return { text: toSvg(doc), rect };
+    };
+    const stopsOf = (text: string) => {
+      const [leaf] = leaves(parseFile(text));
+      const fill = leaf && "appearance" in leaf ? leaf.appearance.fills[0] : undefined;
+      if (fill?.type !== "gradient") throw new Error("not a gradient");
+      return fill.gradient.stops;
+    };
+
+    it("reads back the stops export wrote, dropping the inserted ones", () => {
+      const { text } = exported();
+      expect(text.match(/kalamo:simulated/g)?.length).toBeGreaterThan(2);
+      expect(stopsOf(text)).toEqual(mid);
+    });
+
+    it("reads the same stops without the marks as ordinary stops", () => {
+      const plain = exported().text.replace(/ kalamo:(simulated|midpoint)="[^"]*"/g, "");
+      const stops = stopsOf(plain);
+      expect(stops.length).toBeGreaterThan(mid.length);
+      expect(stops.every((s) => s.midpoint === undefined)).toBe(true);
+    });
+
+    it("keeps the midpoint when a stop's colour was changed", () => {
+      const edited = exported().text.replace(
+        '<stop offset="0" stop-color="#000000"',
+        '<stop offset="0" stop-color="#0000FF"',
+      );
+      expect(stopsOf(edited)).toEqual([{ ...mid[0], color: "#0000FF" }, mid[1], mid[2]]);
+    });
+
+    it("clamps a midpoint to 13%-87% and drops one on the last stop", () => {
+      const g = gradientOf(
+        '<rect x="0" y="0" width="10" height="10" fill="url(#g)"/>',
+        '<linearGradient id="g" gradientUnits="userSpaceOnUse" x2="10">' +
+          '<stop offset="0" stop-color="#000" kalamo:midpoint="0.05"/>' +
+          '<stop offset=".5" stop-color="#F00" kalamo:midpoint="0.5"/>' +
+          '<stop offset="1" stop-color="#FFF" kalamo:midpoint="0.3"/></linearGradient>',
+      );
+      expect(g.stops).toEqual([
+        { offset: 0, color: "#000000", midpoint: 0.13 },
+        { offset: 0.5, color: "#FF0000" },
+        { offset: 1, color: "#FFFFFF" },
+      ]);
+    });
+  });
+
   it("follows href for stops and each attribute, and folds stop-opacity and fill-opacity in", () => {
     const g = gradientOf(
       '<rect x="0" y="0" width="10" height="10" fill="url(#pos)" fill-opacity=".5"/>',

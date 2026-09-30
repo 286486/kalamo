@@ -189,6 +189,17 @@ _Avoid_: Ramp、Blend（那是另一个概念）、Gradient fill 作为类型名
 Gradient 上的一个位置（0–1）与颜色，透明度即颜色的 alpha。一个 Gradient 至少两个。
 _Avoid_: Stop（泛指时）、Key、Color point
 
+**Midpoint（中点）**：
+一个 Color Stop 与下一个之间，两者颜色各半混合的位置，以两者间距的比例计，13%–87%，缺省 50%（不存储）。它属于前一个 Color Stop，最后一个没有。SVG 与画布没有中点，绘制时沿混合曲线插入额外色标，导出时这些色标带 `kalamo:simulated` 标记，导入时去掉并还原中点（ADR-0081）。
+_Avoid_: Midpoint stop、Bias、Diamond（那是它在面板上的图标）
+
+**Gradient panel（渐变面板）**：
+Window > Gradient（Ctrl+F9）打开的停靠面板，编辑 Selection 中各叶子的当前 Fill 或 Stroke（最上层的那个，由 Tools 面板的 Fill / Stroke 框决定）：类型、角度、长宽比、反向，以及滑块上的 Color Stop 与 Midpoint。每次改动一个 Transaction（ADR-0081）。
+
+**Gradient Annotator（渐变批注者）**：
+Gradient 工具（G）在画布上为一个选中叶子的渐变画出的控件：从起点到终点（径向为中心沿角度到半径）的滑条、其上的 Color Stop 与 Midpoint，径向还有虚线椭圆、长宽比手柄与焦点。拖动它们即改渐变，释放时一个 Transaction（ADR-0081）。
+_Avoid_: Gradient handle、Gradient widget
+
 **Effect（效果）**：
 Appearance 中非破坏性修改几何或像素的一层，如阴影、模糊、偏移路径。
 _Avoid_: Filter（保留给 SVG filter 的技术语境）

@@ -16,6 +16,7 @@ import {
 import { applyBroadcast, type ServerMessage } from "@kalamo/sync";
 import type { CurveAnchor } from "./curvature.ts";
 import { inRange, parseKey, segmentInRange } from "./direct.ts";
+import type { PaintPreview } from "./gradient.ts";
 import { prune } from "./isolation.ts";
 import { editable, objects } from "./selection.ts";
 
@@ -128,6 +129,8 @@ export interface ViewState {
   segments: string[];
   /** Why the last command was rejected. */
   notice: string | null;
+  /** The Gradient panel's or tool's paints, drawn until their answer (ADR-0081). */
+  paintPreview: PaintPreview | null;
 }
 
 /**
@@ -145,6 +148,7 @@ export function receive(
       ...(s.drag?.commandId === msg.id && { drag: null }),
       ...settlePending(s.pending, msg.id),
       ...(s.opPreview?.commandId === msg.id && { opPreview: null }),
+      ...(s.paintPreview?.commandId === msg.id && { paintPreview: null }),
       ...settle(s.edit, msg.id),
       notice: gone
         ? "Someone else deleted that object first; it stays deleted."
@@ -231,6 +235,10 @@ export function receive(
       : settlePending(s.pending, msg.commandId)),
     ...(s.opPreview?.commandId &&
       (msg.type === "document" || msg.commandId === s.opPreview.commandId) && { opPreview: null }),
+    ...(s.paintPreview &&
+      (msg.type === "document" || msg.commandId === s.paintPreview.commandId) && {
+        paintPreview: null,
+      }),
     ...(skipped > 0 && {
       notice: `Skipped ${skipped} object(s) deleted or moved since; they stay as they are.`,
     }),

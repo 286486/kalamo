@@ -476,6 +476,15 @@ export class DocumentObject extends DurableObject<Env> {
       run: (c, actor, commandId) =>
         this.updateNodes([{ nodeId: c.nodeId, patch: c.patch }], actor, { commandId }),
     },
+    appearance: {
+      nodeIds: (c) => c.updates.map((u) => u.nodeId),
+      run: (c, actor, commandId) =>
+        this.updateNodes(
+          c.updates.map(({ nodeId, appearance }) => ({ nodeId, patch: { appearance } })),
+          actor,
+          { commandId },
+        ),
+    },
     delete: {
       nodeIds: (c) => c.nodeIds,
       run: (c, actor, commandId) => this.deleteNodes(c.nodeIds, actor, { commandId }),

@@ -734,7 +734,11 @@ function paintOn(a: AppearanceInput, path: string, box: () => Rect | null): Appe
       return { ...p, type: "solid", color: parseColor(p.color, `${at}.color`) };
     }
     const stops = p.gradient.stops
-      .map((s, k) => ({ ...s, color: parseColor(s.color, `${at}.gradient.stops[${k}].color`) }))
+      .map(({ midpoint, ...s }, k) => ({
+        ...s,
+        color: parseColor(s.color, `${at}.gradient.stops[${k}].color`),
+        ...(midpoint !== undefined && midpoint !== 0.5 && { midpoint }),
+      }))
       .sort((s, t) => s.offset - t.offset);
     return { ...p, gradient: placed(p.gradient, stops, box, at) };
   };

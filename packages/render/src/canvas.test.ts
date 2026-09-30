@@ -11,6 +11,7 @@ import {
   shapeSegments,
   visibleBounds,
 } from "@kalamo/core";
+import { toSvg } from "@kalamo/io";
 import { describe, expect, it } from "vitest";
 import { type Canvas2D, drawDocument, imagePlacement } from "./canvas.ts";
 
@@ -1103,6 +1104,31 @@ describe("gradients (ADR-0026)", () => {
       "fillStyle=[gradient]",
       "fill",
     ]);
+  });
+
+  it("adds the stops toSvg writes for a gradient with midpoints (ADR-0081)", () => {
+    const mid = [
+      { offset: 0, color: "#1F5FBF", midpoint: 0.3 },
+      { offset: 0.5, color: "#FF000080", midpoint: 0.8 },
+      { offset: 1, color: "#9FD0FF00" },
+    ];
+    const input = {
+      ...rect,
+      appearance: { fills: [{ type: "gradient", gradient: { type: "linear", stops: mid } }] },
+    };
+    const added = drawn(input)
+      .filter((l) => l.startsWith("addColorStop"))
+      .map((l) => l.split(" ").slice(1));
+    const { doc, defaultLayerId: parentId } = newDoc();
+    createNodes(doc, [{ parentId, ...input } as never]);
+    const written = [...toSvg(doc).matchAll(/<stop ([^>]*)\/>/g)].map(([, a]) => {
+      const attr = (n: string) => new RegExp(`${n}="([^"]*)"`).exec(a as string)?.[1];
+      const alpha = Math.round(Number(attr("stop-opacity") ?? 1) * 255);
+      const hex = alpha === 255 ? "" : alpha.toString(16).padStart(2, "0").toUpperCase();
+      return [attr("offset"), `${attr("stop-color")}${hex}`];
+    });
+    expect(added.length).toBeGreaterThan(mid.length);
+    expect(added).toEqual(written);
   });
 
   it("fills an elliptical radial gradient under its ellipse only, and a circle without one", () => {

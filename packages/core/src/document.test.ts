@@ -17,7 +17,7 @@ import { transformNodes } from "./edit.ts";
 import { KalamoError } from "./errors.ts";
 import { makeMask } from "./mask.ts";
 import { compose } from "./matrix.ts";
-import { AppearanceInput, type Node, NodeQuery } from "./schema.ts";
+import { AppearanceInput, type Node, NodeQuery, StoredStroke } from "./schema.ts";
 
 const newDoc = () =>
   createDocument({ id: "d", name: "Doc", artboards: [{ width: 200, height: 100 }] });
@@ -203,6 +203,62 @@ describe("gradients", () => {
   ])("refuses %s with the field's path", (_, gradient, path) => {
     const parsed = AppearanceInput.safeParse({ fills: [{ type: "gradient", gradient }] });
     expect(parsed.error?.issues[0]?.path.join(".")).toBe(`fills.0.gradient.${path}`);
+  });
+
+  describe("midpoints", () => {
+    const fillOf = (s: unknown[]) => {
+      const { doc, defaultLayerId } = newDoc();
+      const [node] = createNodes(doc, [
+        {
+          ...rect(defaultLayerId),
+          appearance: { fills: [{ type: "gradient", gradient: { ...linear, stops: s } }] },
+        } as never,
+      ]).nodes;
+      return (node as { appearance: { fills: { gradient: { stops: unknown[] } }[] } }).appearance
+        .fills[0]?.gradient.stops;
+    };
+
+    it("does not store a midpoint of 0.5", () => {
+      expect(fillOf([{ ...first, midpoint: 0.5 }, last])).toEqual([first, last]);
+    });
+
+    it("keeps each midpoint on its own stop when the stops are sorted", () => {
+      const middle = { offset: 0.4, color: "#FF0000", midpoint: 0.3 };
+      expect(fillOf([last, middle, { ...first, midpoint: 0.7 }])).toEqual([
+        { ...first, midpoint: 0.7 },
+        middle,
+        last,
+      ]);
+    });
+
+    it.each([
+      ["0.12", [{ ...first, midpoint: 0.12 }, last], "stops.0.midpoint"],
+      ["0.88", [{ ...first, midpoint: 0.88 }, last], "stops.0.midpoint"],
+      ["on the stop that sorts last", [{ ...last, midpoint: 0.3 }, first], "stops.0.midpoint"],
+      [
+        "on the last of equal offsets",
+        [first, { ...last, midpoint: 0.3 }, { offset: 1, color: "#000000", midpoint: 0.4 }],
+        "stops.2.midpoint",
+      ],
+    ])("refuses a midpoint of %s with its path", (_, s, path) => {
+      for (const gradient of [
+        { ...linear, stops: s },
+        { ...radial, stops: s },
+      ]) {
+        const parsed = AppearanceInput.safeParse({ strokes: [{ type: "gradient", gradient }] });
+        expect(parsed.error?.issues[0]?.path.join(".")).toBe(`strokes.0.gradient.${path}`);
+        const stored = StoredStroke.safeParse({
+          type: "gradient",
+          gradient,
+          width: 1,
+          cap: "butt",
+          join: "miter",
+          miterLimit: 10,
+          dash: [],
+        });
+        expect(stored.success).toBe(false);
+      }
+    });
   });
 
   describe("geometry left out comes from the leaf's own bounds", () => {

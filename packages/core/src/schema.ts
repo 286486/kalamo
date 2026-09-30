@@ -39,13 +39,37 @@ export type RenderOverlay = z.infer<typeof RenderOverlay>;
 const Point = z.strictObject({ x: z.number(), y: z.number() });
 export type Point = z.infer<typeof Point>;
 
+/** Illustrator's Midpoint range, 13%–87% of the way to the next stop (ADR-0081). */
+export const MIDPOINT_MIN = 0.13;
+export const MIDPOINT_MAX = 0.87;
+
 export const ColorStop = z.strictObject({
   offset: z.number().min(0).max(1).describe("0 at the gradient's start, 1 at its end."),
   color: Color.describe("#RRGGBB or #RRGGBBAA; the alpha is the stop's opacity."),
+  midpoint: z
+    .number()
+    .min(MIDPOINT_MIN)
+    .max(MIDPOINT_MAX)
+    .optional()
+    .describe(
+      "How far towards the next stop, 0.13-0.87, its colour and this one's mix 50/50. Default 0.5; not on the stop that sorts last.",
+    ),
 });
 const stops = z
   .array(ColorStop)
   .min(2)
+  .superRefine((s, ctx) => {
+    // The stop sorted last, stably: the last one given at the highest offset has no next stop.
+    const top = Math.max(...s.map((t) => t.offset));
+    const k = s.findLastIndex((t) => t.offset === top);
+    if (s[k]?.midpoint !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        message: "The stop that sorts last has no next stop to have a midpoint towards.",
+        path: [k, "midpoint"],
+      });
+    }
+  })
   .describe("At least 2 Color Stops; beyond the first and last the colour holds.");
 const positive = z.number().positive();
 
@@ -107,7 +131,7 @@ export const StoredGradient = z.discriminatedUnion("type", [
   z.strictObject(linear).superRefine(distinct),
   z.strictObject(radial),
 ]);
-export type ColorStop = { offset: number; color: string };
+export type ColorStop = { offset: number; color: string; midpoint?: number };
 type Stored<G> = G extends unknown ? Omit<G, "stops"> & { stops: ColorStop[] } : never;
 export type Gradient = Stored<z.output<typeof StoredGradient>>;
 

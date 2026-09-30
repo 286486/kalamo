@@ -6,6 +6,8 @@ import { AnchorsBar } from "./AnchorsBar.tsx";
 import { drawPending, SELECTION } from "./canvas.ts";
 import { anchorsOf, hasAnchors } from "./direct.ts";
 import { drawnLazyFamilies, loadFamily } from "./fonts.ts";
+import { GradientPanel } from "./GradientPanel.tsx";
+import { withPaints } from "./gradient.ts";
 import { IsolationBar } from "./IsolationBar.tsx";
 import { imageCache } from "./images.ts";
 import { Layers } from "./Layers.tsx";
@@ -73,6 +75,8 @@ export function Viewer({ docId }: { docId: string }) {
     isolated,
     size,
     layersShown,
+    gradientShown,
+    paintPreview,
     tool,
     fillStroke,
   } = useStore();
@@ -162,8 +166,9 @@ export function Viewer({ docId }: { docId: string }) {
   // Hit tests use `doc`; only the drawing shows the drag.
   const shown = useMemo(() => {
     const moved = simplified && drag ? preview(simplified, drag) : simplified;
-    return moved && edit ? previewEdit(moved, edit) : moved;
-  }, [simplified, drag, edit]);
+    const edited = moved && edit ? previewEdit(moved, edit) : moved;
+    return edited && paintPreview ? withPaints(edited, paintPreview.updates) : edited;
+  }, [simplified, drag, edit, paintPreview]);
 
   // ponytail: redraws every Node on every Document change; add viewport culling and dirty rects for 5k+ Nodes (F-VIEW-08).
   // biome-ignore lint/correctness/useExhaustiveDependencies: fontReady, lazyReady and imagesLoaded redraw text and Images once their fonts or files are in
@@ -472,7 +477,26 @@ export function Viewer({ docId }: { docId: string }) {
       <IsolationBar />
       <AnchorsBar />
       <Tools />
-      {layersShown && <Layers />}
+      {(layersShown || gradientShown) && (
+        // Illustrator's panel dock, on the right: the Gradient panel above Layers.
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            right: 0,
+            bottom: 0,
+            width: 260,
+            display: "flex",
+            flexDirection: "column",
+            background: "#F5F5F5",
+            borderLeft: "1px solid #CCC",
+            font: "12px system-ui, sans-serif",
+          }}
+        >
+          {gradientShown && <GradientPanel />}
+          {layersShown && <Layers />}
+        </div>
+      )}
     </div>
   );
 }
