@@ -1205,6 +1205,22 @@ describe("gradients (ADR-0026)", () => {
     );
     expect(svg).toContain(`fill="url(#fill-0-z-${id})"`);
   });
+
+  it("writes a midpoint as marked inserted stops, and kalamo:midpoint on its stop (ADR-0081)", () => {
+    const mid = [
+      { offset: 0, color: "#000000", midpoint: 0.25 },
+      { offset: 1, color: "#FFFFFF" },
+    ];
+    const { svg } = rectWith({
+      fills: [{ type: "gradient", gradient: { type: "linear", stops: mid } }],
+    });
+    const written = [...svg.matchAll(/<stop [^>]*\/>/g)].map((m) => m[0]);
+    expect(written[0]).toBe('<stop offset="0" stop-color="#000000" kalamo:midpoint="0.25"/>');
+    expect(written.at(-1)).toBe('<stop offset="1" stop-color="#FFFFFF"/>');
+    const inserted = written.slice(1, -1);
+    expect(inserted.length).toBeGreaterThan(0);
+    expect(inserted.every((s) => s.includes('kalamo:simulated="true"'))).toBe(true);
+  });
 });
 
 it("writes a container's paints as locked <g kalamo:paint> copies around its children (ADR-0043)", () => {

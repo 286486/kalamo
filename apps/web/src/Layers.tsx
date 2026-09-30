@@ -78,20 +78,7 @@ export const Layers = memo(function Layers() {
   };
 
   return (
-    <div
-      style={{
-        position: "absolute",
-        top: 0,
-        right: 0,
-        bottom: 0,
-        width: 260,
-        display: "flex",
-        flexDirection: "column",
-        background: "#F5F5F5",
-        borderLeft: "1px solid #CCC",
-        font: "12px system-ui, sans-serif",
-      }}
-    >
+    <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
       {/* Illustrator's panel menu, keyboard-operable as the menu bar's menus are (#195). */}
       <style>
         {

@@ -1,4 +1,13 @@
-import { COLOR_PATTERN, KalamoError, LEGACY_NAME, PathOpInput } from "@kalamo/core";
+import {
+  COLOR_PATTERN,
+  createDocument,
+  createNodes,
+  KalamoError,
+  LEGACY_NAME,
+  type Node,
+  nodeView,
+  PathOpInput,
+} from "@kalamo/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { harness } from "./harness.ts";
 
@@ -147,6 +156,67 @@ describe("write tools pass the write and its options apart", () => {
       nodes: [{ ...item, width: 10 }],
     });
     expect(errorOf(mixed)).toMatchObject({ code: "INVALID_INPUT", path: "nodes[0].width" });
+  });
+
+  it("node_create, node_update and node_get carry midpoints on a Fill and a Stroke, and refuse one on the last stop (ADR-0081)", async () => {
+    const stops = [
+      { offset: 0, color: "#000000", midpoint: 0.25 },
+      { offset: 1, color: "#FFFFFF" },
+    ];
+    const fill = { type: "gradient", gradient: { type: "linear", stops } };
+    const stroke = { type: "gradient", gradient: { type: "radial", stops }, width: 2 };
+    // node_get's output schema checks a whole Node, so core builds one.
+    const { doc, defaultLayerId } = createDocument({ id: "d", name: "D", artboards: [] });
+    const [node] = createNodes(doc, [
+      {
+        type: "rect",
+        parentId: defaultLayerId,
+        x: 0,
+        y: 0,
+        width: 10,
+        height: 10,
+        appearance: { fills: [fill], strokes: [stroke] },
+      } as never,
+    ]).nodes;
+    const { service, call } = await harness({
+      createNodes: async () => receipt,
+      updateNodes: async () => receipt,
+      get: async () => ({ rev: 2, nodes: [nodeView(doc, node as Node, "full")] }),
+    });
+    const rect = { type: "rect", parentId: "p", x: 0, y: 0, width: 10, height: 10 };
+    await call("kalamo_node_create", {
+      docId: "d",
+      nodes: [{ ...rect, appearance: { fills: [fill], strokes: [stroke] } }],
+    });
+    expect(service.createNodes.mock.calls[0]?.[1]).toMatchObject([
+      { appearance: { fills: [{ gradient: { stops } }], strokes: [{ gradient: { stops } }] } },
+    ]);
+    const patch = { appearance: { fills: [fill], strokes: [stroke] } };
+    await call("kalamo_node_update", { docId: "d", updates: [{ nodeId: "r", patch }] });
+    expect(service.updateNodes.mock.calls[0]?.[1]).toMatchObject([{ nodeId: "r", patch }]);
+    const got = await call("kalamo_node_get", { docId: "d", nodeIds: ["r"], detail: "full" });
+    expect(got.structuredContent).toMatchObject({
+      nodes: [
+        { appearance: { fills: [{ gradient: { stops } }], strokes: [{ gradient: { stops } }] } },
+      ],
+    });
+    const late = [stops[1], { ...stops[0], offset: 1 }];
+    const refused = await call("kalamo_node_update", {
+      docId: "d",
+      updates: [
+        {
+          nodeId: "r",
+          patch: {
+            appearance: { strokes: [{ ...stroke, gradient: { type: "radial", stops: late } }] },
+          },
+        },
+      ],
+    });
+    expect(errorOf(refused)).toMatchObject({
+      code: "INVALID_INPUT",
+      path: "updates[0].patch.appearance.strokes[0].gradient.stops[1].midpoint",
+    });
+    expect(service.updateNodes).toHaveBeenCalledTimes(1);
   });
 
   it("node_create: a linked image arrives with file, and src only when sent (ADR-0042)", async () => {
@@ -1308,7 +1378,7 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
     expect(described("kalamo_node_create")).toContain(param);
     expect(JSON.stringify(byName.kalamo_node_update?.inputSchema)).toContain(`"${param}"`);
   }
-  for (const word of ["gradient", "stops", "radial", "aspectRatio", "focus"]) {
+  for (const word of ["gradient", "stops", "radial", "aspectRatio", "focus", "midpoint"]) {
     expect(described("kalamo_node_create")).toContain(word);
     expect(JSON.stringify(byName.kalamo_node_update?.inputSchema)).toContain(`"${word}"`);
   }

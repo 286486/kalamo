@@ -2,6 +2,7 @@ import type { Document, Node } from "@kalamo/core";
 import { addAnchorTool, anchorPointTool, deleteAnchorTool } from "./anchorTools.ts";
 import { curvatureTool } from "./curvatureTool.ts";
 import { directTool } from "./directTool.ts";
+import { gradientTool } from "./gradientTool.ts";
 import { exitIsolation, keysOf } from "./menu.ts";
 import { pencilTool } from "./pencilTool.ts";
 import { penTool } from "./penTool.ts";
@@ -152,6 +153,7 @@ export const TOOLS = {
   polygon: polygonTool,
   star: starTool,
   pencil: pencilTool,
+  gradient: gradientTool,
 } satisfies Record<string, CanvasTool>;
 
 export type Tool = keyof typeof TOOLS;

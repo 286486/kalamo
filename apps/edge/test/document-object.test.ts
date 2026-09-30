@@ -1105,3 +1105,58 @@ it("undoes a Convert to Point Type, restoring the overflow it deleted (ADR-0079)
   ok(await s.undo("user"));
   expect(await full()).toEqual(before);
 });
+
+it("writes several Nodes' paints from the Gradient panel as one Transaction and one undo step (ADR-0081)", async () => {
+  const s = stub("appearance");
+  const { defaultLayerId } = ok(
+    await s.create({ docId: "appearance", name: "Doc", artboards, actor: "user" }),
+  );
+  const { createdIds: ids } = ok(
+    await s.createNodes(
+      [0, 1].map((i) => ({ ...rect, x: i * 20, parentId: defaultLayerId })),
+      "user",
+    ),
+  );
+  const edit = (command: object, commandId: string) =>
+    runInDurableObject(s, (instance) =>
+      (instance as unknown as { edit: (...a: unknown[]) => unknown }).edit(
+        command,
+        "user",
+        commandId,
+      ),
+    ) as Promise<{ rev: number; updatedIds: string[] } | { error: { code: string } }>;
+  const stops = [
+    { offset: 0, color: "#FFFFFF", midpoint: 0.3 },
+    { offset: 1, color: "#000000" },
+  ];
+  const fills = [{ type: "gradient", gradient: { type: "linear", stops } }];
+  const paints = async () =>
+    ok(await s.get(ids, "full", "user")).nodes.map(
+      (n) => (n as { appearance: { fills: unknown[] } }).appearance.fills,
+    );
+  const before = await paints();
+  const updates = ids.map((nodeId) => ({ nodeId, appearance: { fills } }));
+  expect(await edit({ type: "appearance", updates }, "c1")).toMatchObject({
+    rev: 3,
+    updatedIds: ids,
+  });
+  expect(
+    (await paints()).map((f) => (f[0] as { gradient: { stops: unknown } }).gradient.stops),
+  ).toEqual([stops, stops]);
+  // Core refuses what the schema lets through, such as a colour name, and nothing changes.
+  const red = [
+    {
+      type: "gradient",
+      gradient: { type: "linear", stops: [stops[0], { offset: 1, color: "red" }] },
+    },
+  ];
+  expect(
+    await edit(
+      { type: "appearance", updates: [{ nodeId: ids[0], appearance: { fills: red } }] },
+      "c2",
+    ),
+  ).toMatchObject({ error: { code: "INVALID_COLOR" } });
+  expect(await s.info()).toMatchObject({ rev: 3 });
+  expect(ok(await s.undo("user"))).toMatchObject({ rev: 4 });
+  expect(await paints()).toEqual(before);
+});

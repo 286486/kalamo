@@ -57,6 +57,7 @@ function isolateLeaf(scope: "leaf" | "group" = "leaf") {
     edit: null,
     drag: null,
     opPreview: null,
+    paintPreview: null,
     anchors: [],
     segments: [],
     notice: null,

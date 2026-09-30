@@ -7,6 +7,7 @@ import {
   containerAppearance,
   crossedFrame,
   type Document,
+  drawnStops,
   ellipseMatrix,
   type Fill,
   fontFace,
@@ -106,7 +107,8 @@ function styleOf(ctx: Canvas2D, p: Fill, ellipse: boolean): { style: unknown; m?
     const [fx, fy] = m ? applyTo(invert(m), g.focus.x, g.focus.y) : [g.focus.x, g.focus.y];
     style = ctx.createRadialGradient(fx, fy, 0, g.center.x, g.center.y, g.radius);
   }
-  for (const s of g.stops) style.addColorStop(s.offset, s.color);
+  // The stops toSvg writes, midpoints drawn as its inserted stops (ADR-0081).
+  for (const s of drawnStops(g)) style.addColorStop(s.offset, s.color);
   return { style, m };
 }
 

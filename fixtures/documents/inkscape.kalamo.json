@@ -1203,7 +1203,10 @@
             "gradient": {
               "end": { "x": 880, "y": 25 },
               "start": { "x": 830, "y": 25 },
-              "stops": [{ "color": "#1F5FBF", "offset": 0 }, { "color": "#9FD0FF00", "offset": 1 }],
+              "stops": [
+                { "color": "#1F5FBF", "midpoint": 0.25, "offset": 0 },
+                { "color": "#9FD0FF00", "offset": 1 }
+              ],
               "type": "linear"
             },
             "type": "gradient"
@@ -1249,7 +1252,29 @@
             "type": "gradient"
           }
         ],
-        "strokes": []
+        "strokes": [
+          {
+            "cap": "butt",
+            "dash": [],
+            "gradient": {
+              "angle": 0,
+              "aspectRatio": 1,
+              "center": { "x": 910, "y": 30 },
+              "focus": { "x": 910, "y": 30 },
+              "radius": 21,
+              "stops": [
+                { "color": "#2A9D8F", "offset": 0.8, "midpoint": 0.7 },
+                { "color": "#E63946", "offset": 0.9, "midpoint": 0.2 },
+                { "color": "#264653", "offset": 1 }
+              ],
+              "type": "radial"
+            },
+            "join": "miter",
+            "miterLimit": 10,
+            "type": "gradient",
+            "width": 3
+          }
+        ]
       },
       "arcType": "slice",
       "blendMode": "normal",

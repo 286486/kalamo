@@ -42,6 +42,7 @@ it("shows each group as one button, at its first tool, fronting its last chosen 
     "line",
     "rectangle",
     "pencil",
+    "gradient",
   ]);
   expect(slots[3]?.tools).toEqual(["pen", "addAnchor", "deleteAnchor", "anchorPoint", "curvature"]);
   expect(slots[4]?.tools).toEqual(["line", "arc", "spiral", "rectangularGrid", "polarGrid"]);

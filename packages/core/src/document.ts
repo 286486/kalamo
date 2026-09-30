@@ -30,6 +30,7 @@ import {
   type Node,
   NodeInput,
   type NodeQuery,
+  type Point,
   type Rect,
   Shape,
   type ShapeNode,
@@ -637,17 +638,26 @@ function placed(
   const center = g.center ?? middle();
   // Illustrator's default: half the width on a square.
   const radius = g.radius ?? (round3(Math.sqrt((own().width ** 2 + own().height ** 2) / 8)) || 1);
-  let focus = g.focus ?? center;
-  // A focus outside the ellipse moves onto it, as SVG 1.1 does, so every renderer agrees.
-  const t = (angle * Math.PI) / 180;
+  const focus = clampFocus({ center, radius, aspectRatio, angle, focus: g.focus ?? center });
+  return { type: "radial", stops, center, radius, aspectRatio, angle, focus };
+}
+
+/** The focus moved onto the ellipse when it lies outside, as SVG 1.1 does, so every renderer agrees. */
+export function clampFocus(
+  g: Pick<
+    Extract<Gradient, { type: "radial" }>,
+    "center" | "radius" | "aspectRatio" | "angle" | "focus"
+  >,
+): Point {
+  const { center, radius, aspectRatio, focus } = g;
+  const t = (g.angle * Math.PI) / 180;
   const dx = focus.x - center.x;
   const dy = focus.y - center.y;
   const reach = Math.hypot(
     (dx * Math.cos(t) + dy * Math.sin(t)) / radius,
     (dy * Math.cos(t) - dx * Math.sin(t)) / (radius * aspectRatio),
   );
-  if (reach > 1) focus = point(center.x + dx / reach, center.y + dy / reach);
-  return { type: "radial", stops, center, radius, aspectRatio, angle, focus };
+  return reach > 1 ? point(center.x + dx / reach, center.y + dy / reach) : focus;
 }
 
 /**
@@ -734,7 +744,11 @@ function paintOn(a: AppearanceInput, path: string, box: () => Rect | null): Appe
       return { ...p, type: "solid", color: parseColor(p.color, `${at}.color`) };
     }
     const stops = p.gradient.stops
-      .map((s, k) => ({ ...s, color: parseColor(s.color, `${at}.gradient.stops[${k}].color`) }))
+      .map(({ midpoint, ...s }, k) => ({
+        ...s,
+        color: parseColor(s.color, `${at}.gradient.stops[${k}].color`),
+        ...(midpoint !== undefined && midpoint !== 0.5 && { midpoint }),
+      }))
       .sort((s, t) => s.offset - t.offset);
     return { ...p, gradient: placed(p.gradient, stops, box, at) };
   };

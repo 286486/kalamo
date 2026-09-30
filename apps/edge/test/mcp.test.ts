@@ -1010,6 +1010,69 @@ it("fills in a gradient's geometry, reads it back in full, and names start = end
   });
 });
 
+it("round-trips midpoints on a Fill and a Stroke, and refuses one on the last stop (ADR-0081)", async () => {
+  const doc = await newDoc();
+  const stops = [
+    { offset: 0, color: "#1F5FBF", midpoint: 0.25 },
+    { offset: 0.5, color: "#FF0000", midpoint: 0.5 },
+    { offset: 1, color: "#9FD0FF00" },
+  ];
+  const stored = [stops[0], { offset: 0.5, color: "#FF0000" }, stops[2]];
+  const created = await call("kalamo_node_create", {
+    docId: doc.docId,
+    nodes: [
+      {
+        type: "rect",
+        parentId: doc.defaultLayerId,
+        x: 10,
+        y: 20,
+        width: 100,
+        height: 50,
+        appearance: { fills: [{ type: "gradient", gradient: { type: "linear", stops } }] },
+      },
+    ],
+  });
+  const [id] = created.structuredContent.createdIds as string[];
+  const get = async () =>
+    (await call("kalamo_node_get", { docId: doc.docId, nodeIds: [id], detail: "full" }))
+      .structuredContent.nodes[0];
+  expect((await get()).appearance.fills[0].gradient.stops).toEqual(stored);
+  const first = { offset: 0, color: "#9FD0FF00", midpoint: 0.7 };
+  const last = { offset: 1, color: "#1F5FBF" };
+  const updated = await call("kalamo_node_update", {
+    docId: doc.docId,
+    updates: [
+      {
+        nodeId: id,
+        patch: {
+          appearance: {
+            strokes: [{ type: "gradient", gradient: { type: "radial", stops: [first, last] } }],
+          },
+        },
+      },
+    ],
+  });
+  expect(updated.isError).toBeFalsy();
+  expect((await get()).appearance.strokes[0].gradient.stops).toEqual([first, last]);
+  // The stop that sorts last has no next stop for a midpoint.
+  const turned = [first, { ...last, midpoint: 0.3 }];
+  const refused = await call("kalamo_node_update", {
+    docId: doc.docId,
+    updates: [
+      {
+        nodeId: id,
+        patch: {
+          appearance: {
+            fills: [{ type: "gradient", gradient: { type: "linear", stops: turned } }],
+          },
+        },
+      },
+    ],
+  });
+  expect(refused.isError).toBe(true);
+  expect(refused.content[0].text).toMatch(/stops.*1.*midpoint/);
+});
+
 it("stores Character Ranges canonical, and a content write clears them (ADR-0029)", async () => {
   const doc = await newDoc();
   const created = await call("kalamo_node_create", {

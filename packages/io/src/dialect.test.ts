@@ -9,6 +9,7 @@ import {
   readImage,
   resolveImages,
   serializeDocument,
+  withAlpha,
 } from "@kalamo/core";
 import { expect, it } from "vitest";
 import { RED_2x2_PNG } from "../../../fixtures/images.ts";
@@ -22,7 +23,6 @@ import {
   scopeOf,
   starAttrs,
   starOf,
-  withAlpha,
   xmlId,
 } from "./dialect.ts";
 import { parseSvg } from "./read.ts";

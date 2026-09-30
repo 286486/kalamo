@@ -29,6 +29,8 @@ export interface State extends ViewState {
   images: ImageCache | null;
   /** Window > Layers. */
   layersShown: boolean;
+  /** Window > Gradient (ADR-0081). */
+  gradientShown: boolean;
   tool: Tool;
   /** The tool each Tools panel group shows: the last chosen from it. */
   front: Partial<Record<ToolGroup, Tool>>;
@@ -59,9 +61,11 @@ export const useStore = create<State>(() => ({
   anchors: [],
   segments: [],
   notice: null,
+  paintPreview: null,
   size: { width: 0, height: 0 },
   images: null,
   layersShown: true,
+  gradientShown: false,
   tool: "selection",
   front: {},
   fillStroke: DEFAULT_FILL_STROKE,
@@ -142,6 +146,7 @@ export function connect(docId: string): () => void {
     anchors: [],
     segments: [],
     notice: null,
+    paintPreview: null,
     viewport: null,
     selection: [],
     isolated: null,

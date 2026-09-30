@@ -1,6 +1,6 @@
 import { createDocument, createNodes, type Node } from "@kalamo/core";
 import { expect, it } from "vitest";
-import { applyBroadcast } from "./protocol.ts";
+import { applyBroadcast, ClientMessage } from "./protocol.ts";
 
 it("applies a tx message as a new Document: created and updated replace, deleted go", () => {
   const { doc, defaultLayerId } = createDocument({
@@ -35,4 +35,23 @@ it("applies a tx message as a new Document: created and updated replace, deleted
   // The store keeps the old Document for React's change detection.
   expect(doc.nodes.has(b.id)).toBe(true);
   expect(doc.nodes.get(a.id)?.name).not.toBe("A");
+});
+
+it("parses the appearance command as node_update's Appearance, refusing what it refuses (ADR-0081)", () => {
+  const stops = [
+    { offset: 0, color: "#000000", midpoint: 0.3 },
+    { offset: 1, color: "#FFFFFF" },
+  ];
+  const message = (appearance: object) => ({
+    type: "command",
+    id: "c1",
+    command: { type: "appearance", updates: [{ nodeId: "n", appearance }] },
+  });
+  const fills = [{ type: "gradient", gradient: { type: "linear", stops } }];
+  expect(ClientMessage.safeParse(message({ fills })).success).toBe(true);
+  expect(ClientMessage.safeParse(message({})).success).toBe(false);
+  expect(ClientMessage.safeParse(message({ fills, visible: false })).success).toBe(false);
+  const late = [stops[1], { ...stops[0], offset: 1 }];
+  const bad = [{ type: "gradient", gradient: { type: "linear", stops: late } }];
+  expect(ClientMessage.safeParse(message({ strokes: bad })).success).toBe(false);
 });

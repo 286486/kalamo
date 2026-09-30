@@ -577,6 +577,12 @@ export function documentMenus(tabs: {
           checked: (s) => s.layersShown,
           run: () => useStore.setState((s) => ({ layersShown: !s.layersShown })),
         },
+        {
+          label: "Gradient",
+          keys: "Ctrl+F9",
+          checked: (s) => s.gradientShown,
+          run: () => useStore.setState((s) => ({ gradientShown: !s.gradientShown })),
+        },
       ],
     },
   ];

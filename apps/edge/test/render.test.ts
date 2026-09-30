@@ -198,6 +198,9 @@ it("exports the fixture Document as Inkscape SVG that matches the stored file", 
     'cx="910" cy="30" r="20" fx="913.330127" fy="21.535898" gradientTransform="matrix(0.866025 0.5 -0.25 0.433013 129.416883 -437.990381)"',
     '<stop offset="1" stop-color="#9FD0FF" stop-opacity="0"/>',
     'stroke="url(#stroke-0-z-01M38T29STGRAD1ENT0000000C)"',
+    // ADR-0081: a midpoint on its stop, drawn by marked inserted stops.
+    '<stop offset="0" stop-color="#1F5FBF" kalamo:midpoint="0.25"/>',
+    'kalamo:simulated="true"',
     // ADR-0028: a text's style as font-weight and font-style, left out for Regular.
     `font-size="14" font-weight="900" font-style="italic" ${z("SVTYPE0000000000D0")}`,
     // ADR-0029: tracking as letter-spacing, and a Character Range as a nested tspan.

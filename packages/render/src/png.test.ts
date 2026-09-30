@@ -669,9 +669,10 @@ it("draws the fixture Document with known pixels", async () => {
   // centred one; by #56, a nineteenth holding Area Type in a circle and in a concave frame. By
   // #199, CJK Area Type lines stack by leading alone, moving the CJK and Korean Area Types' later
   // lines up, and a twentieth Artboard holds Point Type and Area Type mixing Latin and CJK lines. By
-  // #200, a twenty-first holding shaped Area Type with a larger Character Range and CJK.
+  // #200, a twenty-first holding shaped Area Type with a larger Character Range and CJK. By #64,
+  // the linear rect's first stop has a midpoint, and the elliptical ellipse a radial Stroke with two.
   expect(await hash(toSvg(doc, docRect(doc), { images }))).toBe(
-    "7c5934661948abcd3bc61dadee5efc18c97461d699b8bf96d9b543748f68889a",
+    "5f1bcbf7189e7543284782e291d775400f65c55e1b93aaa6e67c7711fa433a51",
   );
   expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned, images }))).toBe(
     "24c1e7ad8db33f59933a1b355c879cb19bfdfd67d70b11427b196aa646ea4b60",
@@ -1068,4 +1069,31 @@ it.each(COMPOSITING)("composes as one image: $name (ADR-0044)", async (c) => {
       `${x}, ${y} near ${rgb.map(Math.round)}`,
     );
   }
+});
+
+it("draws a midpoint's 50/50 mix where it sits (ADR-0081)", async () => {
+  const { doc, defaultLayerId: parentId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 200, height: 10, background: "#FFFFFF" }],
+  });
+  const stops = [
+    { offset: 0, color: "#000000", midpoint: 0.25 },
+    { offset: 1, color: "#FFFFFF" },
+  ];
+  createNodes(doc, [
+    {
+      type: "rect",
+      parentId,
+      x: 0,
+      y: 0,
+      width: 200,
+      height: 10,
+      appearance: { fills: [{ type: "gradient", gradient: { type: "linear", stops } }] },
+    },
+  ]);
+  const { pixels, width } = await svgToPixels(renderSvg(doc), 1);
+  // The pixel from 50 to 51 pt, a quarter of the way along.
+  const [r, g, b] = pixels.subarray((5 * width + 50) * 4);
+  for (const v of [r, g, b]) expect(Math.abs((v as number) - 127.5)).toBeLessThanOrEqual(2);
 });
