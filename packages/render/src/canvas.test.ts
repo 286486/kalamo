@@ -669,6 +669,28 @@ it("draws each character of a range in its own face and size, then goes back to 
   ]);
 });
 
+it("draws each placed character in the family core's glyph draws it in, its fallback first (ADR-0063)", () => {
+  const { doc, defaultLayerId: parentId } = newDoc();
+  const t = { x: 10, y: 50, content: "a小b", tracking: 100 };
+  createNodes(doc, [{ type: "text", parentId, ...t }]);
+  const { ctx, log, layer } = recorder();
+  drawDocument(ctx, doc, layer);
+  expect(glyphs({ ...t, fontSize: 12 }).map((g) => g.family)).toEqual([
+    "Source Sans 3",
+    "Noto Sans SC",
+    "Source Sans 3",
+  ]);
+  const source = 'font=12px "Source Sans 3", "Noto Sans SC", "Noto Sans KR"';
+  expect(log.filter((l) => /^(font=|fillText)/.test(l))).toEqual([
+    source,
+    expect.stringMatching(/^fillText a /),
+    'font=12px "Noto Sans SC", "Source Sans 3", "Noto Sans KR"',
+    expect.stringMatching(/^fillText 小 /),
+    source,
+    expect.stringMatching(/^fillText b /),
+  ]);
+});
+
 it("draws each line of Point Type, one leading apart", () => {
   const { doc, defaultLayerId: parentId } = newDoc();
   createNodes(doc, [

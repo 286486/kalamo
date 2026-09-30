@@ -1,13 +1,13 @@
 import {
   applyTo,
   bundledStyle,
-  characterFont,
   childrenOf,
   clippingPath,
   containerAppearance,
   crossedFrame,
   type Document,
   drawnStops,
+  drawsPerCharacter,
   ellipseMatrix,
   type Fill,
   fontFace,
@@ -523,10 +523,10 @@ function pen(ctx: Canvas2D, s: Stroke) {
 
 /**
  * Fills or strokes a text's shown lines, each from its aligned start, so overflowing Area Type is
- * not drawn (ADR-0022, ADR-0077). With tracking, ranges or a justified line each character paints on
- * its own at its origin, raised by its baseline shift
- * and turned about the origin by its rotation, in its range's fill or stroke when `paint` is the
- * Fill's or the Stroke's style, and in its own face and size (ADR-0029, ADR-0068). A character no
+ * not drawn (ADR-0022, ADR-0077). Where the layout places each character on its own, it paints at
+ * its origin, raised by its baseline shift and turned about the origin by its rotation, in its
+ * range's fill or stroke when `paint` is the Fill's or the Stroke's style, and in the family the
+ * layout draws it in, at its own style and size (ADR-0029, ADR-0063, ADR-0068). A character no
  * bundled face has paints as the first face's `.notdef` box at its origin, traced, since `fillText`
  * would draw it in a system font (ADR-0065); a line holding one paints the characters around it in
  * runs from their first character's origin.
@@ -540,8 +540,7 @@ function text(ctx: Canvas2D, n: TextNode, how: "fill" | "stroke", paint?: unknow
     else ctx.stroke();
   };
   const { lines } = layoutText(n);
-  // A justified line's widened spaces place each character on its own too (ADR-0077).
-  if (!n.tracking && !n.ranges && !lines.some((l) => l.wordSpacing)) {
+  if (!drawsPerCharacter(n, lines)) {
     let placed: Glyph[] | undefined;
     let k = 0;
     for (const l of lines) {
@@ -572,7 +571,11 @@ function text(ctx: Canvas2D, n: TextNode, how: "fill" | "stroke", paint?: unknow
   let face = own;
   for (const g of glyphs(n)) {
     if (g.char === "\n") continue;
-    const font = { ...characterFont(n, g), fontSize: g.fontSize ?? n.fontSize };
+    const font = {
+      fontFamily: g.family,
+      fontStyle: g.fontStyle ?? n.fontStyle,
+      fontSize: g.fontSize ?? n.fontSize,
+    };
     const css = cssFont(font);
     if (css !== face) {
       face = css;
