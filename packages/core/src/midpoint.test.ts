@@ -66,6 +66,21 @@ describe("drawnStops", () => {
     expect(out.length - edge.length).toBeLessThanOrEqual(MIDPOINT_CAP);
     expect(out.map((s) => s.offset)).toEqual(out.map((s) => s.offset).sort((a, b) => a - b));
   });
+
+  it("never rounds an inserted stop onto its neighbour's offset, across the midpoint range", () => {
+    for (let m = 0.13; m <= 0.87; m += 0.005) {
+      const out = drawnStops({
+        stops: [
+          { offset: 0, color: "#000000", midpoint: m },
+          { offset: 0.001, color: "#FFFFFF80", midpoint: m },
+          { offset: 1, color: "#FFFFFF" },
+        ],
+      });
+      out.slice(1).forEach((s, i) => {
+        expect(s.offset, `m ${m}`).toBeGreaterThan((out[i] as DrawnStop).offset);
+      });
+    }
+  });
 });
 
 describe("colorAt", () => {

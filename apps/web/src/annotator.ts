@@ -1,7 +1,7 @@
 // The Gradient Annotator's geometry (ADR-0081): where its parts are drawn, which one a pointer is
 // on, and what dragging each does to the gradient. Pointers are in document coordinates; the
 // gradient is in the leaf's own, which its world transform maps into them (ADR-0026).
-import { applyTo, type Gradient, invert, type Matrix, round3 } from "@kalamo/core";
+import { applyTo, clampFocus, type Gradient, invert, type Matrix, round3 } from "@kalamo/core";
 import { moveStop, RAD, removeStop, setMidpoint } from "./gradient.ts";
 
 export type Point = { x: number; y: number };
@@ -122,17 +122,6 @@ export function hitHandle(l: Layout, p: Point, scale: number, alt = false): Hand
   return off <= HIT && t >= 0 && t <= 1 ? { kind: "bar", t } : null;
 }
 
-/** The focus inside the ellipse, as core stores it (ADR-0026). */
-function inside(g: Extract<Gradient, { type: "radial" }>, f: Point): Point {
-  const t = g.angle * RAD;
-  const [dx, dy] = [f.x - g.center.x, f.y - g.center.y];
-  const reach = Math.hypot(
-    (dx * Math.cos(t) + dy * Math.sin(t)) / g.radius,
-    (dy * Math.cos(t) - dx * Math.sin(t)) / (g.radius * g.aspectRatio),
-  );
-  return reach > 1 ? { x: g.center.x + dx / reach, y: g.center.y + dy / reach } : f;
-}
-
 /**
  * `g` with the handle dragged from `from` to `to`, document points, on a leaf whose world
  * transform is `m`. A stop dragged TEAR_OFF px beyond its row is removed while more than two
@@ -165,7 +154,7 @@ export function dragHandle(
       if (!(radius > 0)) return g;
       const angle = round3(Math.atan2(p.y - g.center.y, p.x - g.center.x) / RAD);
       const turned = { ...g, radius, angle };
-      return { ...turned, focus: inside(turned, g.focus) };
+      return { ...turned, focus: clampFocus({ ...turned, focus: g.focus }) };
     }
     case "aspect": {
       if (g.type !== "radial") return g;
@@ -173,10 +162,10 @@ export function dragHandle(
       const across = Math.abs(-(p.x - g.center.x) * Math.sin(t) + (p.y - g.center.y) * Math.cos(t));
       const aspectRatio = Math.max(0.01, round3(across / g.radius));
       const flattened = { ...g, aspectRatio };
-      return { ...flattened, focus: inside(flattened, g.focus) };
+      return { ...flattened, focus: clampFocus({ ...flattened, focus: g.focus }) };
     }
     case "focus":
-      return g.type === "radial" ? { ...g, focus: roundPoint(inside(g, p)) } : g;
+      return g.type === "radial" ? { ...g, focus: clampFocus({ ...g, focus: roundPoint(p) }) } : g;
     case "stop": {
       const { t, off } = onBar(l, to, scale);
       if (off > TEAR_OFF + STOP_GAP) {

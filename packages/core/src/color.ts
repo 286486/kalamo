@@ -130,3 +130,15 @@ function channels(list: unknown[], unit: boolean): string | null {
   const nums = list as number[];
   return `#${nums.map((n, i) => byte(unit || i === 3 ? n * 255 : n)).join("")}`.toUpperCase();
 }
+
+/** A colour's alpha, 0 to 1: its AA, or 1 for #RRGGBB (ADR-0017). */
+export const alphaOf = (color: string) =>
+  color.length === 9 ? Number.parseInt(color.slice(7), 16) / 255 : 1;
+
+/** `hex` with its own alpha times `a`, as #RRGGBB when opaque. */
+export function withAlpha(hex: string, a: number): string {
+  const byte = Math.round(alphaOf(hex) * a * 255);
+  return byte >= 255
+    ? hex.slice(0, 7)
+    : `${hex.slice(0, 7)}${byte.toString(16).padStart(2, "0").toUpperCase()}`;
+}

@@ -81,6 +81,23 @@ describe("dragging", () => {
     });
   });
 
+  it("rounds a dragged focus to 3 decimals, and a focus an end or aspect drag pulls in", () => {
+    const at = { x: world(60.12345, 50).x, y: world(60.12345, 50).y };
+    expect(drag(radial, { kind: "focus" }, world(50, 50), at)).toMatchObject({
+      focus: { x: 60.123, y: 50 },
+    });
+    const off = { ...radial, focus: { x: 80, y: 50 } } as Gradient;
+    const shrunk = drag(off, { kind: "end" }, world(90, 50), world(63.3333, 50));
+    expect(shrunk).toMatchObject({ radius: 13.333, focus: { x: 63.333, y: 50 } });
+    const flat = drag(
+      { ...radial, focus: { x: 50, y: 65 } } as Gradient,
+      { kind: "aspect" },
+      world(50, 70),
+      world(50, 53.33333),
+    );
+    expect(flat).toMatchObject({ aspectRatio: 0.083, focus: { x: 50, y: 53.32 } });
+  });
+
   it("keeps the focus inside the ellipse", () => {
     expect(drag(radial, { kind: "focus" }, world(50, 50), world(60, 50))).toMatchObject({
       focus: { x: 60, y: 50 },

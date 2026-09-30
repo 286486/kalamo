@@ -1,12 +1,14 @@
 import {
+  alphaOf,
   type ColorStop,
   type Document,
   drawnStops,
   type Gradient,
   type LeafNode,
+  withAlpha,
   worldTransform,
 } from "@kalamo/core";
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { TEAR_OFF } from "./annotator.ts";
 import {
   activeGradient,
@@ -41,6 +43,21 @@ const css = (stops: ColorStop[]) =>
     .join(", ")})`;
 
 const round = (v: number, places = 1) => Math.round(v * 10 ** places) / 10 ** places;
+
+/** Keys a focused panel control handles itself, which must not reach the canvas or the menu bar. */
+const OWN_KEYS = new Set([
+  "Delete",
+  "Backspace",
+  "ArrowLeft",
+  "ArrowRight",
+  "ArrowUp",
+  "ArrowDown",
+  " ",
+  "Enter",
+]);
+const guard = (e: React.KeyboardEvent) => {
+  if (!e.ctrlKey && !e.metaKey && OWN_KEYS.has(e.key)) e.stopPropagation();
+};
 
 /** A number field that commits on Enter or blur, one Transaction each, not per keystroke. */
 function NumberField(props: {
@@ -94,10 +111,14 @@ export const GradientPanel = memo(function GradientPanel() {
     kind: "stop",
     index: 0,
   });
-  const drag = useRef<{ index: number; kind: "stop" | "midpoint"; stops: ColorStop[] } | null>(
-    null,
-  );
-  const colorRef = useRef<HTMLInputElement>(null);
+  /** A slider drag: the stops at its press, the dragged one's index in them, and where it sorts now. */
+  const drag = useRef<{
+    index: number;
+    kind: "stop" | "midpoint";
+    stops: ColorStop[];
+    at: number | null;
+  } | null>(null);
+  const slider = useRef<HTMLDivElement>(null);
 
   const targets = doc ? paintTargets(doc, selection) : [];
   const shownDoc = doc && preview ? withPaints(doc, preview.updates) : doc;
@@ -119,17 +140,55 @@ export const GradientPanel = memo(function GradientPanel() {
     (old: Gradient | null, n: LeafNode): Gradient =>
       old ? { ...old, stops: s } : placeOn(n, { type: "linear", stops: s });
 
-  // The browser's picker commits once, on its change event; its input events preview.
-  useEffect(() => {
-    const el = colorRef.current;
+  // The browser's picker commits once, on its change event, and previews nothing: a picker closed
+  // without choosing fires no event to take a preview back. Bound once per input, reading the
+  // latest render through `latest`.
+  const latest = useRef({ stops, index, stop, apply, withStops });
+  latest.current = { stops, index, stop, apply, withStops };
+  const bindColor = useCallback((el: HTMLInputElement | null) => {
     if (!el) return;
     const commit = () => {
-      const alpha = stop.color.slice(7);
-      apply(withStops(setColor(stops, index, el.value.toUpperCase() + alpha)));
+      const { stops, index, stop, apply, withStops } = latest.current;
+      const color = withAlpha(el.value.toUpperCase(), alphaOf(stop.color));
+      apply(withStops(setColor(stops, index, color)));
     };
     el.addEventListener("change", commit);
     return () => el.removeEventListener("change", commit);
-  });
+  }, []);
+
+  /** Focuses a stop's button once it has re-rendered at `k`, after a key moved it past another. */
+  const focusStop = (k: number) =>
+    requestAnimationFrame(() =>
+      slider.current?.querySelector<HTMLElement>(`[aria-label="Color Stop ${k + 1}"]`)?.focus(),
+    );
+  /** The slider's keys: Delete removes the picked stop; arrows move it or the picked midpoint. */
+  const onSliderKey = (e: React.KeyboardEvent) => {
+    const step = { ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1 }[e.key];
+    if (
+      e.ctrlKey ||
+      e.metaKey ||
+      e.altKey ||
+      !(step || e.key === "Delete" || e.key === "Backspace")
+    )
+      return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (!step) {
+      // Refused while only two stops remain; a midpoint cannot be deleted.
+      const left = picked.kind === "stop" && removeStop(stops, index);
+      if (left) apply(withStops(left));
+      return;
+    }
+    const by = step * (e.shiftKey ? 0.1 : 0.01);
+    if (picked.kind === "midpoint") {
+      const m = stops[picked.index]?.midpoint ?? 0.5;
+      return apply(withStops(setMidpoint(stops, picked.index, m + by)));
+    }
+    const moved = moveStop(stops, index, stop.offset + by);
+    setPicked({ kind: "stop", index: moved.index });
+    if (moved.index !== index) focusStop(moved.index);
+    apply(withStops(moved.stops));
+  };
 
   const toggle = (b: Box) => () =>
     useStore.setState((s) => ({ fillStroke: { ...s.fillStroke, active: b } }));
@@ -141,6 +200,10 @@ export const GradientPanel = memo(function GradientPanel() {
   return (
     <section
       aria-label="Gradient"
+      // The panel's keys are its own: Delete on a focused control must never Clear the Selection,
+      // arrows never nudge it, and Space and Enter press the control instead of panning.
+      onKeyDown={guard}
+      onKeyUp={guard}
       style={{ padding: 8, borderBottom: "1px solid #CCC", display: "grid", gap: 6 }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -219,8 +282,10 @@ export const GradientPanel = memo(function GradientPanel() {
         {/* The slider: midpoints above it, Color Stops below; a click below adds a stop. */}
         {/* biome-ignore lint/a11y/useSemanticElements: a fieldset would reset the slider's layout */}
         <div
+          ref={slider}
           role="group"
           aria-label="Gradient slider"
+          onKeyDown={onSliderKey}
           style={{ position: "relative", width: WIDTH, height: 44, margin: "0 8px" }}
           onPointerDown={(e) => {
             if (e.target !== e.currentTarget || e.nativeEvent.offsetY < 26) return;
@@ -240,11 +305,19 @@ export const GradientPanel = memo(function GradientPanel() {
               return apply(withStops(setMidpoint(d.stops, d.index, m)), true);
             }
             const off = e.clientY - r.bottom > TEAR_OFF && removeStop(d.stops, d.index);
-            apply(withStops(off || moveStop(d.stops, d.index, t).stops), true);
+            const moved = moveStop(d.stops, d.index, t);
+            d.at = off ? null : moved.index;
+            apply(withStops(off || moved.stops), true);
           }}
           onPointerUp={() => {
             const d = drag.current;
             drag.current = null;
+            // The fields follow the dragged stop to where it sorted; a torn-off one leaves the one before.
+            if (d?.kind === "stop") {
+              const k = d.at ?? Math.max(0, d.index - 1);
+              setPicked({ kind: "stop", index: k });
+              focusStop(k);
+            }
             const shown = useStore.getState().paintPreview;
             if (!d || !shown || shown.commandId) return;
             sendPaint(shown.updates);
@@ -277,10 +350,11 @@ export const GradientPanel = memo(function GradientPanel() {
                 key={`m${i}`}
                 type="button"
                 aria-label={`Midpoint ${i + 1}`}
+                onFocus={() => setPicked({ kind: "midpoint", index: i })}
                 onPointerDown={(e) => {
                   e.currentTarget.parentElement?.setPointerCapture(e.pointerId);
                   setPicked({ kind: "midpoint", index: i });
-                  drag.current = { kind: "midpoint", index: i, stops };
+                  drag.current = { kind: "midpoint", index: i, stops, at: i };
                 }}
                 style={{
                   position: "absolute",
@@ -303,10 +377,11 @@ export const GradientPanel = memo(function GradientPanel() {
               type="button"
               aria-label={`Color Stop ${i + 1}`}
               aria-pressed={picked.kind === "stop" && index === i}
+              onFocus={() => setPicked({ kind: "stop", index: i })}
               onPointerDown={(e) => {
                 e.currentTarget.parentElement?.setPointerCapture(e.pointerId);
                 setPicked({ kind: "stop", index: i });
-                drag.current = { kind: "stop", index: i, stops };
+                drag.current = { kind: "stop", index: i, stops, at: i };
               }}
               style={{
                 position: "absolute",
@@ -325,28 +400,21 @@ export const GradientPanel = memo(function GradientPanel() {
         {picked.kind === "stop" ? (
           <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
             <input
-              ref={colorRef}
+              // A new stop or colour resets the picker to it.
+              key={`${index} ${stop.color}`}
+              ref={bindColor}
               type="color"
               aria-label="Stop color"
-              value={stop.color.slice(0, 7).toLowerCase()}
-              onChange={(e) => {
-                const color = e.target.value.toUpperCase() + stop.color.slice(7);
-                apply(withStops(setColor(stops, index, color)), true);
-              }}
+              defaultValue={stop.color.slice(0, 7).toLowerCase()}
             />
             <NumberField
               label="Opacity %"
               min={0}
               max={100}
-              value={round(
-                (stop.color.length === 9 ? Number.parseInt(stop.color.slice(7), 16) : 255) / 2.55,
-                0,
-              )}
-              commit={(v) => {
-                const a = Math.round((v / 100) * 255);
-                const hex = a === 255 ? "" : a.toString(16).padStart(2, "0").toUpperCase();
-                apply(withStops(setColor(stops, index, stop.color.slice(0, 7) + hex)));
-              }}
+              value={round(alphaOf(stop.color) * 100, 0)}
+              commit={(v) =>
+                apply(withStops(setColor(stops, index, withAlpha(stop.color.slice(0, 7), v / 100))))
+              }
             />
             <NumberField
               label="Location %"

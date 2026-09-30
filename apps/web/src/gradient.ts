@@ -136,10 +136,25 @@ export const cancelPaint = () => useStore.setState({ paintPreview: null });
 
 /** Sends `updates` as one `appearance` command, one Transaction, drawn until its answer. */
 export function sendPaint(updates: PaintUpdate[]) {
-  if (updates.length === 0) return cancelPaint();
-  const commandId = send({ type: "appearance", updates });
-  useStore.setState({ paintPreview: { updates, commandId }, notice: null });
+  const { doc } = useStore.getState();
+  // A gesture that changed nothing sends nothing, so it leaves no empty undo step.
+  const changed = updates.filter(({ nodeId, appearance }) => {
+    const n = doc?.nodes.get(nodeId);
+    const now = (n && "appearance" in n ? n.appearance : {}) as Record<string, unknown>;
+    return Object.entries(appearance).some(([k, v]) => sortedJson(now[k]) !== sortedJson(v));
+  });
+  if (changed.length === 0) return cancelPaint();
+  const commandId = send({ type: "appearance", updates: changed });
+  useStore.setState({ paintPreview: { updates: changed, commandId }, notice: null });
 }
+
+/** JSON with every object's keys sorted, so equal paints compare equal whatever built them. */
+const sortedJson = (v: unknown) =>
+  JSON.stringify(v, (_, x) =>
+    x && typeof x === "object" && !Array.isArray(x)
+      ? Object.fromEntries(Object.entries(x).sort())
+      : x,
+  );
 
 // The stops, as the panel's slider and the Annotator's bar edit them. Each returns stops the schema
 // accepts: sorted by offset, midpoints 13%–87%, none on the last stop, 0.5 left out.

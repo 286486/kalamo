@@ -91,6 +91,66 @@ test("the Gradient panel applies, retypes, adds and colours a stop, moves a midp
   // Undo takes back the Reverse alone.
   await page.keyboard.press("Control+Z");
   await expect.poll(stops).toEqual(before);
+
+  const rev = async () =>
+    (await call(request, "kalamo_doc_changes", { docId, sinceRev: 0 })).structuredContent.rev;
+  const exists = async () =>
+    (await call(request, "kalamo_node_get", { docId, nodeIds: [id] })).structuredContent?.nodes
+      ?.length;
+  const stopButton = (k: number) => panel.getByRole("button", { name: `Color Stop ${k}` });
+
+  // The keyboard: a focused stop moves 1% a press, 10% with Shift.
+  await stopButton(2).focus();
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(async () => (await stops())[1]?.offset).toBe(0.51);
+  await page.keyboard.press("Shift+ArrowLeft");
+  await expect.poll(async () => (await stops())[1]?.offset).toBe(0.41);
+
+  // Dragged past another stop, the first stop stays the one the fields show.
+  const b1 = await stopButton(1).boundingBox();
+  if (!b1) throw new Error("no stop");
+  await page.mouse.move(b1.x + b1.width / 2, b1.y + b1.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(s.x + 0.8 * s.width, b1.y + b1.height / 2, { steps: 5 });
+  await page.mouse.up();
+  await expect
+    .poll(async () => (await stops()).map((t) => t.color))
+    .toEqual(["#FF000080", before[0]?.color, before[2]?.color]);
+  await expect(panel.getByLabel("Location %")).toHaveValue("80");
+  await expect(stopButton(2)).toHaveAttribute("aria-pressed", "true");
+
+  // Delete removes the focused stop, never the Selection; with two left it does nothing at all.
+  await page.keyboard.press("Delete");
+  await expect.poll(async () => (await stops()).length).toBe(2);
+  const kept = await rev();
+  await stopButton(1).focus();
+  await page.keyboard.press("Delete");
+  await page.keyboard.press("Backspace");
+  await panel.getByRole("button", { name: "⇄" }).focus();
+  await page.keyboard.press("Delete");
+  await page.waitForTimeout(300);
+  expect(await exists()).toBe(1);
+  expect((await stops()).length).toBe(2);
+  expect(await rev()).toBe(kept);
+  // Undo brings the deleted stop back in one step.
+  await page.keyboard.press("Control+Z");
+  await expect.poll(async () => (await stops()).length).toBe(3);
+
+  await panel.getByLabel("Aspect Ratio %").fill("50");
+  await panel.getByLabel("Aspect Ratio %").press("Enter");
+  await expect.poll(async () => (await fill()).gradient.aspectRatio).toBe(0.5);
+
+  // A colour picked but not chosen, the picker closed, previews nothing and commits nothing.
+  const swatch = () => stopButton(1).evaluate((el) => (el as HTMLElement).style.background);
+  const shown = await swatch();
+  const untouched = await rev();
+  await panel.getByLabel("Stop color").evaluate((el) => {
+    (el as HTMLInputElement).value = "#00ff00";
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await page.waitForTimeout(300);
+  expect(await swatch()).toBe(shown);
+  expect(await rev()).toBe(untouched);
 });
 
 test("the Gradient tool drags a vector on a turned rect, tears a stop off and moves a midpoint", async ({
@@ -167,6 +227,36 @@ test("the Gradient tool drags a vector on a turned rect, tears a stop off and mo
   // Undo takes back the midpoint drag alone.
   await page.keyboard.press("Control+Z");
   await expect.poll(async () => (await gradient()).stops).toEqual([three[0], three[2]]);
+
+  const revNow = async () =>
+    (await call(request, "kalamo_doc_changes", { docId, sinceRev: 0 })).structuredContent.rev;
+  // With two stops left, a stop dragged off the bar stays, and nothing commits.
+  const two = await revNow();
+  await drag([85, 47], [85, 90]);
+  await page.waitForTimeout(300);
+  expect(await revNow()).toBe(two);
+
+  // A click on the bar adds a stop there.
+  await page.mouse.click(...at(100, 35));
+  await expect
+    .poll(async () => (await gradient()).stops.map((t: Stop) => t.offset))
+    .toEqual([0, 0.5, 1]);
+
+  // Escape drops a drag: the end stays where it was, and nothing commits.
+  const added = await revNow();
+  await page.mouse.move(...at(115, 35));
+  await page.mouse.down();
+  await page.mouse.move(...at(130, 35), { steps: 4 });
+  await page.keyboard.press("Escape");
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  expect(await gradient()).toMatchObject({ end: own(115, 35) });
+  expect(await revNow()).toBe(added);
+
+  // A double-click on a stop opens its colour; choosing one commits it.
+  await page.mouse.dblclick(...at(100, 47));
+  await page.getByTestId("stop-color-picker").fill("#00ff00");
+  await expect.poll(async () => (await gradient()).stops[1].color).toBe("#00FF00");
 });
 
 test("the canvas draws a midpoint as render does", async ({ page, request }) => {

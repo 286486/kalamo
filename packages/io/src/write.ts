@@ -1,6 +1,7 @@
 import {
   type Appearance,
   type Artboard,
+  alphaOf,
   applyTo,
   type CharacterRange,
   characterFont,
@@ -323,7 +324,7 @@ export function toSvg(doc: Document, rect?: Rect, opts: SvgOptions = {}): string
 /** A gradient as one self-contained `userSpaceOnUse` element (ADR-0026). */
 function gradient(id: string, g: Gradient): string {
   const stops = drawnStops(g).map((s) => {
-    const opacity = s.color.length === 9 ? Number.parseInt(s.color.slice(7), 16) / 255 : 1;
+    const opacity = alphaOf(s.color);
     return `<stop${attrs({
       // An inserted stop keeps its 6 decimals: a midpoint's curve is steep near its stop.
       offset: s.simulated ? String(s.offset) : formatNumber(s.offset),

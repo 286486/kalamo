@@ -71,13 +71,14 @@ export function drawnStops(g: Pick<Gradient, "stops">): DrawnStop[] {
       tol *= 2;
       us = breaks(p, tol);
     }
-    const inserted = us.map(
-      (u): DrawnStop => ({
-        offset: Math.round((s.offset + u * span) * 1e6) / 1e6,
-        color: mix(s.color, next.color, u ** p),
-        simulated: true,
-      }),
-    );
+    const inserted: DrawnStop[] = [];
+    for (const u of us) {
+      const offset = Math.round((s.offset + u * span) * 1e6) / 1e6;
+      // Next to its stop the curve is so steep a break can round onto a neighbour's offset; it is
+      // left out rather than make a hard edge less than 1e-6 wide.
+      if (offset <= (inserted.at(-1)?.offset ?? s.offset) || offset >= next.offset) continue;
+      inserted.push({ offset, color: mix(s.color, next.color, u ** p), simulated: true });
+    }
     return [s, ...inserted];
   });
 }

@@ -201,6 +201,52 @@ it("commits an update command that hides a Node as one Transaction of the User A
   expect(changes).toMatchObject([{ actor: "user", summary: "Update 1 Node", updatedIds: [id] }]);
 });
 
+it("commits an appearance command for every browser, and closes on one the Appearance schema refuses (ADR-0081)", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const { createdIds, rev } = (
+    await call("kalamo_node_create", { docId, nodes: [rect(defaultLayerId), rect(defaultLayerId)] })
+  ).structuredContent;
+  const stops = [
+    { offset: 0, color: "#000000", midpoint: 0.3 },
+    { offset: 1, color: "#FFFFFF" },
+  ];
+  const fills = [{ type: "gradient", gradient: { type: "linear", stops } }];
+  const other = await subscribe(docId);
+  await other.received(1);
+  const { ws, received } = await subscribe(docId);
+  await received(1);
+  const updates = createdIds.map((nodeId: string) => ({ nodeId, appearance: { fills } }));
+  ws.send(command("c9", { type: "appearance", updates }));
+  // The other browser gets the same Transaction.
+  const [, tx] = await other.received(2);
+  expect(tx).toMatchObject({ type: "tx", actor: "user", commandId: "c9", rev: rev + 1 });
+  expect(tx?.type === "tx" && tx.updated.map((n) => n.id)).toEqual(createdIds);
+  expect(
+    tx?.type === "tx" && tx.updated.map((n) => ("appearance" in n ? n.appearance?.fills : [])),
+  ).toMatchObject([[{ gradient: { stops } }], [{ gradient: { stops } }]]);
+  // A midpoint on the stop that sorts last is malformed: the socket closes and nothing commits.
+  const late = [
+    { ...stops[1], offset: 0 },
+    { ...stops[0], offset: 1 },
+  ];
+  const closed = new Promise<CloseEvent>((r) => ws.addEventListener("close", r));
+  ws.send(
+    command("c10", {
+      type: "appearance",
+      updates: [
+        {
+          nodeId: createdIds[0],
+          appearance: { fills: [{ type: "gradient", gradient: { type: "linear", stops: late } }] },
+        },
+      ],
+    }),
+  );
+  expect((await closed).code).toBe(1007);
+  const { changes } = (await call("kalamo_doc_changes", { docId, sinceRev: rev }))
+    .structuredContent;
+  expect(changes).toHaveLength(1);
+});
+
 it("closes the socket with 1007 on an update patch other than visible or locked", async () => {
   const { docId, defaultLayerId } = await newDoc();
   const [id] = (await call("kalamo_node_create", { docId, nodes: [rect(defaultLayerId)] }))

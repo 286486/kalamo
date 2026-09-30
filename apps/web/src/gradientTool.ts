@@ -1,4 +1,11 @@
-import { type Document, type Gradient, type LeafNode, worldTransform } from "@kalamo/core";
+import {
+  alphaOf,
+  type Document,
+  type Gradient,
+  type LeafNode,
+  withAlpha,
+  worldTransform,
+} from "@kalamo/core";
 import { dragHandle, dragVector, type Handle, hitHandle, layout, type Point } from "./annotator.ts";
 import { dragged, type Press, SELECTION } from "./canvas.ts";
 import {
@@ -56,24 +63,24 @@ function updatesAt(to: Point, shift: boolean): PaintUpdate[] {
 /** The picker a double-click on a stop opened; a dismissed one fires no change, so the next goes. */
 let picker: HTMLInputElement | null = null;
 
-/** Opens the browser's colour picker for stop `index`, one Transaction when it is chosen. */
+/**
+ * Opens the browser's colour picker for stop `index`: one Transaction when a colour is chosen, and
+ * no preview, since a picker closed without choosing fires no event to take one back.
+ */
 function pickColor(node: LeafNode, g: Gradient, index: number, box: Box) {
   picker?.remove();
-  const alpha = g.stops[index]?.color.slice(7) ?? "";
+  const old = g.stops[index]?.color ?? "#000000";
   const input = Object.assign(document.createElement("input"), {
     type: "color",
-    value: (g.stops[index]?.color ?? "#000000").slice(0, 7).toLowerCase(),
+    value: old.slice(0, 7).toLowerCase(),
   });
-  const updates = () => {
-    const stops = setColor(g.stops, index, input.value.toUpperCase() + alpha);
-    return paintUpdates([node], box, () => ({ ...g, stops }));
-  };
-  input.addEventListener("input", () => previewPaint(updates()));
   input.addEventListener("change", () => {
-    sendPaint(updates());
+    const stops = setColor(g.stops, index, withAlpha(input.value.toUpperCase(), alphaOf(old)));
+    sendPaint(paintUpdates([node], box, () => ({ ...g, stops })));
     input.remove();
   });
   input.style.cssText = "position:fixed;opacity:0;pointer-events:none";
+  input.dataset.testid = "stop-color-picker";
   document.body.append(input);
   picker = input;
   input.click();

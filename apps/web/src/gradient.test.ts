@@ -11,10 +11,12 @@ import {
   placeOn,
   removeStop,
   reverseStops,
+  sendPaint,
   setMidpoint,
   withAngle,
   withPaints,
 } from "./gradient.ts";
+import { useStore } from "./store.ts";
 
 const stops = [
   { offset: 0, color: "#000000", midpoint: 0.25 },
@@ -169,5 +171,21 @@ describe("targets", () => {
     const bare = leaf({ fills: [] });
     const [added] = paintUpdates([bare], "stroke", () => g);
     expect((added as { appearance: { strokes: object[] } }).appearance.strokes).toHaveLength(1);
+  });
+});
+
+describe("sendPaint", () => {
+  it("sends nothing and leaves no preview for a gesture that changed nothing", () => {
+    const rect = leaf({ fills: [{ type: "gradient", gradient: { type: "linear", stops } }] });
+    useStore.setState({ doc: rect.doc, paintPreview: { updates: [], commandId: null } });
+    const same = paintUpdates([rect], "fill", (g) => g);
+    sendPaint(same);
+    expect(useStore.getState().paintPreview).toBeNull();
+    const moved = paintUpdates([rect], "fill", (g) => g && { ...g, stops: reverseStops(g.stops) });
+    sendPaint(moved);
+    expect(useStore.getState().paintPreview).toMatchObject({
+      updates: moved,
+      commandId: expect.any(String),
+    });
   });
 });

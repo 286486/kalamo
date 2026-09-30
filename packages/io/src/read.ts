@@ -50,6 +50,7 @@ import {
   unfilledRanges,
   union,
   type Warning,
+  withAlpha,
 } from "@kalamo/core";
 import { DOMParser, type Element } from "@xmldom/xmldom";
 import { generateKeyBetween } from "fractional-indexing";
@@ -65,7 +66,6 @@ import {
   scopeOf,
   spiralOf,
   starOf,
-  withAlpha,
   xmlId,
 } from "./dialect.ts";
 import { asGradient, type Geometry, unroll } from "./gradient.ts";

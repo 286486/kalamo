@@ -1,6 +1,12 @@
 // The facts of Kalamo's Inkscape SVG dialect (ADR-0017) that export writes and import reads back,
 // each defined once with both directions. No XML parser here: the browser's writer imports it.
-import { formatNumber, LEGACY_SVG_NS, type RenderScope, type ShapeNode } from "@kalamo/core";
+import {
+  alphaOf,
+  formatNumber,
+  LEGACY_SVG_NS,
+  type RenderScope,
+  type ShapeNode,
+} from "@kalamo/core";
 
 export const NS = {
   svg: "http://www.w3.org/2000/svg",
@@ -87,8 +93,7 @@ export function scopeOf(value: string | null): RenderScope | undefined {
 /** A colour as `fill` or `stroke` plus its alpha as `-opacity`: Inkscape 1.2 draws #RRGGBBAA black. */
 export const paintAttrs = (name: "fill" | "stroke", color: string) => ({
   [name]: color.slice(0, 7),
-  [`${name}-opacity`]:
-    color.length === 9 ? formatNumber(Number.parseInt(color.slice(7), 16) / 255) : undefined,
+  [`${name}-opacity`]: color.length === 9 ? formatNumber(alphaOf(color)) : undefined,
 });
 
 /** An opacity from `0.5` or `50%`, 1 when missing or unreadable. */
@@ -96,15 +101,6 @@ export const alpha = (v: string | undefined) => {
   const n = v?.trim().endsWith("%") ? Number.parseFloat(v) / 100 : Number(v ?? 1);
   return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 1;
 };
-
-/** `hex` with its own alpha times `a`, as #RRGGBB when opaque: the inverse of `paintAttrs`. */
-export function withAlpha(hex: string, a: number): string {
-  const own = hex.length === 9 ? Number.parseInt(hex.slice(7), 16) / 255 : 1;
-  const byte = Math.round(own * a * 255);
-  return byte >= 255
-    ? hex.slice(0, 7)
-    : `${hex.slice(0, 7)}${byte.toString(16).padStart(2, "0").toUpperCase()}`;
-}
 
 /**
  * SVG's Stroke defaults, which export leaves unwritten and import assumes. SVG's miter limit is 4,

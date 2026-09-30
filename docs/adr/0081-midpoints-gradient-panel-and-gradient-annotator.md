@@ -29,7 +29,7 @@ SVG, Inkscape and Canvas2D blend straight between stops. A midpoint is drawn wit
 - **Placing the stops.** A chord of `u^p` strays most where the curve's slope equals the chord's, which gives the error in closed form. From `u = 0`, each chord is made as long as the tolerance allows, found by bisection. The tolerance is divided by the span's largest channel difference, so a span between near colours needs few stops. Black to white takes 15 stops at `m = 0.25`, 21 at 0.13, 14 at 0.87 and 5 at 0.45.
 - **Cap.** At most `MIDPOINT_CAP`, 32, stops go into one span. Past it the tolerance doubles until the stops fit. No 8-bit span reaches the cap.
 - A span with no length (a hard edge) or equal colours gets no stops. A gradient whose midpoints are all 0.5 is drawn with its own stops, unchanged.
-- An inserted stop's offset keeps 6 decimals, since the curve is steep next to its stop when `m < 0.5`.
+- An inserted stop's offset keeps 6 decimals, since the curve is steep next to its stop when `m < 0.5`. A stop that rounds onto the offset of its stop, the one before it or the next stop is left out, so no hard edge narrower than 1e-6 is drawn. That happens next to a stop with `m` at or below about 0.145, over less than a millionth of the span.
 
 ## SVG
 
@@ -53,11 +53,12 @@ Window > Gradient, Illustrator's Ctrl+F9, sits in the one menu table that binds 
 - **The slider.**
   - A click below it adds a stop in the colour the gradient has there, and selects it. The span's midpoint goes back to 50 %, as Illustrator's does.
   - A stop dragged along it moves, keeping its colour and midpoint. A midpoint on a stop that ends up last is dropped.
-  - A stop dragged 24 px down off the slider, or deleted with Delete, is removed. This is refused while only two stops remain.
+  - A stop dragged 24 px down off the slider, or removed with the Delete button, is removed. This is refused while only two stops remain. After a drag, the fields show the dragged stop wherever it sorted.
+- **Keyboard.** Each Color Stop and midpoint diamond is a button, and focusing one with Tab selects it. On a focused stop, Delete or Backspace removes it, refused while only two stops remain; a midpoint cannot be deleted. The arrow keys move the focused stop, or the focused midpoint within its span, by 1 %, or 10 % with Shift. The keys a panel control takes (Delete, Backspace, the arrows, Space and Enter) stop at the panel, so they never Clear or nudge the Selection or pan the canvas. Keys with Ctrl, such as Undo, still reach the menu bar.
   - Midpoint diamonds sit above the slider, and each drags within 13 %–87 % of its span.
 - **The selected stop** has its colour (the browser's colour input, as the Fill box uses), Opacity % (its alpha, since the model has no separate stop opacity) and Location %. A selected midpoint has its Location %.
 - Every edit applies the panel's stops to every target. A solid target takes the default geometry.
-- **Transactions.** Each discrete change is one Transaction, so one undo step. A number field commits on Enter or blur, not per keystroke. A drag, and the colour picker, preview live and commit once, on release or on the picker's `change`.
+- **Transactions.** Each discrete change is one Transaction, so one undo step. A number field commits on Enter or blur, not per keystroke. A drag previews live and commits once, on release. The colour picker commits on its `change` and previews nothing, since a picker closed without choosing fires no event that would take a preview back. A change, drag or key that leaves every paint as it was sends nothing, so it adds no empty undo step.
 
 ## The Gradient tool and the Annotator
 
@@ -72,7 +73,7 @@ The Gradient Tool, Illustrator's G, is a `CanvasTool` like the other tools.
   - Radial: the bar from `center` along `angle` to `radius`, and the dotted ellipse. The aspect ratio handle sits on the ellipse across `angle`, and the focus handle sits at `focus`, kept inside the ellipse. The end handle sets `radius` and `angle`. A focus on the origin moves with it, and Alt+drag takes the focus alone, to pull it off the origin.
   - Color Stops sit 12 px below the bar, on its clockwise normal. They drag along it and leave it, while more than two remain, when dragged more than 24 px beyond their row. A click on the bar adds one there, and a double-click on a stop opens its colour. Midpoint diamonds sit 9 px above the bar and drag within 13 %–87 % of their span.
   - Every handle is hit within 6 screen px, through the leaf's rotated or scaled transform. Stops come first, then midpoints, the origin, the focus, the aspect handle, the end, and the bar.
-- Each drag previews and commits one Transaction on release. Escape cancels it.
+- Each drag previews and commits one Transaction on release. Escape cancels it. A drag that changes nothing, such as tearing off a stop while only two remain, commits nothing.
 
 A preview is `paintPreview` in the store: each Node's new paints, drawn over the Document until the answer to its command arrives, as a Direct Selection drag is drawn (ADR-0010).
 
@@ -101,7 +102,7 @@ A new WebSocket command writes paint lists:
 
 ## Consequences
 
-- Core gains `ColorStop.midpoint`, `MIDPOINT_MIN` and `MIDPOINT_MAX`, and `midpoint.ts` with `drawnStops`, `blend`, `mix` and `colorAt`.
+- Core gains `ColorStop.midpoint`, `MIDPOINT_MIN` and `MIDPOINT_MAX`, and `midpoint.ts` with `drawnStops`, `blend`, `mix` and `colorAt`. `clampFocus`, the focus clamp ADR-0026 stores, and `alphaOf` and `withAlpha`, a colour's alpha, move into core, so the reader, writer, panel and Annotator share them.
 - `io`'s dialect gains `kalamo:midpoint` and `kalamo:simulated`, and the round-trip fixture gains a midpoint on its linear Fill and a radial Stroke with two.
 - `@kalamo/sync`'s `ClientMessage` gains `appearance`. The web app gains the Gradient panel, the Gradient Tool, Window > Gradient and `paintPreview`.
 - ADR-0026's "Not in this ADR" and its "Midpoints now" option are amended by this ADR. CONTEXT.md gains **Midpoint**, **Gradient panel** and **Gradient Annotator**. REQUIREMENTS F-APP-04 and F-DOC-04 change to match.
