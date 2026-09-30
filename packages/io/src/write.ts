@@ -4,13 +4,12 @@ import {
   alphaOf,
   applyTo,
   type CharacterRange,
-  characterFont,
+  characterFamilies,
   childrenOf,
   clippingPath,
   containerAppearance,
   crossedFrame,
   type Document,
-  drawnFamily,
   drawnStops,
   ellipseMatrix,
   type Fill,
@@ -22,7 +21,6 @@ import {
   type GroupNode,
   glyphs,
   grown,
-  hangsFrom,
   IDENTITY,
   type ImageSource,
   invert,
@@ -792,20 +790,10 @@ function text(n: TextNode, a: Attrs, extra: (string | false)[], chunked: boolean
     // What sets the range's style apart from the text's (ADR-0028, ADR-0068).
     ...(r.fontStyle && runFace(fontFace(r.fontStyle), face)),
   });
-  // For resvg, each shown character's origin, so a chunk can start at it; and a justified line's,
-  // so each character after a widened space starts one (ADR-0077).
+  // Each shown character's origin and the chunk it starts, and the family each character draws in.
   const [first] = fontFamilies(n);
-  const justified = lines.some((l) => l.wordSpacing);
-  const origins = chunked || justified ? glyphs(n).map((g) => g.x) : [];
-  // The shown characters that follow a widened space.
-  const widened = new Set<number>();
-  for (const l of justified ? lines : []) {
-    const chars = [...l.text];
-    const words = hangsFrom(chars);
-    chars.forEach((c, k) => {
-      if (c === " " && k < words) widened.add(l.start + k + 1);
-    });
-  }
+  const placed = glyphs(n);
+  const families = characterFamilies(n);
   let shown = 0;
   /** The characters of `t` from code point `start`, and whether they are laid out, so may chunk. */
   const spans = (start: number, t: string, laidOut: boolean) => {
@@ -822,13 +810,11 @@ function text(n: TextNode, a: Attrs, extra: (string | false)[], chunked: boolean
       index++;
       while ((ranges[range]?.end ?? Infinity) <= index) range++;
       const r = (ranges[range]?.start ?? Infinity) <= index ? ranges[range] : undefined;
-      // The character's own font, its range's family and style included (ADR-0068).
-      const font = characterFont(n, r);
-      const origin = laidOut ? origins[shown++] : undefined;
-      const face = char === "\n" ? undefined : drawnFamily(font, char);
-      const drawn = chunked && laidOut && face ? face : family;
-      const chunk = (drawn !== family || (laidOut && widened.has(index))) && origin !== undefined;
-      family = drawn;
+      const g = laidOut ? placed[shown++] : undefined;
+      const face = char === "\n" ? undefined : families[index];
+      // resvg starts a chunk wherever the family changes too; others only after a widened space.
+      const chunk = chunked ? g?.chunk !== undefined : g?.chunk === "spacing";
+      if (chunked && g && face) family = face;
       let alone = false;
       if (!chunked) {
         if (char === " " || char === "\u00a0") alone = before !== undefined && face !== before;
@@ -846,7 +832,7 @@ function text(n: TextNode, a: Attrs, extra: (string | false)[], chunked: boolean
       });
       const last = runs.at(-1);
       if (!chunk && last?.attrs === own && last.alone === alone) last.text += char;
-      else runs.push({ attrs: own, x: chunk ? origin : undefined, text: char, alone });
+      else runs.push({ attrs: own, x: chunk ? g?.x : undefined, text: char, alone });
     }
     return runs
       .map(({ attrs: own, x, text, alone }) => {

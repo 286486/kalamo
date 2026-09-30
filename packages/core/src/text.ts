@@ -418,6 +418,22 @@ export function layoutText(text: TextLayout): { lines: TextLine[]; overflow: str
 }
 
 /**
+ * Whether a text's characters, laid out in `lines`, each need a position of their own: tracking, a
+ * Character Range or a justified line's widened space moves or paints some character apart from a
+ * line drawn whole in the text's font (ADR-0029, ADR-0068, ADR-0077).
+ */
+export const drawsPerCharacter = (text: TextLayout, lines: TextLine[]): boolean =>
+  !!(text.tracking || text.ranges || lines.some((l) => l.wordSpacing));
+
+/**
+ * The bundled family each character of a text's content draws in, its hidden overflow included:
+ * its Character Range's font, then the first bundled family that has its glyph (ADR-0063,
+ * ADR-0068).
+ */
+export const characterFamilies = (text: TextLayout): BundledFamily[] =>
+  metrics(text).map((c) => c.family);
+
+/**
  * Where the trailing whitespace of `chars` from `from` up to `to` starts: the characters after it
  * hang past the frame's edge and past a line's alignment, and are never widened (ADR-0022,
  * ADR-0077). Whitespace is every character JavaScript's `/\s/` matches.
@@ -695,12 +711,24 @@ function area(
   return { lines, overflow: "", spans };
 }
 
-/** A laid-out character: its origin on the unshifted baseline, advance width and overrides. */
+/**
+ * A laid-out character: its origin on the unshifted baseline, advance width, the bundled family it
+ * draws in, whether it starts a chunk, and its overrides.
+ */
 export interface Glyph extends Omit<CharacterRange, "start" | "end"> {
   char: string;
   x: number;
   y: number;
   width: number;
+  family: BundledFamily;
+  /**
+   * Why a new text chunk starts at the character: `spacing` after a space before its line's last
+   * word in a text with a justified line, which every writer positions (ADR-0077); `family` where
+   * the family it draws in differs from the
+   * one before it on its line, the text's first family at a line's start, and a hard return
+   * starting none, which a renderer that picks one face per chunk needs (ADR-0063).
+   */
+  chunk?: "spacing" | "family";
 }
 
 /**
@@ -710,16 +738,24 @@ export interface Glyph extends Omit<CharacterRange, "start" | "end"> {
  */
 export function glyphs(text: TextLayout): Glyph[] {
   const { lines, m } = layout(text);
+  const [first] = fontFamilies(text);
+  const justified = lines.some((l) => l.wordSpacing);
   return lines.flatMap((line) => {
     let x = line.x;
+    let drawn = first;
+    let widened = false;
     const chars = [...line.text];
     // A justified line widens each space before its last word (ADR-0077).
     const words = hangsFrom(chars);
     return chars.map((char, k) => {
-      const { advance, tracking, overrides } = m[line.start + k] as Metric;
-      const glyph: Glyph = { char, x, y: line.y, width: advance, ...overrides };
+      const { advance, tracking, family, overrides } = m[line.start + k] as Metric;
+      const glyph: Glyph = { char, x, y: line.y, width: advance, family, ...overrides };
+      if (widened) glyph.chunk = "spacing";
+      else if (char !== "\n" && family !== drawn) glyph.chunk = "family";
+      if (char !== "\n") drawn = family;
       x += advance + tracking;
-      if (line.wordSpacing && char === " " && k < words) x += line.wordSpacing;
+      widened = justified && char === " " && k < words;
+      if (widened && line.wordSpacing) x += line.wordSpacing;
       return glyph;
     });
   });

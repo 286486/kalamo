@@ -701,12 +701,13 @@ it("places each character at its origin, with its range's overrides", () => {
       ranges: [{ start: 1, end: 2, fill: "#FF0000", baselineShift: 2, rotation: 90 }],
     }),
   ).toEqual([
-    close({ char: "H", x: 10, y: 50, width: 7.824 }),
+    close({ char: "H", x: 10, y: 50, width: 7.824, family: "Source Sans 3" }),
     close({
       char: "i",
       x: 19.024,
       y: 50,
       width: 2.952,
+      family: "Source Sans 3",
       fill: "#FF0000",
       baselineShift: 2,
       rotation: 90,
@@ -801,6 +802,58 @@ it("measures a range's characters in its style's face, its style dropped if the 
     { start: 0, end: 1, fontStyle: "Bold" },
     { start: 1, end: 2, fontStyle: "Italic" },
   ]);
+});
+
+describe("each glyph's drawn family and chunk start", () => {
+  const drawn = (t: Parameters<typeof glyphs>[0]) =>
+    glyphs(t).map((g) => [g.char, g.family, g.chunk]);
+
+  it("falls back to Noto Sans SC for CJK, a chunk starting where the family changes, each line from the first family", () => {
+    expect(drawn({ x: 0, y: 0, content: "a小b\n小", fontSize: 12 })).toEqual([
+      ["a", "Source Sans 3", undefined],
+      ["小", "Noto Sans SC", "family"],
+      ["b", "Source Sans 3", "family"],
+      ["小", "Noto Sans SC", "family"],
+    ]);
+  });
+
+  it("draws in a Character Range's font, and an unbundled one in Source Sans 3 (ADR-0068)", () => {
+    const ranges = [
+      { start: 1, end: 2, fontFamily: "Noto Sans KR" },
+      { start: 2, end: 3, fontFamily: "Helvetica" },
+    ];
+    expect(drawn({ x: 0, y: 0, content: "HiH", fontSize: 12, ranges })).toEqual([
+      ["H", "Source Sans 3", undefined],
+      ["i", "Noto Sans KR", "family"],
+      ["H", "Source Sans 3", "family"],
+    ]);
+  });
+
+  it("starts a chunk after each widened space of a justified line, before a family change (ADR-0077)", () => {
+    const t = {
+      kind: "area" as const,
+      x: 0,
+      y: 0,
+      width: 60,
+      height: 100,
+      content: "a 小 b c d e f g h",
+      fontSize: 12,
+      alignment: "justify" as const,
+    };
+    const first = layoutText(t).lines[0] as { text: string; wordSpacing?: number };
+    expect(first.wordSpacing).toBeGreaterThan(0);
+    const g = drawn(t).slice(0, [...first.text].length);
+    expect(g.slice(0, 4)).toEqual([
+      ["a", "Source Sans 3", undefined],
+      [" ", "Source Sans 3", undefined],
+      ["小", "Noto Sans SC", "spacing"],
+      [" ", "Source Sans 3", "family"],
+    ]);
+    const words = first.text.trimEnd().length;
+    g.forEach(([, , chunk], k) => {
+      if (k > 3) expect(chunk).toBe(k < words && first.text[k - 1] === " " ? "spacing" : undefined);
+    });
+  });
 });
 
 it("draws a range's characters in its family's fallback order, its family kept as written (ADR-0068)", () => {
