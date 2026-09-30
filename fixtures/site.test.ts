@@ -154,7 +154,9 @@ describe("kalamo-site", () => {
     const res = await send("/og.png");
     expect(res.status).toBe(200);
     expect(res.body.equals(readFileSync("site/public/og.png"))).toBe(true);
-    expect(page.toString()).toContain('<meta property="og:image" content="https://kalamo.cc/og.png">');
+    expect(page.toString()).toContain(
+      '<meta property="og:image" content="https://kalamo.cc/og.png">',
+    );
   }, 30_000);
 
   it("uploads nothing but the page, its preview image and its _redirects", () => {
