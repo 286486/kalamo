@@ -1,4 +1,7 @@
-/** What `anchoredBeforeLast` reads of a text's full view (`kalamo_node_get` with detail full). */
+/**
+ * What the round trip's text-budget predicates read of a text's full view (`kalamo_node_get` with
+ * detail full).
+ */
 export interface TextView {
   kind?: string;
   content?: string;

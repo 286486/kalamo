@@ -1,3 +1,5 @@
+// Which texts the round trip budgets as anchored Point Type (ADR-0077): only those whose lines
+// Inkscape anchors away from the layout.
 import { expect, it } from "vitest";
 import { anchoredBeforeLast } from "./anchored.ts";
 
