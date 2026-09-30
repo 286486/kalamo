@@ -320,6 +320,38 @@ it("wraps Area Type at spaces where Inkscape does, trailing spaces and returns k
   expect(overflow).toBe("");
 });
 
+// Inkscape 1.2.2's saved line tspans for each text, 12 px Source Sans 3 in a <rect> (#222).
+it.each([
+  [
+    120,
+    "See https://example.com/a/very/long/path/that/fits/no/line for details.",
+    ["See https://", "example.com/a/very/", "long/path/that/fits/no/", "line for details."],
+  ],
+  [60, "aaaa well-known state-of-the-art", ["aaaa well-", "known ", "state-of-", "the-art"]],
+  [60, "xxxxxxxx a–bbbbb", ["xxxxxxxx a–", "bbbbb"]],
+  [60, "xxxxx aa|bbbbbbbb", ["xxxxx aa|", "bbbbbbbb"]],
+  [40, "xxx -abc -5 a-(b) a-$5", ["xxx -", "abc -5 ", "a-(b) a-", "$5"]],
+  [45, "xxxx a-́bcd", ["xxxx a-́", "bcd"]],
+  [60, "xxxxx aa/12345678", ["xxxxx aa/", "12345678"]],
+  [60, "xxxxx 1a/12345678", ["xxxxx 1a/", "12345678"]],
+  // No break inside a number or before a digit, so the unit breaks between characters (ADR-0084).
+  [60, "xxxxx 12/12345678", ["xxxxx ", "12/1234567", "8"]],
+  [60, "xxxxx aa-12345678", ["xxxxx ", "aa-1234567", "8"]],
+])(
+  "wraps Area Type %d wide after a solidus or hyphen where Inkscape does: %s",
+  (width, content, want) => {
+    const { lines, overflow } = area(content, { width, height: 300 });
+    expect(lines.map((l) => l.text)).toEqual(want);
+    let start = 0;
+    for (const l of lines) {
+      expect(l.start).toBe(start);
+      start += [...l.text].length;
+    }
+    expect(lines.map((l) => l.text).join("")).toBe(content);
+    expect(overflow).toBe("");
+  },
+);
+
 it("keeps empty paragraphs, and no line for a final return", () => {
   const { lines } = area("a\n\nb\n", { width: 100, height: 100 }, 15);
   expect(lines.map((l) => l.text)).toEqual(["a\n", "\n", "b\n"]);
@@ -537,6 +569,61 @@ it("breaks CJK between characters, never before closing or small kana, never aft
   expect(lineBreakUnits("한국어문장입니다").join("|")).toBe("한|국|어|문|장|입|니|다");
   expect(lineBreakUnits("价格是$5，涨了20%。").join("|")).toBe("价|格|是|$5，|涨|了|20%。");
   expect(lineBreakUnits("  one two\n").join("|")).toBe("  |one |two\n");
+});
+
+it("breaks Latin after a solidus, a hyphen and BA dashes, where Pango 1.50.12 does (ADR-0085)", () => {
+  const breaks = [
+    ["and/", "or"],
+    ["a/", "1"],
+    ["1a/", "2"],
+    ["1)/", "2"],
+    ["1/", "a/", "2"],
+    ["foo/", "(bar)"],
+    ["a//", "b"],
+    ["a/-", "b"],
+    ["well-", "known"],
+    ["co-", "op/", "re-", "do"],
+    ["1-", "a"],
+    ["a--", "b"],
+    ["-", "a"],
+    ["/", "a"],
+    ["a-", "(b)"],
+    ["a-", "$5"],
+    ["a-", "%"],
+    ["a-", "€"],
+    ["a-", "😀"],
+    ["v1.2-", "beta"],
+    ["a–", "b"],
+    ["a‐", "b"],
+    ["a‒", "b"],
+    ["a|", "b"],
+    ["a‧", "b"],
+    ["a/", "%"],
+    ["a–", "1"],
+    ["1)/", "%"],
+    ["字-", "a"],
+    ["a-", "字"],
+    ["字/", "a"],
+    ["a/", "字"],
+    ["a/", "「字」"],
+    ["a ", "- ", "b"],
+    ["a/ ", "b"],
+    // A combining mark takes its base's class (LB9).
+    ["a-́", "b"],
+    ["a/́", "b"],
+  ];
+  for (const units of breaks) expect(lineBreakUnits(units.join(""))).toEqual(units);
+  const whole = [
+    ...["1-2", "-5", "a-1", "a-5%", "2026-09-30", "1.5-2.5"],
+    ...["1/2", "1.2/3", "a1/2", "(1/2)", "1/-2", "x/-1", "1/$"],
+    ...["a-)b", "a-]", "a/)", "a-.b", "a-,b", "a-!", 'a-"b"', 'a/"b'],
+    ...["a‑b", "a⁄b", "a−b", "a\\b", "a_b", "a~b", "a=b", "a+b", "a&b"],
+    // A Hebrew letter keeps a hyphen after it and a solidus before it (LB21a, LB21b).
+    ...["א-ב", "א/ב", "a/ב"],
+  ];
+  for (const unit of whole) expect(lineBreakUnits(unit)).toEqual([unit]);
+  // Pango keeps `a /` together (LB13 across a space); spaces break as before (ADR-0064).
+  expect(lineBreakUnits("a /b")).toEqual(["a ", "/", "b"]);
 });
 
 // Noto Sans SC draws each ideograph and CJK punctuation mark 1000 units wide, 12pt at fontSize 12.

@@ -142,6 +142,11 @@
       "frame": { "height": 90, "width": 240, "x": 980, "y": 390 },
       "id": "01M38T29T7W1DEARTB0ARD0000",
       "name": "Wide Units"
+    },
+    {
+      "frame": { "height": 80, "width": 300, "x": 0, "y": 500 },
+      "id": "01M38T29T8BREAKSARTB0ARD00",
+      "name": "Latin Breaks"
     }
   ],
   "nodes": [
@@ -3442,6 +3447,54 @@
       "width": 105,
       "x": 1110,
       "y": 395
+    },
+    {
+      "appearance": { "fills": [{ "color": "#000000", "type": "solid" }], "strokes": [] },
+      "blendMode": "normal",
+      "content": "See https://example.com/a/very/long/path/that/fits/no/line for details.",
+      "fontFamily": "Source Sans 3",
+      "fontSize": 12,
+      "fontStyle": "Regular",
+      "height": 60,
+      "id": "01M38T29T8BREAKS000000000A",
+      "index": "b0H",
+      "kind": "area",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "text",
+      "visible": true,
+      "width": 120,
+      "x": 10,
+      "y": 510
+    },
+    {
+      "appearance": { "fills": [{ "color": "#000000", "type": "solid" }], "strokes": [] },
+      "blendMode": "normal",
+      "content": "state-of-the-art well-known 2026-09-30 and/or",
+      "fontFamily": "Source Sans 3",
+      "fontSize": 12,
+      "fontStyle": "Regular",
+      "height": 60,
+      "id": "01M38T29T8BREAKS000000000B",
+      "index": "b0I",
+      "kind": "area",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "text",
+      "visible": true,
+      "width": 120,
+      "x": 160,
+      "y": 510
     }
   ],
   "images": {

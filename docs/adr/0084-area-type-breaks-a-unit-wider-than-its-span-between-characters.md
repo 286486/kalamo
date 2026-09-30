@@ -33,7 +33,7 @@ Area Type hid a unit, such as a word, URL or CJK cluster, that fit no span down 
 - **Line positions.** A line that a larger range makes taller is placed by Illustrator's leading, and Inkscape's line box places it elsewhere, as ADR-0068 and ADR-0080 already record. In the leading-30 case above, Inkscape's pieces sit 35.09 apart and Kalamo's 30 apart. Each line holds the same characters in both.
 - **A unit that ends a band unbroken** still sizes that band whole (#200). Inkscape stops measuring at the character that overflowed. The two differ only when a larger Character Range starts inside such a unit beyond that point. In `slant big-tail` at Auto, Kalamo's first band is 48 tall where Inkscape's is 24, so the lines after it differ.
 - **A larger CJK run's box** is shorter in Inkscape under ADR-0080's run `line-height`. The four-box width can then be slightly smaller in Inkscape than in Kalamo.
-- **Break opportunities.** Pango also breaks Latin text after `/` and hyphens, and Kalamo does not (ADR-0064's ponytail note). A URL therefore breaks at different places in the two editors (#222).
+- **Break opportunities.** Pango also breaks Latin text after `/` and hyphens, and Kalamo does not (ADR-0064's ponytail note). A URL therefore breaks at different places in the two editors (#222). Amended by ADR-0085: Kalamo breaks there too, so a URL is several units, and a unit breaks between characters only when it alone is wider than its span.
 
 ## What changes
 

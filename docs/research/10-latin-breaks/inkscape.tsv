@@ -1,0 +1,11 @@
+width	text	lines
+120	"See https://example.com/a/very/long/path/that/fits/no/line for details."	["See https://","example.com/a/very/","long/path/that/fits/no/","line for details."]
+60	"aaaa well-known state-of-the-art"	["aaaa well-","known ","state-of-","the-art"]
+60	"xxxxxxxx a–bbbbb"	["xxxxxxxx a–","bbbbb"]
+60	"xxxxx aa|bbbbbbbb"	["xxxxx aa|","bbbbbbbb"]
+40	"xxx -abc -5 a-(b) a-$5"	["xxx -","abc -5 ","a-(b) a-","$5"]
+45	"xxxx a-́bcd"	["xxxx a-́","bcd"]
+60	"xxxxx aa/12345678"	["xxxxx aa/","12345678"]
+60	"xxxxx 1a/12345678"	["xxxxx 1a/","12345678"]
+60	"xxxxx 12/12345678"	["xxxxx ","12/1234567","8"]
+60	"xxxxx aa-12345678"	["xxxxx ","aa-1234567","8"]
