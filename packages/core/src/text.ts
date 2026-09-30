@@ -722,11 +722,15 @@ export interface Glyph extends Omit<CharacterRange, "start" | "end"> {
   width: number;
   family: BundledFamily;
   /**
-   * Why a new text chunk starts at the character: `spacing` after a space before its line's last
-   * word in a text with a justified line, which every writer positions (ADR-0077); `family` where
-   * the family it draws in differs from the one before it on its line, the text's first family at a
-   * line's start, a hard return starting none, which a renderer that picks one face per chunk needs
-   * (ADR-0063).
+   * Why a new text chunk starts at the character, if one does.
+   *
+   * - `spacing`: it follows a space before its line's last word, in a text with a justified line.
+   *   Every writer positions it (ADR-0077).
+   * - `family`: it draws in another family than the character before it on its line, or at a
+   *   line's start than the text's first family. A hard return starts none. Only a renderer that
+   *   picks one face per chunk needs it (ADR-0063).
+   *
+   * A character that has both reasons is `spacing`.
    */
   chunk?: "spacing" | "family";
 }
