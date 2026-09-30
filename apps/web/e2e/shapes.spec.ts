@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { call } from "./mcp.ts";
+import { call, listThenGet } from "./mcp.ts";
 import { choose } from "./menubar.ts";
 
 /**
@@ -22,14 +22,13 @@ async function openShapes(page: Page, request: Parameters<typeof call>[0], name:
   if (!box) throw new Error("no canvas");
   const at = (x: number, y: number) =>
     [box.x + box.width / 2 + x - 100, box.y + box.height / 2 + y - 50] as const;
-  const nodes = async <N>(...types: string[]): Promise<N[]> => {
-    const found = (await call(request, "kalamo_node_query", { docId, types })).structuredContent
-      .nodes as { id: string }[];
-    if (found.length === 0) return [];
-    const nodeIds = found.map((n) => n.id);
-    return (await call(request, "kalamo_node_get", { docId, nodeIds, detail: "full" }))
-      .structuredContent.nodes;
-  };
+  const nodes = <N>(...types: string[]) =>
+    listThenGet<N>(
+      request,
+      docId,
+      async () =>
+        (await call(request, "kalamo_node_query", { docId, types })).structuredContent.nodes,
+    );
   const drag = async (from: [number, number], ...steps: ([number, number] | string)[]) => {
     await page.mouse.move(...at(...from));
     await page.mouse.down();
