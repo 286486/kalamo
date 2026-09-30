@@ -494,6 +494,7 @@ function lineBoxes(text: TextLayout, m: Metric[]) {
 
 type LineBoxes = ReturnType<typeof lineBoxes>;
 type LineBox = ReturnType<LineBoxes["lineBox"]>;
+
 /**
  * Where Area Type puts a line's baseline below the one before, `prev`, from the frame's top. The
  * first is one line-box ascent below the frame's top; each later one is the line's leading below
@@ -572,7 +573,7 @@ function area(
   text: TextLayout,
   m: Metric[],
   chars: string[],
-  { lineBox, band: bandOf }: LineBoxes,
+  { lineBox, band }: LineBoxes,
 ): { lines: TextLine[]; overflow: string; spans: Span[] } {
   const { x, y, content, width: frameWidth = 0, height = 0 } = text;
   const edges = text.frame ? edgesOf(text.frame) : undefined;
@@ -619,7 +620,7 @@ function area(
     for (;;) {
       const next = stack(prev, box);
       const baseline = y + next;
-      const { top, bottom: bandBottom } = bandOf(baseline, box);
+      const { top, bottom: bandBottom } = band(baseline, box);
       if (edges && top > bottom) return overflow();
       const bandSpans = edges ? frameSpans(edges, top, bandBottom) : [{ x, width: frameWidth }];
       const { placed, next: after, tried } = fill(bandSpans, u);
@@ -628,7 +629,8 @@ function area(
         box = grown;
         continue;
       }
-      // Every band of a rectangle is the same span, so one its first unit does not fit ends it.
+      // Every band of a rectangle is the same span, so a band whose first unit does not fit ends
+      // the layout.
       if (!edges && !placed.length) return overflow();
       // A rectangle's line shows while its band, at the line's own size, lies in the frame: under
       // a set leading a larger size can end it higher. It may reach a billionth of its leading past.

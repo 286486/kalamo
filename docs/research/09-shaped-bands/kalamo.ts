@@ -8,23 +8,36 @@ import { layoutText } from "../../../packages/core/src/text.ts";
 
 const SIZE = 20;
 const H = "HHH";
-/** The Latin `rect` texts of `probe.mjs`'s TEXTS, each word a string at 20 pt or `[word, size]`. */
-const TEXTS: Record<string, (string | [string, number])[]> = {
-  "big-3rd": [H, H, [H, 40], ...Array(9).fill(H)],
-  "big-4th": [H, H, H, [H, 40], ...Array(8).fill(H)],
-  "big-5th": [H, H, H, H, [H, 40], ...Array(8).fill(H)],
-  wide: [H, H, "H".repeat(40), H, H],
+type Word = string | [string, number];
+/** `probe.mjs`'s TEXTS, each a list of paragraphs, each word a string at 20 pt or `[word, pt]`. */
+const TEXTS: Record<string, Word[][]> = {
+  heading: [
+    [
+      [H, 40],
+      ["HH", 40],
+    ],
+    Array(12).fill(H),
+  ],
+  "big-3rd": [[H, H, [H, 40], ...Array(9).fill(H)]],
+  "big-4th": [[H, H, H, [H, 40], ...Array(8).fill(H)]],
+  "big-5th": [[H, H, H, H, [H, 40], ...Array(8).fill(H)]],
+  cjk: [[H, "字", H, H, H, "字", H, H, H, H, "字", H]],
+  "cjk-larger": [[H, "字", H, H, H, ["字", 30], H, H, H, H, "字", H]],
+  wide: [[H, H, "H".repeat(40), H, H]],
 };
 
-function text(words: (string | [string, number])[], leading: number | undefined, height: number) {
+function text(paragraphs: Word[][], leading: number | undefined, height: number) {
   let content = "";
   const ranges = [];
-  for (const w of words) {
-    if (content) content += " ";
-    const [word, size] = typeof w === "string" ? [w, SIZE] : w;
-    if (size !== SIZE)
-      ranges.push({ start: content.length, end: content.length + word.length, fontSize: size });
-    content += word;
+  for (const words of paragraphs) {
+    if (content) content += "\n";
+    words.forEach((w, i) => {
+      if (i) content += " ";
+      const [word, size] = typeof w === "string" ? [w, SIZE] : w;
+      if (size !== SIZE)
+        ranges.push({ start: content.length, end: content.length + word.length, fontSize: size });
+      content += word;
+    });
   }
   return layoutText({
     kind: "area",
@@ -39,9 +52,9 @@ function text(words: (string | [string, number])[], leading: number | undefined,
   });
 }
 
-for (const [name, words] of Object.entries(TEXTS)) {
+for (const [name, paragraphs] of Object.entries(TEXTS)) {
   for (const leading of [undefined, 30]) {
-    const { lines, overflow } = text(words, leading, 300);
+    const { lines, overflow } = text(paragraphs, leading, 300);
     for (const l of lines) {
       const count = l.text.split(" ").filter(Boolean).length;
       console.log(`rect\t${name}\t${leading ?? "auto"}\t${l.y.toFixed(2)}\t${count}`);
@@ -52,7 +65,7 @@ for (const [name, words] of Object.entries(TEXTS)) {
 
 for (const size of [20, 40, 10]) {
   for (const leading of [undefined, 30]) {
-    const words = [size === SIZE ? H : ([H, size] as [string, number])];
+    const words: Word[][] = [[size === SIZE ? H : [H, size]]];
     let [lo, hi] = [0, 100];
     while (hi - lo > 0.0005) {
       const mid = (lo + hi) / 2;

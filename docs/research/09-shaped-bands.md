@@ -87,7 +87,7 @@ Inkscape sizes a rectangle's line by every word it measures, including a larger 
 | `big-5th`, Auto | 74.17, 122.17, 153.08, 177.08 | 57.08, 105.08, 129.08, 153.08 | 4, 3, 4, 2 |
 | `big-5th`, 30 | 65.17, 100.25, 130.25, 160.25 | 60.08, 90.08, 120.08, 150.08 | 4, 3, 4, 2 |
 
-Kalamo sizes each line by the characters it holds, as Illustrator's leading does (ADR-0068). The frame's width does not follow a line's height, so every line holds the same words in both. `heading`, `big-3rd`, `cjk` and `cjk-larger` also put the same words on each line in both. Their baselines differ after a taller line, as the Stacking section above says.
+Kalamo sizes each line by the characters it holds, as Illustrator's leading does (ADR-0068). The frame's width does not follow a line's height, so every line holds the same words in both. `heading`, `big-3rd`, `cjk` and `cjk-larger` also put the same words on each line in both. Their baselines match Inkscape's under a set leading, and `cjk`'s at Auto too. They differ after a taller line at Auto, and after `cjk-larger`'s 30 px run under either leading, as the Stacking section above says.
 
 ### The overflow threshold
 
