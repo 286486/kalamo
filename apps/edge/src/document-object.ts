@@ -851,10 +851,10 @@ export class DocumentObject extends DurableObject<Env> {
     if ("error" in ingested) return ingested;
     const { ready, merge } = ingested;
     return this.writeFiles(files, actor, opts, "Update", (doc) => {
-      const { nodes, failed } = updateNodes(doc, ready, opts);
+      const { nodes, warnings, failed } = updateNodes(doc, ready, opts);
       return {
         updated: nodes,
-        warnings: textWarnings(nodes),
+        warnings: [...warnings, ...textWarnings(nodes)],
         failed: merge(failed),
       };
     });

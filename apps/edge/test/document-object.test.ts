@@ -1079,3 +1079,29 @@ it("flows Area Type in a closed Live Shape by frameNodeId, deleting it, and undo
   expect(back?.appearance.fills[0]?.color).toBe("#FF0000");
   expect("error" in (await s.get(receipt.createdIds, "concise", "agent-a"))).toBe(true);
 });
+
+it("undoes a Convert to Point Type, restoring the overflow it deleted (ADR-0079)", async () => {
+  const s = stub("convert-undo");
+  const { defaultLayerId } = ok(
+    await s.create({ docId: "convert-undo", name: "Doc", artboards, actor: "a" }),
+  );
+  const text = {
+    type: "text" as const,
+    kind: "area" as const,
+    parentId: defaultLayerId,
+    x: 0,
+    y: 0,
+    width: 50,
+    height: 30,
+    content: "one two three four five six",
+    ranges: [{ start: 16, end: 24, baselineShift: 2 }],
+  };
+  const [id] = ok(await s.createNodes([text], "user")).createdIds as [string];
+  const full = async () => ok(await s.get([id], "full", "user")).nodes[0];
+  const before = await full();
+  const receipt = ok(await s.updateNodes([{ nodeId: id, patch: { kind: "point" } }], "user"));
+  expect(receipt.warnings).toMatchObject([{ code: "TEXT_DISCARDED", nodeId: id }]);
+  expect(await full()).toMatchObject({ kind: "point", content: "one two\nthree four " });
+  ok(await s.undo("user"));
+  expect(await full()).toEqual(before);
+});

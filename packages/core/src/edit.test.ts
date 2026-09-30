@@ -31,6 +31,7 @@ import {
   type Rect,
   type ShapeNode,
 } from "./schema.ts";
+import { type Glyph, glyphs, layoutText } from "./text.ts";
 
 const newDoc = () => {
   const { doc, defaultLayerId } = createDocument({
@@ -827,7 +828,8 @@ describe("updateNodes on a text", () => {
   });
 
   it.each([
-    [{ kind: "area" }, "kind", /kind is fixed/],
+    [{ kind: "area", content: "x" }, "content", /Convert first/],
+    [{ kind: "text" }, "kind", /./],
     [{ width: 10 }, "width", /leading/],
     [{ content: "a\tb" }, "content", /./],
     [{ d: "M 0 0" }, "d", /outline/i],
@@ -2155,5 +2157,306 @@ describe("Area Type in a closed path (ADR-0078)", () => {
     expect(rect).toMatchObject({ x: 0, y: 0, width: 100, height: 80 });
     const [wide] = updateNodes(doc, [{ nodeId: t.id, patch: { width: 120 } }]).nodes as [Node];
     expect(wide).toMatchObject({ width: 120 });
+  });
+});
+
+describe("Convert to Area Type and Point Type (ADR-0079)", () => {
+  type Text = Extract<Node, { type: "text" }>;
+  const make = (extra: object) => {
+    const { doc, defaultLayerId } = newDoc();
+    const [t] = createNodes(doc, [
+      { type: "text", parentId: defaultLayerId, x: 10, y: 30, ...extra } as never,
+    ]).nodes as [Text];
+    return { doc, t };
+  };
+  const convert = (doc: Document, id: string, patch: Record<string, unknown>) =>
+    updateNodes(doc, [{ nodeId: id, patch }]);
+  /** The drawn characters and their overrides; hard returns and hung spaces draw nothing. */
+  const drawn = (t: Text) => glyphs(t).filter((g) => !/\s/.test(g.char));
+  /** The same characters and overrides, each origin within the 3 decimals a conversion keeps. */
+  const expectSame = (a: Text, b: Text) => {
+    const [ga, gb] = [drawn(a), drawn(b)];
+    const plain = (g: Glyph[]) => g.map(({ x: _, y: __, ...rest }) => rest);
+    expect(plain(ga)).toEqual(plain(gb));
+    ga.forEach((g, i) => {
+      expect(g.x).toBeCloseTo((gb[i] as Glyph).x, 3);
+      expect(g.y).toBeCloseTo((gb[i] as Glyph).y, 3);
+    });
+  };
+  const ranges = [
+    { start: 0, end: 3, fill: "#ff0000" },
+    { start: 7, end: 9, baselineShift: 3 },
+    { start: 12, end: 14, rotation: 20, fontSize: 18 },
+  ];
+
+  it.each(["left", "center", "right", "justify"])(
+    "Point to Area keeps every glyph of tracked, ranged, %s multi-line text",
+    (alignment) => {
+      const content = "First line\nthe second, longer line\n\nlast";
+      const { doc, t } = make({ content, tracking: 50, leading: 18, alignment, ranges });
+      const { nodes, warnings } = convert(doc, t.id, { kind: "area" });
+      const a = doc.nodes.get(t.id) as Text;
+      expect(nodes).toEqual([a]);
+      expect(warnings).toEqual([]);
+      expect(a).toMatchObject({ kind: "area", content, transform: t.transform });
+      expect(a.ranges).toEqual(t.ranges);
+      expectSame(a, t);
+      // Every line's box fits: 4 lines of 18 pt.
+      expect(a.height).toBeCloseTo(72);
+    },
+  );
+
+  it("Point to Area stacks lines of mixed sizes under Auto leading", () => {
+    const { doc, t } = make({
+      content: "ab\ncd\nef",
+      ranges: [{ start: 3, end: 4, fontSize: 30 }],
+    });
+    convert(doc, t.id, { kind: "area" });
+    const a = doc.nodes.get(t.id) as Text;
+    expectSame(a, t);
+    expect(a.height).toBeCloseTo(14.4 + 36 + 14.4);
+  });
+
+  it.each([
+    ["first", "ab\ncd\nef", [{ start: 0, end: 2, fontSize: 30 }], undefined],
+    ["last", "ab\ncd", [{ start: 3, end: 5, fontSize: 30 }], undefined],
+    ["last, under a set leading", "ab\ncd\nef", [{ start: 6, end: 8, fontSize: 60 }], 10],
+    ["middle, with small lines after", "ab\ncd\nef\ngh", [{ start: 3, end: 5, fontSize: 90 }], 10],
+  ])(
+    "Point to Area holds a larger size on the %s line, and converts back unchanged",
+    (_, content, ranges, leading) => {
+      const { doc, t } = make({ content, ranges, leading });
+      const { warnings } = convert(doc, t.id, { kind: "area" });
+      const a = doc.nodes.get(t.id) as Text;
+      expect(warnings).toEqual([]);
+      expect(layoutText(a).overflow).toBe("");
+      expectSame(a, t);
+      expect(convert(doc, t.id, { kind: "point" }).warnings).toEqual([]);
+      expect(doc.nodes.get(t.id)).toEqual(t);
+    },
+  );
+
+  it("Point to Area rounds the width up past a floating-point quotient below it", () => {
+    const { doc, t } = make({
+      content: "MMMM",
+      alignment: "right",
+      leading: 10,
+      ranges: [{ start: 0, end: 4, tracking: 200 }],
+    });
+    convert(doc, t.id, { kind: "area" });
+    const a = doc.nodes.get(t.id) as Text;
+    expect(layoutText(a)).toMatchObject({ lines: [{ text: "MMMM" }], overflow: "" });
+    expectSame(a, t);
+  });
+
+  it("Point to Area of CJK in a fallback family keeps x and moves later lines only down", () => {
+    // ADR-0079's contract: a rectangle frame stacks CJK line boxes as Inkscape does (ADR-0064),
+    // which Point Type does not, and converting back restores the Node.
+    const content = "Hello 中文 world\nsecond 日本語 line\nlast";
+    const { doc, t } = make({ content, ranges: [{ start: 6, end: 8, fontSize: 40 }] });
+    convert(doc, t.id, { kind: "area" });
+    const a = doc.nodes.get(t.id) as Text;
+    expect(layoutText(a).overflow).toBe("");
+    const [before, after] = [drawn(t), drawn(a)];
+    expect(after.map((g) => g.char)).toEqual(before.map((g) => g.char));
+    after.forEach((g, i) => {
+      const was = before[i] as Glyph;
+      expect(g.x).toBeCloseTo(was.x, 3);
+      if (was.y === before[0]?.y) expect(g.y).toBeCloseTo(was.y, 3);
+      else expect(g.y).toBeGreaterThan(was.y);
+    });
+    expect(convert(doc, t.id, { kind: "point" }).warnings).toEqual([]);
+    expect(doc.nodes.get(t.id)).toEqual(t);
+  });
+
+  it("a trailing hard return survives Point to Area and back", () => {
+    const { doc, t } = make({ content: "ab\n" });
+    convert(doc, t.id, { kind: "area" });
+    expect(convert(doc, t.id, { kind: "point" }).warnings).toEqual([]);
+    expect(doc.nodes.get(t.id)).toEqual(t);
+  });
+
+  it("Area to Point deletes the hard return before a paragraph of overflow, counting it", () => {
+    const { doc, t } = make({ kind: "area", width: 60, height: 16, content: "ab\ncd" });
+    const { warnings } = convert(doc, t.id, { kind: "point" });
+    expect(doc.nodes.get(t.id)).toMatchObject({ kind: "point", content: "ab" });
+    expect(warnings).toEqual([
+      { code: "TEXT_DISCARDED", nodeId: t.id, message: expect.stringMatching(/^3 characters/) },
+    ]);
+  });
+
+  it("Area to Point keeps an empty paragraph that is all that shows, deleting the overflow", () => {
+    const { doc, t } = make({
+      kind: "area",
+      width: 90,
+      height: 35,
+      fontSize: 20,
+      content: "\nlazy xyz",
+      ranges: [{ start: 0, end: 5, fill: "#ff0000" }],
+    });
+    const { warnings } = convert(doc, t.id, { kind: "point" });
+    expect(doc.nodes.get(t.id)).toMatchObject({
+      kind: "point",
+      content: "\n",
+      ranges: [{ start: 0, end: 1, fill: "#ff0000" }],
+    });
+    expect(warnings).toEqual([
+      { code: "TEXT_DISCARDED", nodeId: t.id, message: expect.stringMatching(/^8 characters/) },
+    ]);
+  });
+
+  it("Point to Area and back returns a centred text unchanged", () => {
+    const { doc, t } = make({ content: "the W", fontSize: 24, alignment: "center", x: 100 });
+    convert(doc, t.id, { kind: "area" });
+    const a = doc.nodes.get(t.id) as Text;
+    // An even thousandth, so the frame's middle is a stored number.
+    expect(Math.round((a.width as number) * 1000) % 2).toBe(0);
+    expectSame(a, t);
+    convert(doc, t.id, { kind: "point" });
+    expect(doc.nodes.get(t.id)).toEqual(t);
+  });
+
+  it("Point to Area of empty or all-space lines is fontSize wide", () => {
+    const { doc, t } = make({ content: "\n  \n", fontSize: 20 });
+    convert(doc, t.id, { kind: "area" });
+    expect(doc.nodes.get(t.id)).toMatchObject({ kind: "area", x: 10, width: 20 });
+  });
+
+  it("Area to Point turns soft wraps into hard returns and keeps every glyph", () => {
+    const content = "The quick brown fox jumps over\nthe lazy dog, again and again";
+    const { doc, t } = make({
+      kind: "area",
+      width: 60,
+      height: 200,
+      content,
+      tracking: 30,
+      ranges,
+    });
+    const { warnings } = convert(doc, t.id, { kind: "point" });
+    const p = doc.nodes.get(t.id) as Text;
+    expect(warnings).toEqual([]);
+    expect(p.kind).toBe("point");
+    expect(p).not.toHaveProperty("width");
+    expect(p).not.toHaveProperty("height");
+    // Each soft wrap's last space became a hard return, so the lengths and ranges match.
+    expect(p.content).toBe("The quick\nbrown\nfox jumps\nover\nthe lazy\ndog, again\nand again");
+    expect(p.content.replace(/\n/g, " ")).toBe(content.replace(/\n/g, " "));
+    expect(p.ranges).toEqual(t.ranges);
+    expectSame(p, t);
+  });
+
+  it.each(["center", "right"])("Area to Point keeps %s lines about the frame", (alignment) => {
+    const { doc, t } = make({
+      kind: "area",
+      width: 80,
+      height: 100,
+      alignment,
+      content: "one two three four five",
+    });
+    convert(doc, t.id, { kind: "point" });
+    const p = doc.nodes.get(t.id) as Text;
+    expect(p.x).toBeCloseTo(10 + (alignment === "center" ? 40 : 80), 3);
+    expectSame(p, t);
+  });
+
+  it("Area to Point inserts a hard return at a CJK break and shifts the ranges after it", () => {
+    const content = "中文字符在这里换行不需要空格";
+    const { doc, t } = make({
+      kind: "area",
+      fontFamily: "Noto Sans SC",
+      width: 50,
+      height: 100,
+      content,
+      ranges: [{ start: 2, end: 8, fill: "#00ff00" }],
+    });
+    convert(doc, t.id, { kind: "point" });
+    const p = doc.nodes.get(t.id) as Text;
+    expect(p.content.split("\n").join("")).toBe(content);
+    const breaks = p.content.split("\n").length - 1;
+    expect(breaks).toBeGreaterThan(1);
+    expect([...p.content].length).toBe([...content].length + breaks);
+    expectSame(p, t);
+  });
+
+  it("Area to Point deletes the overflow, clipping ranges, and warns TEXT_DISCARDED", () => {
+    const content = "one two three four five six";
+    const { doc, t } = make({
+      kind: "area",
+      width: 50,
+      height: 30,
+      content,
+      ranges: [
+        { start: 4, end: 12, fill: "#ff0000" },
+        { start: 16, end: 24, baselineShift: 2 },
+        { start: 20, end: 25, rotation: 10 },
+      ],
+    });
+    const before = structuredClone(t);
+    const { warnings } = convert(doc, t.id, { kind: "point" });
+    const p = doc.nodes.get(t.id) as Text;
+    expect(p.content).toBe("one two\nthree four ");
+    expect(p.ranges).toEqual([
+      { start: 4, end: 12, fill: "#ff0000" },
+      { start: 16, end: 19, baselineShift: 2 },
+    ]);
+    expect(warnings).toEqual([
+      { code: "TEXT_DISCARDED", nodeId: t.id, message: expect.stringMatching(/^8 characters/) },
+    ]);
+    expectSame(p, t);
+    // The stored Node is untouched, so a Transaction's before restores it.
+    expect(t).toEqual(before);
+  });
+
+  it("Area to Point left-aligns a shaped frame's lines at the first line's x", () => {
+    const frame = "M 0 0 L 100 0 L 50 80 Z";
+    const { doc, t } = make({
+      kind: "area",
+      frame,
+      content: "Flowed words in a shape of text",
+      x: undefined,
+      y: undefined,
+    });
+    convert(doc, t.id, { kind: "point" });
+    const p = doc.nodes.get(t.id) as Text;
+    expect(p).not.toHaveProperty("frame");
+    const first = glyphs(t)[0];
+    expect(p.x).toBeCloseTo(first?.x as number, 3);
+    expect(p.y).toBeCloseTo(first?.y as number, 3);
+    // Each line's first glyph, keyed by its baseline: several lines, all starting at one x.
+    const starts = new Map(
+      glyphs(p)
+        .map((g) => [g.y, g.x] as const)
+        .reverse(),
+    );
+    expect(starts.size).toBeGreaterThan(2);
+    expect(new Set(starts.values())).toEqual(new Set([p.x]));
+  });
+
+  it("refuses to convert when no line shows", () => {
+    const { doc, t } = make({ kind: "area", width: 40, height: 2, content: "hidden" });
+    expect(errorOf(() => convert(doc, t.id, { kind: "point" }))).toMatchObject({
+      code: "INVALID_PATCH",
+      path: "updates[0].patch.kind",
+    });
+  });
+
+  it("refuses layout keys beside kind, converts with name, and a same kind is a no-op", () => {
+    const { doc, t } = make({ kind: "area", width: 40, height: 30, content: "hi" });
+    expect(errorOf(() => convert(doc, t.id, { kind: "point", width: 10 }))).toMatchObject({
+      code: "INVALID_PATCH",
+      path: "updates[0].patch.width",
+      hint: expect.stringMatching(/Convert first/),
+    });
+    // The same kind too, so the rule does not depend on the Node's kind.
+    expect(errorOf(() => convert(doc, t.id, { kind: "area", content: "x" }))).toMatchObject({
+      code: "INVALID_PATCH",
+      path: "updates[0].patch.content",
+      hint: expect.stringMatching(/Convert first/),
+    });
+    expect(doc.nodes.get(t.id)).toEqual(t);
+    convert(doc, t.id, { kind: "area" });
+    expect(doc.nodes.get(t.id)).toEqual(t);
+    convert(doc, t.id, { kind: "point", name: "Body", opacity: 0.5 });
+    expect(doc.nodes.get(t.id)).toMatchObject({ kind: "point", name: "Body", opacity: 0.5 });
   });
 });

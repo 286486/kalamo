@@ -777,6 +777,12 @@ const parameters = Object.fromEntries(
     .filter(([k]) => k !== "type" && k !== "kind")
     .map(([k, t]) => [k, unwrapDefault(t as z.ZodType)]),
 );
+// A text's kind converts it, as Illustrator's Type > Convert to Area Type / Point Type (ADR-0079).
+parameters.kind = z
+  .enum(["point", "area"])
+  .describe(
+    "A text's kind to convert to, its lines kept in place: area frames them in a rectangle; point turns each soft wrap into a hard return and deletes the overflow, warning TEXT_DISCARDED. With it only name, visible, locked, opacity, blendMode, appearance, tags and meta.",
+  );
 // An Image's frame reuses the keys above; src Relinks and file links, relinks or Embeds (ADR-0042).
 parameters.preserveAspectRatio = unwrapDefault(ImageShape.shape.preserveAspectRatio);
 parameters.src = ImageShape.shape.src

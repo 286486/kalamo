@@ -6,7 +6,7 @@ import { collect, type Failed, KalamoError } from "./errors.ts";
 import { edgesOf, windsTwice } from "./frame.ts";
 import { fileProblem, MAX_FILE_LENGTH, preserveAspectRatio } from "./image.ts";
 import { applyTo, IDENTITY, multiply, scaleOf, transformSegments } from "./matrix.ts";
-import { formatPath, parsePath, pathBounds, type Segment, shapeSegments } from "./path.ts";
+import { formatPath, parsePath, pathBounds, round3, type Segment, shapeSegments } from "./path.ts";
 import {
   type Appearance,
   AppearanceInput,
@@ -139,10 +139,10 @@ export function shapedFrame(
   const frame = formatPath(segments);
   const exact = pathBounds(parsePath(frame, path));
   const b = exact && {
-    x: r3(exact.x),
-    y: r3(exact.y),
-    width: r3(exact.width),
-    height: r3(exact.height),
+    x: round3(exact.x),
+    y: round3(exact.y),
+    width: round3(exact.width),
+    height: round3(exact.height),
   };
   if (!b || b.width <= 0 || b.height <= 0) {
     throw invalid("The frame encloses no area.", "Give the frame a width and a height.");
@@ -585,8 +585,7 @@ const defaultAppearance = () =>
 /** Illustrator's default for new type: a black Fill and no Stroke. */
 const defaultTypeAppearance = () => AppearanceInput.parse({ fills: [{ color: "#000000" }] });
 
-const r3 = (n: number) => Math.round(n * 1000) / 1000 || 0;
-const point = (x: number, y: number) => ({ x: r3(x), y: r3(y) });
+const point = (x: number, y: number) => ({ x: round3(x), y: round3(y) });
 
 /** Geometric bounds in a leaf's own coordinates, before its transform. */
 const ownBounds = (leaf: Shape | TextShape): Rect =>
@@ -637,7 +636,7 @@ function placed(
   const { aspectRatio, angle } = g;
   const center = g.center ?? middle();
   // Illustrator's default: half the width on a square.
-  const radius = g.radius ?? (r3(Math.sqrt((own().width ** 2 + own().height ** 2) / 8)) || 1);
+  const radius = g.radius ?? (round3(Math.sqrt((own().width ** 2 + own().height ** 2) / 8)) || 1);
   let focus = g.focus ?? center;
   // A focus outside the ellipse moves onto it, as SVG 1.1 does, so every renderer agrees.
   const t = (angle * Math.PI) / 180;
@@ -714,9 +713,9 @@ export function mapGradient(g: Gradient, m: Matrix): Gradient {
     type: "radial",
     stops: g.stops,
     center: point(...applyTo(m, g.center.x, g.center.y)),
-    radius: r3(g.radius * major),
-    aspectRatio: r3(minor / major),
-    angle: r3(degrees % 360),
+    radius: round3(g.radius * major),
+    aspectRatio: round3(minor / major),
+    angle: round3(degrees % 360),
     focus: point(...applyTo(m, g.focus.x, g.focus.y)),
   };
 }

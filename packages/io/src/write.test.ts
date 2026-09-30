@@ -9,6 +9,7 @@ import {
   LEGACY_SVG_NS,
   layoutText,
   makeMask,
+  type Node,
   type ShapeNode,
   serializeDocument,
   shapeSegments,
@@ -1518,3 +1519,32 @@ describe("a space after a character in another bundled family (ADR-0067)", () =>
     expect(toSvg(doc, undefined, { resvg: true })).not.toContain("<tspan> </tspan>");
   });
 });
+
+it.each([
+  ["Point", {}],
+  ["Area", { kind: "area", width: 70, height: 80 }],
+])(
+  "exports %s Type converted to the other kind in that kind's form, and Opens it back (ADR-0079)",
+  (_, extra) => {
+    const { doc, defaultLayerId: parentId } = newDoc();
+    const [t] = createNodes(doc, [
+      {
+        type: "text",
+        parentId,
+        x: 10,
+        y: 20,
+        content: "Converted words wrap\nor break",
+        tracking: 20,
+        ranges: [{ start: 2, end: 9, fill: "#FF0000" }],
+        ...extra,
+      } as never,
+    ]).nodes as [Node];
+    const kind = t.type === "text" && t.kind === "area" ? "point" : "area";
+    const [node] = updateNodes(doc, [{ nodeId: t.id, patch: { kind } }]).nodes as [Node];
+    const svg = toSvg(doc);
+    expect(svg.includes(`shape-inside:url(#area-z-${t.id})`)).toBe(kind === "area");
+    const file = parseSvg(svg);
+    expect(file.warnings).toEqual([]);
+    expect(file.nodes.find((n) => n.id === t.id)).toEqual(node);
+  },
+);

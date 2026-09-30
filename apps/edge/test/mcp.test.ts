@@ -1112,6 +1112,51 @@ it("warns TEXT_OVERFLOW while an Area Type's content does not fit its frame", as
   expect(updated.structuredContent.warnings).toEqual([]);
 });
 
+it("converts a text to Area Type and back with kind, keeping its id (ADR-0079)", async () => {
+  const doc = await newDoc();
+  const created = await call("kalamo_node_create", {
+    docId: doc.docId,
+    nodes: [
+      { type: "text", parentId: doc.defaultLayerId, x: 10, y: 30, content: "one two\nthree" },
+    ],
+  });
+  const [id] = created.structuredContent.createdIds as string[];
+  const get = async () =>
+    (await call("kalamo_node_get", { docId: doc.docId, nodeIds: [id], detail: "full" }))
+      .structuredContent.nodes[0];
+  const update = async (patch: object) =>
+    (await call("kalamo_node_update", { docId: doc.docId, updates: [{ nodeId: id, patch }] }))
+      .structuredContent;
+  const toArea = await update({ kind: "area" });
+  expect(toArea).toMatchObject({ updatedIds: [id], warnings: [] });
+  const area = await get();
+  expect(area).toMatchObject({ id, kind: "area", x: 10, content: "one two\nthree" });
+  expect(area.width).toBeGreaterThan(0);
+  expect(area.y).toBeLessThan(30);
+  expect(toArea.bounds).toEqual(area.geometricBounds);
+
+  // Narrowed so "two" wraps and "three" overflows: back to Point Type, the overflow is deleted.
+  await update({ height: 18, width: area.width / 2 });
+  const toPoint = await update({ kind: "point" });
+  expect(toPoint).toMatchObject({
+    updatedIds: [id],
+    warnings: [{ code: "TEXT_DISCARDED", nodeId: id, message: expect.stringMatching(/^9 /) }],
+  });
+  const point = await get();
+  expect(point).toMatchObject({ id, kind: "point", x: 10, y: 30, content: "one " });
+  expect(point).not.toHaveProperty("width");
+
+  const refused = await call("kalamo_node_update", {
+    docId: doc.docId,
+    updates: [{ nodeId: id, patch: { kind: "area", content: "x" } }],
+  });
+  expect(refused.isError).toBe(true);
+  expect(errorOf(refused)).toMatchObject({
+    code: "INVALID_PATCH",
+    path: "updates[0].patch.content",
+  });
+});
+
 it("wraps a CJK Area Type between characters, so one that fits warns no TEXT_OVERFLOW", async () => {
   const doc = await newDoc();
   const created = await call("kalamo_node_create", {

@@ -251,7 +251,10 @@ function ellipseCubics(
 }
 
 /** At most 3 decimals and no -0 (REQUIREMENTS §6.5). */
-export const formatNumber = (n: number) => String(Math.round(n * 1000) / 1000 || 0);
+export const round3 = (n: number) => Math.round(n * 1000) / 1000 || 0;
+
+/** `round3` as the file writes it. */
+export const formatNumber = (n: number) => String(round3(n));
 
 /** `d` with at most 3 decimals (REQUIREMENTS §6.5). */
 export function formatPath(segments: Segment[]): string {
