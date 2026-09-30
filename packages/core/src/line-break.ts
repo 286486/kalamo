@@ -33,8 +33,10 @@ const POSTFIX = /[%¢°‰-‷₧₶₻₾⃀℃℉％￠]/u;
 /** Break after: UAX #14's SY and HY, and its BA in ASCII, Latin-1 and General Punctuation but U+00AD and spaces. */
 const BREAK_AFTER = /[-/|\u2010\u2012\u2013\u2027\u2056\u2058-\u205B\u205D\u205E]/u;
 
-/** UAX #14's NU and IS: a solidus inside `NU (NU | SY | IS)*` keeps a number, or a sign after it, whole (LB25). */
+/** UAX #14's NU: a solidus inside `NU (NU | SY | IS)*` keeps a number, or a sign after it, whole (LB25). */
 const DIGIT = /\p{Nd}/u;
+
+/** UAX #14's IS, which continues a number as a solidus does (LB25). */
 const INFIX = /[,.:;]/;
 
 /** UAX #14's HL, which LB21a and LB21b keep beside a hyphen or solidus. */
@@ -54,20 +56,20 @@ function breaksBetween(before: string, after: string) {
 }
 
 /**
- * Whether a line may break after `sign`, the base of the marks before `next`, where `before` is the
- * base before it and `inNumber` says `sign` ends `NU (NU | SY | IS)*`.
+ * Whether a line may break after `breaker`, the base of the marks before `next`, where `before` is
+ * the base before it and `inNumber` says `breaker` ends `NU (NU | SY | IS)*`.
  */
-function breaksAfter(sign: string, next: string, before: string, inNumber: boolean) {
-  if (!BREAK_AFTER.test(sign)) return false;
+function breaksAfter(breaker: string, next: string, before: string, inNumber: boolean) {
+  if (!BREAK_AFTER.test(breaker)) return false;
   // `%` is UAX #14's PO, not a non-starter: Pango breaks `a-|%`.
   if (next !== "%" && NO_BREAK_BEFORE.test(next)) return false;
-  if (sign === "/") {
+  if (breaker === "/") {
     return (
       !HEBREW.test(next) &&
       !(inNumber && (DIGIT.test(next) || PREFIX.test(next) || POSTFIX.test(next)))
     );
   }
-  return !HEBREW.test(before) && !(sign === "-" && DIGIT.test(next));
+  return !HEBREW.test(before) && !(breaker === "-" && DIGIT.test(next));
 }
 
 /**
