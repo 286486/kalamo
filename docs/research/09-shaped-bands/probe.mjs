@@ -42,6 +42,9 @@ const FRAMES = {
   slant: "M 20 40 L 200 40 L 200 340 L 120 340 Z",
   // A neck 30 wide above y 100, too narrow for any word.
   neck: "M 20 40 L 50 40 L 50 100 L 320 100 L 320 340 L 20 340 Z",
+  // A <rect>, as export writes a rectangular Area Type's frame (#203): four H words fit its 180, a
+  // fifth or a 40 px fourth does not.
+  rect: { x: 20, y: 40, width: 180, height: 300 },
 };
 
 const H = "HHH";
@@ -61,6 +64,8 @@ const TEXTS = {
   cjk: [[H, cjk(), H, H, H, cjk(), H, H, H, H, cjk(), H]],
   // The same with a 30 px CJK run.
   "cjk-larger": [[H, cjk(), H, H, H, cjk("字", 30), H, H, H, H, cjk(), H]],
+  // A word wider than every frame's widest span, after two that fit (#203).
+  wide: [[H, H, "H".repeat(40), H, H]],
 };
 
 const esc = (s) => s.replaceAll("&", "&amp;").replaceAll("<", "&lt;");
@@ -71,6 +76,12 @@ const runLineHeight = (leading, size) => {
     ? `${floor(leading - 2 * (NOTO - SOURCE) * size)}px`
     : floor(1.2 - 2 * (NOTO - SOURCE));
 };
+
+/** A frame's element: a `<rect>` for a rectangle, a `<path>` otherwise. */
+const shape = (f) =>
+  typeof f === "string"
+    ? `<path id="frame" d="${f}"/>`
+    : `<rect id="frame" x="${f.x}" y="${f.y}" width="${f.width}" height="${f.height}"/>`;
 
 function svg(frame, paragraphs, leading) {
   let n = 0;
@@ -89,7 +100,7 @@ function svg(frame, paragraphs, leading) {
     )
     .join("&#10;");
   return `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400">
-<defs><path id="frame" d="${frame}"/></defs>
+<defs>${shape(frame)}</defs>
 <text id="t" font-family="Source Sans 3" font-size="${SIZE}" style="shape-inside:url(#frame);white-space:pre;font-kerning:none;line-height:${leading ? `${leading}px` : "1.2"}" xml:space="preserve">${body}</text>
 </svg>`;
 }
@@ -156,5 +167,39 @@ for (const [frameName, frame] of Object.entries(FRAMES)) {
         console.log(`${frameName}\t${name}\t${leading ?? "auto"}\t${l.y}\t${l.words.join(" ")}`);
       }
     }
+  }
+}
+
+/**
+ * The overflow threshold in a rectangle (#203): one line, `HHH` in a `size` run of a 20 px text,
+ * in a <rect> 180 wide from y 40. Bisects the frame height at which Inkscape first shows it, to a
+ * thousandth, and prints it with the line's baseline below the frame's top at that height.
+ */
+const THRESHOLDS = [
+  ["20px", 20],
+  ["40px", 40],
+  ["10px", 10],
+];
+for (const [name, size] of THRESHOLDS) {
+  for (const leading of [undefined, 30]) {
+    const id = `threshold-${name}-${leading ?? "auto"}`;
+    if (only && !id.includes(only)) continue;
+    const file = join(OUT, `${id}.svg`);
+    const at = (height) => {
+      const frame = { x: 20, y: 40, width: 180, height };
+      writeFileSync(file, svg(frame, [[size === SIZE ? H : big(H, size)]], leading));
+      return boxes(file, 1)[0];
+    };
+    let [lo, hi] = [0, 100];
+    while (hi - lo > 0.0005) {
+      const mid = (lo + hi) / 2;
+      if (at(mid)) hi = mid;
+      else lo = mid;
+    }
+    const box = at(hi);
+    const baseline = box[1] + box[3] - 40;
+    console.log(
+      `threshold\t${name}\t${leading ?? "auto"}\t${hi.toFixed(3)}\t${baseline.toFixed(2)}`,
+    );
   }
 }
