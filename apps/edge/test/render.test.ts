@@ -1,6 +1,11 @@
-import { expect, it } from "vitest";
+import { LAZY_FONTS, renderFonts } from "@kalamo/render";
+import { beforeAll, expect, it } from "vitest";
 import fixture from "../../../fixtures/documents/inkscape.kalamo.json?raw";
 import { call, errorOf } from "./rpc.ts";
+
+// The test pool's import of a lazy family takes seconds (#213). The Worker renders with this
+// isolate's instance of @kalamo/render, so loading each here keeps that out of every test's timeout.
+for (const family of Object.keys(LAZY_FONTS)) beforeAll(() => renderFonts(family));
 
 type Rect = { x: number; y: number; width: number; height: number };
 
@@ -222,7 +227,7 @@ it("exports the fixture Document as Inkscape SVG that matches the stored file", 
     pixelSize: { width: 1580, height: 480 },
     scale: 1,
   });
-}, 30_000);
+});
 
 it("exports PNG as image content with its viewport, in the same scopes", async () => {
   const doc = await newDoc();
