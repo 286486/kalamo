@@ -39,7 +39,7 @@
   "kv_namespaces": [{ "binding": "OAUTH_KV", "id": "3f0564ab74d940089087907628b44310" }],
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["DocumentObject"] }],
   // Deployed Workers sign browsers in with GitHub (ADR-0047), unless the deploy passes
-  // `--var AUTH_MODE:dev`, as the hosted one does for now (README). `.dev.vars` sets `dev` locally;
+  // `--var AUTH_MODE:dev` (README, Hosting). `.dev.vars` sets `dev` locally;
   // the GitHub secrets, APP_ORIGIN and MCP_ORIGIN are Worker secrets.
   "vars": { "AUTH_MODE": "github" }
 }

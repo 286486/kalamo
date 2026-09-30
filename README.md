@@ -71,45 +71,48 @@ pnpm deploy:check
 pnpm run deploy
 ```
 
-`pnpm run deploy` (plain `pnpm deploy` is pnpm's own command) builds the web app, applies remote D1 migrations, uploads `apps/edge/.deploy.vars` as encrypted Worker secrets, and deploys the Worker, Durable Object, and static assets. It never reads `.dev.vars`, so a deployed Worker runs in GitHub mode unless the deploy sets `--var AUTH_MODE:dev` on purpose, as the hosted deployment below does until #173. The resulting `workers.dev` URL needs no domain configuration; add a custom domain later in Cloudflare if wanted, and update `APP_ORIGIN` and the OAuth App's callback URL to match.
+`pnpm run deploy` (plain `pnpm deploy` is pnpm's own command) builds the web app, applies remote D1 migrations, uploads `apps/edge/.deploy.vars` as encrypted Worker secrets, and deploys the Worker, Durable Object, and static assets. It never reads `.dev.vars`, so a deployed Worker runs in GitHub mode unless the deploy sets `--var AUTH_MODE:dev` on purpose. The resulting `workers.dev` URL needs no domain configuration; add a custom domain later in Cloudflare if wanted, and update `APP_ORIGIN` and the OAuth App's callback URL to match.
 
-### The hosted deployment
+### No hosted deployment
 
-Kalamo is hosted at `https://kalamo.woodywang2013.workers.dev`: the app, `/mcp` and the API. Until GitHub sign-in is set up for it (#173), it runs in dev mode, and MCP takes the owner's `DEV_TOKENS`. Agent developers connect with:
+Nothing hosts the editor now. Its Worker `kalamo`, D1 database `kalamo`, R2 bucket `kalamo-images` and KV namespace `kalamo-oauth` were deleted from Cloudflare on 2026-09-30, and `https://kalamo.woodywang2013.workers.dev` answers 404. Only the landing page is deployed (below).
+
+To host the editor again, create the storage first; the ids in `apps/edge/wrangler.jsonc` name the deleted resources:
 
 ```sh
-claude mcp add --transport http kalamo https://kalamo.woodywang2013.workers.dev/mcp -H "Authorization: Bearer YOUR_TOKEN"
+pnpm exec wrangler d1 create kalamo --binding DB --update-config -c apps/edge/wrangler.jsonc
+pnpm exec wrangler r2 bucket create kalamo-images
+pnpm exec wrangler kv namespace create kalamo-oauth --binding OAUTH_KV --update-config -c apps/edge/wrangler.jsonc
 ```
 
-The deployment's former workers.dev URL was deleted (#181) and answers 404. To redeploy in dev mode, put only `DEV_TOKENS` in `apps/edge/.deploy.vars`, then run `pnpm deploy:check` and `pnpm run deploy --var AUTH_MODE:dev`, which overrides the config's `github`.
+Then deploy as above. For dev mode, put only `DEV_TOKENS` in `apps/edge/.deploy.vars` and run `pnpm deploy:check` and `pnpm run deploy --var AUTH_MODE:dev`, which overrides the config's `github`.
 
 ## Landing page
 
-The landing page `site/public/index.html` is its own static-only Worker, `kalamo-site` (Workers Static Assets, no script, no bindings), configured in `site/wrangler.jsonc`. It is separate from the editor's Worker `kalamo`, so deploying one never replaces the other. `site/public/_redirects` is deploy-time config, not an uploaded file: it serves the page at `/` and answers 404 for `/index.html`; every other path is a bodiless 404. An encoded or doubled-slash spelling of `/index.html` (`/%69ndex.html`, `//index.html`) may instead get a bodiless 307 to `/index.html`, which then 404s: the asset worker redirects to the decoded path when it differs from the one requested.
+The landing page `site/public/index.html` is its own static-only Worker, `kalamo-site` (Workers Static Assets, no script, no bindings), configured in `site/wrangler.jsonc`. It is separate from the editor's Worker `kalamo`, so deploying one never replaces the other; today it is the only one deployed. `site/public/_redirects` is deploy-time config, not an uploaded file: it serves the page at `/` and answers 404 for `/index.html`; every other path is a bodiless 404. An encoded or doubled-slash spelling of `/index.html` (`/%69ndex.html`, `//index.html`) may instead get a bodiless 307 to `/index.html`, which then 404s: the asset worker redirects to the decoded path when it differs from the one requested.
 
 ```sh
 pnpm deploy:site:check # dry run: "No bindings found."; WRANGLER_LOG=debug lists the assets
 pnpm deploy:site
 ```
 
-The config turns off the `workers.dev` and preview URLs and has no `routes`. The `kalamo.cc` custom domain is bound to `kalamo-site` in the Cloudflare dashboard (#186). wrangler 4.136.3 publishes custom domains only when the config lists a `custom_domain` route, so `pnpm deploy:site` leaves the dashboard binding alone. Do not add a `routes` entry to `site/wrangler.jsonc` without a ticket: wrangler would then own the binding and could replace it. The zone's **Always Use HTTPS** setting is set by #186 along with the binding.
+The config turns off the `workers.dev` and preview URLs and has no `routes`. The `kalamo.cc` custom domain is bound to `kalamo-site` outside wrangler, through the account's custom domains (`PUT /accounts/<account>/workers/domains` with `hostname`, `service`, `zone_id` and `environment: "production"`), which also created the apex DNS record. wrangler 4.136.3 publishes custom domains only when the config lists a `custom_domain` route, so `pnpm deploy:site` leaves that binding alone. Do not add a `routes` entry to `site/wrangler.jsonc` without a ticket: wrangler would then own the binding and could replace it.
 
 To verify a deploy, where `<account>` is the account id from `wrangler whoami`:
 
 ```sh
 pnpm exec wrangler deployments list --name kalamo-site
-curl -s -o /dev/null -w '%{http_code}\n' https://kalamo-site.woodywang2013.workers.dev/ # not the page: workers.dev is off
-curl -sI https://kalamo.cc/        # 200 once #186 binds the domain
+curl -s -o /dev/null -w '%{http_code}\n' https://kalamo-site.woodywang2013.workers.dev/ # 404: workers.dev is off
+curl -sI https://kalamo.cc/           # 200
 curl -sI https://kalamo.cc/index.html # 404
 ```
 
-and check that the account's custom domains (`GET /accounts/<account>/workers/domains`) show no domain for `kalamo-site` until #186 binds `kalamo.cc`, and only that one after.
+and check that the account's custom domains (`GET /accounts/<account>/workers/domains`) list `kalamo.cc` for `kalamo-site` and nothing else for it.
 
 To roll back:
 
-- Bad content, bound or not: `pnpm exec wrangler rollback --name kalamo-site <previous version id>`, or check out the last good commit and run `pnpm deploy:site`. Neither touches the Worker `kalamo` or the domain binding.
-- Remove the Worker while no domain is bound: `pnpm exec wrangler delete --name kalamo-site`.
-- Remove the landing page once `kalamo.cc` is bound, in this order: delete the custom domain `kalamo.cc` from `kalamo-site` (dashboard, or `DELETE /accounts/<account>/workers/domains/<domain id>`), which removes the apex DNS record it created; run `pnpm exec wrangler delete --name kalamo-site`; set Always Use HTTPS back to the value in #186's before-inventory; then check that public DNS gives no A or AAAA for `kalamo.cc`, NXDOMAIN for `www.kalamo.cc`, and that the zone's DNS records equal #186's before-inventory.
+- Bad content: `pnpm exec wrangler rollback --name kalamo-site <previous version id>`, or check out the last good commit and run `pnpm deploy:site`. Neither touches the domain binding.
+- Remove the landing page, in this order: delete the custom domain `kalamo.cc` from `kalamo-site` (dashboard, or `DELETE /accounts/<account>/workers/domains/<domain id>`), which removes the apex DNS record it created; run `pnpm exec wrangler delete --name kalamo-site`; then check that public DNS gives no A or AAAA for `kalamo.cc`.
 
 Always pass `--name kalamo-site` to `wrangler delete`, and never run it from `apps/edge`.
 
