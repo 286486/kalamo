@@ -123,6 +123,22 @@ it("reads a Layer's and a Group's Appearance back as written, and a file without
   });
 });
 
+it("reads a text's explicit left alignment as none, so it serialises as it would have (ADR-0077)", () => {
+  const doc = scene();
+  const text = serializeDocument(doc);
+  const file = JSON.parse(text);
+  const t = file.nodes.find((n: Node) => n.type === "text");
+  const left = {
+    ...file,
+    nodes: file.nodes.map((n: Node) => (n === t ? { ...n, alignment: "left" } : n)),
+  };
+  const parsed = parseDocument(JSON.stringify(left));
+  expect(parsed.nodes.find((n) => n.type === "text")).not.toHaveProperty("alignment");
+  expect(serializeDocument({ ...doc, nodes: new Map(parsed.nodes.map((n) => [n.id, n])) })).toBe(
+    text,
+  );
+});
+
 it("reads a Path without fillRule as nonzero and keeps evenodd", () => {
   const file = JSON.parse(serializeDocument(scene()));
   const path = file.nodes.find((n: { type: string }) => n.type === "path");

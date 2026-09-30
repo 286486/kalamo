@@ -392,13 +392,14 @@ export function layoutText(text: TextLayout): { lines: TextLine[]; overflow: str
 }
 
 /**
- * How many of a line's characters come before its trailing spaces and hard return, which hang past
- * its alignment and are never widened (ADR-0022, ADR-0077).
+ * Where the trailing whitespace of `chars` from `from` up to `to` starts: the characters after it
+ * hang past the frame's edge and past a line's alignment, and are never widened (ADR-0022,
+ * ADR-0077). Whitespace is JavaScript's `\s`: the space, the hard return, the no-break space U+00A0,
+ * the ideographic space U+3000 and the other Unicode spaces.
  */
-export function hangsFrom(chars: string[]): number {
-  let end = chars.length;
-  while (end > 0 && /\s/.test(chars[end - 1] as string)) end--;
-  return end;
+export function hangsFrom(chars: string[], from = 0, to = chars.length): number {
+  while (to > from && /\s/.test(chars[to - 1] as string)) to--;
+  return to;
 }
 
 /** `layoutText`, with the metrics of every character of `content`, each line aligned (ADR-0077). */
@@ -409,8 +410,8 @@ function layout(text: TextLayout) {
   if (alignment === "left" || (alignment === "justify" && !area)) return { lines, overflow, m };
   const width = text.width ?? 0;
   lines.forEach((l, i) => {
-    // Trailing spaces and the return hang past the edge, as Inkscape and Illustrator align; so does
-    // the tracking after the last character, as SVG's text-anchor measures a line (ADR-0077).
+    // Trailing whitespace hangs past the edge, and so does the tracking after the last character,
+    // as Inkscape 1.2.2 measures an aligned line (ADR-0077).
     const chars = [...l.text];
     const end = hangsFrom(chars);
     const w = span(m, l.start, l.start + end);
@@ -432,6 +433,7 @@ function layout(text: TextLayout) {
 function unaligned(text: TextLayout) {
   const { x, y, content, fontSize } = text;
   const m = metrics(text);
+  const chars = m.map((c) => c.char);
   // A line's leading, as Illustrator's (ADR-0068): the Node's, or with Auto 120% of the largest
   // size among its characters, its hard return included; an empty last line's is the Node's size.
   // CSS inline boxes at that size and leading stack a line holding CJK as Inkscape does (ADR-0064):
@@ -445,7 +447,7 @@ function unaligned(text: TextLayout) {
     for (let i = from; i < to; i++) size = Math.max(size, (m[i] as Metric).size);
     size ||= m[to]?.size ?? fontSize;
     const leading = text.leading ?? 1.2 * size;
-    while (to > from && /\s/.test((m[to - 1] as Metric).char)) to--;
+    to = hangsFrom(chars, from, to);
     let [top, bottom] = [first, first];
     for (let i = from; i < to; i++) {
       const { ascent } = FAMILIES[(m[i] as Metric).family];
@@ -481,11 +483,8 @@ function unaligned(text: TextLayout) {
     return { lines, overflow: "", m };
   }
   const { width = 0, height = 0 } = text;
-  // Trailing spaces and the return hang past the frame's edge.
-  const fits = (from: number, to: number) => {
-    while (to > from && /\s/.test((m[to - 1] as Metric).char)) to--;
-    return span(m, from, to) <= width;
-  };
+  // Trailing whitespace hangs past the frame's edge.
+  const fits = (from: number, to: number) => span(m, from, hangsFrom(chars, from, to)) <= width;
   const lines: TextLine[] = [];
   let used = 0;
   let prev: { baseline: number; drop: number } | undefined;

@@ -381,6 +381,13 @@ export type CharacterRange = Omit<z.output<typeof CharacterRange>, "fill" | "str
 export const ALIGNMENTS = ["left", "center", "right", "justify"] as const;
 export type Alignment = (typeof ALIGNMENTS)[number];
 
+/** A text as stored: left, the default alignment, is dropped wherever a text comes in (ADR-0077). */
+export function storedAlignment<T extends { alignment?: Alignment | undefined }>(t: T): T {
+  if (t.alignment !== "left") return t;
+  const { alignment: _, ...rest } = t;
+  return rest as T;
+}
+
 /**
  * A text (ADR-0013, ADR-0022): Point Type from its baseline origin, or Area Type in its frame,
  * measured in the one bundled font. `textFrame` checks that the frame matches the kind.

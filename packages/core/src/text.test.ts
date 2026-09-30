@@ -905,6 +905,23 @@ describe("alignment (ADR-0077)", () => {
     expect(lines.some((l) => l.text === "supercalifragilistic\n" && !l.wordSpacing)).toBe(true);
   });
 
+  it("leaves a soft-wrapped one-word line of a paragraph left, the lines around it justified", () => {
+    const t = {
+      ...frame,
+      width: 70,
+      content: "Lorem ipsum consectetur sit amet dolor",
+      alignment: "justify" as const,
+    };
+    const { lines } = layoutText(t);
+    const i = lines.findIndex((l) => l.text === "consectetur ");
+    // Neither the paragraph's last line nor one ending at a return: only its one word keeps it left.
+    expect(i).toBeGreaterThan(0);
+    expect(i).toBeLessThan(lines.length - 1);
+    expect(lines[i]?.wordSpacing).toBeUndefined();
+    expect(lines[i]?.x).toBe(20);
+    expect(lines[0]?.wordSpacing).toBeGreaterThan(0);
+  });
+
   it("gives a centred text's characters their line's offset, rotated cells inside the box", () => {
     const t = {
       ...point,

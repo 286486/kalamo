@@ -11,6 +11,7 @@ import {
   makeMask,
   type Node,
   normalizePath,
+  parseDocument,
   readImage,
   type ShapeNode,
   serializeDocument,
@@ -3392,6 +3393,24 @@ describe("alignment (ADR-0077)", () => {
     );
     expect(justified.node).toMatchObject({ alignment: "justify" });
     expect(justified.warnings[0]?.message).toMatch(/^text-align differs/);
+  });
+
+  it("exports and re-imports a file's explicit left as no alignment, so nothing drifts", () => {
+    const { doc, defaultLayerId: parentId } = createDocument({
+      id: "d",
+      name: "Doc",
+      artboards: [{ width: 400, height: 300 }],
+    });
+    createNodes(doc, [{ type: "text", parentId, x: 20, y: 30, content: "Hi\nthere" }]);
+    const file = JSON.parse(serializeDocument(doc));
+    for (const n of file.nodes) if (n.type === "text") n.alignment = "left";
+    const opened = parseDocument(JSON.stringify(file));
+    const reopened = { ...doc, nodes: new Map(opened.nodes.map((n) => [n.id, n])) };
+    const exported = toSvg(reopened);
+    expect(exported).toBe(toSvg(doc));
+    expect(exported).not.toMatch(/text-align|text-anchor/);
+    const [text] = leaves(parseFile(exported));
+    expect(text).not.toHaveProperty("alignment");
   });
 
   it("re-imports each alignment of both kinds from a Kalamo export to the same Node", () => {

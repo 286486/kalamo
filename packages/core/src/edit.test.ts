@@ -821,6 +821,7 @@ describe("updateNodes on a text", () => {
     [{ width: 10 }, "width", /leading/],
     [{ content: "a\tb" }, "content", /./],
     [{ d: "M 0 0" }, "d", /outline/i],
+    [{ alignment: "middle" }, "alignment", /left.*center.*right.*justify/],
   ])("rejects %j with INVALID_PATCH", (patch, key, hint) => {
     const { doc, t } = setup();
     const error = errorOf(() => updateNodes(doc, [{ nodeId: t.id, patch }]));
@@ -833,6 +834,21 @@ describe("updateNodes on a text", () => {
       expect(error.hint).toMatch(
         /meta, x, y, content, fontFamily, fontStyle, fontSize, leading, tracking, alignment, ranges, appearance/,
       );
+  });
+
+  it("stores no alignment for left, on create and on update (ADR-0077)", () => {
+    const { doc, t } = setup();
+    const [left] = createNodes(doc, [
+      { type: "text", parentId: t.parentId as string, x: 0, y: 0, content: "L", alignment: "left" },
+    ]).nodes as [Node];
+    expect(left).not.toHaveProperty("alignment");
+    const [centred] = updateNodes(doc, [{ nodeId: t.id, patch: { alignment: "center" } }])
+      .nodes as [Node];
+    expect(centred).toMatchObject({ alignment: "center" });
+    const [back] = updateNodes(doc, [{ nodeId: t.id, patch: { alignment: "left" } }]).nodes as [
+      Node,
+    ];
+    expect(back).not.toHaveProperty("alignment");
   });
 
   describe("tracking and Character Ranges (ADR-0029)", () => {

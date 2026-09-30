@@ -9,16 +9,16 @@ F-TEXT-03 (P0) asks for Illustrator's Paragraph panel alignment: left, center, r
 
 ## The model
 
-- **`alignment`** on a text: `"left" | "center" | "right" | "justify"`. Absent means left, and left is not stored: create and update drop it, so Nodes and `.kalamo.json` files from before need no migration. `justify` is Illustrator's "Justify with last line aligned left", its default justify mode. There is one alignment per text, not per paragraph, as the character attributes are Node-level (ADR-0013, ADR-0029).
+- **`alignment`** on a text: `"left" | "center" | "right" | "justify"`. Absent means left, and left is not stored: create, update, `.kalamo.json` Open and SVG import all drop an explicit left, so a Node never differs by it, and Nodes and files from before need no migration. `justify` is Illustrator's "Justify with last line aligned left", its default justify mode. There is one alignment per text, not per paragraph, as the character attributes are Node-level (ADR-0013, ADR-0029).
 - **MCP.** `node_create` and `node_update` take `alignment`, and `node_update` with `alignment: null` goes back to left. The input schema is strict (ADR-0050): another value fails at `alignment`. `node_get` `full` returns it when it is set. Receipt and `node_get` bounds follow the aligned layout.
 
 ## The layout, in `core`
 
-`layoutText` aligns each line after ADR-0022 has broken and stacked them. So wrapping, overflow, `TEXT_OVERFLOW` and every baseline are the same for every alignment. A line's width, the one alignment measures, is its advance sum without its trailing spaces and hard return and without the tracking after its last character.
+`layoutText` aligns each line after ADR-0022 has broken and stacked them. So wrapping, overflow, `TEXT_OVERFLOW` and every baseline are the same for every alignment. A line's width, the one alignment measures, is its advance sum without its trailing whitespace and without the tracking after its last character. Trailing whitespace is what ADR-0022's wrapping already hangs, JavaScript's `\s`: the space, the hard return, the no-break space U+00A0, the ideographic space U+3000 and the other Unicode spaces. Inkscape was measured with trailing U+0020 only; a trailing U+00A0 or U+3000 was not measured.
 
 - **Point Type** aligns about the anchor `x`, as Illustrator does. Each line starts at `x` (left), `x − width/2` (center) or `x − width` (right). `justify` lays out as left, as Illustrator does for point type, but it is stored and round-trips.
 - **Area Type** aligns each shown line in the frame, `x` to `x + width`: it starts at `x + (frameWidth − width)/2` (center) or `x + frameWidth − width` (right).
-- **Justify** stretches each line of Area Type to the frame's width, by widening only the spaces (U+0020) before its last word. This matches Illustrator's default Justification, word spacing only with letter spacing 0. A line gets `wordSpacing`, the extra pt after each such space. A paragraph's last line stays left: one ending at a hard return, or the text's last shown line. So does a line with no space to widen, such as a single word or unspaced CJK.
+- **Justify** stretches each line of Area Type to the frame's width, by widening only the spaces (U+0020) before its last word; a no-break space or U+3000 is never widened. The brief takes this from Illustrator's default Justification, word spacing only with letter spacing 0. A line gets `wordSpacing`, the extra pt after each such space. A paragraph's last line stays left: one ending at a hard return, or the text's last shown line. So does a line with no space to widen, such as a single word or unspaced CJK.
 - **Characters.** `glyphs` gives each character its aligned origin, a justified line's widened spaces included. So baseline shift, rotation and tracking (ADR-0029, ADR-0068) move with the line. Point Type's `textBox` is the union of the aligned lines and their cells. Area Type's is still its frame. `render`, the canvas and export read `layoutText` and `glyphs` and never re-derive alignment.
 - **Canvas.** An aligned line is drawn from its start. A text with a justified line paints each character at its origin, through the path that tracking and ranges already use.
 
@@ -36,12 +36,12 @@ resvg reads neither `text-align` nor `shape-inside`. For `render`, each line sta
 
 A justified line uses chunks rather than `word-spacing`, because resvg widens U+00A0 by `word-spacing` too, while the layout widens only U+0020. Inkscape reflows the frame from its content by `text-align` and ignores the positions.
 
-What was measured for `text-anchor`, at 40 pt and the same file in both:
+What was measured for `text-anchor`, drawing the same file in both at 40 px with `letter-spacing:10`: `HH` anchored at the end and in the middle, `H H` and `H  H` at the end, and, untracked, `HH ` with a trailing space at the end:
 
 - **resvg (resvg-wasm 2.6.2)** leaves out the trailing `letter-spacing` of a centred or right-aligned line, and counts its trailing spaces.
-- **Inkscape 1.2.2** leaves out both. For flowed text its line widths also leave out trailing spaces.
+- **Inkscape 1.2.2** leaves out both, and its inner spaces and tracking match the layout's advances to the pixel. For flowed text, its saved line starts for `text-align:center` and `end` show line widths without the trailing space.
 - **Kalamo** follows Inkscape, the round-trip editor, and its own Area Type rule (ADR-0022): a trailing space hangs. The only file that differs is an exported Point Type line that ends in spaces, read by resvg or a browser, not by Inkscape.
-- **Inkscape at 12 pt with `letter-spacing`** measures each space of a centred or right-aligned line about 0.6 pt wider than it places it, apparently by a hinted advance. A tracked right-aligned line with spaces then lands about 0.6 pt per space left of the layout in Inkscape: 16% of a text region's pixels on the first fixture tried. Left-aligned text, untracked text and Area Type are not affected. So the fixture's right-aligned Point Type is untracked, and this remains a known Inkscape difference.
+- **Inkscape at 12 pt with `letter-spacing`** anchors a right-aligned Point Type line with spaces left of the layout, by about 0.6 pt per space; the cause was not identified. The fixture text first tried was `Right aligned\nlines end here\nok`, 12 pt, tracking 80 (0.96 pt), right-aligned at `x` 610. resvg's ink sat 0.71 px, 1.27 px and −0.05 px right of Inkscape's on its three lines, which hold one, two and no spaces, and 696 of the region's 4263 pixels differed (16.3% of a 15% budget). The same text left-aligned differed in 6 pixels (0.14%). The fixture's right-aligned Point Type is untracked, and its untracked centred and right-aligned texts come within 3.3% and 2.7%. Tracked centred Point Type and tracked aligned Area Type were not measured. This remains a known difference.
 
 Import (`doc_open`, `svg_import`) reads the alignment and keeps `x` at the anchor. The `UNSUPPORTED_ATTRIBUTE` `text-anchor` warning is gone.
 
