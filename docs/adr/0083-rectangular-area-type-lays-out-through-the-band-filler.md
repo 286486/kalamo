@@ -35,7 +35,7 @@ A rectangle frame is a shaped frame whose every band is one span, the frame's wi
 - Every shaped Area Type.
 - Point Type, the SVG form, import and export.
 
-#202's check, run again: 40,000 random texts laid out by this layout and by `main`, of either kind, in a rectangle, a U or a triangle, with and without ranges that set sizes, tracking and fills. `layoutText`, `glyphs`, `pointType` and `areaFrame` return the same values for every text with no size range and for every shaped frame. In the mixed-size rectangles that changed, the new lines are the old lines with trailing lines removed. In the mixed-size conversions that changed, only the frame's `height` grows, and the converted text shows every line. `pnpm roundtrip` prints the same per-region figures as `main`, byte for byte. The render golden and the `fixtures/documents/inkscape.svg` export snapshot do not change.
+#202's check, run again: 40,000 random texts laid out by this layout and by `main`, of either kind, in a rectangle, a U or a triangle, with and without ranges that set sizes, tracking and fills. `layoutText`, `glyphs`, `pointType` and `areaFrame` return the same values for every text with no size range and for every shaped frame. In the mixed-size rectangles that changed, the new lines are the old lines with trailing lines removed. In a justified one, the new last line also moves back to its span's start, since a justified Area Type's last line is not widened (ADR-0077). In the mixed-size conversions that changed, only the frame's `height` grows, and the converted text shows every line. `pnpm roundtrip` prints the same per-region figures as `main`, byte for byte. The render golden and the `fixtures/documents/inkscape.svg` export snapshot do not change.
 
 ## Considered Options
 

@@ -494,15 +494,13 @@ function lineBoxes(text: TextLayout, m: Metric[]) {
 
 type LineBoxes = ReturnType<typeof lineBoxes>;
 type LineBox = ReturnType<LineBoxes["lineBox"]>;
-type Stacked = { baseline: number };
-
 /**
- * Where Area Type puts a line's baseline below `prev`, from the frame's top. The first is one
- * line-box ascent below the frame's top; each later one is the line's leading below the one before
- * (ADR-0068, ADR-0080).
+ * Where Area Type puts a line's baseline below the one before, `prev`, from the frame's top. The
+ * first is one line-box ascent below the frame's top; each later one is the line's leading below
+ * the one before (ADR-0068, ADR-0080).
  */
-function stack(prev: Stacked | undefined, b: LineBox): Stacked {
-  return { baseline: prev ? prev.baseline + b.leading : b.ascent };
+function stack(prev: number | undefined, b: LineBox): number {
+  return prev === undefined ? b.ascent : prev + b.leading;
 }
 
 /** An unbreakable unit's code-point range, and whether a hard return or the content ends it. */
@@ -612,16 +610,16 @@ function area(
   };
   const lines: TextLine[] = [];
   const spans: Span[] = [];
-  let prev: Stacked | undefined;
+  let prev: number | undefined;
   let u = 0;
   while (u < units.length) {
     const first = units[u] as Unit;
+    const overflow = () => ({ lines, overflow: chars.slice(first.from).join(""), spans });
     let box = lineBox(first.from, first.to);
     for (;;) {
       const next = stack(prev, box);
-      const baseline = y + next.baseline;
+      const baseline = y + next;
       const { top, bottom: bandBottom } = bandOf(baseline, box);
-      const overflow = () => ({ lines, overflow: chars.slice(first.from).join(""), spans });
       if (edges && top > bottom) return overflow();
       const bandSpans = edges ? frameSpans(edges, top, bandBottom) : [{ x, width: frameWidth }];
       const { placed, next: after, tried } = fill(bandSpans, u);
@@ -742,7 +740,7 @@ export function areaFrame(text: TextLayout): Rect {
   const { lineBox, band } = lineBoxes(text, m);
   const width = (from: number, to: number) => span(m, from, hangsFrom(chars, from, to));
   let [widest, height] = [0, 0];
-  let prev: Stacked | undefined;
+  let prev: number | undefined;
   let ascent = 0;
   // Each Point Type line is a paragraph, its units in turn up to the one its hard return ends.
   const units = unitsOf(text.content);
@@ -760,10 +758,10 @@ export function areaFrame(text: TextLayout): Rect {
     const to = l.start + [...l.text].length;
     const b = lineBox(l.start, Math.min(to + 1, m.length));
     prev = stack(prev, b);
-    if (!i) ascent = prev.baseline;
+    if (!i) ascent = prev;
     // The line box's bottom, lines × leading at one size, or its band's where the strut reaches
     // lower, so the line shows.
-    height = Math.max(height, prev.baseline + b.descent, band(prev.baseline, b).bottom);
+    height = Math.max(height, prev + b.descent, band(prev, b).bottom);
   });
   // Every line empty or all spaces has no width; a frame needs one. A centred frame's width is an
   // even thousandth, so its middle, where the lines centre, is Point Type's x on the way back.

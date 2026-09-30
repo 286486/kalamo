@@ -70,7 +70,7 @@ A throwaway test laid out every case with core and compared the words on each li
 
 ## A rectangle frame (#203) [M]
 
-For #203: whether rectangular Area Type can lay out through the shaped band filler. The rectangle's own fill differed from the band filler in three rules, and each is measured here in the `rect` frame. Decision: ADR-0083. `node docs/research/09-shaped-bands/probe.mjs rect` prints the frame's rows, and `probe.mjs threshold` prints the threshold rows. Kalamo's figures come from `layoutText` with the same text in pt.
+For #203: whether rectangular Area Type can lay out through the shaped band filler. The rectangle's own fill differed from the band filler in three rules, and each is measured here in the `rect` frame. Decision: ADR-0083. `node docs/research/09-shaped-bands/probe.mjs rect` prints the frame's rows, and `probe.mjs threshold` prints the threshold rows. Kalamo's figures come from `layoutText` with the same text in pt: `node --experimental-transform-types docs/research/09-shaped-bands/kalamo.ts` prints each `rect` line's baseline and word count, then each threshold case's band-rule height, 90 % of the line's leading and Kalamo's baseline. A `threshold` row of `results.tsv` is the run's size, the leading, the frame height at which Inkscape first shows the line and its baseline below the frame's top.
 
 ### A unit wider than the frame
 
