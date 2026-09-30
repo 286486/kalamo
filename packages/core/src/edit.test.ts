@@ -20,7 +20,8 @@ import { KalamoError } from "./errors.ts";
 import { parseDocument, serializeDocument } from "./file.ts";
 import { makeMask } from "./mask.ts";
 import { applyTo, compose, IDENTITY, invert } from "./matrix.ts";
-import type { Document, Gradient, Node, ShapeNode } from "./schema.ts";
+import { formatPath, parsePath, pathBounds, shapeSegments } from "./path.ts";
+import { type Document, type Gradient, type Node, NodeInput, type ShapeNode } from "./schema.ts";
 
 const newDoc = () => {
   const { doc, defaultLayerId } = createDocument({
@@ -1867,5 +1868,209 @@ describe("duplicateNodes (ADR-0076)", () => {
     expect(
       errorOf(() => duplicate(["a"], { targetParentId: id("L"), after: id("x") })),
     ).toMatchObject({ code: "INVALID_INPUT", path: "after" });
+  });
+});
+
+describe("Area Type in a closed path (ADR-0078)", () => {
+  /** A Document with an ellipse, a star, a closed path and the refused kinds, each turned. */
+  const scene = () => {
+    const { doc, defaultLayerId: parentId } = newDoc();
+    const turn = [0.8, 0.6, -0.6, 0.8, 10, 5];
+    const { keyMap } = createNodes(doc, [
+      { type: "rect", parentId, clientKey: "below", x: 0, y: 0, width: 5, height: 5 },
+      { type: "ellipse", parentId, clientKey: "ellipse", x: 0, y: 0, width: 80, height: 60 },
+      {
+        type: "star",
+        parentId,
+        clientKey: "star",
+        cx: 50,
+        cy: 50,
+        outerRadius: 40,
+        innerRadius: 20,
+        points: 5,
+      },
+      { type: "path", parentId, clientKey: "path", d: "M 0 0 L 90 0 L 90 40 L 0 40 Z" },
+      { type: "path", parentId, clientKey: "open", d: "M 0 0 L 90 0 L 90 40" },
+      { type: "line", parentId, clientKey: "line", x1: 0, y1: 0, x2: 10, y2: 10 },
+      { type: "spiral", parentId, clientKey: "spiral", cx: 0, cy: 0, radius: 20 },
+      {
+        type: "ellipse",
+        parentId,
+        clientKey: "arc",
+        x: 0,
+        y: 0,
+        width: 40,
+        height: 40,
+        startAngle: 0,
+        endAngle: 180,
+        arcType: "open",
+      },
+      { type: "group", parentId, clientKey: "group" },
+      { type: "text", parentId, clientKey: "text", x: 0, y: 0, content: "t" },
+      { type: "rect", parentId, clientKey: "above", x: 0, y: 0, width: 5, height: 5 },
+    ] as never);
+    const id = (k: string) => keyMap[k] as string;
+    for (const k of ["ellipse", "star", "path"]) {
+      transformNodes(doc, { nodeIds: [id(k)], matrix: turn } as never);
+    }
+    return { doc, parentId, id, turn };
+  };
+  const text = (parentId: string, extra: object) =>
+    ({
+      type: "text",
+      kind: "area",
+      parentId,
+      content: "Flowed words in a shape",
+      ...extra,
+    }) as never;
+
+  it.each(["ellipse", "star", "path"])(
+    "flows in a %s by frameNodeId: its place, transform and outline, and deletes it",
+    (k) => {
+      const { doc, parentId, id } = scene();
+      const source = doc.nodes.get(id(k)) as ShapeNode;
+      const place = childrenOf(doc, parentId).indexOf(source);
+      const { nodes, deletedIds } = createNodes(doc, [text(parentId, { frameNodeId: id(k) })]);
+      const [t] = nodes as [Node & { frame?: string }];
+      expect(deletedIds).toEqual([id(k)]);
+      expect(doc.nodes.has(id(k))).toBe(false);
+      expect(t).toMatchObject({
+        kind: "area",
+        parentId,
+        index: source.index,
+        transform: source.transform,
+      });
+      const outline = source.type === "path" ? parsePath(source.d, "d") : shapeSegments(source);
+      expect(t.frame).toBe(formatPath(outline));
+      // Its bounds are the stored frame's, kept to 3 decimals, and it takes the source's place.
+      const b = pathBounds(parsePath(t.frame as string, "d"));
+      expect(t).toMatchObject({ x: b?.x, y: b?.y, width: b?.width, height: b?.height });
+      expect(childrenOf(doc, parentId).indexOf(t)).toBe(place);
+      const was = bounds({ ...doc, nodes: new Map([[source.id, source]]) }, source);
+      for (const key of ["x", "y", "width", "height"] as const) {
+        expect(bounds(doc, t)?.[key]).toBeCloseTo(was?.[key] as number, 3);
+      }
+    },
+  );
+
+  it.each([
+    ["open", "INVALID_INPUT", /open/],
+    ["line", "INVALID_INPUT", /open/],
+    ["spiral", "INVALID_INPUT", /open/],
+    ["arc", "INVALID_INPUT", /open/],
+    ["group", "INVALID_INPUT", /closed Live Shape or Path/],
+    ["text", "INVALID_INPUT", /closed Live Shape or Path/],
+    ["missing", "NODE_NOT_FOUND", /closed Live Shape or Path/],
+  ])("refuses frameNodeId %s with %s, writing nothing", (k, code, hint) => {
+    const { doc, parentId, id } = scene();
+    const before = new Map(doc.nodes);
+    const error = errorOf(() =>
+      createNodes(doc, [text(parentId, { frameNodeId: id(k) ?? "missing" })]),
+    );
+    expect(error).toMatchObject({
+      code,
+      path: "nodes[0].frameNodeId",
+      hint: expect.stringMatching(hint),
+    });
+    expect(doc.nodes).toEqual(before);
+  });
+
+  it("refuses a Clipping Path, a locked frame, another parent and a frame used twice", () => {
+    const { doc, parentId, id } = scene();
+    const refuses = (inputs: object[], path: string, hint: RegExp) => {
+      const before = new Map(doc.nodes);
+      expect(errorOf(() => createNodes(doc, inputs as never))).toMatchObject({
+        path,
+        hint: expect.stringMatching(hint),
+      });
+      expect(doc.nodes).toEqual(before);
+    };
+    updateNodes(doc, [{ nodeId: id("path"), patch: { locked: true } }]);
+    refuses([text(parentId, { frameNodeId: id("path") })], "nodes[0].frameNodeId", /Unlock/);
+    const [layer] = createNodes(doc, [{ type: "layer" }]).nodes as [Node];
+    refuses([text(layer.id, { frameNodeId: id("star") })], "nodes[0].frameNodeId", /parent/);
+    refuses(
+      [text(parentId, { frameNodeId: id("star") }), text(parentId, { frameNodeId: id("star") })],
+      "nodes[1].frameNodeId",
+      /each frames one text/,
+    );
+    makeMask(doc, { clipNodeId: id("ellipse"), contentIds: [id("below")] });
+    const clip = doc.nodes.get(id("ellipse")) as Node;
+    refuses(
+      [text(clip.parentId as string, { frameNodeId: id("ellipse") })],
+      "nodes[0].frameNodeId",
+      /mask_release/,
+    );
+  });
+
+  it("takes frame path data directly, refusing it open, beside width, or with frameNodeId", () => {
+    const { doc, parentId, id } = scene();
+    const [t] = createNodes(doc, [text(parentId, { frame: "M 10 10 L 60 10 L 35 50 Z" })])
+      .nodes as [Node];
+    expect(t).toMatchObject({
+      frame: "M 10 10 L 60 10 L 35 50 Z",
+      x: 10,
+      y: 10,
+      width: 50,
+      height: 40,
+    });
+    expect(
+      errorOf(() => createNodes(doc, [text(parentId, { frame: "M 0 0 L 9 9" })])),
+    ).toMatchObject({
+      code: "INVALID_INPUT",
+      path: "nodes[0].frame",
+    });
+    expect(errorOf(() => createNodes(doc, [text(parentId, { frame: "M 0 0 Q" })]))).toMatchObject({
+      code: "INVALID_PATH",
+    });
+    // The input schema refuses the mixes: MCP answers them INVALID_INPUT at these paths.
+    const issue = (extra: object) =>
+      NodeInput.safeParse(text(parentId, { frame: "M 0 0 L 9 0 L 9 9 Z", ...extra })).error
+        ?.issues[0];
+    expect(issue({ width: 9 })).toMatchObject({
+      path: ["width"],
+      message: expect.stringMatching(/drop width/),
+    });
+    expect(issue({ x: 1 })).toMatchObject({ path: ["x"] });
+    expect(issue({ frameNodeId: id("star") })).toMatchObject({ path: ["frameNodeId"] });
+    expect(NodeInput.safeParse(text(parentId, {})).error?.issues[0]).toMatchObject({
+      path: ["x"],
+    });
+    expect(doc.nodes.has(id("star"))).toBe(true);
+  });
+
+  it("reshapes by frame, refuses the bounds on a shaped frame, and frame: null keeps them as a rectangle", () => {
+    const { doc, parentId } = scene();
+    const [t] = createNodes(doc, [text(parentId, { frame: "M 10 10 L 60 10 L 35 50 Z" })])
+      .nodes as [Node];
+    const [moved] = updateNodes(doc, [
+      { nodeId: t.id, patch: { frame: "M 0 0 L 100 0 L 50 80 Z" } },
+    ]).nodes as [Node];
+    expect(moved).toMatchObject({
+      frame: "M 0 0 L 100 0 L 50 80 Z",
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 80,
+    });
+    expect(bounds(doc, moved)).toEqual({ x: 0, y: 0, width: 100, height: 80 });
+    expect(errorOf(() => updateNodes(doc, [{ nodeId: t.id, patch: { width: 10 } }]))).toMatchObject(
+      {
+        code: "INVALID_PATCH",
+        path: "updates[0].patch.width",
+        hint: expect.stringMatching(/frame/),
+      },
+    );
+    expect(
+      errorOf(() => updateNodes(doc, [{ nodeId: t.id, patch: { frame: "M 0 0 L 5 5" } }])),
+    ).toMatchObject({
+      code: "INVALID_PATCH",
+      path: "updates[0].patch.frame",
+    });
+    const [rect] = updateNodes(doc, [{ nodeId: t.id, patch: { frame: null } }]).nodes as [Node];
+    expect(rect).not.toHaveProperty("frame");
+    expect(rect).toMatchObject({ x: 0, y: 0, width: 100, height: 80 });
+    const [wide] = updateNodes(doc, [{ nodeId: t.id, patch: { width: 120 } }]).nodes as [Node];
+    expect(wide).toMatchObject({ width: 120 });
   });
 });

@@ -8,6 +8,7 @@ import {
   type CharacterRange,
   type ContainerAppearance,
   canonicalRanges,
+  closed,
   cssColor,
   type Fill,
   fileProblem,
@@ -231,6 +232,9 @@ function areaAlignment(style: Style): Alignment {
   if (align === "start" || align === "left") return "left";
   return pointAlignment({ "text-anchor": style["text-anchor"] ?? "start" });
 }
+
+/** The shapes `shape-inside` flows Area Type in (ADR-0078). */
+const FRAMES = new Set(["rect", "circle", "ellipse", "polygon", "polyline", "path"]);
 
 /** The id in `url(#id)`, as `clip-path` and `shape-inside` name an element. */
 const urlId = (value: string) => /^url\(\s*['"]?#([^'")\s]+)['"]?\s*\)$/.exec(value.trim())?.[1];
@@ -1212,6 +1216,10 @@ class Reader {
     const aligned = alignment === "left" ? {} : { alignment };
     if (frame) {
       // The layout is recomputed from the characters; Inkscape's positioned lines are its fallback.
+      // A shaped frame bakes as the text's parameters do, and its bounds follow (ADR-0078).
+      const shaped =
+        "segments" in frame ? transformSegments(frame.segments, [k, 0, 0, k, tx, ty]) : undefined;
+      const box = "rect" in frame ? frame.rect : (pathBounds(shaped ?? []) as Rect);
       const chars = clean(all);
       if (!preserve) rotate(chars);
       const content = joined(chars);
@@ -1220,10 +1228,15 @@ class Reader {
       const shape = {
         ...text,
         kind: "area",
-        x: n3(k * frame.x + tx),
-        y: n3(k * frame.y + ty),
-        width: n3(k * frame.width),
-        height: n3(k * frame.height),
+        ...(shaped
+          ? { x: n3(box.x), y: n3(box.y), width: n3(box.width), height: n3(box.height) }
+          : {
+              x: n3(k * box.x + tx),
+              y: n3(k * box.y + ty),
+              width: n3(k * box.width),
+              height: n3(k * box.height),
+            }),
+        ...(shaped && { frame: formatPath(shaped) }),
         content,
         ...aligned,
         ...(ranges && { ranges }),
@@ -1259,33 +1272,39 @@ class Reader {
   }
 
   /**
-   * The frame a text's `shape-inside` names, in the text's user space: a `<rect>` exactly, any
-   * other shape by its bounding box with a warning; undefined for Point Type (ADR-0022).
+   * The frame a text's `shape-inside` names, in the text's user space: an untransformed `<rect>` as
+   * a rectangle (ADR-0022); any other rect, circle, ellipse, polygon, polyline (closed as SVG fills
+   * it) or path as its outline through its own transform (ADR-0078). Undefined for Point Type, and,
+   * with a warning, for a missing reference, an open shape, a `<use>` or a list of shapes.
    */
-  private frame(style: Style): Rect | undefined {
+  private frame(style: Style): { rect: Rect } | { segments: Segment[] } | undefined {
     const value = style["shape-inside"];
     if (!value || value === "none") return undefined;
     const id = urlId(value);
     const el = id === undefined ? undefined : this.byId.get(id);
     const size = (name: string) => length(el?.getAttribute(name) ?? null) ?? 0;
-    if (
-      el?.localName === "rect" &&
-      !el.getAttribute("transform") &&
-      size("width") > 0 &&
-      size("height") > 0
-    ) {
-      return { x: size("x"), y: size("y"), width: size("width"), height: size("height") };
+    const transform = el?.getAttribute("transform");
+    if (el?.localName === "rect" && !transform && size("width") > 0 && size("height") > 0) {
+      return { rect: { x: size("x"), y: size("y"), width: size("width"), height: size("height") } };
     }
+    const shape =
+      el && FRAMES.has(el.localName ?? "")
+        ? this.shape(el, parseTransform(transform ?? null), {})
+        : null;
+    let segments = shape
+      ? transformSegments(shapeSegments(shape as Shape), shape.transform as Matrix)
+      : [];
+    if (el?.localName === "polyline" && segments.at(-1)?.cmd !== "Z") {
+      segments = [...segments, { cmd: "Z", args: [] }];
+    }
+    const box = pathBounds(segments);
+    if (closed(segments) && box && box.width > 0 && box.height > 0) return { segments };
     this.warn(
       "UNSUPPORTED_ATTRIBUTE",
       "shape-inside",
-      "shape-inside flows text only in a rectangle: in another shape it flows in the shape's bounding box, and naming nothing it imports as Point Type.",
+      "shape-inside flows text only in one closed rect, circle, ellipse, polygon, polyline or path: naming nothing, an open shape, a <use> or several shapes, it imports as Point Type.",
     );
-    const shape = el && this.shape(el, parseTransform(el.getAttribute("transform")), {});
-    const box =
-      shape &&
-      pathBounds(transformSegments(shapeSegments(shape as Shape), shape.transform as Matrix));
-    return box && box.width > 0 && box.height > 0 ? box : undefined;
+    return undefined;
   }
 
   /**

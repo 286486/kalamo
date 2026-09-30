@@ -3448,3 +3448,75 @@ describe("alignment (ADR-0077)", () => {
     expect(read.map((n) => strip(n as never))).toEqual(nodes.map((n) => strip(n as never)));
   });
 });
+
+describe("Area Type in a closed path (ADR-0078)", () => {
+  const flowed = (defs: string, extra = "") =>
+    parseFile(
+      svg(
+        'width="400" height="300"',
+        `<defs>${defs}</defs><text font-size="12" style="shape-inside:url(#f);white-space:pre${extra}">Flowed words</text>`,
+      ),
+    );
+  it.each([
+    ['<circle id="f" cx="50" cy="50" r="40"/>', { x: 10, y: 10, width: 80, height: 80 }],
+    ['<ellipse id="f" cx="50" cy="40" rx="40" ry="30"/>', { x: 10, y: 10, width: 80, height: 60 }],
+    ['<polygon id="f" points="10 10 90 10 50 70"/>', { frame: "M 10 10 L 90 10 L 50 70 Z" }],
+    ['<polyline id="f" points="10 10 90 10 50 70"/>', { frame: "M 10 10 L 90 10 L 50 70 Z" }],
+    [
+      '<path id="f" d="M 10 10 L 90 10 L 90 60 L 10 60 Z"/>',
+      { frame: "M 10 10 L 90 10 L 90 60 L 10 60 Z" },
+    ],
+    [
+      '<rect id="f" x="0" y="0" width="40" height="20" transform="translate(10 5) scale(2)"/>',
+      { frame: "M 10 5 L 90 5 L 90 45 L 10 45 Z", x: 10, y: 5, width: 80, height: 40 },
+    ],
+  ])("flows in %s as a shaped frame, without a warning", (defs, want) => {
+    const file = flowed(defs);
+    expect(leaves(file)[0]).toMatchObject({ kind: "area", frame: expect.any(String), ...want });
+    expect(file.warnings).toEqual([]);
+  });
+
+  it("keeps a plain rect a rectangle frame", () => {
+    const [t] = leaves(flowed('<rect id="f" x="5" y="5" width="80" height="40"/>'));
+    expect(t).toMatchObject({ kind: "area", x: 5, y: 5, width: 80, height: 40 });
+    expect(t).not.toHaveProperty("frame");
+  });
+
+  it.each([
+    ["a missing reference", ""],
+    ["an open path", '<path id="f" d="M 10 10 L 90 10 L 50 70"/>'],
+    ["a line", '<line id="f" x1="0" y1="0" x2="50" y2="50"/>'],
+    ["a use", '<rect id="r" width="50" height="50"/><use id="f" href="#r"/>'],
+  ])("imports %s as Point Type with the warning", (_, defs) => {
+    const file = flowed(defs);
+    expect(leaves(file)[0]).toMatchObject({ kind: "point", content: "Flowed words" });
+    expect(file.warnings.map((w) => [w.code, w.message.split(" ")[0]])).toEqual([
+      ["UNSUPPORTED_ATTRIBUTE", "shape-inside"],
+    ]);
+  });
+
+  it("round-trips a shaped frame through export", () => {
+    const { doc, defaultLayerId: parentId } = createDocument({
+      id: "d",
+      name: "Doc",
+      artboards: [{ width: 300, height: 200 }],
+    });
+    const [n] = createNodes(doc, [
+      {
+        type: "text",
+        kind: "area",
+        parentId,
+        frame: "M 20 20 L 200 20 L 110 180 Z",
+        content: "Words in a triangle frame that wraps",
+      },
+    ]).nodes;
+    const exported = toSvg(doc);
+    expect(exported).toContain(
+      `<defs><path id="area-z-${n?.id}" d="M 20 20 L 200 20 L 110 180 Z"/></defs>`,
+    );
+    const file = parseFile(exported);
+    expect(file.warnings).toEqual([]);
+    const strip = ({ index: _, ...rest }: Record<string, unknown>) => rest;
+    expect(strip(leaves(file)[0] as never)).toEqual(strip(n as never));
+  });
+});

@@ -107,6 +107,101 @@ interface Out {
   keyMap: Record<string, string>;
   /** Containers whose Appearance waits for their children. */
   painted: { node: LayerNode | GroupNode; appearance: ContainerAppearanceInput; path: string }[];
+  /** The Nodes a text's `frameNodeId` consumes, deleted once the item stands (ADR-0078). */
+  consumed: string[];
+}
+
+/** Whether every subpath of `segments` is closed with Z. */
+export const closed = (segments: Segment[]) =>
+  segments.at(-1)?.cmd === "Z" &&
+  segments.every((s, i) => s.cmd !== "M" || i === 0 || segments[i - 1]?.cmd === "Z");
+
+/**
+ * A shaped Area Type's frame, normalized, and its bounds, which the text stores as its `x, y,
+ * width, height` (ADR-0078). Refuses open or empty path data.
+ */
+export function shapedFrame(
+  segments: Segment[],
+  path: string,
+  code: "INVALID_INPUT" | "INVALID_PATCH" = "INVALID_INPUT",
+): { frame: string } & Rect {
+  const invalid = (message: string, hint: string) => new KalamoError({ code, message, hint, path });
+  if (!closed(segments)) {
+    throw invalid(
+      "The frame is open: Area Type flows only inside a closed path.",
+      "End every subpath with Z, or use a closed Live Shape or Path.",
+    );
+  }
+  // The bounds of the frame as stored, to 3 decimals, so a file reads back the same (ADR-0078).
+  const frame = formatPath(segments);
+  const b = pathBounds(parsePath(frame, path));
+  if (!b || b.width <= 0 || b.height <= 0) {
+    throw invalid("The frame encloses no area.", "Give the frame a width and a height.");
+  }
+  return { frame, ...b };
+}
+
+/**
+ * The frame, bounds, place and transform of Area Type whose `frameNodeId` names a closed Live Shape
+ * or Path, as Illustrator's Area Type tool clicks a path (ADR-0078); refused, with nothing written,
+ * for any other Node, a Clipping Path, a locked Node or another parent.
+ */
+function consume(
+  doc: Document,
+  id: string,
+  parentId: string | null,
+  path: string,
+  taken: Set<string>,
+) {
+  const at = `${path}.frameNodeId`;
+  const invalid = (message: string, hint: string) =>
+    new KalamoError({ code: "INVALID_INPUT", message, hint, path: at });
+  const node = doc.nodes.get(id);
+  if (!node || taken.has(id)) {
+    throw new KalamoError({
+      code: "NODE_NOT_FOUND",
+      message: taken.has(id) ? `${id} is already a frame in this call.` : `No Node with id ${id}.`,
+      hint: "frameNodeId names a closed Live Shape or Path in the Document; each frames one text.",
+      path: at,
+    });
+  }
+  if (
+    node.type === "layer" ||
+    node.type === "group" ||
+    node.type === "text" ||
+    node.type === "image"
+  ) {
+    throw invalid(
+      `A ${node.type} cannot be a frame.`,
+      "frameNodeId names a closed Live Shape or Path: a rect, a closed ellipse, a polygon, a star or a closed path.",
+    );
+  }
+  if (node.clipping) {
+    throw invalid(
+      "A Clipping Path cannot be a frame.",
+      "Release the Clipping Mask first (mask_release), or frame the text in another shape.",
+    );
+  }
+  if (lockedIn(doc, node)) {
+    throw invalid(
+      "The frame is locked, itself or through a Layer or Group.",
+      "Unlock it with node_update first.",
+    );
+  }
+  if (parentId !== node.parentId) {
+    throw invalid(
+      `The frame is in ${node.parentId}, not in parentId ${parentId}.`,
+      "Set parentId to the frame's parent: the text takes the frame's place.",
+    );
+  }
+  const segments = node.type === "path" ? parsePath(node.d, at) : shapeSegments(node);
+  if (!closed(segments)) {
+    throw invalid(
+      `The ${node.type} is open: Area Type flows only inside a closed path.`,
+      "A line, a spiral and an ellipse with an open arc are open; close the path, or pick a closed shape.",
+    );
+  }
+  return { ...shapedFrame(segments, at), index: node.index, transform: node.transform };
 }
 
 /**
@@ -118,7 +213,9 @@ export function createNodes(
   doc: Document,
   inputs: NodeInput[],
   { partial = false } = {},
-): { nodes: Node[]; keyMap: Record<string, string>; failed: Failed[] } {
+): { nodes: Node[]; keyMap: Record<string, string>; deletedIds: string[]; failed: Failed[] } {
+  // The Nodes consumed as frames so far, so none frames two texts.
+  const taken = new Set<string>();
   const lastIndex = new Map<string | null, string | null>();
   const nextIndex = (parentId: string | null) => {
     const prev = lastIndex.has(parentId)
@@ -153,7 +250,20 @@ export function createNodes(
       }
       node = container;
     } else if (input.type === "text") {
-      const { ranges, ...parsed } = storedAlignment(TextShape.superRefine(textFrame).parse(input));
+      // A shaped frame's bounds are the text's x, y, width and height (ADR-0078).
+      let shaped: Partial<ReturnType<typeof consume>> = {};
+      if (input.kind === "area" && input.frameNodeId !== undefined) {
+        shaped = consume(doc, input.frameNodeId, parentId, path, taken);
+        out.consumed.push(input.frameNodeId);
+        Object.assign(at, { index: shaped.index, transform: shaped.transform });
+      } else if (input.kind === "area" && input.frame !== undefined) {
+        shaped = shapedFrame(parsePath(input.frame, `${path}.frame`), `${path}.frame`);
+      }
+      const { index: _, transform: __, ...frame } = shaped;
+      const { frameNodeId: ___, ...fields } = input;
+      const { ranges, ...parsed } = storedAlignment(
+        TextShape.superRefine(textFrame).parse({ ...fields, ...frame }),
+      );
       const canonical = canonicalRanges(ranges, `${path}.ranges`, parsed);
       // Measured with its ranges, so a default gradient spans the bounds they give.
       const text = { ...parsed, ...(canonical && { ranges: canonical }) };
@@ -203,7 +313,7 @@ export function createNodes(
   }
   const { ok, failed } = collect(inputs, partial, (raw, i) => {
     // Each item collects into its own lists, so a failure halfway through a Group leaves no trace.
-    const out: Out = { nodes: [], keyMap: {}, painted: [] };
+    const out: Out = { nodes: [], keyMap: {}, painted: [], consumed: [] };
     const input = NodeInput.parse(raw);
     assertParent(doc, input, input.parentId, `nodes[${i}].parentId`);
     add(input, input.parentId, `nodes[${i}]`, out);
@@ -216,12 +326,16 @@ export function createNodes(
         node.appearance = paintContainer(appearance, path, () => bounds(view, node));
       }
     }
-    return { nodes: out.nodes, keyMap: out.keyMap };
+    for (const id of out.consumed) taken.add(id);
+    return { nodes: out.nodes, keyMap: out.keyMap, consumed: out.consumed };
   });
+  const deletedIds = ok.flatMap((item) => item.consumed);
+  for (const id of deletedIds) doc.nodes.delete(id);
   for (const item of ok) for (const node of item.nodes) doc.nodes.set(node.id, node);
   return {
     nodes: ok.flatMap((item) => item.nodes),
     keyMap: Object.assign({}, ...ok.map((item) => item.keyMap)),
+    deletedIds,
     failed,
   };
 }
@@ -642,13 +756,15 @@ export type LeafClip = { maskId: string; segments: Segment[] } & (
 
 /**
  * A leaf's or an Image's geometry in document coordinates, under its `worldTransform`: a Live
- * Shape's or Path's outline, a text's frame, or an Image's frame.
+ * Shape's or Path's outline, a text's frame, shaped or not (ADR-0078), or an Image's frame.
  */
 export const worldSegments = (doc: Document, n: LeafNode | ImageNode): Segment[] =>
   transformSegments(
-    shapeSegments(
-      n.type === "text" ? frameShape(textBox(n)) : n.type === "image" ? frameShape(n) : n,
-    ),
+    n.type === "text" && n.frame
+      ? parsePath(n.frame, "frame")
+      : shapeSegments(
+          n.type === "text" ? frameShape(textBox(n)) : n.type === "image" ? frameShape(n) : n,
+        ),
     worldTransform(doc, n),
   );
 

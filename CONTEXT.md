@@ -89,7 +89,7 @@ _Avoid_: Label、Text box、Text element
 _Avoid_: Point text、Label、Single-line text
 
 **Area Type（区域文字）**：
-在一个矩形框内自动换行的 Text，`kind: "area"`，`x, y, width, height` 就是那个框。拉丁文在空格处换行，中文、日文、韩文在字符间换行（ADR-0064）。放不下的文字是溢出（Overflow），不绘制，写入时回执警告 `TEXT_OVERFLOW`（ADR-0022）。
+在一个框内自动换行的 Text，`kind: "area"`。框是矩形时 `x, y, width, height` 就是它；框也可以是任意闭合路径 `frame`，此时 `x, y, width, height` 是它的边界，每行按该行高度处框内的宽度换行，凹形框的一行可左右各占一段（ADR-0078）。与 Illustrator 的区域文字工具一致，`node_create` 的 `frameNodeId` 把一个闭合 Live Shape 或 Path 变成框，该 Node 连同其 Appearance 被删除。拉丁文在空格处换行，中文、日文、韩文在字符间换行（ADR-0064）。放不下的文字是溢出（Overflow），不绘制，写入时回执警告 `TEXT_OVERFLOW`（ADR-0022）。
 _Avoid_: Text box、Paragraph text、Flowed text
 
 **Font Style（字体样式）**：

@@ -404,6 +404,12 @@ export const TextShape = z.object({
   y: z.number().describe("Point Type: the first baseline. Area Type: the frame's top."),
   width: z.number().positive().optional().describe("Area Type only: the frame's width."),
   height: z.number().positive().optional().describe("Area Type only: the frame's height."),
+  frame: z
+    .string()
+    .optional()
+    .describe(
+      "Area Type only: the frame as closed path data (absolute M, L, C, Q and Z, every subpath closed, nonzero), in place of x, y, width and height, which become its bounds; omit for a rectangle.",
+    ),
   content: z
     .string()
     .min(1)
@@ -485,12 +491,23 @@ export function textRanges(
     }
   });
 }
-/** Area Type needs its frame, and Point Type has none (ADR-0022); `textRanges` holds too. */
+/**
+ * Area Type needs its frame, its bounds too when shaped, and Point Type has none (ADR-0022,
+ * ADR-0078); `textRanges` holds too.
+ */
 export function textFrame(
-  t: Parameters<typeof textRanges>[0] & { kind?: string; width?: number; height?: number },
+  t: Parameters<typeof textRanges>[0] & {
+    kind?: string;
+    width?: number;
+    height?: number;
+    frame?: string | undefined;
+  },
   ctx: z.RefinementCtx,
 ) {
   textRanges(t, ctx);
+  if (t.kind !== "area" && t.frame !== undefined) {
+    ctx.addIssue({ code: "custom", path: ["frame"], message: "frame belongs to Area Type." });
+  }
   for (const key of ["width", "height"] as const) {
     if (t.kind === "area" && t[key] === undefined) {
       ctx.addIssue({ code: "custom", path: [key], message: "Area Type needs width and height." });
@@ -503,6 +520,48 @@ export function textFrame(
     }
   }
 }
+/**
+ * A text to create (ADR-0022, ADR-0078): Point Type from `x, y`; Area Type from `x, y, width,
+ * height`, from `frame` or from `frameNodeId`, one of the three.
+ */
+function textInput(
+  t: Parameters<typeof textRanges>[0] & {
+    kind?: string;
+    x?: number | undefined;
+    y?: number | undefined;
+    width?: number | undefined;
+    height?: number | undefined;
+    frame?: string | undefined;
+    frameNodeId?: string | undefined;
+  },
+  ctx: z.RefinementCtx,
+) {
+  const issue = (key: string, message: string) =>
+    ctx.addIssue({ code: "custom", path: [key], message });
+  const shaped = (["frame", "frameNodeId"] as const).filter((k) => t[k] !== undefined);
+  if (t.kind !== "area" || shaped.length === 0) {
+    for (const key of ["x", "y"] as const) {
+      if (t[key] === undefined)
+        issue(key, `${key} is required, unless Area Type flows in frame or frameNodeId.`);
+    }
+    if (t.kind !== "area" && t.frameNodeId !== undefined) {
+      issue("frameNodeId", "frameNodeId belongs to Area Type; set kind to area.");
+    }
+    textFrame(t, ctx);
+    return;
+  }
+  textRanges(t, ctx);
+  if (shaped.length > 1) issue("frameNodeId", "Pass frame or frameNodeId, not both.");
+  for (const key of ["x", "y", "width", "height"] as const) {
+    if (t[key] !== undefined) {
+      issue(
+        key,
+        `${shaped[0]} sets the frame and its bounds; drop ${key}, or drop ${shaped[0]} for a rectangle.`,
+      );
+    }
+  }
+}
+
 export type TextShape = Omit<z.output<typeof TextShape>, "ranges"> & {
   ranges?: CharacterRange[] | undefined;
 };
@@ -597,12 +656,20 @@ const PathItem = z.strictObject({ ...PathShape.shape, ...leaf });
 const TextItem = z
   .strictObject({
     ...TextShape.shape,
+    x: TextShape.shape.x.optional(),
+    y: TextShape.shape.y.optional(),
+    frameNodeId: z
+      .string()
+      .optional()
+      .describe(
+        "Area Type only: the id of a closed Live Shape or Path to flow in, as Illustrator's Area Type tool clicks a path: the text takes its parent, stacking place and transform, its outline becomes frame, and it is deleted with its Appearance. In place of x, y, width, height and frame; parentId must be its parent.",
+      ),
     ...leaf,
     appearance: AppearanceInput.optional().describe(
       "Omit for Illustrator's default type Appearance, a black Fill and no Stroke; {} paints nothing.",
     ),
   })
-  .superRefine(textFrame);
+  .superRefine(textInput);
 const ImageItem = z
   .strictObject({ ...ImageShape.shape, ...item })
   .superRefine(imageFrame)

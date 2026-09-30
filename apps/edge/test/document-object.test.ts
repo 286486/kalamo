@@ -1025,3 +1025,57 @@ it("aligns a text's receipt bounds, node_update moving them and null restoring l
   expect(restored).not.toHaveProperty("alignment");
   expect(restored.geometricBounds).toEqual(leftBounds);
 });
+
+it("flows Area Type in a closed Live Shape by frameNodeId, deleting it, and undo restores it (ADR-0078)", async () => {
+  const s = stub("frame");
+  const { defaultLayerId: parentId } = ok(
+    await s.create({ docId: "frame", name: "Doc", artboards, actor: "agent-a" }),
+  );
+  const [ellipseId = ""] = ok(
+    await s.createNodes(
+      [
+        {
+          type: "ellipse",
+          parentId,
+          x: 10,
+          y: 10,
+          width: 60,
+          height: 40,
+          appearance: { fills: [{ color: "#FF0000" }] },
+        },
+      ],
+      "agent-a",
+    ),
+  ).createdIds;
+  const receipt = ok(
+    await s.createNodes(
+      [
+        {
+          type: "text",
+          kind: "area",
+          parentId,
+          frameNodeId: ellipseId,
+          content: "Words that flow in the ellipse and far more words than it can ever hold at all",
+        },
+      ],
+      "agent-a",
+    ),
+  );
+  expect(receipt.deletedIds).toEqual([ellipseId]);
+  expect(receipt.createdIds).toHaveLength(1);
+  expect(receipt.warnings).toEqual([expect.objectContaining({ code: "TEXT_OVERFLOW" })]);
+  const [text] = ok(await s.get(receipt.createdIds, "full", "agent-a")).nodes as unknown as {
+    kind: string;
+    frame: string;
+    geometricBounds: { x: number; width: number };
+  }[];
+  expect(text).toMatchObject({ kind: "area", frame: expect.stringMatching(/^M .* Z$/) });
+  expect(text?.geometricBounds).toMatchObject({ x: 10, width: 60 });
+
+  ok(await s.undo("agent-a"));
+  const [back] = ok(await s.get([ellipseId], "full", "agent-a")).nodes as unknown as {
+    appearance: { fills: { color: string }[] };
+  }[];
+  expect(back?.appearance.fills[0]?.color).toBe("#FF0000");
+  expect("error" in (await s.get(receipt.createdIds, "concise", "agent-a"))).toBe(true);
+});

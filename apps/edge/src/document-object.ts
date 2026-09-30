@@ -462,9 +462,9 @@ export class DocumentObject extends DurableObject<Env> {
       // No image data URLs to store first, unlike this.createNodes: a browser places images by HTTP.
       run: (c, actor, commandId) =>
         this.write(actor, { commandId }, "Create", (doc) => {
-          const { nodes, keyMap, failed } = createNodes(doc, c.nodes);
+          const { nodes, keyMap, deletedIds, failed } = createNodes(doc, c.nodes);
           const warnings = textWarnings(nodes);
-          return { created: nodes, keyMap, warnings, failed };
+          return { created: nodes, keyMap, deletedIds, warnings, failed };
         }),
     },
     transform: {
@@ -634,9 +634,10 @@ export class DocumentObject extends DurableObject<Env> {
     if ("error" in ingested) return ingested;
     const { ready, merge } = ingested;
     return this.writeFiles(files, actor, opts, "Create", (doc) => {
-      const { nodes, keyMap, failed } = createNodes(doc, ready, opts);
+      const { nodes, keyMap, deletedIds, failed } = createNodes(doc, ready, opts);
       return {
         created: nodes,
+        deletedIds,
         keyMap,
         warnings: textWarnings(nodes),
         failed: merge(failed),

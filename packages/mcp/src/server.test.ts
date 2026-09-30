@@ -131,6 +131,24 @@ describe("write tools pass the write and its options apart", () => {
     expect(service.updateNodes.mock.calls[0]?.[1]).toEqual(updates);
   });
 
+  it("node_create: Area Type's frameNodeId arrives as sent, and the receipt reports what it deleted (ADR-0078)", async () => {
+    const framed = {
+      ...receipt,
+      deletedIds: ["e"],
+      warnings: [{ code: "TEXT_OVERFLOW", nodeId: "t", message: "3 characters do not fit." }],
+    };
+    const { service, call } = await harness({ createNodes: async () => framed });
+    const item = { type: "text", kind: "area", parentId: "p", frameNodeId: "e", content: "Hi" };
+    const result = await call("kalamo_node_create", { docId: "d", nodes: [item] });
+    expect(result.structuredContent).toEqual(framed);
+    expect(service.createNodes.mock.calls[0]?.[1]).toMatchObject([item]);
+    const mixed = await call("kalamo_node_create", {
+      docId: "d",
+      nodes: [{ ...item, width: 10 }],
+    });
+    expect(errorOf(mixed)).toMatchObject({ code: "INVALID_INPUT", path: "nodes[0].width" });
+  });
+
   it("node_create: a linked image arrives with file, and src only when sent (ADR-0042)", async () => {
     const { service, call } = await harness({ createNodes: async () => receipt });
     const frame = { parentId: "p", x: 0, y: 0, width: 4, height: 2 };

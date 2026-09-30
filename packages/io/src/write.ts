@@ -616,7 +616,10 @@ function leaf(
   return { defs, body };
 }
 
-const areaFrame = (n: TextNode) => `<rect${attrs({ id: areaId(n.id), ...num(textBox(n)) })}/>`;
+const areaFrame = (n: TextNode) =>
+  n.frame
+    ? `<path${attrs({ id: areaId(n.id), d: n.frame })}/>`
+    : `<rect${attrs({ id: areaId(n.id), ...num(textBox(n)) })}/>`;
 
 /**
  * A Clipping Path's Fills or its Strokes as a locked `<g kalamo:paint>` in its opacity and mode,

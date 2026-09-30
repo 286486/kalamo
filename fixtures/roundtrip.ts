@@ -181,10 +181,19 @@ function areaLines(svg: string): Map<string, string[][]> {
   const texts = /<text\b[^>]*shape-inside:url\(#area-z-([^)]+)\)[^>]*>([\s\S]*?)<\/text>/g;
   for (const [, key, body] of svg.matchAll(texts)) {
     const id = key as string;
-    const rect = new RegExp(`<rect\\b[^>]*\\sid="area-z-${id}"[^>]*>`).exec(svg)?.[0] ?? "";
-    const bottom = attr(rect, "y") + attr(rect, "height");
+    // A rectangle frame's bottom, or a shaped one's lowest point (ADR-0078).
+    const frame = new RegExp(`<(rect|path)\\b[^>]*\\sid="area-z-${id}"[^>]*>`).exec(svg);
+    const ys = (/\sd="([^"]*)"/.exec(frame?.[0] ?? "")?.[1] ?? "")
+      .split(/[\s,]+/)
+      .filter((t) => /\d/.test(t))
+      .map(Number)
+      .filter((_, i) => i % 2 === 1);
+    const bottom =
+      frame?.[1] === "path"
+        ? Math.max(...ys)
+        : attr(frame?.[0] ?? "", "y") + attr(frame?.[0] ?? "", "height");
     const lines: string[] = [];
-    let [depth, line, shown] = [0, "", false];
+    let [depth, line, shown, y, last] = [0, "", false, Number.NaN, Number.NaN];
     for (const [token, end, attrs, empty] of (body ?? "").matchAll(
       /<(\/?)tspan\b([^>]*?)(\/?)>|[^<]+/g,
     )) {
@@ -192,9 +201,17 @@ function areaLines(svg: string): Map<string, string[][]> {
         line += decode(token);
         continue;
       }
-      if (depth === 0 && !end) [line, shown] = ["", attr(attrs ?? "", "y") <= bottom];
+      if (depth === 0 && !end) {
+        y = attr(attrs ?? "", "y");
+        [line, shown] = ["", y <= bottom];
+      }
       depth += end ? -1 : empty ? 0 : 1;
-      if (depth === 0 && shown) lines.push(line);
+      if (depth === 0 && shown) {
+        // Inkscape writes one tspan per band, Kalamo one per span: a band's spans join (ADR-0078).
+        if (y === last) lines[lines.length - 1] += line;
+        else lines.push(line);
+        last = y;
+      }
     }
     out.set(id, [...(out.get(id) ?? []), lines]);
   }

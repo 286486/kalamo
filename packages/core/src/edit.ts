@@ -12,6 +12,7 @@ import {
   paint,
   paintContainer,
   paintOrder,
+  shapedFrame,
   union,
 } from "./document.ts";
 import { collect, type Failed, KalamoError } from "./errors.ts";
@@ -241,9 +242,11 @@ function writableSchema(node: Node) {
     });
   }
   if (node.type === "text") {
-    // A text's kind is fixed, and only Area Type has a frame, which it cannot drop (ADR-0022).
-    const { type: _, kind: __, width, height, ...text } = TextShape.shape;
-    const frame = node.kind === "area" ? { width: width.unwrap(), height: height.unwrap() } : {};
+    // A text's kind is fixed, and only Area Type has a frame, which it cannot drop (ADR-0022); a
+    // shaped one's is path data, and `frame: null` makes it the rectangle of its bounds (ADR-0078).
+    const { type: _, kind: __, width, height, frame: shape, ...text } = TextShape.shape;
+    const frame =
+      node.kind === "area" ? { width: width.unwrap(), height: height.unwrap(), frame: shape } : {};
     return Writable.extend(text)
       .extend(frame)
       .extend({ appearance: AppearanceInput })
@@ -296,6 +299,18 @@ function patched(doc: Document, raw: UpdateInput, i: number): Node {
       );
     }
   }
+  if (node.type === "text" && node.kind === "area") {
+    // A shaped frame's bounds are derived from it: reshape it through frame (ADR-0078).
+    const shaped = patch.frame === undefined ? node.frame !== undefined : patch.frame !== null;
+    const key = ["x", "y", "width", "height"].find((k) => k in patch);
+    if (shaped && key) {
+      throw invalid(
+        `.${key}`,
+        `${key} is the bounds of a shaped frame.`,
+        "Write frame to reshape it, or frame: null first to make it the rectangle of its bounds.",
+      );
+    }
+  }
   const merged = mergePatch(node, patch) as Record<string, unknown>;
   // Indices into the old content would style the wrong characters of the new one (ADR-0029).
   if ("content" in patch && !("ranges" in patch)) delete merged.ranges;
@@ -315,6 +330,12 @@ function patched(doc: Document, raw: UpdateInput, i: number): Node {
   // From the merge, so null deletes an optional key such as leading.
   let next = { ...merged, ...parsed.data } as Node;
   if (next.type === "text") next = storedAlignment(next);
+  if (next.type === "text" && typeof patch.frame === "string") {
+    Object.assign(
+      next,
+      shapedFrame(parsePath(patch.frame, `${at}.frame`), `${at}.frame`, "INVALID_PATCH"),
+    );
+  }
   // SVG clips everything away through a hidden clip path; Illustrator unclips (ADR-0021).
   if ("clipping" in next && next.clipping && !next.visible) {
     throw invalid(

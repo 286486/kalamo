@@ -554,6 +554,27 @@ it("draws an aligned text's lines, and a justified one's characters, where the l
   );
 });
 
+it("draws each span of a shaped Area Type at its layout origin (ADR-0078)", () => {
+  const { doc, defaultLayerId: parentId } = newDoc();
+  const [n] = createNodes(doc, [
+    {
+      type: "text",
+      kind: "area",
+      parentId,
+      frame: "M 0 0 L 60 0 L 60 30 L 120 30 L 120 0 L 180 0 L 180 90 L 0 90 Z",
+      content: "Words fill the left span then the right one, and below the notch the full width.",
+      fontSize: 10,
+    },
+  ]).nodes as [Node];
+  const { ctx, log, layer } = recorder();
+  drawDocument(ctx, doc, layer);
+  const lines = layoutText(n as never).lines;
+  expect(lines.some((l) => l.x === 120)).toBe(true);
+  expect(log.filter((l) => l.startsWith("fillText"))).toEqual(
+    lines.map((l) => `fillText ${l.text} ${l.x} ${l.y}`),
+  );
+});
+
 it("draws a tracked text per character, a turned one about its origin in its range's fill (ADR-0029)", () => {
   const draw = (strokes: object[], more: CharacterRange[] = []) => {
     const { doc, defaultLayerId: parentId } = newDoc();

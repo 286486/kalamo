@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { parseColor } from "./color.ts";
-import { checkTree, isTopLayer, paint, paintContainer } from "./document.ts";
+import { checkTree, isTopLayer, paint, paintContainer, shapedFrame } from "./document.ts";
 import { zodPath } from "./edit.ts";
 import { KalamoError } from "./errors.ts";
 import {
@@ -183,6 +183,10 @@ export function parseNode(raw: unknown, at: string): Node {
   if (n.type === "image") return n;
   if (n.type === "text") {
     const { ranges, ...text } = storedAlignment(n);
+    // A shaped frame's bounds are always its own (ADR-0078).
+    if (text.frame !== undefined) {
+      Object.assign(text, shapedFrame(parsePath(text.frame, `${at}.frame`), `${at}.frame`));
+    }
     const canonical = canonicalRanges(ranges, `${at}.ranges`, text);
     const appearance = paint(text.appearance as AppearanceInput, `${at}.appearance`, text);
     return { ...text, ...(canonical && { ranges: canonical }), appearance } as Node;
