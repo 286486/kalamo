@@ -95,6 +95,32 @@ describe("alignment (ADR-0077)", () => {
   });
 });
 
+it("draws a shaped Area Type's spans where the layout puts them, none in the frame's notch (ADR-0078)", async () => {
+  const { doc, defaultLayerId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 200, height: 120, background: "#FFFFFF" }],
+  });
+  createNodes(doc, [
+    {
+      type: "text",
+      kind: "area",
+      parentId: defaultLayerId,
+      frame: "M 10 10 L 70 10 L 70 50 L 130 50 L 130 10 L 190 10 L 190 110 L 10 110 Z",
+      content:
+        "Words fill the left span then the right one, and below the notch the full width of it.",
+      fontSize: 10,
+    },
+  ]);
+  const drawn = await ink(renderSvg(doc));
+  expect(drawn.length).toBeGreaterThan(100);
+  // Inside the frame's bounds, a pixel of antialiasing aside, and never in the notch above y 50.
+  expect(drawn.filter(([x, y]) => x < 9 || x > 191 || y < 9 || y > 111)).toEqual([]);
+  expect(drawn.filter(([x, y]) => x > 71 && x < 129 && y < 48)).toEqual([]);
+  // The right span's first line draws, from x 130.
+  expect(drawn.some(([x, y]) => x >= 130 && y < 30)).toBe(true);
+});
+
 it("draws text in the bundled font, inside the bounds node_get reports", async () => {
   const { doc, defaultLayerId } = createDocument({
     id: "d",
@@ -557,9 +583,9 @@ it("draws the fixture Document with known pixels", async () => {
   // By #175, the texts that named the product say Kalamo, one clipping text says KAL, and the
   // namespace is kalamo.cc. By #58, an eighteenth holding Point Type and Area Type centred,
   // right-aligned and justified; by #196, its right-aligned Point Type tracks, beside a tracked
-  // centred one.
+  // centred one; by #56, a nineteenth holding Area Type in a circle and in a concave frame.
   expect(await hash(toSvg(doc, docRect(doc), { images }))).toBe(
-    "671110d658381cd3a2b52405653d1a57e07014312e66a6f7643b82297f21d549",
+    "a668042cf0ff0cebfdb89a0f7edf8a85699717564ddac99732590dce7c8608f5",
   );
   expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned, images }))).toBe(
     "24c1e7ad8db33f59933a1b355c879cb19bfdfd67d70b11427b196aa646ea4b60",
@@ -583,7 +609,7 @@ it("draws each fixture Artboard by its scope as the whole Document draws it ther
   const { doc, images } = fixtureDoc();
   const all = fit(docRect(doc), 2);
   const whole = await svgToPixels(renderSvg(doc, all.rect, { scale: 2, images }), 2);
-  expect(doc.artboards).toHaveLength(18);
+  expect(doc.artboards).toHaveLength(19);
   for (const a of doc.artboards) {
     const scope = { artboardId: a.id };
     const { rect, pixelSize } = fit(scopeRect(doc, scope), 2);

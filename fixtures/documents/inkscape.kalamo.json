@@ -122,6 +122,11 @@
       "frame": { "height": 220, "width": 300, "x": 320, "y": 260 },
       "id": "01M38T29T3A11GNARTB0ARD000",
       "name": "Alignment"
+    },
+    {
+      "frame": { "height": 220, "width": 320, "x": 640, "y": 260 },
+      "id": "01M38T29T4SHAPEDARTB0ARD00",
+      "name": "Shaped Area Type"
     }
   ],
   "nodes": [
@@ -3168,6 +3173,56 @@
       "visible": true,
       "x": 475,
       "y": 345
+    },
+    {
+      "appearance": { "fills": [{ "color": "#000000", "type": "solid" }], "strokes": [] },
+      "blendMode": "normal",
+      "content": "Words flow in a circle here, each line as wide as the circle is at its band, so the lines grow and then shrink again toward the bottom of it.",
+      "fontFamily": "Source Sans 3",
+      "fontSize": 10,
+      "fontStyle": "Regular",
+      "frame": "M 710 275 C 743.137 275 770 301.863 770 335 C 770 368.137 743.137 395 710 395 C 676.863 395 650 368.137 650 335 C 650 301.863 676.863 275 710 275 Z",
+      "height": 120,
+      "id": "01M38T29T4SHAPED00000000A0",
+      "index": "b09",
+      "kind": "area",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "text",
+      "visible": true,
+      "width": 120,
+      "x": 650,
+      "y": 275
+    },
+    {
+      "appearance": { "fills": [{ "color": "#000000", "type": "solid" }], "strokes": [] },
+      "blendMode": "normal",
+      "content": "A concave frame gives two spans on each band above its notch, so these words fill the left one and then the right one before going below it, where one wide span holds the rest of the words.",
+      "fontFamily": "Source Sans 3",
+      "fontSize": 10,
+      "fontStyle": "Regular",
+      "frame": "M 790 275 L 845 275 L 845 335 L 880 335 L 880 275 L 935 275 L 935 440 L 790 440 Z",
+      "height": 165,
+      "id": "01M38T29T4SHAPED00000000B0",
+      "index": "b0A",
+      "kind": "area",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "text",
+      "visible": true,
+      "width": 145,
+      "x": 790,
+      "y": 275
     }
   ],
   "images": {

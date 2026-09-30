@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { edgesOf, frameSpans } from "./frame.ts";
 import { lineBreakUnits } from "./line-break.ts";
 import { NOTO_SANS_KR } from "./noto-sans-kr.ts";
 import { NOTO_SANS_SC } from "./noto-sans-sc.ts";
+import { parsePath, pathBounds } from "./path.ts";
 import { SOURCE_SANS_3 } from "./source-sans-3.ts";
 import {
   canonicalRanges,
@@ -943,5 +945,128 @@ describe("alignment (ADR-0077)", () => {
     // 12 + 3 pt right of the origin and one advance below it, and the box holds it.
     expect(box.x + box.width).toBeGreaterThanOrEqual(h.x + 15 - 1e-9);
     expect(box.y + box.height).toBeGreaterThanOrEqual(h.y + h.width - 1e-9);
+  });
+});
+
+describe("Area Type in a closed path (ADR-0078)", () => {
+  /** The band around a 12 pt line's baseline at line-height 1.2, as ADR-0078 measured it. */
+  const [BAND_ABOVE, BAND_BELOW] = [8.8098, 2.7102];
+  /** Area Type in the frame `d`, its bounds derived as core stores them. */
+  const inFrame = (d: string, content: string, fontSize = 12) => {
+    const b = pathBounds(parsePath(d, "d")) as NonNullable<ReturnType<typeof pathBounds>>;
+    return { kind: "area" as const, ...b, frame: d, content, fontSize };
+  };
+  const rows = (t: ReturnType<typeof inFrame>) =>
+    layoutText(t).lines.map((l) => [
+      Math.round(l.x * 1000) / 1000,
+      Math.round(l.y * 1e4) / 1e4,
+      l.text,
+    ]);
+
+  it("bands each line by its line box less a tenth of the leading, as Inkscape 1.2.2 measures", () => {
+    // Left edges slanting right and left: a line starts where the edge is at its band's bottom
+    // (x = bottom / 2) or top (x = 200 − top / 2). Inkscape: 6.48 and 199.28 at baseline 10.2498.
+    const words = Array(40).fill("iii").join(" ");
+    const [right] = layoutText(inFrame("M 0 0 L 700 0 L 700 400 L 200 400 Z", words)).lines;
+    const [left] = layoutText(inFrame("M 200 0 L 700 0 L 700 400 L 0 400 Z", words)).lines;
+    expect(right?.y).toBeCloseTo(10.2498, 4);
+    expect(right?.x).toBeCloseTo(6.48, 6);
+    expect(left?.x).toBeCloseTo(199.28, 6);
+  });
+
+  it("skips a band whose spans fit no word, one leading down, as Inkscape does", () => {
+    // A 5 pt wide notch above y 33.3: Inkscape's first line is at 53.4498, the fourth band.
+    const words = Array(60).fill("iii").join(" ");
+    const [first] = layoutText(
+      inFrame("M 0 0 L 5 0 L 5 33.3 L 300 33.3 L 300 200 L 0 200 Z", words),
+    ).lines;
+    expect(first).toMatchObject({ x: 0 });
+    expect(first?.y).toBeCloseTo(53.4498, 4);
+  });
+
+  const prose =
+    "The quick brown fox jumps over the lazy dog, and keeps running far away into the woods where nobody can see it any more. A second sentence follows with more words to fill the frame.";
+
+  it("fills both spans of a concave frame's band, left to right, each its own line", () => {
+    // Inkscape 1.2.2 draws these words on these bands, the right span from x 200 (measured glyph by
+    // glyph); a hard return on a one-span band starts the next band.
+    const U = "M 0 0 L 100 0 L 100 60 L 200 60 L 200 0 L 300 0 L 300 120 L 0 120 Z";
+    expect(rows(inFrame(U, `${prose}\nNew paragraph here.`))).toEqual([
+      [0, 10.2498, "The quick brown "],
+      [200, 10.2498, "fox jumps over the "],
+      [0, 24.6498, "lazy dog, and keeps "],
+      [200, 24.6498, "running far away "],
+      [0, 39.0498, "into the woods "],
+      [200, 39.0498, "where nobody can "],
+      [0, 53.4498, "see it any more. A "],
+      [200, 53.4498, "second sentence "],
+      [0, 67.8498, "follows with more "],
+      [200, 67.8498, "words to fill the "],
+      [0, 82.2498, "frame.\n"],
+      [0, 96.6498, "New paragraph here."],
+    ]);
+    // Each arm band has the two 100 pt spans Inkscape filled; below the arms, one 300 pt span.
+    const spans = (y: number) => frameSpans(edgesOf(U), y - BAND_ABOVE, y + BAND_BELOW);
+    for (const y of [10.2498, 24.6498, 39.0498, 53.4498, 67.8498]) {
+      expect(spans(y)).toEqual([
+        { x: 0, width: 100 },
+        { x: 200, width: 100 },
+      ]);
+    }
+    expect(spans(82.2498)).toEqual([{ x: 0, width: 300 }]);
+  });
+
+  it("starts the next paragraph in the next span of the same band", () => {
+    const U = "M 0 0 L 100 0 L 100 60 L 200 60 L 200 0 L 300 0 L 300 120 L 0 120 Z";
+    const lines = layoutText(inFrame(U, "Left words\nRight words", 9)).lines;
+    expect(lines.map((l) => [l.x, l.text])).toEqual([
+      [0, "Left words\n"],
+      [200, "Right words"],
+    ]);
+    expect(lines[1]?.y).toBe(lines[0]?.y);
+  });
+
+  it("wraps in a circle as Inkscape 1.2.2 does, each line's start within its curve flattening", () => {
+    const circle =
+      "M 120 20 C 175.228 20 220 64.772 220 120 C 220 175.228 175.228 220 120 220 C 64.772 220 20 175.228 20 120 C 20 64.772 64.772 20 120 20 Z";
+    // Inkscape's saved line starts, and each line's text. Its coarser flattening of the curves puts
+    // a start up to 0.56 pt inside Kalamo's, near the top where the circle is flattest.
+    const inkscape: [number, number, string][] = [
+      [103.719, 30.2498, "The "],
+      [66.128, 44.6498, "quick brown fox "],
+      [48.425, 59.0498, "jumps over the lazy dog, and "],
+      [36.744, 73.4498, "keeps running far away into the "],
+      [28.84, 87.8498, "woods where nobody can see it any "],
+      [23.679, 102.2498, "more. A second sentence follows with "],
+      [20.811, 116.6498, "more words to fill the frame."],
+    ];
+    const got = rows(inFrame(circle, prose));
+    expect(got.map(([, y, t]) => [y, t])).toEqual(inkscape.map(([, y, t]) => [y, t]));
+    got.forEach(([x], i) => {
+      expect(Math.abs((x as number) - (inkscape[i]?.[0] as number))).toBeLessThan(0.6);
+    });
+    // Each band's one span is centred on the circle, so Inkscape's start gives its width.
+    for (const [x, y] of inkscape) {
+      const [span, ...more] = frameSpans(edgesOf(circle), y - BAND_ABOVE, y + BAND_BELOW);
+      expect(more).toEqual([]);
+      expect(Math.abs((span?.width as number) - (240 - 2 * x))).toBeLessThan(1.2);
+    }
+  });
+
+  it("overflows what fits no band above the frame's bottom, and warns", () => {
+    const t = inFrame("M 0 0 L 60 0 L 60 30 L 0 30 Z", prose);
+    const { lines, overflow } = layoutText(t);
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines.map((l) => l.text).join("") + overflow).toBe(prose);
+    expect(overflow.length).toBeGreaterThan(0);
+  });
+
+  it("aligns each line in its own span", () => {
+    const U = "M 0 0 L 100 0 L 100 60 L 200 60 L 200 0 L 300 0 L 300 120 L 0 120 Z";
+    const lines = layoutText({ ...inFrame(U, "a b"), alignment: "right" }).lines;
+    const g = glyphs({ ...inFrame(U, "a b"), alignment: "right" });
+    const last = g.at(-1) as { x: number; width: number };
+    expect(lines).toHaveLength(1);
+    expect(last.x + last.width).toBeCloseTo(100, 9);
   });
 });

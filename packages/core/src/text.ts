@@ -1,4 +1,5 @@
 import { parseColor } from "./color.ts";
+import { edgesOf, frameSpans, type Span } from "./frame.ts";
 import { lineBreakUnits } from "./line-break.ts";
 import { NOTO_SANS_KR } from "./noto-sans-kr.ts";
 import { NOTO_SANS_SC } from "./noto-sans-sc.ts";
@@ -291,6 +292,8 @@ interface TextLayout extends TextFont {
   /** Area Type's frame; the schema requires both on Area Type (ADR-0022). */
   width?: number;
   height?: number;
+  /** A shaped Area Type's frame, closed path data; `x, y, width, height` are its bounds. */
+  frame?: string | undefined;
   content: string;
   fontSize: number;
   leading?: number | undefined;
@@ -403,12 +406,14 @@ export function hangsFrom(chars: string[], from = 0, to = chars.length): number 
 
 /** `layoutText`, with the metrics of every character of `content`, each line aligned (ADR-0077). */
 function layout(text: TextLayout) {
-  const { lines, overflow, m } = unaligned(text);
-  const { alignment = "left", x } = text;
+  const out = unaligned(text);
+  const { lines, overflow, m } = out;
+  const { alignment = "left" } = text;
   const area = text.kind === "area";
   if (alignment === "left" || (alignment === "justify" && !area)) return { lines, overflow, m };
-  const width = text.width ?? 0;
   lines.forEach((l, i) => {
+    // A shaped frame aligns each line in its span (ADR-0078).
+    const { x, width = 0 } = "spans" in out ? (out.spans[i] as Span) : text;
     // Trailing whitespace hangs past the edge, and so does the tracking after the last character,
     // as Inkscape 1.2.2 measures an aligned line (ADR-0077).
     const chars = [...l.text];
@@ -481,6 +486,10 @@ function unaligned(text: TextLayout) {
     });
     return { lines, overflow: "", m };
   }
+  if (text.frame) {
+    const out = shaped(text, m, chars, first, line);
+    return { ...out, m };
+  }
   const { width = 0, height = 0 } = text;
   // Trailing whitespace hangs past the frame's edge.
   const fits = (from: number, to: number) => span(m, from, hangsFrom(chars, from, to)) <= width;
@@ -522,6 +531,86 @@ function unaligned(text: TextLayout) {
     if (!push(l, from, to)) break;
   }
   return { lines, overflow: content.slice(used), m };
+}
+
+/**
+ * A shaped Area Type's lines (ADR-0078), as Inkscape 1.2.2 flows `shape-inside`: bands one leading
+ * apart from ADR-0022's first baseline, each ADR-0022's line box less a tenth of the leading at its
+ * top and bottom; each band's spans, left to right, take words greedily with ADR-0022's width
+ * rules, each span its own line; a span too narrow for the next word is skipped, and so is a band
+ * with no span it fits; a hard return ends the span, the next paragraph starting in the next one.
+ * What fits no band above the frame's bottom overflows. Each line's span, for alignment.
+ * ponytail: every band is the Node's own size and leading tall; a line holding CJK or a larger
+ * Character Range steps as Latin does here, where a rectangle frame stacks it by its fonts.
+ */
+function shaped(
+  text: TextLayout,
+  m: Metric[],
+  chars: string[],
+  first: number,
+  line: (t: string, lineY: number) => TextLine,
+): { lines: TextLine[]; overflow: string; spans: Span[] } {
+  const { y, fontSize, content } = text;
+  const edges = edgesOf(text.frame as string);
+  const leading = text.leading ?? 1.2 * fontSize;
+  const half = (leading - fontSize) / 2;
+  const [ascent, descent] = [half + first * fontSize, half + (1 - first) * fontSize];
+  const bottom = y + (text.height ?? 0);
+  let band = -1;
+  let queue: Span[] = [];
+  /** The next band with a span, or undefined past the frame's bottom. */
+  const nextBand = () => {
+    for (band++; ; band++) {
+      const baseline = y + ascent + band * leading;
+      const top = baseline - ascent + 0.1 * leading;
+      if (top > bottom) return undefined;
+      queue = frameSpans(edges, top, baseline + descent - 0.1 * leading);
+      if (queue.length) return baseline;
+    }
+  };
+  let baseline = nextBand();
+  let slot = queue.shift();
+  /** The next span, on this band or a lower one. */
+  const next = () => {
+    slot = queue.shift();
+    if (slot) return;
+    baseline = nextBand();
+    if (baseline !== undefined) slot = queue.shift();
+  };
+  const fits = (from: number, to: number) =>
+    !!slot && span(m, from, hangsFrom(chars, from, to)) <= slot.width;
+  const lines: TextLine[] = [];
+  const spans: Span[] = [];
+  let used = 0;
+  const push = (l: string) => {
+    const s = slot as Span;
+    lines.push({ ...line(l, baseline as number), x: s.x });
+    spans.push(s);
+    used += l.length;
+  };
+  let [from, to] = [0, 0];
+  wrap: for (const paragraph of content.split(/(?<=\n)/)) {
+    let l = "";
+    from = to;
+    for (const unit of lineBreakUnits(paragraph)) {
+      const n = [...unit].length;
+      if (l && !fits(from, to + n)) {
+        push(l);
+        [l, from] = ["", to];
+        next();
+      }
+      while (slot && !fits(to, to + n)) next();
+      if (!slot) break wrap;
+      l += unit;
+      to += n;
+    }
+    if (!slot) break;
+    push(l);
+    // After a hard return the next paragraph starts in the next span, as Inkscape flows it.
+    next();
+    if (!slot && used < content.length) break;
+  }
+  return { lines, overflow: content.slice(used), spans };
 }
 
 /** A laid-out character: its origin on the unshifted baseline, advance width and overrides. */
