@@ -132,6 +132,11 @@
       "frame": { "height": 120, "width": 240, "x": 980, "y": 260 },
       "id": "01M38T29T5CJKSTACKARTB0RD0",
       "name": "CJK Line Stacking"
+    },
+    {
+      "frame": { "height": 220, "width": 320, "x": 1240, "y": 260 },
+      "id": "01M38T29T6S1ZESARTB0ARD000",
+      "name": "Shaped Mixed Sizes"
     }
   ],
   "nodes": [
@@ -3289,6 +3294,75 @@
       "width": 100,
       "x": 1110,
       "y": 270
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#000000",
+            "type": "solid"
+          }
+        ],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "content": "Shaped Heading\nBody words fill the left arm and then the right arm, and 中文字 draws in Noto Sans SC beside them, then below the notch the rest.",
+      "fontFamily": "Source Sans 3",
+      "fontSize": 10,
+      "fontStyle": "Regular",
+      "frame": "M 1250 275 L 1320 275 L 1320 345 L 1350 345 L 1350 275 L 1420 275 L 1420 470 L 1250 470 Z",
+      "height": 195,
+      "id": "01M38T29T6SHAPEDS1ZES0000A",
+      "index": "b0D",
+      "kind": "area",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "ranges": [{ "end": 14, "fontSize": 18, "start": 0 }],
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "text",
+      "visible": true,
+      "width": 170,
+      "x": 1250,
+      "y": 275
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#000000",
+            "type": "solid"
+          }
+        ],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "content": "Big words open a triangle whose bands narrow, with 汉字 on a later line and a few more words.",
+      "fontFamily": "Source Sans 3",
+      "fontSize": 10,
+      "fontStyle": "Regular",
+      "frame": "M 1430 275 L 1550 275 L 1490 470 Z",
+      "height": 195,
+      "id": "01M38T29T6SHAPEDS1ZES0000B",
+      "index": "b0E",
+      "kind": "area",
+      "leading": 14,
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "ranges": [{ "end": 9, "fontSize": 20, "start": 0 }],
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "text",
+      "visible": true,
+      "width": 120,
+      "x": 1430,
+      "y": 275
     }
   ],
   "images": {

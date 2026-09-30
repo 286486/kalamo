@@ -2438,6 +2438,31 @@ describe("Convert to Area Type and Point Type (ADR-0079)", () => {
     expect(new Set(starts.values())).toEqual(new Set([p.x]));
   });
 
+  it("Area to Point reads a shaped frame's bands sized by their lines (#200)", () => {
+    // A 40 pt word that ends the first band sizes it, so three words fit where four would, and the
+    // next band steps by the 40 pt word's leading.
+    const H = "HHH";
+    const content = [H, H, H, H, H, H, H, H, H].join(" ");
+    const { doc, t } = make({
+      kind: "area",
+      frame: "M 20 40 L 200 40 L 200 340 L 120 340 Z",
+      content,
+      fontSize: 20,
+      ranges: [{ start: 16, end: 19, fontSize: 40 }],
+      x: undefined,
+      y: undefined,
+    });
+    convert(doc, t.id, { kind: "point" });
+    const p = doc.nodes.get(t.id) as Text;
+    expect(p.content.split("\n").slice(0, 2)).toEqual(["HHH HHH HHH", "HHH HHH"]);
+    expect(p.ranges).toEqual([{ start: 16, end: 19, fontSize: 40 }]);
+    expect([p.x, p.y]).toEqual([34.4, 74.166]);
+    const baselines = [...new Set(glyphs(p).map((g) => g.y))];
+    expect(baselines.slice(0, 3).map((y) => +y.toFixed(2))).toEqual([74.17, 122.17, 146.17]);
+    // Every line starts at the first line's x, as ADR-0079 left-aligns a shaped frame's lines.
+    expect(new Set(layoutText(p).lines.map((l) => l.x))).toEqual(new Set([p.x]));
+  });
+
   it("refuses to convert when no line shows", () => {
     const { doc, t } = make({ kind: "area", width: 40, height: 2, content: "hidden" });
     expect(errorOf(() => convert(doc, t.id, { kind: "point" }))).toMatchObject({

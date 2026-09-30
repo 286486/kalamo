@@ -6,6 +6,7 @@ import {
   createDocument,
   createNodes,
   imageSource,
+  layoutText,
   makeMask,
   type Node,
   parseDocument,
@@ -120,6 +121,42 @@ it("draws a shaped Area Type's spans where the layout puts them, none in the fra
   expect(drawn.filter(([x, y]) => x > 71 && x < 129 && y < 48)).toEqual([]);
   // The right span's first line draws, from x 130.
   expect(drawn.some(([x, y]) => x >= 130 && y < 30)).toBe(true);
+});
+
+it("draws a shaped Area Type's heading and CJK lines on the bands the layout sizes by them (#200)", async () => {
+  const { doc, defaultLayerId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 200, height: 160, background: "#FFFFFF" }],
+  });
+  const [t] = createNodes(doc, [
+    {
+      type: "text",
+      kind: "area",
+      parentId: defaultLayerId,
+      frame: "M 10 10 L 190 10 L 100 150 Z",
+      content: "Heading words\nThen body text with 中文字 in Noto Sans SC flows below it.",
+      fontSize: 10,
+      ranges: [{ start: 0, end: 13, fontSize: 20 }],
+    },
+  ]).nodes as [Node];
+  const shown = layoutText(t as never).lines;
+  const [heading, ...body] = shown;
+  // The heading's band is 20 pt tall, and the next line a 10 pt leading below it.
+  expect(heading?.y).toBeCloseTo(10 + 2 + 20 * (1000 / 1326), 9);
+  expect((body[0]?.y as number) - (heading?.y as number)).toBeCloseTo(12, 9);
+  const drawn = await ink(renderSvg(doc));
+  const rows = (top: number, bottom: number) => drawn.filter(([, y]) => y >= top && y < bottom);
+  // The heading's ascenders rise about 14 pt above its baseline, at its 20 pt size.
+  const top = Math.min(...rows(0, heading?.y as number).map(([, y]) => y));
+  expect(top).toBeLessThan((heading?.y as number) - 12);
+  expect(top).toBeGreaterThanOrEqual((heading?.y as number) - 16);
+  // Every line draws its x-height's ink from its span's start.
+  for (const l of shown) {
+    const line = rows(l.y - 7, l.y);
+    expect(line.length, l.text).toBeGreaterThan(0);
+    expect(Math.min(...line.map(([x]) => x)), l.text).toBeGreaterThanOrEqual(Math.floor(l.x));
+  }
 });
 
 const CONVERTED = "Converted text keeps every line where it was.\nA second paragraph.";
@@ -631,9 +668,10 @@ it("draws the fixture Document with known pixels", async () => {
   // right-aligned and justified; by #196, its right-aligned Point Type tracks, beside a tracked
   // centred one; by #56, a nineteenth holding Area Type in a circle and in a concave frame. By
   // #199, CJK Area Type lines stack by leading alone, moving the CJK and Korean Area Types' later
-  // lines up, and a twentieth Artboard holds Point Type and Area Type mixing Latin and CJK lines.
+  // lines up, and a twentieth Artboard holds Point Type and Area Type mixing Latin and CJK lines. By
+  // #200, a twenty-first holding shaped Area Type with a larger Character Range and CJK.
   expect(await hash(toSvg(doc, docRect(doc), { images }))).toBe(
-    "bb9cda3f211bbdc835837657df6a2f6b778325f8958787c70aca5f66cc7cfa2f",
+    "7c5934661948abcd3bc61dadee5efc18c97461d699b8bf96d9b543748f68889a",
   );
   expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned, images }))).toBe(
     "24c1e7ad8db33f59933a1b355c879cb19bfdfd67d70b11427b196aa646ea4b60",
@@ -657,7 +695,7 @@ it("draws each fixture Artboard by its scope as the whole Document draws it ther
   const { doc, images } = fixtureDoc();
   const all = fit(docRect(doc), 2);
   const whole = await svgToPixels(renderSvg(doc, all.rect, { scale: 2, images }), 2);
-  expect(doc.artboards).toHaveLength(20);
+  expect(doc.artboards).toHaveLength(21);
   for (const a of doc.artboards) {
     const scope = { artboardId: a.id };
     const { rect, pixelSize } = fit(scopeRect(doc, scope), 2);

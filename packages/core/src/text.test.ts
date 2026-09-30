@@ -1075,6 +1075,158 @@ describe("Area Type in a closed path (ADR-0078)", () => {
     expect(overflow.length).toBeGreaterThan(0);
   });
 
+  describe("each band sized by its own line (#200)", () => {
+    // The frames and texts of docs/research/09-shaped-bands/probe.mjs, whose Inkscape 1.2.2
+    // numbers are quoted: 20 pt Source Sans 3, words of H's, some at 40 pt or in Noto Sans SC.
+    const SLANT = "M 20 40 L 200 40 L 200 340 L 120 340 Z";
+    const U = "M 20 40 L 140 40 L 140 120 L 200 120 L 200 40 L 320 40 L 320 340 L 20 340 Z";
+    const NECK = "M 20 40 L 50 40 L 50 100 L 320 100 L 320 340 L 20 340 Z";
+    type Word = string | { w: string; size: number };
+    const H = "HHH";
+    const big = (w = H) => ({ w, size: 40 });
+    /** Paragraphs of words as a text in `frame`, each sized word a Character Range. */
+    const mixed = (frame: string, paragraphs: Word[][], leading?: number) => {
+      let content = "";
+      const ranges: { start: number; end: number; fontSize: number }[] = [];
+      paragraphs.forEach((words, p) => {
+        words.forEach((w, i) => {
+          if (i || p) content += i ? " " : "\n";
+          const start = [...content].length;
+          if (typeof w !== "string")
+            ranges.push({ start, end: start + [...w.w].length, fontSize: w.size });
+          content += typeof w === "string" ? w : w.w;
+        });
+      });
+      return { ...inFrame(frame, content, 20), leading, ranges };
+    };
+    const lines = (t: ReturnType<typeof mixed>) =>
+      layoutText(t).lines.map((l) => [
+        Math.round(l.x * 100) / 100,
+        Math.round(l.y * 100) / 100,
+        l.text,
+      ]);
+
+    it("steps a line holding a larger Character Range by its own leading, under Auto and a set one", () => {
+      // The 40 pt word ends the first line's band and takes the next: Inkscape draws both
+      // baselines, 74.17 and 122.17, and the second line from 50.4.
+      const words = [H, H, H, big(), ...Array(8).fill(H)];
+      const auto = layoutText(mixed(SLANT, [words])).lines;
+      expect(auto.slice(0, 2).map((l) => [+l.x.toFixed(2), +l.y.toFixed(2)])).toEqual([
+        [34.4, 74.17],
+        [50.4, 122.17],
+      ]);
+      expect((auto[1]?.y as number) - (auto[0]?.y as number)).toBeCloseTo(48, 9);
+      // Its em box's top clears the line above's em box: one size's band would overlap it.
+      const ascent = 1000 / 1326;
+      expect((auto[1]?.y as number) - 40 * ascent).toBeGreaterThan(
+        (auto[0]?.y as number) + 20 * (1 - ascent),
+      );
+      // And the next line one 24 pt leading below it.
+      expect((auto[2]?.y as number) - (auto[1]?.y as number)).toBeCloseTo(24, 9);
+      const set = layoutText(mixed(SLANT, [words], 30)).lines;
+      expect(set.slice(0, 3).map((l) => +l.y.toFixed(2))).toEqual([65.17, 95.17, 125.17]);
+      // Under either leading the first band's box, sized by the 40 pt word it tried, runs one
+      // leading down from the frame's top at 40, and the 40 pt line's box, half its leading above
+      // and below its em box, starts where it ends: they do not overlap. With one size's bands, at
+      // 30 the 40 pt box reached 5.08 into the 20 pt box above.
+      for (const [lines, leading] of [
+        [auto, 48],
+        [set, 30],
+      ] as const) {
+        const top = (lines[1]?.y as number) - (leading - 40) / 2 - 40 * ascent;
+        expect(top).toBeCloseTo(40 + leading, 9);
+      }
+    });
+
+    it("keeps ADR-0080's step for a CJK line, as a rectangle frame does, beside a larger range", () => {
+      const cjk = [H, "字", H, H, H, "字", H, H, H, H, "字", H];
+      // Inkscape draws both arms' lines on these baselines, the Node's leading apart.
+      expect([...new Set(layoutText(mixed(U, [cjk])).lines.map((l) => +l.y.toFixed(2)))]).toEqual([
+        57.08, 81.08, 105.08,
+      ]);
+      expect([
+        ...new Set(layoutText(mixed(U, [cjk], 30)).lines.map((l) => +l.y.toFixed(2))),
+      ]).toEqual([60.08, 90.08, 120.08]);
+      // A 30 pt CJK run on the first band: Inkscape 65.62, 89.62, 113.62.
+      const larger = mixed(U, [[H, "字", H, H, H, { w: "字", size: 30 }, H, H, H, H, "字", H]]);
+      expect([...new Set(layoutText(larger).lines.map((l) => +l.y.toFixed(2)))]).toEqual([
+        65.62, 89.62, 113.62,
+      ]);
+      // On the slanted frame each band has one line; a rectangle frame holding the same lines,
+      // each ended by a hard return in place of its last space, stacks them the same.
+      for (const leading of [undefined, 30]) {
+        const t = mixed(SLANT, [larger.content.split(" ")], leading);
+        const shapedLines = layoutText({ ...t, ranges: larger.ranges }).lines;
+        const rect = layoutText({
+          ...t,
+          frame: undefined,
+          width: 1000,
+          ranges: larger.ranges,
+          content: shapedLines.map((l) => l.text.replace(/ $/, "\n")).join(""),
+        }).lines;
+        expect(rect.map((l) => l.y)).toEqual(shapedLines.map((l) => l.y));
+      }
+    });
+
+    it("sizes a band by every word it tries, so a larger word it cannot fit narrows it", () => {
+      // Four 20 pt words fit the first band; the 40 pt fifth does not, but sizes the band, whose
+      // deeper bottom leaves room for three. Inkscape: three words from 34.4 at 74.17, then the
+      // fourth and the 40 pt word from 50.4 at 122.17.
+      expect(lines(mixed(SLANT, [Array(13).fill(H)]))[0]).toEqual([
+        27.2,
+        57.08,
+        "HHH HHH HHH HHH ",
+      ]);
+      expect(lines(mixed(SLANT, [[H, H, H, H, big(), ...Array(8).fill(H)]])).slice(0, 2)).toEqual([
+        [34.4, 74.17, "HHH HHH HHH "],
+        [50.4, 122.17, "HHH HHH "],
+      ]);
+      // In a triangle, the taller band's span starts where the edge is at its deeper bottom:
+      // Inkscape draws five words from 41.6 at 74.17, where six 20 pt words fill from 30.8.
+      const TRIANGLE = "M 20 40 L 320 40 L 170 340 Z";
+      expect(lines(mixed(TRIANGLE, [Array(14).fill(H)]))[0]).toEqual([
+        30.8,
+        57.08,
+        "HHH HHH HHH HHH HHH HHH ",
+      ]);
+      expect(lines(mixed(TRIANGLE, [[H, H, H, H, big(), ...Array(9).fill(H)]]))[0]).toEqual([
+        41.6,
+        74.17,
+        "HHH HHH HHH HHH HHH ",
+      ]);
+      // Under a set leading the band holds the text's own strut, which reaches below a 40 pt
+      // box: Inkscape starts that line at 30.52 too.
+      expect(lines(mixed(SLANT, [[H, H, big(), ...Array(9).fill(H)]], 30))[0]).toEqual([
+        30.52,
+        65.17,
+        "HHH HHH HHH ",
+      ]);
+    });
+
+    it("skips bands too narrow for a tall line one of its leadings apart, and overflows by them", () => {
+      // A 30 pt neck above y 100: the 40 pt heading's bands at 74.17 and 122.17 are too narrow,
+      // and it shows at 170.17, as Inkscape draws it; the 20 pt lines follow a leading apart.
+      const heading = [[big(), big("HH")], Array(12).fill(H)];
+      expect(lines(mixed(NECK, heading)).slice(0, 2)).toEqual([
+        [20, 170.17, "HHH HH\n"],
+        [20, 194.17, "HHH HHH HHH HHH HHH HHH HHH "],
+      ]);
+      // Cut at y 140, the neck frame shows the text at one size, from its band at 129.08, but no
+      // band of the heading's starts above the bottom.
+      const cut = "M 20 40 L 50 40 L 50 100 L 320 100 L 320 140 L 20 140 Z";
+      const one = layoutText({ ...mixed(cut, heading), ranges: [] });
+      expect(one.lines[0]?.y).toBeCloseTo(129.08, 2);
+      const t = mixed(cut, heading);
+      expect(layoutText(t)).toEqual({ lines: [], overflow: t.content });
+      const node = { id: "t", type: "text", ...t } as Parameters<
+        typeof overflowWarnings
+      >[0][number];
+      expect(overflowWarnings([node])).toEqual([
+        expect.objectContaining({ code: "TEXT_OVERFLOW", nodeId: "t" }),
+      ]);
+    });
+  });
+
   it("aligns each line in its own span", () => {
     const U = "M 0 0 L 100 0 L 100 60 L 200 60 L 200 0 L 300 0 L 300 120 L 0 120 Z";
     const lines = layoutText({ ...inFrame(U, "a b"), alignment: "right" }).lines;
