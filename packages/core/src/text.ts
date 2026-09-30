@@ -620,19 +620,21 @@ function area(
     for (;;) {
       const next = stack(prev, box);
       const baseline = y + next.baseline;
-      const { top, bottom: below } = bandOf(baseline, box);
-      const overflow = { lines, overflow: chars.slice(first.from).join(""), spans };
-      if (edges && top > bottom) return overflow;
-      const band = edges ? frameSpans(edges, top, below) : [{ x, width: frameWidth }];
-      const { placed, next: after, tried } = fill(band, u);
+      const { top, bottom: bandBottom } = bandOf(baseline, box);
+      const overflow = () => ({ lines, overflow: chars.slice(first.from).join(""), spans });
+      if (edges && top > bottom) return overflow();
+      const bandSpans = edges ? frameSpans(edges, top, bandBottom) : [{ x, width: frameWidth }];
+      const { placed, next: after, tried } = fill(bandSpans, u);
       const grown = lineBox(first.from, edges ? tried : (placed.at(-1)?.to ?? first.to));
       if (grown.size > box.size) {
         box = grown;
         continue;
       }
+      // Every band of a rectangle is the same span, so one its first unit does not fit ends it.
+      if (!edges && !placed.length) return overflow();
       // A rectangle's line shows while its band, at the line's own size, lies in the frame: under
       // a set leading a larger size can end it higher. It may reach a billionth of its leading past.
-      if (!edges && below > bottom + 1e-9 * box.leading) return overflow;
+      if (!edges && bandBottom > bottom + 1e-9 * box.leading) return overflow();
       for (const p of placed) {
         lines.push({
           text: chars.slice(p.from, p.to).join(""),

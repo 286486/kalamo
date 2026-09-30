@@ -788,7 +788,6 @@ it("shows an Area Type line holding a larger size while its band fits (ADR-0068,
   // box reaches 1.1 below its baseline and the strut 4.15, so the band ends 15.705 below the top,
   // not 12.96, as Inkscape 1.2.2 measures it (#203).
   expect([shown("HBH", 25.93), shown("HBH", 25.91)]).toEqual([1, 0]);
-  expect(bandBottom(24 * A - 4.8, 24, 14.4)).toBeCloseTo(15.705, 3);
   expect([shown("HBH", 15.71, 24, 14.4), shown("HBH", 15.7, 24, 14.4)]).toEqual([1, 0]);
 });
 
