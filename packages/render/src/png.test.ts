@@ -140,7 +140,8 @@ it("draws a shaped Area Type's heading and CJK lines on the bands the layout siz
       ranges: [{ start: 0, end: 13, fontSize: 20 }],
     },
   ]).nodes as [Node];
-  const [heading, ...body] = layoutText(t as never).lines;
+  const shown = layoutText(t as never).lines;
+  const [heading, ...body] = shown;
   // The heading's band is 20 pt tall, and the next line a 10 pt leading below it.
   expect(heading?.y).toBeCloseTo(10 + 2 + 20 * (1000 / 1326), 9);
   expect((body[0]?.y as number) - (heading?.y as number)).toBeCloseTo(12, 9);
@@ -151,7 +152,7 @@ it("draws a shaped Area Type's heading and CJK lines on the bands the layout siz
   expect(top).toBeLessThan((heading?.y as number) - 12);
   expect(top).toBeGreaterThanOrEqual((heading?.y as number) - 16);
   // Every line draws its x-height's ink from its span's start.
-  for (const l of layoutText(t as never).lines) {
+  for (const l of shown) {
     const line = rows(l.y - 7, l.y);
     expect(line.length, l.text).toBeGreaterThan(0);
     expect(Math.min(...line.map(([x]) => x)), l.text).toBeGreaterThanOrEqual(Math.floor(l.x));

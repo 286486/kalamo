@@ -51,7 +51,7 @@ A band with no span wide enough for the next word is skipped, and the next try i
 
 ### Stacking [M]
 
-Inkscape puts each line's top at the bottom of the line box before it. Kalamo follows Illustrator and steps each baseline by the line's leading (ADR-0080). The two agree while no taller line comes before. After a taller line they differ by ADR-0068's model difference: in `slant heading` at Auto, Inkscape's 20 px line is 30.91 below the heading and Kalamo's is 24 below it. They also differ on a line that a larger word makes taller. Inkscape keeps that line's top and moves its baseline down. Kalamo keeps its step, so the taller band reaches higher. In `neck big-3rd`, Inkscape's first line is at 146.17 at Auto and 125.17 at leading 30. Kalamo's is at 153.08 and 150.08. At 30 it is a band lower, because its taller band reaches into the neck.
+Inkscape puts each line's top at the bottom of the line box before it. Kalamo follows Illustrator and steps each baseline by the line's leading (ADR-0080). The two agree while no taller line comes before. After a taller line they differ by ADR-0068's model difference: in `slant heading` at Auto, Inkscape's 20 px line is 30.91 below the heading and Kalamo's is 24 below it. They also differ on a line that a larger word makes taller. Inkscape keeps that line's top and moves its baseline down. Kalamo keeps its step, so the taller band reaches higher. In `neck big-3rd`, Inkscape's first line is at 146.17 at Auto and 125.17 at leading 30. Kalamo's is at 153.08 and 150.08. At 30 it is a band lower, because its taller band reaches into the neck. A skipped band differs as well under a set leading. Inkscape tries the next one line box lower and Kalamo one leading lower. In `neck heading` at leading 30, Inkscape shows the 40 px heading at 135.33, two 35.08 line boxes below 65.17, and Kalamo shows it at 125.17, two leadings below. At Auto the two are equal, since the line box is the leading.
 
 ### CJK [M]
 
@@ -59,7 +59,7 @@ With ADR-0080's run `line-height`, a CJK line at the text's size steps by the te
 
 ### Kalamo against Inkscape
 
-A throwaway test laid out every case with core and compared the words on each line. 46 of the 48 cases give the same words. Each baseline is the same as Inkscape's until a taller line comes before (see Stacking). The two that differ are model differences:
+A throwaway test laid out every case with core and compared the words on each line. 46 of the 48 cases give the same words. A baseline is the same as Inkscape's until a line taller than the text's size comes before it, is made taller by a larger word, or follows a band skipped under a set leading (see Stacking). The two that differ are model differences:
 
 - `triangle heading` at Auto: Kalamo's line after the heading is 6.91 higher, where the triangle is wider, and takes one word more.
 - `triangle cjk-larger` at Auto: Inkscape's band for the 30 px CJK run is shorter at its bottom (see CJK), so it is wider and takes one word more.

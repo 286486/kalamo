@@ -1093,7 +1093,7 @@ describe("Area Type in a closed path (ADR-0078)", () => {
           if (i || p) content += i ? " " : "\n";
           const start = [...content].length;
           if (typeof w !== "string")
-            ranges.push({ start, end: start + [...w.w].length, ...{ fontSize: w.size } });
+            ranges.push({ start, end: start + [...w.w].length, fontSize: w.size });
           content += typeof w === "string" ? w : w.w;
         });
       });
@@ -1169,6 +1169,19 @@ describe("Area Type in a closed path (ADR-0078)", () => {
       expect(lines(mixed(SLANT, [[H, H, H, H, big(), ...Array(8).fill(H)]])).slice(0, 2)).toEqual([
         [34.4, 74.17, "HHH HHH HHH "],
         [50.4, 122.17, "HHH HHH "],
+      ]);
+      // In a triangle, the taller band's span starts where the edge is at its deeper bottom:
+      // Inkscape draws five words from 41.6 at 74.17, where six 20 pt words fill from 30.8.
+      const TRIANGLE = "M 20 40 L 320 40 L 170 340 Z";
+      expect(lines(mixed(TRIANGLE, [Array(14).fill(H)]))[0]).toEqual([
+        30.8,
+        57.08,
+        "HHH HHH HHH HHH HHH HHH ",
+      ]);
+      expect(lines(mixed(TRIANGLE, [[H, H, H, H, big(), ...Array(9).fill(H)]]))[0]).toEqual([
+        41.6,
+        74.17,
+        "HHH HHH HHH HHH HHH ",
       ]);
       // Under a set leading the band holds the text's own strut, which reaches below a 40 pt
       // box: Inkscape starts that line at 30.52 too.

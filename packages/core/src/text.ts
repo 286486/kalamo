@@ -578,10 +578,11 @@ function shaped(
   const edges = edgesOf(text.frame as string);
   const bottom = y + (text.height ?? 0);
   // Inkscape's line box also holds the text's own strut, which reaches lower than a larger size's
-  // box under a set leading.
+  // box under a set leading. An empty range past the last character is the Node's own size.
   const strut = lineBox(m.length, m.length).descent;
-  /** Each unbreakable unit's code-point range, and whether a hard return or the content ends it. */
-  const units: { from: number; to: number; ends: boolean }[] = [];
+  /** An unbreakable unit's code-point range, and whether a hard return or the content ends it. */
+  type Unit = { from: number; to: number; ends: boolean };
+  const units: Unit[] = [];
   let at = 0;
   for (const paragraph of content.split(/(?<=\n)/)) {
     for (const unit of lineBreakUnits(paragraph)) {
@@ -599,10 +600,10 @@ function shaped(
   const fill = (spans: Span[], u: number) => {
     const placed: { from: number; to: number; span: Span }[] = [];
     let s = 0;
-    let from = (units[u] as { from: number }).from;
+    let from = (units[u] as Unit).from;
     let tried = from;
     for (; u < units.length; u++) {
-      const unit = units[u] as (typeof units)[number];
+      const unit = units[u] as Unit;
       tried = unit.to;
       const slot = spans[s];
       if (slot && from < unit.from && width(from, unit.to) > slot.width) {
@@ -610,10 +611,11 @@ function shaped(
         [from, s] = [unit.from, s + 1];
       }
       while (spans[s] && width(unit.from, unit.to) > (spans[s] as Span).width) s++;
-      if (!spans[s]) break;
+      const fits = spans[s];
+      if (!fits) break;
       if (unit.ends) {
         // After a hard return the next paragraph starts in the next span, as Inkscape flows it.
-        placed.push({ from, to: unit.to, span: spans[s] as Span });
+        placed.push({ from, to: unit.to, span: fits });
         [from, s] = [unit.to, s + 1];
         if (!spans[s]) {
           u++;
@@ -628,7 +630,7 @@ function shaped(
   let prev: Stacked | undefined;
   let u = 0;
   while (u < units.length) {
-    const first = units[u] as (typeof units)[number];
+    const first = units[u] as Unit;
     let box = lineBox(first.from, first.to);
     for (;;) {
       const next = stack(prev, box);
