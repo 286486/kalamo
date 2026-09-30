@@ -163,6 +163,8 @@ it.each([
     expect(doc.nodes.get(t.id)).toMatchObject({ kind: "area" });
     expect(await pixels()).toEqual(area);
   },
+  // Each render of the CJK case loads Noto Sans SC, as the other Noto tests here do.
+  30_000,
 );
 
 it("draws text in the bundled font, inside the bounds node_get reports", async () => {

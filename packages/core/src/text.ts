@@ -209,6 +209,9 @@ export const drawnFamily = (text: TextFont, char: string): BundledFamily =>
  * shrunk by twice what its family's em-box ascent differs from the text's first family's, so it lies
  * inside the box a first-family run of its size and leading has. Rounded down, since a box a
  * thousandth taller needs its whole leading in the frame. Undefined for the first family's box.
+ * ponytail: a set leading under twice the difference, about a quarter of the run's size for CJK in
+ * Source Sans 3, floors at 0, since CSS has no negative line-height; its box then rises above the
+ * strut and Inkscape lowers that line (ADR-0080). Kalamo's own layout is unaffected.
  */
 export function runLineHeight(
   text: TextFont & { leading?: number },

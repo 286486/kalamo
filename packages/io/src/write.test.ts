@@ -1556,7 +1556,8 @@ it.each([
     expect(svg).toContain(
       '<tspan font-family="Source Sans 3" style="line-height:0.948">Hi</tspan>',
     );
-    expect(svg.match(/line-height/g)).toHaveLength(nodes.length + 3);
+    // Only those three runs: no line tspan, and nothing in the Latin-only text, gets one.
+    expect(svg.match(/<tspan[^>]*line-height/g)).toHaveLength(3);
     const file = parseSvg(svg);
     expect(file.warnings).toEqual([]);
     for (const n of nodes) expect(file.nodes.find((m) => m.id === n.id)).toEqual(n);

@@ -819,22 +819,20 @@ function text(n: TextNode, a: Attrs, extra: (string | false)[], chunked: boolean
       // The character's own font, its range's family and style included (ADR-0068).
       const font = characterFont(n, r);
       const origin = laidOut ? origins[shown++] : undefined;
-      const drawn = chunked && laidOut && char !== "\n" ? drawnFamily(font, char) : family;
+      const face = char === "\n" ? undefined : drawnFamily(font, char);
+      const drawn = chunked && laidOut && face ? face : family;
       const chunk = (drawn !== family || (laidOut && widened.has(index))) && origin !== undefined;
       family = drawn;
       let alone = false;
       if (!chunked) {
-        const f = drawnFamily(font, char);
-        if (char === " " || char === "\u00a0") alone = before !== undefined && f !== before;
-        else before = char === "\n" ? undefined : f;
+        if (char === " " || char === "\u00a0") alone = before !== undefined && face !== before;
+        else before = face;
       }
       // resvg is told the bundled family each chunk draws in; others the range's, as written. For
       // them, a character another family's box draws shrinks its line-height, so Inkscape stacks
       // the line by leading alone (ADR-0080); resvg keeps each line's y.
       const lineHeight =
-        !chunked && char !== "\n"
-          ? runLineHeight(n, drawnFamily(font, char), r?.fontSize ?? n.fontSize)
-          : undefined;
+        !chunked && face ? runLineHeight(n, face, r?.fontSize ?? n.fontSize) : undefined;
       const own = attrs({
         ...(r && overrides(r)),
         "font-family": chunked ? (family === first ? undefined : family) : r?.fontFamily,
