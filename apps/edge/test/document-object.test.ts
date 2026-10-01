@@ -922,6 +922,34 @@ it("commits two Transactions' creates on top of one Layer in commit order (ADR-0
   await reopens(s, "tree2-copy");
 });
 
+it("refuses a staged delete of the last top-level Layer, and a commit that meets a delete made meanwhile (ADR-0073)", async () => {
+  const s = stub("last-layer");
+  const { defaultLayerId: l1 } = ok(
+    await s.create({ docId: "last-layer", name: "Doc", artboards, actor: "a" }),
+  );
+  const [l2 = ""] = ok(await s.createNodes([{ type: "layer" }], "agent-a")).createdIds;
+  const { txId } = ok(await s.begin("agent-a"));
+  ok(await s.deleteNodes([l1], "agent-a", { txId }));
+  expect(await s.deleteNodes([l2], "agent-a", { txId })).toMatchObject({
+    error: { code: "LAST_LAYER", nodeIds: [l2] },
+  });
+  ok(await s.deleteNodes([l2], "agent-b"));
+  const { rev } = ok(await s.info());
+  expect(await s.commitTx(txId, "agent-a")).toMatchObject({
+    error: {
+      code: "TREE_CONFLICT",
+      nodeIds: [l1],
+      message: expect.stringContaining(`${l1}: No top-level Layer would remain.`),
+      hint: expect.stringContaining("kalamo_tx_rollback"),
+    },
+  });
+  expect(await s.info()).toMatchObject({ rev });
+  ok(await s.rollback(txId, "agent-a"));
+  const { nodes } = ok(await s.outline({ depth: 1 }, "agent-a"));
+  expect(nodes.map((n) => n.id)).toEqual([l1]);
+  await reopens(s, "last-layer-copy");
+});
+
 it("skips an undone move that would now make a cycle, and names it in doc_changes (ADR-0072)", async () => {
   const { s, l, g1, g2 } = await withGroups("tree3");
   ok(await s.reparentNodes([{ nodeId: g1, parentId: g2 }], "agent-a"));

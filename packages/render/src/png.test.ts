@@ -11,6 +11,7 @@ import {
   type Node,
   parseDocument,
   pathOp,
+  placeNodes,
   type Rect,
   transformNodes,
   updateNodes,
@@ -809,6 +810,42 @@ it("draws a Clipping Mask's content only inside its Clipping Path", async () => 
   const drawn = await ink(toSvg(doc));
   expect(drawn.some(([x, y]) => x === 50 && y === 50)).toBe(true);
   expect(drawn.every(([x, y]) => x >= 39 && x <= 60 && y >= 39 && y <= 60)).toBe(true);
+});
+
+it("draws Illustrator's painted <use> Clip Group, opened or placed, as Illustrator does: its Fill behind, its Stroke unclipped (ADR-0056)", async () => {
+  const file =
+    parseFile(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 100 100" width="100" height="100">
+    <g><defs><rect id="SVGID_1_" x="20" y="20" width="50" height="40"/></defs>
+    <use xlink:href="#SVGID_1_" style="overflow:visible;fill:#00FF00;"/>
+    <clipPath id="SVGID_2_"><use xlink:href="#SVGID_1_" style="overflow:visible;"/></clipPath>
+    <rect style="clip-path:url(#SVGID_2_);fill:#FF0000;" width="40" height="100"/>
+    <use xlink:href="#SVGID_1_" style="overflow:visible;fill:none;stroke:#0000FF;stroke-width:4;stroke-miterlimit:10;"/></g></svg>`);
+  expect(file.warnings).toEqual([]);
+  const opened = {
+    ...createDocument({ id: "d", name: "Doc", artboards: [] }).doc,
+    artboards: file.artboards.map((a) => ({ ...a, background: "#FFFFFF" })),
+    nodes: new Map(file.nodes.map((n) => [n.id, n])),
+  };
+  const placed = createDocument({
+    id: "p",
+    name: "Doc",
+    artboards: [{ width: 100, height: 100, background: "#FFFFFF" }],
+  });
+  const { warnings } = placeNodes(placed.doc, file, {
+    parentId: placed.defaultLayerId,
+    inPlace: true,
+  });
+  expect(warnings).toEqual([]);
+  for (const doc of [opened, placed.doc]) {
+    const { pixels, width } = await svgToPixels(renderSvg(doc), 1);
+    const at = (x: number, y: number) => [
+      ...pixels.subarray((y * width + x) * 4, (y * width + x) * 4 + 3),
+    ];
+    expect(at(30, 40), doc.id).toEqual([255, 0, 0]); // content inside the clip
+    expect(at(10, 40), doc.id).toEqual([255, 255, 255]); // content outside it
+    expect(at(55, 40), doc.id).toEqual([0, 255, 0]); // the Clipping Path's Fill, behind the content
+    expect(at(71, 40), doc.id).toEqual([0, 0, 255]); // its Stroke's outer half, unclipped
+  }
 });
 
 it("draws a soft hyphen as nothing, in a line, at a break and as a Clipping Path (ADR-0094)", async () => {
