@@ -1094,13 +1094,13 @@ export class DocumentObject extends DurableObject<Env> {
     const { created, updated, deletedIds } = change;
     const { txId, rev, actor, opts, skipped = [] } = meta;
     const written = [...created, ...updated];
-    const area = union([
+    const changed = union([
       ...written.map((n) => bounds(after, n)),
       ...deletedIds.map((id) => bounds(before, before.nodes.get(id) as Node)),
     ]);
     const { intent = null, commandId } = opts;
     if (opts.txId) {
-      this.broadcast({ type: "staged", txId, actor, intent, bounds: area });
+      this.broadcast({ type: "staged", txId, actor, intent, bounds: changed });
     } else {
       const skippedIds = skipped.length > 0 ? skipped : undefined;
       this.broadcast({
@@ -1110,7 +1110,7 @@ export class DocumentObject extends DurableObject<Env> {
         actor,
         intent,
         ...change,
-        bounds: area,
+        bounds: changed,
         commandId,
         skippedIds,
       });
@@ -1124,7 +1124,7 @@ export class DocumentObject extends DurableObject<Env> {
       updatedIds: updated.map((n) => n.id),
       deletedIds,
       keyMap: meta.keyMap ?? {},
-      bounds: area,
+      bounds: changed,
       warnings: meta.warnings ?? [],
       ...(areas.length > 0 && {
         lineBounds: Object.fromEntries(areas.map((n) => [n.id, lineBounds(after, n)])),
