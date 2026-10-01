@@ -83,7 +83,7 @@ Saying how a copy is stored steered every Agent away from `kalamo_node_duplicate
 
 Amended by #244. After #235, 2 of 6 grid runs still listed 99 rects in one `kalamo_node_create`, at about 10k output tokens, $0.48 and 85–92 s, against about 2.2k, $0.31 and 30 s for a run that copied. drawing-conventions now names the two repeat routes and gives the cost of listing every shape as the reason: for a grid of equal rects with equal gaps, one rect covering the grid split with `kalamo_path_op` `split_into_grid` (`rows`, `cols`, `gutter`); for a row of any other Node, `kalamo_node_duplicate` with `count` and `offset`, then the row duplicated for the other rows. `kalamo_path_op`'s `split_into_grid` text says the rects are `gutter` apart and that one rect covering a grid becomes it, and `kalamo_node_create` points at both routes in one sentence. Neither says how a copy is stored. The grid task's MCP check now also fails a run whose `kalamo_node_create` calls list more than 10 rects in all, so one row drawn by hand and duplicated still passes.
 
-Grid runs on Opus 5.5, 2026-10-02, `.wrangler/bench` cleared first. No run paid a cold cache write: every run wrote the same 17k.
+Grid runs on Opus 5.5, 2026-10-02, `.wrangler/bench` cleared first. Every run wrote the same 17k to the cache, so none is a cold-cache outlier; the per-run table is on #244.
 
 | Wording | Runs | Split one rect | Duplicated | Listed the rects | Failed the check |
 |---|---|---|---|---|---|

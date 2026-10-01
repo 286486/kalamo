@@ -68,7 +68,7 @@ describe("grid", () => {
     };
     return { calls, logged };
   };
-  const grid0 = async (logged: Call, inGroup = false) => {
+  const emptyGrid = async (logged: Call, inGroup = false) => {
     const { docId } = (
       await logged("kalamo_doc_create", { name: "Bench", artboards: [{ width: 600, height: 600 }] })
     ).structuredContent;
@@ -81,7 +81,7 @@ describe("grid", () => {
   };
   const byHand = async (count: number, inGroup = false) => {
     const { calls, logged } = logging();
-    const { docId, parentId } = await grid0(logged, inGroup);
+    const { docId, parentId } = await emptyGrid(logged, inGroup);
     const nodes = Array.from({ length: count }, (_, k) => cell(parentId, k));
     await logged("kalamo_node_create", { docId, nodes });
     return { docId, trace: { calls, commits: [] } };
@@ -109,7 +109,7 @@ describe("grid", () => {
 
   it("accepts one row drawn by hand, then duplicated down", async () => {
     const { calls, logged } = logging();
-    const { docId, parentId } = await grid0(logged);
+    const { docId, parentId } = await emptyGrid(logged);
     const nodes = Array.from({ length: 10 }, (_, k) => cell(parentId, k));
     const { createdIds } = (await logged("kalamo_node_create", { docId, nodes })).structuredContent;
     await logged("kalamo_node_duplicate", {
@@ -123,7 +123,7 @@ describe("grid", () => {
 
   it("accepts one rect split into the grid", async () => {
     const { calls, logged } = logging();
-    const { docId, parentId } = await grid0(logged);
+    const { docId, parentId } = await emptyGrid(logged);
     const square = { ...cell(parentId, 0), width: 490, height: 490 };
     const { createdIds } = (await logged("kalamo_node_create", { docId, nodes: [square] }))
       .structuredContent;

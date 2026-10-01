@@ -888,7 +888,7 @@ describe("pathOp split_into_grid", () => {
     expect(cells.map((c) => [c.x, c.y, c.width, c.height])).toEqual(
       at.flatMap((y) => at.map((x) => [x, y, 40, 40])),
     );
-    for (const c of cells) expect(c.transform ?? [1, 0, 0, 1, 0, 0]).toEqual([1, 0, 0, 1, 0, 0]);
+    for (const c of cells) expect(c.transform).toEqual([1, 0, 0, 1, 0, 0]);
   });
 
   it("refuses gutters that leave no room", () => {

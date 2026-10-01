@@ -1,10 +1,15 @@
 import { assert, type Bounds, type Check, n3, openSvg, type SvgCheck } from "./mcp.ts";
 
 type Listed = { type?: string; children?: Listed[] };
-const rectsIn = (nodes: Listed[] = []): number =>
-  nodes.reduce((k, n) => k + (n.type === "rect" ? 1 : 0) + rectsIn(n.children), 0);
+const rectsIn = (nodes: unknown): number =>
+  Array.isArray(nodes)
+    ? nodes.reduce(
+        (k: number, n: Listed) => k + (n.type === "rect" ? 1 : 0) + rectsIn(n.children),
+        0,
+      )
+    : 0;
 
-/** More than one row of 10 drawn by hand: the Agent listed the grid instead of repeating a rect. */
+/** One row of 10 drawn by hand passes; more means the Agent listed the grid instead of repeating. */
 const MAX_LISTED = 10;
 
 const check: Check = async (call, docId, _tools, trace) => {
