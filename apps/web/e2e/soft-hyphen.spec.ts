@@ -2,8 +2,8 @@ import { expect, test } from "@playwright/test";
 import { call } from "./mcp.ts";
 
 // #227: a soft hyphen draws nothing and takes no width on the canvas, in a line and at a break,
-// tracked or not, and as a text Clipping Path's glyphs (ADR-0094).
-test("the canvas draws a soft hyphen as nothing, its text as the same text without it", async ({
+// tracked or not, and as a text Clipping Path's glyphs, which hit-test as drawn (ADR-0094).
+test("the canvas draws a soft hyphen as nothing, and a click past one hits its text", async ({
   page,
   request,
 }) => {
@@ -13,12 +13,12 @@ test("the canvas draws a soft hyphen as nothing, its text as the same text witho
       artboards: [{ width: 200, height: 200 }],
     })
   ).structuredContent;
-  const SHY = "­";
+  const SHY = "\u00AD";
   // Each pair is a row 50 pt tall: the text with soft hyphens on the left, without on the right.
   const pairs = [
     [{ content: `ab${SHY}cd` }, { content: "abcd" }],
     [
-      { content: `ab${SHY}cd`, tracking: 300 },
+      { content: `ab${SHY}cd`, tracking: 300, name: "Tracked" },
       { content: "abcd", tracking: 300 },
     ],
     [
@@ -75,4 +75,38 @@ test("the canvas draws a soft hyphen as nothing, its text as the same text witho
   await expect.poll(async () => (await halves()).every(([a, b]) => a === b)).toBe(true);
   // Each row draws something.
   for (const [a] of await halves()) expect(a).toMatch(/(^|,)0,0,0,255/);
+
+  // A click on the ink of `d`, past the soft hyphen, hits the tracked text, and inside a text
+  // Clipping Path's `d` hits what it clips (ADR-0052).
+  const box = await page.getByTestId("canvas").boundingBox();
+  if (!box) throw new Error("no canvas");
+  /** The rightmost inked column in pt of a row's left half, `y` pt into the row. */
+  const lastInk = (row: number, y: number) =>
+    page.getByTestId("canvas").evaluate(
+      (el: HTMLCanvasElement, { row, y }) => {
+        const k = el.width / el.getBoundingClientRect().width;
+        const [x0, y0] = [el.width / 2 - 100 * k, el.height / 2 - 100 * k];
+        const data = el.getContext("2d")?.getImageData(x0, y0 + (row * 50 + y) * k, 96 * k, 1).data;
+        let last = -1;
+        for (let i = 0; i < (data?.length ?? 0); i += 4) if ((data?.[i] ?? 255) < 64) last = i / 4;
+        return last / k;
+      },
+      { row, y },
+    );
+  const click = async (row: number, y: number) => {
+    const x = (await lastInk(row, y)) - 1;
+    await page.mouse.click(
+      box.x + box.width / 2 - 100 + x,
+      box.y + box.height / 2 - 100 + row * 50 + y,
+    );
+  };
+  const pressed = page.locator('[aria-pressed="true"]');
+  await click(1, 25);
+  await expect(page.getByRole("button", { name: "Tracked", exact: true })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await page.mouse.click(box.x + 5, box.y + 5);
+  await click(3, 25);
+  await expect(pressed.filter({ hasText: "<Clip Group>" })).toHaveCount(1);
 });

@@ -831,9 +831,14 @@ it("draws a soft hyphen as nothing, in a line, at a break and as a Clipping Path
   };
   expect(await drawn({ content: "a\u00ADb" })).toEqual(await drawn({ content: "ab" }));
   expect(await drawn({ content: "a\u00ADb" }, true)).toEqual(await drawn({ content: "ab" }, true));
-  const frame = { kind: "area", x: 10, y: 10, width: 140, height: 140, tracking: 0 };
+  const frame = { kind: "area", x: 10, y: 10, width: 140, height: 140 };
+  expect(await drawn({ ...frame, content: "xx x\u00ADyyy", tracking: 0 })).toEqual(
+    await drawn({ ...frame, content: "xx x yyy", tracking: 0 }),
+  );
+  // Tracked, the x's tracking before a soft hyphen that ends a line counts, as in Inkscape 1.2.2:
+  // `xx ` · `x{SHY}` · `yyy`, the last overflowing, where `xx x` alone fits.
   expect(await drawn({ ...frame, content: "xx x\u00ADyyy" })).toEqual(
-    await drawn({ ...frame, content: "xx x yyy" }),
+    await drawn({ ...frame, content: "xx \nx" }),
   );
 });
 

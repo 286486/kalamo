@@ -819,6 +819,11 @@ it("measures and draws a soft hyphen at no width and no tracking, inside a line 
   expect(g[6]).toMatchObject({ char: "\u00AD", width: 0 });
   expect(g[7]?.x).toBe(0);
   expect(linesBox(wrapped)).toEqual(linesBox({ ...frame, content: "xxxx x yyyyyy" }));
+  // Tracked, the tracking before a soft hyphen that ends a line counts, as Inkscape 1.2.2 saves it.
+  const tracked = { ...frame, width: 140, fontSize: 60, tracking: 200 };
+  const lines = (content: string) => layoutText({ ...tracked, content }).lines.map((l) => l.text);
+  expect(lines("xx x\u00ADyyy")).toEqual(["xx ", "x\u00AD", "yyy"]);
+  expect(lines("xx x yyy")).toEqual(["xx x ", "yyy"]);
 });
 
 // Noto Sans SC draws each ideograph and CJK punctuation mark 1000 units wide, 12pt at fontSize 12.
