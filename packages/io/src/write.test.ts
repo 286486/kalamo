@@ -1020,6 +1020,18 @@ it("writes a Layer Clipping Mask as clip-path on the layer <g> with an inline <c
   );
 });
 
+it("clips a Node drawn in a clipped Layer after Make, above its Clipping Path, inside the layer <g> (ADR-0053)", () => {
+  const { doc, layer } = clippedLayer();
+  const [above] = createNodes(doc, [
+    { type: "rect", parentId: layer.id, x: 0, y: 0, width: 20, height: 20 },
+  ]).nodes as [ShapeNode];
+  expect(toSvg(doc)).toMatch(
+    new RegExp(
+      `<g id="z-${layer.id}"[^>]*clip-path="url\\(#clip-z-${layer.id}\\)">.*</clipPath><rect [^>]*id="z-${above.id}"[^>]*/></g>`,
+    ),
+  );
+});
+
 it("wraps a stroked Layer Clipping Mask's content, sublayers included, inside the layer <g> (ADR-0053)", () => {
   const { doc, layer, sub, clip } = clippedLayer();
   updateNodes(doc, [

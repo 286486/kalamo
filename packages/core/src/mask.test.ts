@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { bounds, childrenOf, createDocument, createNodes } from "./document.ts";
+import { updateNodes } from "./edit.ts";
 import { KalamoError } from "./errors.ts";
 import { makeMask, releaseMask } from "./mask.ts";
 import type { Node, TextNode } from "./schema.ts";
+import { textWarnings } from "./text.ts";
 
 const errorOf = (fn: () => unknown) => {
   try {
@@ -104,6 +106,20 @@ describe("makeMask", () => {
     } as Node);
     makeMask(s.doc, { clipNodeId: s.text.id, contentIds: [s.a.id] });
     expect(s.doc.nodes.get(s.text.id)).not.toHaveProperty("ranges");
+  });
+
+  it("keeps a text Clipping Path editable: the Clip Group follows its content, and it warns as any text (ADR-0052)", () => {
+    const s = scene();
+    const { group } = makeMask(s.doc, { clipNodeId: s.text.id, contentIds: [s.a.id] });
+    const before = bounds(s.doc, group);
+    const { nodes } = updateNodes(s.doc, [
+      { nodeId: s.text.id, patch: { content: "Hello", fontFamily: "Futura" } },
+    ]);
+    const text = s.doc.nodes.get(s.text.id) as Node;
+    expect(text).toMatchObject({ clipping: true, content: "Hello" });
+    expect(bounds(s.doc, group)).toEqual(bounds(s.doc, text));
+    expect(bounds(s.doc, group)?.width).toBeGreaterThan(before?.width as number);
+    expect(textWarnings(nodes)).toMatchObject([{ code: "FONT_MISSING", nodeId: s.text.id }]);
   });
 
   it("clips a Group", () => {
