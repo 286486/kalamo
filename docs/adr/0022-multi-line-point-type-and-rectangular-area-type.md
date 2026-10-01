@@ -35,7 +35,7 @@ resvg ignores `shape-inside` and draws the tspans where they are written, so `re
 
 Import:
 
-- A `<text>` with `sodipodi:role="line"` tspans is one Point Type: the lines joined by `\n`, empty lines kept; `x, y` and the style from the first line. Amended by ADR-0077: `text-anchor` and `text-align` are read as the text's `alignment`, `x` stays the anchor, and nothing warns `text-anchor`.
+- A `<text>` with `sodipodi:role="line"` tspans is one Point Type: the lines joined by `\n`, empty lines kept; `x, y` and the style from the first line. Amended by ADR-0077: `text-anchor` and `text-align` are read as the text's `alignment`, `x` stays the anchor, and nothing warns `text-anchor`. Amended by ADR-0091: a `<text>` with neither line tspans nor a frame takes its lines from its direct tspans that set `x` and move the baseline down, its leading from their step.
 - A `<text>` whose `shape-inside` names a `<rect>` with no transform of its own is Area Type: the frame is the rect, mapped by the text's matrix like any leaf's parameters, and `content` is the element's text content, with returns kept under `white-space: pre`, `pre-wrap` or `pre-line`. Tspan positions are ignored; the layout is recomputed. A missing reference imports Point Type with `UNSUPPORTED_ATTRIBUTE` `shape-inside`. Amended by ADR-0078: a closed circle, ellipse, polygon, polyline, path or transformed rect imports as that shaped frame without a warning, and any other shape imports as Point Type with the warning.
 - `line-height` becomes `leading`: unitless `1.2` or `normal` or none is Auto, another unitless or percentage value is that multiple of `fontSize`, a length converts to pt. A baked scale scales `leading`, `width` and `height` with `fontSize`.
 

@@ -180,7 +180,10 @@ const UNBAKED = { k: 1, tx: 0, ty: 0 };
 interface Char {
   char: string;
   style: Style;
-  /** The line tspan it sits in, if any, and that line's style: the text's, outside one. */
+  /**
+   * The direct tspan of its text it sits in, if any, and its line's style: an Inkscape line tspan's,
+   * else the text's.
+   */
   line: { el?: Element; style: Style };
   /** The sum of the `baseline-shift` lengths around it, in its text's user units. */
   shift: number;
@@ -1052,8 +1055,9 @@ class Reader {
       } else if ((c as Element).localName === "tspan") {
         const t = c as Element;
         const s = computeStyle(t, style, this.rules);
-        const isLine = e.localName === "text" && t.getAttributeNS(NS.sodipodi, "role") === "line";
-        out.push(...this.chars(t, s, shift + this.shift(s), isLine ? { el: t, style: s } : line));
+        const isLine = t.getAttributeNS(NS.sodipodi, "role") === "line";
+        const top = e.localName === "text" ? { el: t, style: isLine ? s : line.style } : line;
+        out.push(...this.chars(t, s, shift + this.shift(s), top));
       }
     }
     const angles = numbers(e.getAttribute("rotate")).filter(Number.isFinite);
@@ -1161,7 +1165,17 @@ class Reader {
     const [line] = tspans;
     const own = line ? computeStyle(line, style, this.rules) : style;
     const fontSize = round3((length(own["font-size"]) ?? 12) * k);
-    const leading = lineHeight(own["line-height"], fontSize, k);
+    const all = this.chars(e, style, 0, { style });
+    const frame = this.frame(style);
+    const positioned = frame || line ? undefined : this.positioned(e, style, all);
+    const [p0, p1] = positioned ?? [];
+    const step = p0 && p1 && round3((p1.y - p0.y) * k);
+    const leading =
+      step === undefined
+        ? lineHeight(own["line-height"], fontSize, k)
+        : step === round3(fontSize * 1.2)
+          ? undefined
+          : step;
     const fontStyle = fontStyleOf(own);
     const tracking = trackingOf(own, length(own["font-size"]) ?? 12);
     const text = {
@@ -1194,17 +1208,17 @@ class Reader {
       return out;
     };
     const joined = (list: Char[]) => list.map((c) => c.char).join("");
-    const all = this.chars(e, style, 0, { style });
     // A rotate list indexes the characters SVG addresses: preserved, every one; collapsed, those left.
     if (preserve) rotate(all);
-    const frame = this.frame(style);
     // One alignment per text (ADR-0077): the first line's, a later line that differs warning once.
-    const alignment = frame ? areaAlignment(style) : pointAlignment(own);
+    const lead = p0?.el ? computeStyle(p0.el, style, this.rules) : own;
+    const alignment = frame ? areaAlignment(style) : pointAlignment(lead);
     if (!frame) {
-      for (const t of tspans.slice(1)) {
+      const later = positioned ? positioned.slice(1).flatMap((l) => l.el ?? []) : tspans.slice(1);
+      for (const t of later) {
         const other = computeStyle(t, style, this.rules);
         if (pointAlignment(other) === alignment) continue;
-        const p = other["text-anchor"] !== own["text-anchor"] ? "text-anchor" : "text-align";
+        const p = other["text-anchor"] !== lead["text-anchor"] ? "text-anchor" : "text-align";
         this.warn(
           "UNSUPPORTED_ATTRIBUTE",
           p,
@@ -1241,22 +1255,24 @@ class Reader {
       };
       return { shape, style };
     }
-    const lines = tspans.length
-      ? tspans.map((t) => clean(all.filter((c) => c.line.el === t)))
-      : [clean(all)];
+    const lines = positioned
+      ? positioned.map((l) => clean(l.chars))
+      : tspans.length
+        ? tspans.map((t) => clean(all.filter((c) => c.line.el === t)))
+        : [clean(all)];
     if (!preserve) rotate(lines.flat());
     const content = lines.map(joined).join("\n");
     if (!content.trim()) return null;
     const first = (name: string) =>
       numbers(line?.getAttribute(name) ?? null)[0] ?? numbers(e.getAttribute(name))[0] ?? 0;
-    const x = k * first("x") + tx;
+    const x = k * (p0?.x ?? first("x")) + tx;
     const ranges = this.ranges(
       lines.flatMap((l, i) => (i ? [undefined, ...l] : l)),
       own,
       k,
       text,
     );
-    const y = round3(k * first("y") + ty);
+    const y = round3(k * (p0?.y ?? first("y")) + ty);
     const shape = {
       ...text,
       kind: "point",
@@ -1267,6 +1283,73 @@ class Reader {
       ...(ranges && { ranges }),
     };
     return { shape, style: own };
+  }
+
+  /**
+   * A Point Type's lines from its direct tspans' positions, as a renderer places them (ADR-0091): a
+   * tspan with an `x` whose baseline lies below its line's starts a line, every character joining
+   * the last line started before it. Positions before any character only move the first line.
+   * Positions dropped warn, and lines at another `x` or step than the first two's warn.
+   */
+  private positioned(e: Element, style: Style, all: Char[]) {
+    const dropped = () =>
+      this.warn(
+        "UNSUPPORTED_ATTRIBUTE",
+        "tspan position",
+        "A text's or tspan's x, y, dx or dy that starts no line is not supported yet: a dx, a nested tspan's position, a same or higher baseline, an x alone, a list's later values or an unreadable length; those characters import in the line's flow.",
+      );
+    const at = (el: Element, name: string, s: Style) => {
+      const [value, ...rest] = (el.getAttribute(name) ?? "").split(/[\s,]+/).filter(Boolean);
+      if (value === undefined) return undefined;
+      if (rest.length) dropped();
+      const [, em] = /^\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?)em\s*$/i.exec(value) ?? [];
+      const v = em !== undefined ? Number(em) * (length(s["font-size"]) ?? 12) : length(value);
+      if (v === undefined) dropped();
+      return v;
+    };
+    const nested = (el: Element): boolean =>
+      elements(el).some(
+        (c) =>
+          (c.localName === "tspan" && ["x", "y", "dx", "dy"].some((n) => c.hasAttribute(n))) ||
+          nested(c),
+      );
+    if (elements(e).some(nested)) dropped();
+    if (e.hasAttribute("dx")) dropped();
+    let pos = (at(e, "y", style) ?? 0) + (at(e, "dy", style) ?? 0);
+    const first: { el?: Element; x: number; y: number; chars: Char[] } = {
+      x: at(e, "x", style) ?? 0,
+      y: pos,
+      chars: [],
+    };
+    const lines = [first];
+    let line = first;
+    let el: Element | undefined;
+    for (const c of all) {
+      if (c.line.el && c.line.el !== el) {
+        el = c.line.el;
+        const s = computeStyle(el, style, this.rules);
+        const [x, y, dy] = [at(el, "x", s), at(el, "y", s), at(el, "dy", s)];
+        if (el.hasAttribute("dx")) dropped();
+        const baseline = y ?? pos + (dy ?? 0);
+        if (line === first && line.chars.every((ch) => /\s/.test(ch.char))) {
+          Object.assign(line, { el, x: x ?? line.x, y: baseline });
+        } else if (x !== undefined && baseline > line.y) {
+          line = { el, x, y: baseline, chars: [] };
+          lines.push(line);
+        } else if (x !== undefined || y !== undefined || dy !== undefined) dropped();
+        pos = baseline;
+      }
+      line.chars.push(c);
+    }
+    const steps = lines.slice(1).map((l, i) => round3(l.y - (lines[i]?.y ?? 0)));
+    if (lines.some((l) => l.x !== first.x) || steps.some((s) => s !== steps[0])) {
+      this.warn(
+        "UNSUPPORTED_ATTRIBUTE",
+        "tspan line position",
+        "Positioned lines of one text at different x, or stepping by different distances, are not supported yet; every line takes the first line's x, and the first step is the leading.",
+      );
+    }
+    return lines;
   }
 
   /**
