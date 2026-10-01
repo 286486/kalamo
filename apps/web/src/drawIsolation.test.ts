@@ -305,6 +305,7 @@ it("a tab switched away while the create is in flight keeps the leaf isolated on
       constructor() {
         socket = this;
       }
+      send() {}
       close() {}
     },
   );

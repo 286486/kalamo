@@ -10,6 +10,8 @@ it("keeps each Document Tab's Isolation while another tab is shown, and none for
   vi.stubGlobal(
     "WebSocket",
     class {
+      static OPEN = 1;
+      readyState = 0;
       close() {}
     },
   );

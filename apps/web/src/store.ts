@@ -11,6 +11,7 @@ import {
 import { create } from "zustand";
 import { parseKey } from "./direct.ts";
 import type { ImageCache } from "./images.ts";
+import { type Cursor, presenceSender } from "./presence.ts";
 import { afterProbe, type Probe, receive, type ViewState } from "./receive.ts";
 import type { Tool, ToolGroup } from "./toolbox.ts";
 import type { FillStroke } from "./tools.ts";
@@ -36,6 +37,8 @@ export interface State extends ViewState {
   front: Partial<Record<ToolGroup, Tool>>;
   /** The Fill and Stroke boxes, kept across Document Tabs as in Illustrator. */
   fillStroke: FillStroke;
+  /** The shown Document's Actors' names, by Actor id, from its Actor rows (ADR-0090). */
+  actorNames: ReadonlyMap<string, string>;
 }
 
 /** Illustrator's default: a white Fill and a 1 pt black Stroke. */
@@ -69,6 +72,8 @@ export const useStore = create<State>(() => ({
   tool: "selection",
   front: {},
   fillStroke: DEFAULT_FILL_STROKE,
+  peers: new Map(),
+  actorNames: new Map(),
 }));
 
 // Selected Anchors and segments live only on selected Nodes, whatever changed the Selection.
@@ -96,6 +101,11 @@ export const canEdit = (s: Pick<State, "role">) => s.role !== "viewer";
 export const VIEWER_TOOLS: readonly Tool[] = ["selection", "zoom"];
 
 let socket: WebSocket | null = null;
+/** The shown Document's presence sender; null between tabs. */
+let presence: ReturnType<typeof presenceSender> | null = null;
+
+/** The pointer over the canvas in document coordinates, or null once it is off it (ADR-0090). */
+export const pointerAt = (cursor: Cursor) => presence?.update({ cursor });
 
 /**
  * Each Document Tab's viewport, Selection and Isolation while another tab is shown, for the page's
@@ -129,6 +139,18 @@ async function probe(docId: string): Promise<Probe> {
   }
 }
 
+/** The Document's Actor rows' names; none when the request fails, so ids label them. */
+async function actorNames(docId: string): Promise<Map<string, string>> {
+  try {
+    const res = await fetch(`/api/docs/${docId}/actors`);
+    if (!res.ok) return new Map();
+    const { actors } = (await res.json()) as { actors: { actorId: string; name: string }[] };
+    return new Map(actors.map((a) => [a.actorId, a.name]));
+  } catch {
+    return new Map();
+  }
+}
+
 /**
  * Shows a Document (ADR-0009) until the returned function is called. Only the active tab is
  * connected, so switching tabs starts over from the Document sent on connect (ADR-0030).
@@ -151,9 +173,26 @@ export function connect(docId: string): () => void {
     selection: [],
     isolated: null,
     layerRows: [],
+    peers: new Map(),
+    actorNames: new Map(),
     ...views.get(docId),
   });
   let ws: WebSocket;
+  const sender = presenceSender((msg) => {
+    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+  }, useStore.getState().selection);
+  presence = sender;
+  const unwatch = useStore.subscribe((s, prev) => {
+    if (s.selection !== prev.selection) sender.update({ selection: s.selection });
+  });
+  /** The Actors this connection fetched the names for, at most once each. */
+  let asked = new Set<string>();
+  const nameActors = (actors: string[]) => {
+    for (const a of actors) asked.add(a);
+    actorNames(docId).then((names) => {
+      if (!stopped) useStore.setState({ actorNames: names });
+    });
+  };
   let retry: ReturnType<typeof setTimeout>;
   let stopped = false;
   /** Set by a 4003 close until a Document arrives: failing then means access was removed. */
@@ -177,6 +216,18 @@ export function connect(docId: string): () => void {
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data) as ServerMessage;
       const next = receive(useStore.getState(), msg, docId);
+      // A new socket is a new Peer to the others: it sends its presence in full; and so does every
+      // socket when one joins, which asks for it (ADR-0090).
+      if (msg.type === "document" || msg.type === "joined") sender.resend();
+      if (msg.type === "document") {
+        asked = new Set();
+        nameActors(msg.peers.map((p) => p.actor));
+      } else if (
+        (msg.type === "presence" || msg.type === "joined") &&
+        !asked.has(msg.actor) &&
+        !useStore.getState().actorNames.has(msg.actor)
+      )
+        nameActors([msg.actor]);
       if (msg.type === "document") {
         accessChanged = false;
         const { tool } = useStore.getState();
@@ -194,7 +245,8 @@ export function connect(docId: string): () => void {
       }
       if (accessChanged) return stop("This Document is no longer shared with you.");
       accessChanged = e.code === ACCESS_CHANGED;
-      useStore.setState({ live: false });
+      // The Peers come again with the next socket's Document.
+      useStore.setState({ live: false, peers: new Map() });
       if (opened) return later();
       // The upgrade's refusal is unreadable (1006); the same check over HTTP says why.
       probe(docId).then((p) => {
@@ -214,6 +266,9 @@ export function connect(docId: string): () => void {
     views.set(docId, { viewport, selection, isolated, layerRows });
     stopped = true;
     clearTimeout(retry);
+    sender.stop();
+    unwatch();
+    presence = null;
     socket = null;
     ws.close();
   };

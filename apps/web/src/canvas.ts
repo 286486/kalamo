@@ -1,5 +1,6 @@
-import { formatPath, type Rect, Shape, shapeSegments } from "@kalamo/core";
+import { bounds, type Document, formatPath, type Rect, Shape, shapeSegments } from "@kalamo/core";
 import { forNewArt, leaving } from "./isolation.ts";
+import { colorOf, labelOf, type Peers } from "./presence.ts";
 import { copyInput, type PendingCreate } from "./receive.ts";
 import { send, useStore } from "./store.ts";
 import type { ToolEvent } from "./toolbox.ts";
@@ -125,4 +126,54 @@ export function commitDrag() {
 export function cancelDrag() {
   if (useStore.getState().drag?.commandId === null) useStore.setState({ drag: null });
   if (useStore.getState().edit?.commandIds === null) useStore.setState({ edit: null });
+}
+
+/**
+ * The other Peers' Selections, as each selected Node's bounds 1 screen px wide, and cursors, as an
+ * arrow with a pill holding the label, each in its Actor's colour (ADR-0090). Ids `doc` lacks are
+ * skipped.
+ */
+export function drawPeers(
+  ctx: CanvasRenderingContext2D,
+  doc: Document,
+  peers: Peers,
+  names: ReadonlyMap<string, string>,
+  scale: number,
+) {
+  ctx.save();
+  ctx.lineWidth = 1 / scale;
+  for (const { actor, selection } of peers.values()) {
+    ctx.strokeStyle = colorOf(actor);
+    for (const id of selection) {
+      const node = doc.nodes.get(id);
+      const b = node && bounds(doc, node);
+      if (b) ctx.strokeRect(b.x, b.y, b.width, b.height);
+    }
+  }
+  ctx.font = "11px system-ui, sans-serif";
+  ctx.textBaseline = "middle";
+  for (const { actor, cursor } of peers.values()) {
+    if (!cursor) continue;
+    const color = colorOf(actor);
+    const label = labelOf(names, actor);
+    ctx.save();
+    // Screen px from here, with ARROW's tip at the cursor.
+    ctx.translate(cursor.x, cursor.y);
+    ctx.scale(1 / scale, 1 / scale);
+    ctx.translate(-4, -2);
+    const arrow = new Path2D(ARROW);
+    ctx.fillStyle = color;
+    ctx.fill(arrow);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "#FFFFFF";
+    ctx.stroke(arrow);
+    const width = ctx.measureText(label).width + 8;
+    ctx.beginPath();
+    ctx.roundRect(12, 14, width, 16, 4);
+    ctx.fill();
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillText(label, 16, 22);
+    ctx.restore();
+  }
+  ctx.restore();
 }

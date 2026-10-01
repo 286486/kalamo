@@ -3,7 +3,7 @@ import { toSvg } from "@kalamo/io/write";
 import { drawDocument } from "@kalamo/render/canvas";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { AnchorsBar } from "./AnchorsBar.tsx";
-import { drawPending, SELECTION } from "./canvas.ts";
+import { drawPeers, drawPending, SELECTION } from "./canvas.ts";
 import { anchorsOf, hasAnchors } from "./direct.ts";
 import { drawnLazyFamilies, loadFamily } from "./fonts.ts";
 import { GradientPanel } from "./GradientPanel.tsx";
@@ -16,7 +16,7 @@ import { pastedArt, place, placeable } from "./place.ts";
 import { preview, previewEdit, previewOp } from "./receive.ts";
 import { editable } from "./selection.ts";
 import { simplifyOpen } from "./simplify.ts";
-import { canEdit, connect, send, useStore } from "./store.ts";
+import { canEdit, connect, pointerAt, send, useStore } from "./store.ts";
 import { Tools } from "./Tools.tsx";
 import {
   type CanvasTool,
@@ -75,6 +75,8 @@ export function Viewer({ docId }: { docId: string }) {
     gradientShown,
     paintPreview,
     tool,
+    peers,
+    actorNames,
   } = useStore();
   /** Space held: drag pans. */
   const [hand, setHand] = useState(false);
@@ -127,6 +129,15 @@ export function Viewer({ docId }: { docId: string }) {
       stop();
     };
   }, [docId]);
+
+  // A hidden window shows no cursor to the Peers (ADR-0090).
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.hidden) pointerAt(null);
+    };
+    addEventListener("visibilitychange", onVisibility);
+    return () => removeEventListener("visibilitychange", onVisibility);
+  }, []);
 
   useEffect(() => {
     if (doc) document.title = `${doc.name} – Kalamo`;
@@ -200,6 +211,7 @@ export function Viewer({ docId }: { docId: string }) {
     const ctx = sized(overlayCanvas.current, size, viewport);
     if (!ctx) return;
     const { scale } = viewport;
+    drawPeers(ctx, shown, peers, actorNames, scale);
     ctx.lineWidth = 1 / scale;
     ctx.strokeStyle = SELECTION;
     const active = TOOLS[tool];
@@ -387,6 +399,7 @@ export function Viewer({ docId }: { docId: string }) {
   const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const ev = toolEvent(e);
     if (!ev) return;
+    pointerAt({ x: ev.x, y: ev.y });
     if (panning.current) {
       const v = ev.viewport;
       const dx = e.clientX - last.current.x;
@@ -427,6 +440,7 @@ export function Viewer({ docId }: { docId: string }) {
         onPointerUp={onPointerEnd}
         onPointerCancel={onPointerEnd}
         onPointerLeave={(e) => {
+          pointerAt(null);
           const ev = toolEvent(e);
           if (ev) for (const t of Object.values(TOOLS)) t.leave?.(ev);
         }}
