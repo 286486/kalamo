@@ -48,9 +48,16 @@ export const crossOrigin = (request: Request, env: Env) =>
 export const authenticate = (request: Request, env: Env): Promise<Principal | null> =>
   (githubMode(env) ? github : dev)(request, env);
 
-/** Dev mode: an MCP client by its dev token; every browser is the local User. */
+/** Dev mode: an MCP client by its dev token; a browser by its `kalamo_dev_user` cookie (ADR-0090). */
 async function dev(request: Request, env: Env) {
-  return isMcp(request) ? devPrincipal(request, env) : LOCAL;
+  return isMcp(request) ? devPrincipal(request, env) : devUser(request);
+}
+
+/** The User `kalamo_dev_user` names, with the Actor `user_<name>`; without a valid one, the local User. */
+function devUser(request: Request): Principal {
+  const name = readCookie(request, "kalamo_dev_user");
+  if (!name || !/^[a-z0-9-]{1,32}$/.test(name)) return LOCAL;
+  return { userId: name, actor: `user_${name}`, access: "write" };
 }
 
 /** GitHub mode: a browser by its session. `/mcp` takes its Principal from the OAuth token. */
@@ -124,7 +131,8 @@ export function authRoute(request: Request, env: Env): Promise<Response> | null 
 
 async function me(request: Request, env: Env) {
   if (!githubMode(env)) {
-    return Response.json({ userId: LOCAL.userId, login: "local", avatarUrl: null, mode: "dev" });
+    const { userId } = devUser(request);
+    return Response.json({ userId, login: userId, avatarUrl: null, mode: "dev" });
   }
   const user = await sessionUser(request, env);
   if (!user) return signInRequired();

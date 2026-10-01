@@ -20,7 +20,7 @@ import { MAX_REQUEST_BYTES, readCapped } from "./body.ts";
 import { imageKey } from "./document-object.ts";
 import { agentPrincipal, oauthProvider, oauthRoute, revokedChallenge } from "./oauth.ts";
 import { ownerStorage, QUOTAS } from "./quotas.ts";
-import { authorize, listDocuments, membersRoute } from "./roles.ts";
+import { actorsRoute, authorize, listDocuments, membersRoute } from "./roles.ts";
 import { documentService, unwrap } from "./service.ts";
 
 export { DocumentObject } from "./document-object.ts";
@@ -77,8 +77,8 @@ const app = {
       return placeBitmap(placeImage, request, env, principal);
     const relink = url.pathname.match(/^\/api\/docs\/([^/]+)\/relink-image$/)?.[1];
     if (relink && request.method === "POST") return relinkBitmap(relink, request, env, principal);
-    const members = membersRoute(request, env, principal);
-    if (members) return answer(() => members);
+    const roster = membersRoute(request, env, principal) ?? actorsRoute(request, env, principal);
+    if (roster) return answer(() => roster);
     const doc = url.pathname.match(/^\/api\/docs\/([^/]+)$/)?.[1];
     if (doc && request.method === "GET") return answer(() => readable(env, principal, doc));
     if (doc && request.method === "DELETE")
