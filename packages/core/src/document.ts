@@ -40,7 +40,7 @@ import {
   TextShape,
   textFrame,
 } from "./schema.ts";
-import { canonicalRanges, textBox } from "./text.ts";
+import { canonicalRanges, linesBox, textBox } from "./text.ts";
 
 /** Server-generated ULID for Documents, Nodes, Artboards and Transactions. */
 export const newId = () => ulid();
@@ -818,6 +818,14 @@ export const worldSegments = (doc: Document, n: LeafNode | ImageNode): Segment[]
         ),
     worldTransform(doc, n),
   );
+
+/** A text's shown lines' bounds in document coordinates (ADR-0089); null when none shows. */
+export function lineBounds(doc: Document, n: TextNode): Rect | null {
+  const box = linesBox(n);
+  return (
+    box && pathBounds(transformSegments(shapeSegments(frameShape(box)), worldTransform(doc, n)))
+  );
+}
 
 const worldOutline = (
   doc: Document,

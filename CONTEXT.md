@@ -267,7 +267,7 @@ _Avoid_: Version（保留给 schema 版本）、Etag、Snapshot
 _Avoid_: History（那是栈）、Changelog、Journal
 
 **WriteReceipt（写入回执）**：
-每个写工具的统一返回：`txId`、提交后的 `rev`、新增 / 修改 / 删除的 Node id、`clientKey` 到新 id 的 `keyMap`、受影响范围的 `bounds` 与 `warnings`。Agent 靠它确认改了什么，无需重读。`bounds` 是新增与修改的 Node 在写入后的几何 bounds、与删除的 Node 在写入前的 bounds 的并集；并集为空（例如只改了空 Group）时为 null。修改的 Node 只算新位置，不并入旧位置。每个入口（MCP、HTTP、Command、undo / redo、`tx_commit`、Place）都由 Document 按这一条规则算出。`partial: true` 时另附 `failed`：每个未生效项的下标与错误。Transaction 内的写入，`rev` 仍是已提交的修订号，`tx_commit` 时才递增。
+每个写工具的统一返回：`txId`、提交后的 `rev`、新增 / 修改 / 删除的 Node id、`clientKey` 到新 id 的 `keyMap`、受影响范围的 `bounds` 与 `warnings`。Agent 靠它确认改了什么，无需重读。`bounds` 是新增与修改的 Node 在写入后的几何 bounds、与删除的 Node 在写入前的 bounds 的并集；并集为空（例如只改了空 Group）时为 null。修改的 Node 只算新位置，不并入旧位置。每个入口（MCP、HTTP、Command、undo / redo、`tx_commit`、Place）都由 Document 按这一条规则算出。写入新增或修改了 Area Type 时另附 `lineBounds`：每个 Area Type 已显示各行的 bounds（文档坐标，首行升部到末行降部，不含行尾悬挂的空白），按 id 给出，一行也放不下时为 null；`bounds` 只给出框，Agent 据 `lineBounds` 让框或围住文字的矩形贴合文字（ADR-0089）。`partial: true` 时另附 `failed`：每个未生效项的下标与错误。Transaction 内的写入，`rev` 仍是已提交的修订号，`tx_commit` 时才递增。
 _Avoid_: Result、Response、Ack
 
 **Actor（参与者）**：
