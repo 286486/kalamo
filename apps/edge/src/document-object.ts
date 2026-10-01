@@ -81,8 +81,8 @@ import {
   type RenderRequest,
   ROLES,
   type Role,
+  type ServerMessage,
   TOO_MANY_CONNECTIONS,
-  type TxMessage,
   type Viewport,
   type WriteOptions,
 } from "@kalamo/sync";
@@ -100,10 +100,11 @@ type EditEntry<C> = {
 };
 
 /**
- * What a browser socket keeps across hibernation: the Actor and User the Worker authenticated it
- * as, and their Role on this Document (ADR-0047).
+ * What a browser socket keeps across hibernation: its Peer id (ADR-0090), the Actor and User the
+ * Worker authenticated it as, and their Role on this Document (ADR-0047).
  */
 interface Attachment {
+  peer: string;
   actor: string;
   userId: string;
   role: Role;
@@ -395,9 +396,11 @@ export class DocumentObject extends DurableObject<Env> {
       server.close(TOO_MANY_CONNECTIONS, "Too many connections.");
       return new Response(null, { status: 101, webSocket: client });
     }
+    const peers = this.peers();
     this.ctx.acceptWebSocket(server);
+    const peer = crypto.randomUUID();
     // Kept on the socket, so it outlives hibernation.
-    server.serializeAttachment({ actor, userId, role } satisfies Attachment);
+    server.serializeAttachment({ peer, actor, userId, role } satisfies Attachment);
     const msg: DocumentMessage = {
       type: "document",
       rev: doc.rev,
@@ -405,14 +408,39 @@ export class DocumentObject extends DurableObject<Env> {
       artboards: doc.artboards,
       nodes: [...doc.nodes.values()],
       role,
+      peers,
     };
     server.send(JSON.stringify(msg));
+    this.broadcast({ type: "joined", peer, actor }, peer);
     return new Response(null, { status: 101, webSocket: client });
   }
 
   /** Completes the close handshake a browser starts, so it leaves getWebSockets. */
   override webSocketClose(ws: WebSocket) {
-    ws.close();
+    this.close(ws);
+  }
+
+  override webSocketError(ws: WebSocket) {
+    this.close(ws);
+  }
+
+  /** Every way a socket leaves: the other Peers hear `left` first (ADR-0090). */
+  private close(ws: WebSocket, code?: number, reason?: string) {
+    const attachment = ws.deserializeAttachment() as Attachment | null;
+    if (attachment?.peer) {
+      // Once: a close the DO starts ends in webSocketClose too. Unlisted, it is no Peer to others.
+      this.broadcast({ type: "left", peer: attachment.peer }, attachment.peer);
+      ws.serializeAttachment({ ...attachment, peer: "" } satisfies Attachment);
+    }
+    ws.close(code, reason);
+  }
+
+  /** The open sockets' Peers, as attached when accepted. */
+  private peers() {
+    return this.ctx.getWebSockets().flatMap((ws) => {
+      const attachment = ws.deserializeAttachment() as Attachment | null;
+      return attachment?.peer ? [{ peer: attachment.peer, actor: attachment.actor }] : [];
+    });
   }
 
   /**
@@ -426,12 +454,15 @@ export class DocumentObject extends DurableObject<Env> {
     } catch {}
     const parsed = ClientMessage.safeParse(json);
     // A malformed message is a client bug; the browser reconnects and gets the Document again.
-    if (!parsed.success) return ws.close(1007, "Expected a command message.");
-    const { id, command } = parsed.data;
+    if (!parsed.success) return this.close(ws, 1007, "Expected a command or presence message.");
     const attachment = ws.deserializeAttachment() as Attachment | null;
-    // A socket accepted before its Actor or Role was kept: the browser reconnects and gets both.
-    if (!attachment?.role) return ws.close(1012, "Reconnect.");
-    const { actor, role } = attachment;
+    // A socket accepted before its Peer, Actor or Role was kept: the browser reconnects for them.
+    if (!attachment?.peer) return this.close(ws, 1012, "Reconnect.");
+    const { peer, actor, role } = attachment;
+    if (parsed.data.type === "presence") {
+      return this.broadcast({ ...parsed.data, peer, actor }, peer);
+    }
+    const { id, command } = parsed.data;
     if (role === "viewer") {
       const error: ErrorData = {
         code: "PERMISSION_DENIED",
@@ -578,7 +609,7 @@ export class DocumentObject extends DurableObject<Env> {
   disconnect(userId: string) {
     for (const ws of this.ctx.getWebSockets()) {
       const attachment = ws.deserializeAttachment() as Attachment | null;
-      if (attachment?.userId === userId) ws.close(ACCESS_CHANGED, "Your access changed.");
+      if (attachment?.userId === userId) this.close(ws, ACCESS_CHANGED, "Your access changed.");
     }
   }
 
@@ -599,10 +630,14 @@ export class DocumentObject extends DurableObject<Env> {
     }
   }
 
-  /** Sends to every browser. Called after the SQLite transaction, so a dead socket cannot undo a write. */
-  private broadcast(msg: TxMessage) {
+  /**
+   * Sends to every browser but the Peer `except`. Called after the SQLite transaction, so a dead
+   * socket cannot undo a write.
+   */
+  private broadcast(msg: ServerMessage, except?: string) {
     const data = JSON.stringify(msg);
     for (const ws of this.ctx.getWebSockets()) {
+      if (except && (ws.deserializeAttachment() as Attachment | null)?.peer === except) continue;
       try {
         ws.send(data);
       } catch {

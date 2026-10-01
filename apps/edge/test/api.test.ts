@@ -217,8 +217,8 @@ it("commits an appearance command for every browser, and closes on one the Appea
   await received(1);
   const updates = createdIds.map((nodeId: string) => ({ nodeId, appearance: { fills } }));
   ws.send(command("c9", { type: "appearance", updates }));
-  // The other browser gets the same Transaction.
-  const [, tx] = await other.received(2);
+  // The other browser gets the same Transaction, after hearing this one joined.
+  const [, , tx] = await other.received(3);
   expect(tx).toMatchObject({ type: "tx", actor: "user", commandId: "c9", rev: rev + 1 });
   expect(tx?.type === "tx" && tx.updated.map((n) => n.id)).toEqual(createdIds);
   expect(
@@ -606,6 +606,110 @@ it("closes the socket with 1007 on a message that is not a command", async () =>
     ws.send(data);
     expect((await closed).code).toBe(1007);
   }
+});
+
+describe("presence (ADR-0090)", () => {
+  const presence = (cursor: unknown, selection?: unknown) =>
+    JSON.stringify({ type: "presence", cursor, selection });
+  const closeOf = (ws: WebSocket) =>
+    new Promise<CloseEvent>((r) => ws.addEventListener("close", r));
+
+  it("relays a presence to the other sockets with its Peer and Actor, storing nothing", async () => {
+    const { docId } = await newDoc();
+    const a = await subscribe(docId);
+    await a.received(1);
+    const b = await subscribe(docId);
+    const [doc] = await b.received(1);
+    const [, joined] = await a.received(2);
+    if (doc?.type !== "document" || joined?.type !== "joined") throw new Error("no peers");
+    expect(doc.peers).toEqual([{ peer: expect.any(String), actor: "user" }]);
+    const peerA = doc.peers[0]?.peer;
+    expect(joined).toEqual({ type: "joined", peer: expect.any(String), actor: "user" });
+    expect(joined.peer).not.toBe(peerA);
+
+    a.ws.send(presence({ x: 1.5, y: -2 }, ["n1"]));
+    expect((await b.received(2))[1]).toEqual({
+      type: "presence",
+      peer: peerA,
+      actor: "user",
+      cursor: { x: 1.5, y: -2 },
+      selection: ["n1"],
+    });
+    // A gets B's presence next, not an echo of its own.
+    b.ws.send(presence(null));
+    expect((await a.received(3))[2]).toEqual({
+      type: "presence",
+      peer: joined.peer,
+      actor: "user",
+      cursor: null,
+    });
+    expect((await call("kalamo_doc_get_info", { docId })).structuredContent.rev).toBe(1);
+  });
+
+  it("lists the open sockets to a third, tells them it joined, and that it left", async () => {
+    const { docId } = await newDoc();
+    const a = await subscribe(docId);
+    await a.received(1);
+    const b = await subscribe(docId);
+    await b.received(1);
+    const [, joinedB] = await a.received(2);
+    const c = await subscribe(docId);
+    const [doc] = await c.received(1);
+    const [, joinedC] = await b.received(2);
+    expect((await a.received(3))[2]).toEqual(joinedC);
+    if (doc?.type !== "document" || joinedB?.type !== "joined" || joinedC?.type !== "joined") {
+      throw new Error("no peers");
+    }
+    expect(doc.peers).toHaveLength(2);
+    expect(doc.peers).toContainEqual({ peer: joinedB.peer, actor: "user" });
+
+    c.ws.close();
+    const left = { type: "left", peer: joinedC.peer };
+    expect((await a.received(4))[3]).toEqual(left);
+    expect((await b.received(3))[2]).toEqual(left);
+  });
+
+  it("closes with 1007 on a presence with 1 001 ids or a non-finite cursor, sending left", async () => {
+    const { docId } = await newDoc();
+    const a = await subscribe(docId);
+    await a.received(1);
+    const bad = [
+      presence(
+        { x: 0, y: 0 },
+        Array.from({ length: 1001 }, (_, i) => `n${i}`),
+      ),
+      presence({ x: 0, y: 0 }, ["x".repeat(65)]),
+      '{"type":"presence","cursor":{"x":1e999,"y":0}}',
+      presence({ x: 0 }),
+    ];
+    for (const [i, data] of bad.entries()) {
+      const b = await subscribe(docId);
+      await b.received(1);
+      const joined = (await a.received(2 + 2 * i))[1 + 2 * i];
+      const closed = closeOf(b.ws);
+      b.ws.send(data);
+      expect((await closed).code).toBe(1007);
+      expect((await a.received(3 + 2 * i))[2 + 2 * i]).toEqual({
+        type: "left",
+        peer: joined?.type === "joined" && joined.peer,
+      });
+    }
+    expect(a.messages).toHaveLength(1 + 2 * bad.length);
+  });
+
+  it("closes with 1012 a socket attached before it had a Peer, so the browser reconnects", async () => {
+    const { docId } = await newDoc();
+    const { ws, received } = await subscribe(docId);
+    await received(1);
+    await runInDurableObject(env.DOCUMENT.get(env.DOCUMENT.idFromName(docId)), (_, state) => {
+      for (const s of state.getWebSockets()) {
+        s.serializeAttachment({ actor: "user", userId: "local", role: "owner" });
+      }
+    });
+    const closed = closeOf(ws);
+    ws.send(presence(null));
+    expect((await closed).code).toBe(1012);
+  });
 });
 
 it("undoes an Agent's three-call Transaction with one undo command, and redoes it", async () => {

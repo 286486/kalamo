@@ -117,6 +117,7 @@ const reconnect = () => {
     artboards: doc.artboards,
     nodes: [...doc.nodes.values()],
     role: "editor",
+    peers: [],
   } as ServerMessage);
 };
 
@@ -310,7 +311,15 @@ it("a tab switched away while the create is in flight keeps the leaf isolated on
   const nodes = [...doc.nodes.values()];
   const { rev, name, artboards } = doc;
   socket?.onmessage?.({
-    data: JSON.stringify({ type: "document", rev, name, artboards, nodes, role: "editor" }),
+    data: JSON.stringify({
+      type: "document",
+      rev,
+      name,
+      artboards,
+      nodes,
+      role: "editor",
+      peers: [],
+    }),
   });
   drawPen();
   // The Viewer's cleanup: the answer to the create is lost with the socket.

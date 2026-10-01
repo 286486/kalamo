@@ -20,8 +20,15 @@ import type { Role } from "./index.ts";
 
 /**
  * Browser wire protocol: the Document on connect, then one `tx` per commit (ADR-0009). A browser
- * sends each gesture as a command and gets its `tx` or a `rejected` back (ADR-0010).
+ * sends each gesture as a command and gets its `tx` or a `rejected` back (ADR-0010). Presence is
+ * relayed between the sockets of a Document, never stored (ADR-0090).
  */
+
+/** One connection to a Document, and the Actor it is (ADR-0090). */
+export interface Peer {
+  peer: string;
+  actor: string;
+}
 
 /** Sent once, right after the WebSocket is accepted. */
 export interface DocumentMessage {
@@ -32,6 +39,8 @@ export interface DocumentMessage {
   nodes: Node[];
   /** The socket's Role: a viewer's commands are rejected (ADR-0047). */
   role: Role;
+  /** Every other open socket of the Document. */
+  peers: Peer[];
 }
 
 /** One committed Transaction, with full copies of the Nodes it created or updated. */
@@ -64,7 +73,42 @@ export interface RejectedMessage {
   error: ErrorData;
 }
 
-export type ServerMessage = DocumentMessage | TxMessage | RejectedMessage;
+/** A point in document coordinates (pt). */
+export interface Cursor {
+  x: number;
+  y: number;
+}
+
+/** Another Peer's pointer and, when it changed, Selection, as that browser sent it. */
+export interface PresenceMessage extends Peer {
+  type: "presence";
+  /** Null when the pointer is off the canvas or the tab is hidden. */
+  cursor: Cursor | null;
+  /** Left out when the Selection has not changed since the Peer's last message. */
+  selection?: string[];
+}
+
+/** A socket the Document accepted after this one's. */
+export interface JoinedMessage extends Peer {
+  type: "joined";
+}
+
+/** A socket that closed. */
+export interface LeftMessage {
+  type: "left";
+  peer: string;
+}
+
+export type ServerMessage =
+  | DocumentMessage
+  | TxMessage
+  | RejectedMessage
+  | PresenceMessage
+  | JoinedMessage
+  | LeftMessage;
+
+/** A browser sends at most one presence message per this many ms (ADR-0090). */
+export const PRESENCE_INTERVAL = 50;
 
 /** A socket closes with this after its User's Role changed; the browser reconnects (ADR-0047). */
 export const ACCESS_CHANGED = 4003;
@@ -74,7 +118,7 @@ export const DOC_DELETED = 4004;
 export const TOO_MANY_CONNECTIONS = 4029;
 
 /** One gesture, as one core edit. Parsed by the Document DO: browsers are not trusted. */
-export const ClientMessage = z.object({
+const CommandMessage = z.object({
   type: z.literal("command"),
   id: z.string().max(64),
   command: z.discriminatedUnion("type", [
@@ -126,8 +170,18 @@ export const ClientMessage = z.object({
     z.object({ type: z.literal("redo") }),
   ]),
 });
+
+/** The pointer and Selection, relayed to the other Peers. A viewer may send it (ADR-0090). */
+const PresenceInput = z.object({
+  type: z.literal("presence"),
+  // z.number() refuses Infinity and NaN.
+  cursor: z.object({ x: z.number(), y: z.number() }).nullable(),
+  selection: z.array(z.string().max(64)).max(1000).optional(),
+});
+
+export const ClientMessage = z.discriminatedUnion("type", [CommandMessage, PresenceInput]);
 export type ClientMessage = z.input<typeof ClientMessage>;
-export type Command = ClientMessage["command"];
+export type Command = z.input<typeof CommandMessage>["command"];
 
 /** `doc` with `msg` applied, as a new object; `doc` is left untouched. */
 export function applyBroadcast(doc: Document, msg: TxMessage): Document {
