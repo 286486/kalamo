@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
+import fixture from "../../../fixtures/documents/inkscape.kalamo.json?raw";
 import { RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
 import { createDocument, createNodes } from "./document.ts";
 import { KalamoError } from "./errors.ts";
 import { type Migration, parseDocument, resolveImages, serializeDocument } from "./file.ts";
-import { imageId, readImage } from "./image.ts";
+import { imageId, imageSource, readImage } from "./image.ts";
 import type { Document, Node } from "./schema.ts";
 
 /** A Layer holding a Group (a rect and a text) and a path. */
@@ -90,6 +91,29 @@ it("parses what it serialises back to the same Document, and the same text", () 
     nodes: new Map(parsed.nodes.map((n) => [n.id, n])),
   };
   expect(serializeDocument(reopened)).toBe(text);
+});
+
+it("reopens the fixture's export, each of its Node types, its tags, meta and transforms, as the same Nodes and text", () => {
+  /** `text` as Open reads it, written back as export writes it. */
+  const reopen = (text: string) => {
+    const { name, artboards, nodes, images } = parseDocument(text);
+    const doc: Document = {
+      id: "d",
+      name,
+      version: 1,
+      rev: 1,
+      artboards,
+      nodes: new Map(nodes.map((n) => [n.id, n])),
+      images,
+    };
+    return { nodes: doc.nodes, text: serializeDocument(doc, imageSource(images)) };
+  };
+  const once = reopen(fixture);
+  const types = (nodes: { type: string }[]) => new Set(nodes.map((n) => n.type));
+  expect(types([...once.nodes.values()])).toEqual(types(JSON.parse(fixture).nodes));
+  const twice = reopen(once.text);
+  expect(twice.nodes).toEqual(once.nodes);
+  expect(twice.text).toBe(once.text);
 });
 
 it("reads a Layer's and a Group's Appearance back as written, and a file without one unchanged", () => {
