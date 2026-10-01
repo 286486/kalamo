@@ -64,17 +64,17 @@ Amended by #195. Illustrator's Layers panel menu has Duplicate "<name>" (Duplica
 - The Selection tool's `keyChange` watches Alt, and its press no longer starts a move for a viewer.
 - Layers-panel Alt-drag (#194) and Duplicate Layer (#195) build on this edit. `DuplicateInput` gains the browser-only `layerSuffix`, and `keysTaken` covers every open `role=menu` popover, the panel menu's too.
 
-## Telling an Agent where its copies are (#235)
+## Telling an Agent where its copies are
 
 Amended by #235. An Agent that read a copy's `transform` beside its original's `x` sometimes deleted the copies and drew them again by hand: 2 of 6 `pnpm bench` grid runs on Opus 5.5, at about 4–5× the output tokens. The receipt now gives each top-level copy's `geometricBounds`, keyed by copy id, and the tool description and drawing-conventions say only that this is where the copy landed and that a copy there is finished. They do not say that a copy keeps its original's parameters and is moved by its `transform`, though #235 asked for that sentence.
 
-Grid runs on Opus 5.5, 2026-10-02; a run's first after a definition change pays to write the cache, about $0.30 more:
+Grid runs on Opus 5.5, 2026-10-02, at warm-cache cost; the first run after a definition change pays about $0.35 more to write the cache:
 
 | Wording | Runs | Duplicated, kept the copies | Deleted the copies, redrew | Wrote the rects by hand |
 |---|---|---|---|---|
-| main | 3 | 2: 2.1–2.2k output tokens, $0.27 warm | 1: 11.8k, $0.58 | 0 |
+| main | 3 | 2: 2.1–2.2k output tokens, $0.27 | 1: 11.8k, $0.58 | 0 |
 | main, with the new receipt | 3 | 1: 2.3k, $0.32 | 0 | 2: 10.6–11.1k, $0.49 |
-| the mechanism sentence, in two lengths | 8 | 0 | 0 | 8: 9.3–10.9k, $0.44–0.49 warm |
-| what landed where (shipped) | 6 | 4: 2.2–2.6k, $0.30–0.32 | 0 | 2: 10.4–10.6k, $0.48 warm |
+| the mechanism sentence, in two lengths | 8 | 0 | 0 | 8: 9.3–10.9k, $0.44–0.49 |
+| what landed where (shipped) | 6 | 4: 2.2–2.6k, $0.30–0.32 | 0 | 2: 10.4–10.6k, $0.48 |
 
-Saying how a copy is stored steered every Agent away from `kalamo_node_duplicate`, so it is left out. The receipt alone did not help. With the shipped wording no run deleted its copies, but a third of the runs still wrote all 100 rects by hand, at the cost #235 set out to remove; main's wording did that too (#235's issue body, 1 of 6). How a copy is stored has not changed: it still keeps its parameters and is moved by its `transform`, as Alt-drag does.
+Saying how a copy is stored steered every Agent away from `kalamo_node_duplicate`, so it is left out. In these 3 runs the receipt alone did not help. With the shipped wording no run deleted its copies, but 2 of 6 still wrote all 100 rects by hand, at the cost #235 set out to remove. Main's wording did that in none of today's 3 runs and in 1 of the 6 runs of 2026-10-01 that #235 reports; the samples are too small to tell the wordings apart on this. How a copy is stored has not changed: it still keeps its parameters and is moved by its `transform`, as Alt-drag does.
