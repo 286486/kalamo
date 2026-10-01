@@ -542,11 +542,11 @@ describe("collab", () => {
     const { docId } = start;
     const calls: Logged[] = [];
     const as =
-      (actor: string, token: string, client: string) =>
+      (actor: string, token: string, clientName: string) =>
       async (name: string, args: Record<string, unknown>) => {
         await start.interject?.(actor, name, args);
         const result = await rpcCall(name, args, token);
-        calls.push({ actor, client, name, args, result });
+        calls.push({ actor, client: clientName, name, args, result });
         return result;
       };
     /** One Agent's write, read with doc_changes and retried once it meets REV_CONFLICT. */

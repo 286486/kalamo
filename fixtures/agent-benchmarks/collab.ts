@@ -134,8 +134,9 @@ const check: Check = async (
     ...new Set(calls.filter((c) => c.actor === actor).map((c) => c.client)),
   ]);
   assert(
-    seen.every((s) => s.length === 1) && new Set(seen.flat()).size === agents.length,
-    `the Agents' MCP clients were ${agents.map((a, i) => `${a.actor}: ${seen[i]}`).join(", ")}, want one each and no two the same`,
+    seen.every((s) => s.length === 1 && s[0] !== "?") &&
+      new Set(seen.flat()).size === agents.length,
+    `the Agents' MCP clients were ${agents.map((a, i) => `${a.actor}: ${seen[i]}`).join(", ")}, want one named client each and no two the same`,
   );
 
   for (const { actor: agent } of agents) {

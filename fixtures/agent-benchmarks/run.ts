@@ -90,7 +90,7 @@ let calls: Logged[] = [];
 /** The MCP client each token last said it was, in `initialize`'s clientInfo. */
 const clients = new Map<string | undefined, string>();
 let interject: Interject | undefined;
-let interjectError: string | undefined;
+let proxyError: string | undefined;
 
 /** Forwards each request to `MCP`, logging tool calls and running `interject` before each. */
 const proxy = createServer(async (req, res) => {
@@ -112,14 +112,22 @@ const proxy = createServer(async (req, res) => {
   const tool = rpc?.method === "tools/call" ? rpc.params : undefined;
   if (tool)
     await interject?.(actor, tool.name, tool.arguments).catch((e: Error) => {
-      interjectError ??= `the people's edit before ${actor}'s ${tool.name}: ${e.message}`;
+      proxyError ??= `the people's edit before ${actor}'s ${tool.name}: ${e.message}`;
     });
   const headers = new Headers();
   for (const [k, v] of Object.entries(req.headers))
     if (typeof v === "string" && !["host", "connection", "content-length"].includes(k))
       headers.set(k, v);
-  const up = await fetch(MCP, { method: req.method, headers, body: body || undefined });
-  const text = await up.text();
+  let up: Response;
+  let text: string;
+  try {
+    up = await fetch(MCP, { method: req.method, headers, body: body || undefined });
+    text = await up.text();
+  } catch (e) {
+    proxyError ??= `the proxy could not reach ${MCP}: ${(e as Error).message}`;
+    res.writeHead(502).end();
+    return;
+  }
   if (tool) {
     let result: Logged["result"];
     try {
@@ -137,7 +145,7 @@ const proxy = createServer(async (req, res) => {
 const connect: Connect = async (user, docId) =>
   new WebSocket(`${ORIGIN.replace(/^http/, "ws")}/api/docs/${docId}/ws`, {
     headers: { cookie: `kalamo_dev_user=${user}` },
-  } as unknown as string[]);
+  } as unknown as string[]); // Node's WebSocket (undici) takes headers; the standard type does not
 
 /** One `claude -p` session of `arm` in `cwd`. */
 async function agent(
@@ -233,6 +241,9 @@ async function codex(log: string, cwd: string, prompt: string, token: string): P
     "--skip-git-repo-check",
     "--disable",
     "shell_tool",
+    // Its ChatGPT apps connectors, an MCP server of their own.
+    "--disable",
+    "apps",
     "-s",
     "read-only",
     "-C",
@@ -396,14 +407,14 @@ try {
       const start = await setup?.(call, name, other, connect);
       calls = [];
       interject = start?.interject;
-      interjectError = undefined;
+      proxyError = undefined;
       const cwd = mkdtempSync(join(tmpdir(), `kalamo-bench-${task}-${arm}-`));
       let run: Run;
       let error: string | undefined;
       if (arm === "mcp") {
         const prompts = promptsOf(section("Prompt"), { name, docId: start?.docId ?? "" });
         run = await sessions(`${task}-mcp`, arm, cwd, prompts, agents, opts.model);
-        error = run.error ?? interjectError;
+        error = run.error ?? proxyError;
         writeFileSync(join(STATE, `${task}-mcp-calls.json`), JSON.stringify(calls, null, 1));
         if (!error) {
           try {

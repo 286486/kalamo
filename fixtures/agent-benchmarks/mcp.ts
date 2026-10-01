@@ -162,7 +162,11 @@ export async function browserUser(connect: Connect, user: string, docId: string)
   const ids = new Map<string, string>(); // the Nodes it has seen, by name
   const acks = new Map<string, { resolve(rev: number): void; reject(e: Error): void }>();
   const opened = new Promise<void>((resolve, reject) => {
-    ws.addEventListener("close", () => reject(new Error(`${user}'s socket closed`)));
+    ws.addEventListener("close", () => {
+      const closed = new Error(`${user}'s socket closed`);
+      reject(closed);
+      for (const ack of acks.values()) ack.reject(closed);
+    });
     ws.addEventListener("message", (e) => {
       const m = JSON.parse(e.data as string);
       if (m.type === "document" || m.type === "tx")
