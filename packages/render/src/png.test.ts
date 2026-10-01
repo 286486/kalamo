@@ -810,6 +810,32 @@ it("draws a Clipping Mask's content only inside its Clipping Path", async () => 
   expect(drawn.every(([x, y]) => x >= 39 && x <= 60 && y >= 39 && y <= 60)).toBe(true);
 });
 
+it("draws a soft hyphen as nothing, in a line, at a break and as a Clipping Path (ADR-0094)", async () => {
+  /** The ink of a text as `render` draws it, or of a red square it clips. */
+  const drawn = async (text: Record<string, unknown>, clips = false) => {
+    const { doc, defaultLayerId: parentId } = createDocument({
+      id: "d",
+      name: "Doc",
+      artboards: [{ width: 300, height: 150, background: "#FFFFFF" }],
+    });
+    const square = { type: "rect", parentId, x: 0, y: 0, width: 300, height: 150 };
+    const [n, red] = createNodes(doc, [
+      { type: "text", parentId, x: 10, y: 100, fontSize: 60, tracking: 200, ...text },
+      { ...square, appearance: { fills: [{ color: "#FF0000" }] } },
+    ] as never).nodes;
+    if (!n || !red) throw new Error("setup");
+    if (clips) makeMask(doc, { clipNodeId: n.id, contentIds: [red.id] });
+    else updateNodes(doc, [{ nodeId: red.id, patch: { visible: false } }]);
+    return ink(renderSvg(doc));
+  };
+  expect(await drawn({ content: "a\u00ADb" })).toEqual(await drawn({ content: "ab" }));
+  expect(await drawn({ content: "a\u00ADb" }, true)).toEqual(await drawn({ content: "ab" }, true));
+  const frame = { kind: "area", x: 10, y: 10, width: 140, height: 140, tracking: 0 };
+  expect(await drawn({ ...frame, content: "xx x\u00ADyyy" })).toEqual(
+    await drawn({ ...frame, content: "xx x yyy" }),
+  );
+});
+
 it("clips by a text's Noto Sans SC glyphs, not by .notdef boxes (ADR-0052, ADR-0063)", async () => {
   const clipped = async (content: string) => {
     const { doc, defaultLayerId: parentId } = createDocument({

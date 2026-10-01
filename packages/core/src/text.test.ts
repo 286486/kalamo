@@ -13,6 +13,7 @@ import {
   fileGlyphWarnings,
   fontFamilies,
   fontWarnings,
+  type Glyph,
   glyphs,
   glyphWarnings,
   hasGlyph,
@@ -378,6 +379,8 @@ it.each([
   [45, "xxxx x\u2026yyyyyy", ["xxxx x\u2026", "yyyyyy"]],
   [45, "xxxx x\u2014yyyyyy", ["xxxx x\u2014", "yyyyyy"]],
   [45, "xxxx x\u200byyyyyy", ["xxxx x\u200b", "yyyyyy"]],
+  // A soft hyphen breaks after, and its zero width fits the line (ADR-0094).
+  [45, "xxxx x\u00ADyyyyyy", ["xxxx x\u00AD", "yyyyyy"]],
 ])("wraps Area Type %d wide where Inkscape does: %s", (width, content, want) => {
   const { lines, overflow } = area(content, { width, height: 300 });
   expect(lines.map((l) => l.text)).toEqual(want);
@@ -771,6 +774,51 @@ it("breaks Latin after EX, IN, B2 and ZWSP, and before B2, where Pango 1.50.12 d
   for (const unit of whole) expect(lineBreakUnits(unit)).toEqual([unit]);
   // Pango keeps `a !` together (LB13 across a space); spaces break as before (ADR-0064).
   expect(lineBreakUnits("a ! b")).toEqual(["a ", "! ", "b"]);
+});
+
+it("breaks Latin after a soft hyphen where Pango 1.50.12 does (ADR-0094)", () => {
+  const SHY = "\u00AD";
+  const breaks = [
+    [`hy${SHY}`, `phen${SHY}`, "ation"],
+    [`a${SHY}${SHY}`, "b"],
+    [`a${SHY} `, "b"],
+    [`a${SHY}-`, "b"],
+    [`a-${SHY}`, "b"],
+    [`1${SHY}`, "2"],
+    [`a${SHY}`, "\u00A0b"],
+    [`a${SHY}`, "%"],
+    [`a${SHY}\u0301`, "b"],
+    [`a${SHY}`, "\u2014", "b"],
+    [`a${SHY}!`, "b"],
+    [`a${SHY}\u200B`, "b"],
+    [`a${SHY}`, "(b"],
+    [`a${SHY}`, "$5"],
+    [SHY, "ab"],
+    ["a ", SHY, "b"],
+  ];
+  for (const units of breaks) expect(lineBreakUnits(units.join(""))).toEqual(units);
+  for (const unit of [`a${SHY})b`, `\u05D0${SHY}b`, `a${SHY}\u2060b`]) {
+    expect(lineBreakUnits(unit)).toEqual([unit]);
+  }
+});
+
+it("measures and draws a soft hyphen at no width and no tracking, inside a line and at its break (ADR-0094)", () => {
+  // Inkscape 1.2.2 measures `a{SHY}b` as `ab`, tracked or not.
+  const shy = { x: 10, y: 50, content: "a\u00ADb", fontSize: 12, tracking: 100 };
+  const ab = { ...shy, content: "ab" };
+  expect(textBox(shy)).toEqual(textBox(ab));
+  const [a, s, b] = glyphs(shy) as [Glyph, Glyph, Glyph];
+  expect(s).toMatchObject({ char: "\u00AD", width: 0, x: b.x });
+  expect(b.x).toBe((glyphs(ab)[1] as Glyph).x);
+  expect(a.x).toBe(10);
+  // At a break no hyphen is drawn: the line ends in the soft hyphen, as Inkscape saves it.
+  const frame = { kind: "area", x: 0, y: 0, width: 45, height: 300, fontSize: 12 } as const;
+  const wrapped = { ...frame, content: "xxxx x\u00ADyyyyyy" };
+  const g = glyphs(wrapped);
+  expect(g.map((c) => c.char).join("")).toBe(wrapped.content);
+  expect(g[6]).toMatchObject({ char: "\u00AD", width: 0 });
+  expect(g[7]?.x).toBe(0);
+  expect(linesBox(wrapped)).toEqual(linesBox({ ...frame, content: "xxxx x yyyyyy" }));
 });
 
 // Noto Sans SC draws each ideograph and CJK punctuation mark 1000 units wide, 12pt at fontSize 12.

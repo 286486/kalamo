@@ -807,15 +807,20 @@ function text(n: TextNode, a: Attrs, extra: (string | false)[], chunked: boolean
     let [index, range] = [start - 1, 0];
     // Not for resvg: the family of the last character on the line that is not a space (ADR-0067).
     let before: string | undefined;
+    let previous = "";
     for (const char of t) {
       index++;
       while ((ranges[range]?.end ?? Infinity) <= index) range++;
       const r = (ranges[range]?.start ?? Infinity) <= index ? ranges[range] : undefined;
       const g = laidOut ? placed[shown++] : undefined;
       const face = char === "\n" ? undefined : (g?.family ?? families[index]);
-      // resvg starts a chunk wherever the family changes too; others only after a space before a
-      // line's last word in a text with a justified line, widened or not (ADR-0077).
-      const chunk = chunked ? g?.chunk !== undefined : g?.chunk === "spacing";
+      // resvg starts a chunk wherever the family changes too, and after a soft hyphen, which it
+      // tracks and Kalamo and Inkscape do not (ADR-0094); others only after a space before a line's
+      // last word in a text with a justified line, widened or not (ADR-0077).
+      const chunk = chunked
+        ? g?.chunk !== undefined || (g !== undefined && previous === "\u00AD")
+        : g?.chunk === "spacing";
+      previous = char;
       if (chunked && g && face) family = face;
       let alone = false;
       if (!chunked) {
