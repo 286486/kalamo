@@ -1,3 +1,4 @@
+import type { Rect } from "@kalamo/core";
 import {
   type ClientMessage,
   PRESENCE_INTERVAL,
@@ -114,3 +115,46 @@ export function colorOf(actor: string): string {
 /** An Actor's label: its row's name, or its id, a User Actor's without the `user_` prefix. */
 export const labelOf = (names: ReadonlyMap<string, string>, actor: string) =>
   names.get(actor) ?? actor.replace(/^user_/, "");
+
+/** An Agent Actor's last write: where it changed the Document, why, and when it arrived (ADR-0090). */
+export interface WorkingArea {
+  bounds: Rect | null;
+  intent: string | null;
+  /** `Date.now()` at its arrival. */
+  at: number;
+}
+
+/** Each Actor's Working Area, by Actor id. */
+export type Areas = ReadonlyMap<string, WorkingArea>;
+
+/** How long a Working Area shows after its Actor's last write (ADR-0090). */
+export const AREA_SHOWN = 5 * 60_000;
+
+/**
+ * The Working Areas after one server message that arrived at `now`: a `tx` or `staged` moves its
+ * Actor's, a null `bounds` or `intent` keeping the last one. A rollback sends nothing, so its
+ * area just expires.
+ */
+export function areasAfter(areas: Areas, msg: ServerMessage, now: number): Areas {
+  if (msg.type !== "tx" && msg.type !== "staged") return areas;
+  const last = areas.get(msg.actor);
+  return new Map(areas).set(msg.actor, {
+    bounds: msg.bounds ?? last?.bounds ?? null,
+    intent: msg.intent ?? last?.intent ?? null,
+    at: now,
+  });
+}
+
+/** An Actor row's kind (CONTEXT.md). */
+export type ActorKind = "user" | "agent";
+
+/** An Agent Actor: its row's kind, or, with no row, any id but a User Actor's. */
+const isAgent = (kinds: ReadonlyMap<string, ActorKind>, actor: string) =>
+  kinds.has(actor) ? kinds.get(actor) === "agent" : actor !== "user" && !actor.startsWith("user_");
+
+/** The Agents' Working Areas shown at `now`: those with bounds, written less than AREA_SHOWN ago. */
+export function visibleAreas(areas: Areas, kinds: ReadonlyMap<string, ActorKind>, now: number) {
+  return [...areas].flatMap(([actor, { bounds, intent, at }]) =>
+    bounds && now - at < AREA_SHOWN && isAgent(kinds, actor) ? [{ actor, bounds, intent, at }] : [],
+  );
+}

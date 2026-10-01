@@ -11,7 +11,13 @@ import {
 import { create } from "zustand";
 import { parseKey } from "./direct.ts";
 import type { ImageCache } from "./images.ts";
-import { type Pointer, presenceSender } from "./presence.ts";
+import {
+  type ActorKind,
+  type Areas,
+  areasAfter,
+  type Pointer,
+  presenceSender,
+} from "./presence.ts";
 import { afterProbe, type Probe, receive, type ViewState } from "./receive.ts";
 import type { Tool, ToolGroup } from "./toolbox.ts";
 import type { FillStroke } from "./tools.ts";
@@ -39,6 +45,10 @@ export interface State extends ViewState {
   fillStroke: FillStroke;
   /** The shown Document's Actors' names, by Actor id, from its Actor rows (ADR-0090). */
   actorNames: ReadonlyMap<string, string>;
+  /** Their kinds, by Actor id. */
+  actorKinds: ReadonlyMap<string, ActorKind>;
+  /** Each Actor's last write, drawn as an Agent's Working Area (ADR-0090). */
+  areas: Areas;
 }
 
 /** Illustrator's default: a white Fill and a 1 pt black Stroke. */
@@ -74,6 +84,8 @@ export const useStore = create<State>(() => ({
   fillStroke: DEFAULT_FILL_STROKE,
   peers: new Map(),
   actorNames: new Map(),
+  actorKinds: new Map(),
+  areas: new Map(),
 }));
 
 // Selected Anchors and segments live only on selected Nodes, whatever changed the Selection.
@@ -139,15 +151,20 @@ async function probe(docId: string): Promise<Probe> {
   }
 }
 
-/** The Document's Actor rows' names; none when the request fails, so ids label them. */
-async function fetchActorNames(docId: string): Promise<Map<string, string>> {
+/** The Document's Actor rows' names and kinds; none when the request fails, so ids label them. */
+async function fetchActors(docId: string): Promise<Pick<State, "actorNames" | "actorKinds">> {
   try {
     const res = await fetch(`/api/docs/${docId}/actors`);
-    if (!res.ok) return new Map();
-    const { actors } = (await res.json()) as { actors: { actorId: string; name: string }[] };
-    return new Map(actors.map((a) => [a.actorId, a.name]));
+    if (!res.ok) return { actorNames: new Map(), actorKinds: new Map() };
+    const { actors } = (await res.json()) as {
+      actors: { actorId: string; name: string; kind: ActorKind }[];
+    };
+    return {
+      actorNames: new Map(actors.map((a) => [a.actorId, a.name])),
+      actorKinds: new Map(actors.map((a) => [a.actorId, a.kind])),
+    };
   } catch {
-    return new Map();
+    return { actorNames: new Map(), actorKinds: new Map() };
   }
 }
 
@@ -175,6 +192,8 @@ export function connect(docId: string): () => void {
     layerRows: [],
     peers: new Map(),
     actorNames: new Map(),
+    actorKinds: new Map(),
+    areas: new Map(),
     ...views.get(docId),
   });
   let ws: WebSocket;
@@ -189,8 +208,8 @@ export function connect(docId: string): () => void {
   let asked = new Set<string>();
   const fetchNames = (actors: string[]) => {
     for (const a of actors) asked.add(a);
-    fetchActorNames(docId).then((names) => {
-      if (!stopped) useStore.setState({ actorNames: names });
+    fetchActors(docId).then((actors) => {
+      if (!stopped) useStore.setState(actors);
     });
   };
   let retry: ReturnType<typeof setTimeout>;
@@ -223,7 +242,10 @@ export function connect(docId: string): () => void {
         asked = new Set();
         fetchNames(msg.peers.map((p) => p.actor));
       } else if (
-        (msg.type === "presence" || msg.type === "joined") &&
+        (msg.type === "presence" ||
+          msg.type === "joined" ||
+          msg.type === "tx" ||
+          msg.type === "staged") &&
         !asked.has(msg.actor) &&
         !useStore.getState().actorNames.has(msg.actor)
       )
@@ -234,7 +256,8 @@ export function connect(docId: string): () => void {
         const viewer = msg.role === "viewer" && !VIEWER_TOOLS.includes(tool);
         useStore.setState({ live: true, role: msg.role, ...(viewer && { tool: "selection" }) });
       }
-      if (next) useStore.setState(next);
+      const areas = areasAfter(useStore.getState().areas, msg, Date.now());
+      if (next) useStore.setState({ ...next, areas });
       else ws.close(); // A missed rev: reconnect for the whole Document.
     };
     ws.onclose = (e) => {

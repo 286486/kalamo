@@ -3,7 +3,7 @@ import { toSvg } from "@kalamo/io/write";
 import { drawDocument } from "@kalamo/render/canvas";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { AnchorsBar } from "./AnchorsBar.tsx";
-import { drawPeers, drawPending, SELECTION } from "./canvas.ts";
+import { type AreaPill, drawAreas, drawPeers, drawPending, SELECTION } from "./canvas.ts";
 import { anchorsOf, hasAnchors } from "./direct.ts";
 import { drawnLazyFamilies, loadFamily } from "./fonts.ts";
 import { GradientPanel } from "./GradientPanel.tsx";
@@ -13,6 +13,7 @@ import { imageCache } from "./images.ts";
 import { Layers } from "./Layers.tsx";
 import { keysTaken } from "./MenuBar.tsx";
 import { pastedArt, place, placeable } from "./place.ts";
+import { AREA_SHOWN, visibleAreas } from "./presence.ts";
 import { preview, previewEdit, previewOp } from "./receive.ts";
 import { editable } from "./selection.ts";
 import { simplifyOpen } from "./simplify.ts";
@@ -77,6 +78,8 @@ export function Viewer({ docId }: { docId: string }) {
     tool,
     peers,
     actorNames,
+    actorKinds,
+    areas,
   } = useStore();
   /** Space held: drag pans. */
   const [hand, setHand] = useState(false);
@@ -95,6 +98,10 @@ export function Viewer({ docId }: { docId: string }) {
   const pressed = useRef<CanvasTool | null>(null);
   /** Counts changes to a tool's overlay, so the canvas redraws. */
   const [, redraw] = useReducer((n: number) => n + 1, 0);
+  /** The Working Area pills last drawn, which the pointer hovers for the whole `intent`. */
+  const pills = useRef<AreaPill[]>([]);
+  /** The hovered pill's `intent`, at the pointer in CSS px over the canvas. */
+  const [tip, setTip] = useState<{ x: number; y: number; intent: string } | null>(null);
   /** True once the faces have settled; until then text draws in a fallback font. */
   const [fontReady, setFontReady] = useState(false);
   /** The families besides Source Sans 3 that have settled, each loaded once a Document draws in it. */
@@ -211,6 +218,9 @@ export function Viewer({ docId }: { docId: string }) {
     const ctx = sized(overlayCanvas.current, size, viewport);
     if (!ctx) return;
     const { scale } = viewport;
+    const now = Date.now();
+    const working = visibleAreas(areas, actorKinds, now);
+    pills.current = drawAreas(ctx, working, actorNames, scale);
     drawPeers(ctx, shown, peers, actorNames, scale);
     ctx.lineWidth = 1 / scale;
     ctx.strokeStyle = SELECTION;
@@ -231,6 +241,11 @@ export function Viewer({ docId }: { docId: string }) {
         if (hasAnchors(node)) ctx.stroke(new Path2D(formatPath(fromAnchors(anchorsOf(doc, node)))));
       }
     }
+    // The earliest Working Area to expire goes then, with no message or input to redraw it.
+    if (working.length === 0) return;
+    const ends = Math.min(...working.map((a) => a.at + AREA_SHOWN));
+    const timer = setTimeout(redraw, ends - now);
+    return () => clearTimeout(timer);
   });
 
   // Ctrl+wheel (and trackpad pinch) zooms at the cursor; plain wheel and two-finger scroll pan.
@@ -400,6 +415,13 @@ export function Viewer({ docId }: { docId: string }) {
     const ev = toolEvent(e);
     if (!ev) return;
     pointerAt({ x: ev.x, y: ev.y });
+    const pill = pills.current.find(
+      (p) => ev.x >= p.x && ev.x <= p.x + p.width && ev.y >= p.y && ev.y <= p.y + p.height,
+    );
+    const r = e.currentTarget.getBoundingClientRect();
+    setTip(
+      pill?.intent ? { x: e.clientX - r.left, y: e.clientY - r.top, intent: pill.intent } : null,
+    );
     if (panning.current) {
       const v = ev.viewport;
       const dx = e.clientX - last.current.x;
@@ -441,12 +463,32 @@ export function Viewer({ docId }: { docId: string }) {
         onPointerCancel={onPointerEnd}
         onPointerLeave={(e) => {
           pointerAt(null);
+          setTip(null);
           const ev = toolEvent(e);
           if (ev) for (const t of Object.values(TOOLS)) t.leave?.(ev);
         }}
         onDragOver={(e) => e.preventDefault()}
         onDrop={onDrop}
       />
+      {tip && (
+        <div
+          role="tooltip"
+          style={{
+            position: "absolute",
+            left: tip.x + 12,
+            top: tip.y + 16,
+            maxWidth: 320,
+            padding: "4px 6px",
+            background: "#333",
+            color: "#FFF",
+            font: "12px system-ui, sans-serif",
+            borderRadius: 4,
+            pointerEvents: "none",
+          }}
+        >
+          {tip.intent}
+        </div>
+      )}
       {/* The status bar, where Illustrator shows the zoom. */}
       <div
         data-testid="status-bar"

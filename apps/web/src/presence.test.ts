@@ -1,12 +1,15 @@
 import { type ClientMessage, PRESENCE_INTERVAL, type ServerMessage } from "@kalamo/sync";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
+  AREA_SHOWN,
+  areasAfter,
   colorOf,
   labelOf,
   PEER_COLORS,
   type Peers,
   peersAfter,
   presenceSender,
+  visibleAreas,
 } from "./presence.ts";
 
 const document = (peers: { peer: string; actor: string }[]): ServerMessage => ({
@@ -98,4 +101,38 @@ it("labels an Actor by its row, else by its id without the user_ prefix", () => 
   expect(labelOf(names, "user_1")).toBe("woody");
   expect(labelOf(names, "user_alice")).toBe("alice");
   expect(labelOf(names, "agent-a")).toBe("agent-a");
+});
+
+const box = (x: number) => ({ x, y: 0, width: 10, height: 10 });
+const write = (
+  type: "tx" | "staged",
+  actor: string,
+  bounds: ReturnType<typeof box> | null,
+  intent: string | null,
+): ServerMessage =>
+  type === "staged"
+    ? { type, txId: "t1", actor, intent, bounds }
+    : { type, rev: 2, txId: "t1", actor, intent, bounds, created: [], updated: [], deletedIds: [] };
+
+it("moves an Agent's Working Area with each write, keeping its bounds and intent over nulls", () => {
+  let areas = areasAfter(new Map(), write("staged", "agent-a", box(0), "Draw a logo"), 1000);
+  areas = areasAfter(areas, write("tx", "agent-a", box(50), null), 2000);
+  expect(areas.get("agent-a")).toEqual({ bounds: box(50), intent: "Draw a logo", at: 2000 });
+  areas = areasAfter(areas, write("staged", "agent-a", null, "Recolour it"), 3000);
+  expect(areas.get("agent-a")).toEqual({ bounds: box(50), intent: "Recolour it", at: 3000 });
+  expect(areasAfter(areas, document([]), 4000)).toBe(areas);
+});
+
+it("shows an Agent's area until 5 minutes after its last write, and never a User's", () => {
+  let areas = areasAfter(new Map(), write("tx", "agent-a", box(0), "Draw"), 0);
+  areas = areasAfter(areas, write("tx", "user_alice", box(5), null), 0);
+  areas = areasAfter(areas, write("tx", "user", box(5), null), 0);
+  areas = areasAfter(areas, write("tx", "a1", box(5), null), 0);
+  // a1's row says it is a User Actor, whatever its id.
+  const kinds = new Map([["a1", "user" as const]]);
+  const shown = (now: number) => visibleAreas(areas, kinds, now).map((a) => a.actor);
+  expect(shown(AREA_SHOWN - 1000)).toEqual(["agent-a"]);
+  expect(shown(AREA_SHOWN)).toEqual([]);
+  // With no row, a1's id reads as an Agent's.
+  expect(visibleAreas(areas, new Map(), 0).map((a) => a.actor)).toEqual(["agent-a", "a1"]);
 });
