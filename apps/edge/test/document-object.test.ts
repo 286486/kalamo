@@ -1,6 +1,12 @@
 import { evictDurableObject, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
-import { type DuplicateInput, linesBox, parseDocument, resolveImages } from "@kalamo/core";
+import {
+  type DuplicateInput,
+  linesBox,
+  parseDocument,
+  type Rect,
+  resolveImages,
+} from "@kalamo/core";
 import { afterEach, expect, it, vi } from "vitest";
 
 const stub = (docId: string) => env.DOCUMENT.get(env.DOCUMENT.idFromName(docId));
@@ -936,6 +942,13 @@ it("duplicates as one Transaction, one receipt with the id map, and one undo ste
   expect(receipt.createdIds).toHaveLength(4);
   // The copies of the empty Group have no bounds; the rect's are at x 5 and 10.
   expect(receipt.bounds).toEqual({ x: 5, y: 0, width: 15, height: 10 });
+  const [g1, g2] = receipt.copies[g] as [string, string];
+  expect(receipt.geometricBounds).toEqual({
+    [c1]: { x: 5, y: 0, width: 10, height: 10 },
+    [c2]: { x: 10, y: 0, width: 10, height: 10 },
+    [g1]: null,
+    [g2]: null,
+  });
   expect(ok(await s.changes(3)).changes).toMatchObject([
     { rev: 4, txId: receipt.txId, summary: "Duplicate 4 Nodes", intent: "repeat" },
   ]);
@@ -951,6 +964,31 @@ it("duplicates as one Transaction, one receipt with the id map, and one undo ste
   expect(ok(await s.undo("user")).deletedIds.sort()).toEqual([...receipt.createdIds].sort());
   expect(await size()).toBe(before);
   expect(a).toBeTruthy();
+});
+
+it("gives a transformed original's copies their document-space bounds (#235)", async () => {
+  const { s, ids } = await withTwoLayers("duplicate3");
+  const [r0, r1] = ids as [string, string];
+  ok(await s.transformNodes({ nodeIds: [r0], rotate: 30 }, "agent-a"));
+  ok(await s.transformNodes({ nodeIds: [r1], translate: { x: 100, y: 7 } }, "agent-a"));
+  const input = { nodeIds: [r0, r1], offset: { x: 0, y: 25 }, count: 2 };
+  const receipt = ok(await s.duplicateNodes(input, "agent-a"));
+  const at = async (id: string) =>
+    ok(await s.get([id], "concise", "user")).nodes[0]?.geometricBounds;
+  for (const id of [r0, r1]) {
+    const from = (await at(id)) as Rect;
+    for (const [i, c] of (receipt.copies[id] ?? []).entries()) {
+      // The receipt's bounds are a node_get's, and the original's moved by k × offset.
+      expect(receipt.geometricBounds[c]).toEqual(await at(c));
+      const shifted = { ...from, y: from.y + 25 * (i + 1) };
+      for (const [key, value] of Object.entries(shifted))
+        expect(receipt.geometricBounds[c]?.[key as keyof Rect]).toBeCloseTo(value, 9);
+    }
+  }
+  expect(receipt.geometricBounds[receipt.copies[r1]?.[0] as string]).toMatchObject({
+    x: 120,
+    y: 32,
+  });
 });
 
 it("refuses a duplicate with its code and path, writing nothing (ADR-0076)", async () => {

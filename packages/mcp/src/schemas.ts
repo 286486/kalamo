@@ -83,6 +83,9 @@ export const DuplicateOutput = WriteReceipt.extend({
   copies: z
     .record(z.string(), z.array(z.string()))
     .describe("Each source id's new top-level ids, in order k = 1…count."),
+  geometricBounds: z
+    .record(z.string(), Rect.nullable())
+    .describe("Each new top-level id's geometricBounds, in document coordinates."),
 });
 
 export const OutlineOutput = z.object({ rev: z.number().int(), nodes: z.array(OutlineNode) });

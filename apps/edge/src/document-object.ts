@@ -952,12 +952,18 @@ export class DocumentObject extends DurableObject<Env> {
     opts: Options = {},
   ): Result<DuplicateReceipt> {
     let copies: Record<string, string[]> = {};
+    let geometricBounds: Record<string, Rect | null> = {};
     const result = this.write(actor, opts, "Duplicate", (doc) => {
       const done = duplicateNodes(doc, input);
       copies = done.copies;
+      geometricBounds = Object.fromEntries(
+        Object.values(copies)
+          .flat()
+          .map((id) => [id, bounds(doc, doc.nodes.get(id) as Node)]),
+      );
       return { created: done.created, warnings: textWarnings(done.created), failed: [] };
     });
-    return "error" in result ? result : { ...result, copies };
+    return "error" in result ? result : { ...result, copies, geometricBounds };
   }
 
   makeMask(input: MaskInput, actor: string, opts: Options = {}): Result<WriteReceipt> {

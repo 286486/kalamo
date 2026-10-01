@@ -47,9 +47,13 @@ export interface ChangeEntry {
   intent: string | null;
 }
 
-/** A `node_duplicate` receipt: each source id's new top-level ids, in order k = 1…count. */
+/**
+ * A `node_duplicate` receipt: each source id's new top-level ids, in order k = 1…count, and each of
+ * those copies' geometricBounds in document coordinates (#235).
+ */
 export interface DuplicateReceipt extends WriteReceipt {
   copies: Record<string, string[]>;
+  geometricBounds: Record<string, Rect | null>;
 }
 
 /** A `path_edit` receipt: the path's new `d` and its Anchors, as stored. */
