@@ -36,7 +36,7 @@ ADR-0085 left out "IS, CL or CP before PR or OP, and PR or PO before PR, PO or O
 1. **After IS, CL, CP, PR and PO.** Between two non-space characters where neither is CJK, after IS (`,.:;`), CP (`)`, `]`), CL (`}`), or ADR-0064's PR and PO sets:
    - before PR or PO, a line breaks unless a number, or a number and one CL or CP, ends at the breaker (LB25): `a,|$5`, `5%|$`, `C:|\x`, and `1,$`, `1)%` stay whole;
    - before OP (`([{`), a line breaks, but after PR or PO before a digit (LB25): `a)|(b`, `x:|(y`, `$|(a`, and `$(5` stays whole;
-   - before a digit, a line breaks after IS that does not continue a number (LB25) and after CL: `a,|0`, `x}|1`. It does not after CP (LB30), PR or PO (LB25): `a)1`, `$5`, `1,0`;
+   - before a digit, a line breaks after IS that does not continue a number (LB25) and after CL: `a,|0`, `x}|1`. It does not after IS inside a number, CP (LB30), PR or PO (LB25): `1,0`, `a)1`, `$5`;
    - before anything else, a line breaks after CL alone, unless ADR-0064 keeps the next character from starting a line, or it is GL: `x}|y`. IS, CP, PR and PO keep a letter (LB24, LB29, LB30).
 2. **The number state** grows from ADR-0085's flag to three values: the text so far ends in `NU (NU | SY | IS)*`, ends in that and one CL or CP, or ends in neither. A solidus and IS continue only the first, so `1)/2` still breaks. A combining mark leaves it as its base left it (LB9).
 3. **One character of lookahead** decides PR or PO before OP. The rule reads the character right after the OP, as Pango does: `$|(◌́5`, with a mark between, breaks in both.
@@ -74,7 +74,7 @@ No fixture text changes its lines. The render golden and the export snapshots ar
 ## Left out
 
 - Emoji as ID, after these classes too: Pango breaks `a)|🙂`, `a,|🙂` and `a%|🙂`, and keeps `a$🙂` (LB23a).
-- OP, CL and CP outside ASCII, such as `¿`, `¡`, `‚`, `„` and `⁅`, and IS outside ASCII.
+- OP, CL, CP and IS outside ASCII, such as `¿`, `¡`, `‚`, `„` and `⁅`.
 - LB25's other number rules, rules across spaces, and the rest ADR-0085 leaves out.
 
 ## Considered Options

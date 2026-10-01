@@ -3,19 +3,19 @@
  * characters (ADR-0064); after a solidus, a hyphen or a break-after dash in Latin text (ADR-0085);
  * after `!`, `?`, `…`, an em dash or a zero-width space, and before an em dash, in Latin text
  * (ADR-0093); after a soft hyphen (ADR-0094); and after IS, CL, CP, PR and PO before an opening
- * bracket, a sign or a digit (ADR-0095). Each follows Pango 1.50's UAX #14, so Inkscape
- * 1.2.2 wraps the exported SVG at the same places. `Intl.Segmenter` has no line granularity, so the
- * classes live here.
+ * bracket, a sign or a digit, and after `}` before a letter (ADR-0095). Each follows Pango 1.50's
+ * UAX #14, so Inkscape 1.2.2 wraps the exported SVG at the same places. `Intl.Segmenter` has no
+ * line granularity, so the classes live here.
  */
 
 // ponytail: UAX #14 reduced to flags and small sets, checked against Pango 1.50.12: every CJK code
 // point beside an ideograph and a Latin letter (ADR-0064), and random Latin strings with `/`, `-`,
 // BA (ADR-0085), no-break spaces (ADR-0087), EX, IN, B2 and ZW (ADR-0093), U+00AD (ADR-0094), and
 // IS, CL, CP, PR and PO before OP, PR, PO and NU (ADR-0095). Still left out: emoji as ID
-// (`x|🙂|y`, `a)|🙂`), OP and CL outside ASCII (`a)|¿`), ZW beside CJK (`字`, U+200B, `|」`) or
-// before a tab, BA, EX, IN and B2 outside ASCII, Latin-1 and General Punctuation, Thai, and rules
-// across spaces but LB7, LB8 and LB17. Each needs its own class here;
-// past a few more, the pair table pays off.
+// (`x|🙂|y`, `a)|🙂`), OP, CL, CP and IS outside ASCII (`a)|¿`), LB25 but HY and OP before NU and
+// a number's signs and closing bracket, ZW beside CJK (`字`, U+200B, `|」`) or before a tab, BA,
+// EX, IN and B2 outside ASCII, Latin-1 and General Punctuation, Thai, and rules across spaces but
+// LB7, LB8 and LB17. Each needs its own class here; past a few more, the pair table pays off.
 
 /** A character that breaks from its neighbours unless a flag below forbids it: UAX #14's ID, H2/H3, JL/JV/JT, CJ, NS, CL and OP of CJK width. */
 const CJK =
@@ -56,6 +56,9 @@ const ZWSP_SPACES = /\u200B *$/u;
 
 /** UAX #14's NU: a solidus inside `NU (NU | SY | IS)*` keeps a number, or a sign after it, whole (LB25). */
 const DIGIT = /\p{Nd}/u;
+
+/** UAX #14's PR or PO. */
+const isSign = (ch: string) => PREFIX.test(ch) || POSTFIX.test(ch);
 
 /** UAX #14's IS, which continues a number as a solidus does (LB25). */
 const INFIX = /[,.:;]/;
@@ -119,10 +122,10 @@ function breaksAfter(
   if (next === EM_DASH && !BREAK_AFTER.test(breaker)) {
     return breaker !== EM_DASH && !NO_BREAK_AFTER.test(breaker);
   }
-  const sign = PREFIX.test(breaker) || POSTFIX.test(breaker);
+  const sign = isSign(breaker);
   if (sign || INFIX.test(breaker) || CLOSE.test(breaker)) {
     // A number keeps a sign after it whole, its closing bracket between: `1,$`, `1)%` (LB25).
-    if (PREFIX.test(next) || POSTFIX.test(next)) return number === "none";
+    if (isSign(next)) return number === "none";
     // A sign keeps an opening bracket before a digit: `$(5` (LB25).
     if (OPEN.test(next)) return !(sign && DIGIT.test(afterNext));
     // A sign keeps a digit (LB25), CP a digit (LB30), IS one inside a number (LB25): `a,|0`, `1,0`.
@@ -140,7 +143,7 @@ function breaksAfter(
     return (
       !GLUE.test(next) &&
       !HEBREW.test(next) &&
-      !(number === "open" && (DIGIT.test(next) || PREFIX.test(next) || POSTFIX.test(next)))
+      !(number === "open" && (DIGIT.test(next) || isSign(next)))
     );
   }
   return !HEBREW.test(before) && !(breaker === "-" && DIGIT.test(next));
@@ -178,7 +181,8 @@ export function lineBreakUnits(paragraph: string): string[] {
     if (!MARK.test(ch) || base === ZWSP) {
       if (DIGIT.test(ch)) number = "open";
       else if (number === "open" && CLOSE.test(ch)) number = "closed";
-      else if (number !== "open" || (ch !== "/" && !INFIX.test(ch))) number = "none";
+      else if (number === "open" && (ch === "/" || INFIX.test(ch))) number = "open";
+      else number = "none";
       beforeBase = base;
       base = ch;
     }

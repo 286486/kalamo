@@ -1,11 +1,12 @@
-// Kalamo's `lineBreakUnits` against Pango 1.50.12 on random strings (#222, ADR-0085; #224, ADR-0087;
-// #225, ADR-0093; #227, ADR-0094; #226, ADR-0095). Run from the repo root: `node --experimental-transform-types
-// docs/research/10-latin-breaks/check.ts [latin|cjk] [ref]`. It prints each difference by the rule
-// Kalamo leaves out. `latin` draws from Latin letters, digits, spaces, U+00A0, U+202F,
-// `/-–‐‒|()"'.,$%!?…—`, U+200B, U+00AD, a combining mark, Hebrew and CJK; `cjk` from ADR-0064's alphabet.
-// With a git ref, such as 1d2243f, it also counts the strings whose breaks changed from that ref's
-// `line-break.ts`, the changed positions with a CJK neighbour, and the changed positions where Kalamo
-// now differs from Pango. ADR-0085 and ADR-0087 ran an earlier count, from the script at their commits.
+// Kalamo's `lineBreakUnits` against Pango 1.50.12 on random strings (#222, ADR-0085; #224,
+// ADR-0087; #225, ADR-0093; #227, ADR-0094; #226, ADR-0095). Run from the repo root: `node
+// --experimental-transform-types docs/research/10-latin-breaks/check.ts [latin|cjk] [ref]`. It
+// prints each difference by the rule Kalamo leaves out. `latin` draws from Latin letters, digits,
+// spaces, U+00A0, U+202F, `/-–‐‒|()"'.,$%!?…—`, U+200B, U+00AD, a combining mark, Hebrew and CJK;
+// `cjk` from ADR-0064's alphabet. With a git ref, such as 1d2243f, it also counts the strings whose
+// breaks changed from that ref's `line-break.ts`, the changed positions with a CJK neighbour, and
+// the changed positions where Kalamo now differs from Pango. ADR-0085 and ADR-0087 ran an earlier
+// count, from the script at their commits.
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";

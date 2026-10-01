@@ -1,11 +1,10 @@
 // #203's layout check, as ADR-0084 ran it, for ADR-0095 (ADR-0085 ran it before the no-break joins,
 // ADR-0087 before the EX, IN, B2 and ZW joins, ADR-0093 before the soft-hyphen joins, ADR-0094
-// before the sign joins).
-// Run from the repo root: `node --experimental-transform-types
+// before the sign joins). Run from the repo root: `node --experimental-transform-types
 // docs/research/10-latin-breaks/regress.ts <ref> [n]`. It lays out n random Area Types, 60,000 by
-// default, with that ref's core, extracted to `out/`, and with this checkout's, and counts the texts
-// whose `layoutText`, `glyphs`, `pointType` or `areaFrame` differ. Against 9d032c7, each changed text
-// should hold one of `,.:;)]}` or a PR or PO character.
+// default, with that ref's core, extracted to `out/`, and with this checkout's, and counts the
+// texts whose `layoutText`, `glyphs`, `pointType` or `areaFrame` differ. Against 9d032c7, each
+// changed text should hold one of `,.:;)]}` or a PR or PO character.
 import { execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
