@@ -3,6 +3,7 @@ import { env } from "cloudflare:workers";
 import {
   type DuplicateInput,
   linesBox,
+  type PathOpInput,
   parseDocument,
   type Rect,
   resolveImages,
@@ -526,6 +527,49 @@ it("queries Nodes as a Transaction sees them, and reports DOC_NOT_FOUND", async 
   expect(await stub("missing").query({}, "agent-a")).toMatchObject({
     error: { code: "DOC_NOT_FOUND" },
   });
+});
+
+it("puts a path_edit's warnings, d and Anchors on its receipt", async () => {
+  const { s, rectId } = await withRect("pathedit1");
+  expect(ok(await s.pathEdit({ nodeId: rectId, ops: [{ op: "open" }] }, "agent-a"))).toMatchObject({
+    updatedIds: [rectId],
+    d: expect.stringMatching(/^M 0 0 /),
+    subpaths: [{ closed: false }],
+    warnings: [{ code: "CONVERTED_TO_PATH", nodeId: rectId }],
+  });
+});
+
+it("runs a path_op as one Transaction with its PATH_OP_TEXT summary, loading PathKit for offset and divide_below", async () => {
+  const s = stub("pathop1");
+  const { defaultLayerId } = ok(
+    await s.create({ docId: "pathop1", name: "Doc", artboards, actor: "agent-a" }),
+  );
+  const fills = [{ color: "#FF0000" }];
+  const [square = "", circle = ""] = ok(
+    await s.createNodes(
+      [
+        { ...rect, parentId: defaultLayerId, appearance: { fills } },
+        { type: "ellipse", parentId: defaultLayerId, x: 2, y: 2, width: 4, height: 4 },
+      ],
+      "agent-a",
+    ),
+  ).createdIds;
+  const op = (input: PathOpInput) => s.pathOp(input, "agent-a");
+  expect(ok(await op({ nodeIds: [square], op: "offset", distance: 1 }))).toMatchObject({
+    rev: 3,
+    createdIds: [expect.any(String)],
+    bounds: { x: -1, y: -1, width: 12, height: 12 },
+  });
+  expect(ok(await op({ nodeIds: [circle], op: "divide_below" }))).toMatchObject({
+    rev: 4,
+    deletedIds: [circle],
+  });
+  ok(await op({ nodeIds: [square], op: "reverse" }));
+  expect(ok(await s.changes(2)).changes.map((c) => c.summary)).toEqual([
+    "Offset Path",
+    "Divide Objects Below",
+    "Reverse Path Direction",
+  ]);
 });
 
 it("makes and releases a Clipping Mask as one Transaction each, undone and redone like any other", async () => {
