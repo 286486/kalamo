@@ -3734,7 +3734,7 @@ describe("positioned tspan lines (ADR-0091)", () => {
   const paragraph = (second: string) =>
     `<text x="140" y="132" font-family="Source Sans 3" font-size="16"><tspan x="140" dy="0">Kalamo is a vector</tspan><tspan x="140" ${second}>editor in the browser</tspan></text>`;
   const LINES = { message: expect.stringMatching(/^Positioned lines/) };
-  const DROPPED = { message: expect.stringMatching(/^A tspan's x, y, dx or dy/) };
+  const DROPPED = { message: expect.stringMatching(/^A text's or tspan's x, y, dx or dy/) };
 
   it.each([['dy="1.2em"'], ['dy="19.2"'], ['dy="19.2px"'], ['y="151.2"']])(
     "opens a paragraph written with %s as lines, not words run together across a line",
@@ -3835,6 +3835,22 @@ describe("positioned tspan lines (ADR-0091)", () => {
   it("aligns positioned lines by text-anchor", () => {
     const body = paragraph('dy="1.2em"').replace("<text ", '<text text-anchor="middle" ');
     expect(one(body).node).toMatchObject({ x: 140, alignment: "center" });
+  });
+
+  it("aligns positioned lines by the first line's text-anchor", () => {
+    const { node, warnings } = one(
+      '<text x="10" y="20" font-size="10"><tspan x="10" dy="0" text-anchor="end">A</tspan><tspan x="10" dy="12" text-anchor="end">B</tspan></text>',
+    );
+    expect(node).toMatchObject({ content: "A\nB", alignment: "right" });
+    expect(warnings).toEqual([]);
+  });
+
+  it("reads an unreadable y as no move, not as a baseline of 0", () => {
+    const { node, warnings } = one(
+      '<text x="10" y="100" font-size="10"><tspan x="10" dy="0">A</tspan><tspan x="10" y="abc">B</tspan><tspan x="10" dy="20">C</tspan></text>',
+    );
+    expect(node).toMatchObject({ y: 100, content: "AB\nC", leading: 20 });
+    expect(warnings).toMatchObject([DROPPED]);
   });
 
   it("scales x, y, fontSize and leading with a baked root scale", () => {

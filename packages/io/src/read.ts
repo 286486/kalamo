@@ -1211,13 +1211,14 @@ class Reader {
     // A rotate list indexes the characters SVG addresses: preserved, every one; collapsed, those left.
     if (preserve) rotate(all);
     // One alignment per text (ADR-0077): the first line's, a later line that differs warning once.
-    const alignment = frame ? areaAlignment(style) : pointAlignment(own);
+    const lead = p0?.el ? computeStyle(p0.el, style, this.rules) : own;
+    const alignment = frame ? areaAlignment(style) : pointAlignment(lead);
     if (!frame) {
       const later = positioned ? positioned.slice(1).flatMap((l) => l.el ?? []) : tspans.slice(1);
       for (const t of later) {
         const other = computeStyle(t, style, this.rules);
         if (pointAlignment(other) === alignment) continue;
-        const p = other["text-anchor"] !== own["text-anchor"] ? "text-anchor" : "text-align";
+        const p = other["text-anchor"] !== lead["text-anchor"] ? "text-anchor" : "text-align";
         this.warn(
           "UNSUPPORTED_ATTRIBUTE",
           p,
@@ -1295,7 +1296,7 @@ class Reader {
       this.warn(
         "UNSUPPORTED_ATTRIBUTE",
         "tspan position",
-        "A tspan's x, y, dx or dy that starts no line is not supported yet: a dx, a nested tspan's position, a same or higher baseline, an x alone, a list's later values or an unreadable length; those characters import in the line's flow.",
+        "A text's or tspan's x, y, dx or dy that starts no line is not supported yet: a dx, a nested tspan's position, a same or higher baseline, an x alone, a list's later values or an unreadable length; those characters import in the line's flow.",
       );
     const at = (el: Element, name: string, s: Style) => {
       const [value, ...rest] = (el.getAttribute(name) ?? "").split(/[\s,]+/).filter(Boolean);
@@ -1304,7 +1305,7 @@ class Reader {
       const [, em] = /^\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?)em\s*$/i.exec(value) ?? [];
       const v = em !== undefined ? Number(em) * (length(s["font-size"]) ?? 12) : length(value);
       if (v === undefined) dropped();
-      return v ?? 0;
+      return v;
     };
     const nested = (el: Element): boolean =>
       elements(el).some(
