@@ -184,7 +184,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         ? inputSchema.strict()
         : z.strictObject(inputSchema as z.ZodRawShape)
     ) as Strict<S>;
-    // Schemas core names with an id (Fill, Appearance, Child…) are written once under $defs (#229).
+    // Schemas core names with an id (Node, Appearance, Fill…) are written once under $defs (#229).
     const advertised = z.toJSONSchema(real, {
       target: "draft-2020-12",
       io: "input",
@@ -252,7 +252,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       title: "Create Nodes",
       description: [
         "Create Nodes in one atomic write: one bad item fails the call and creates nothing.",
-        "Each node needs parentId, the id of a Layer or Group, never an Artboard; a layer omits it to sit at the Document root. The schema describes each field.",
+        "The schema describes each field, parentId included.",
         "Types:",
         "layer {name, appearance}: parent is the root or another Layer.",
         "group {children, appearance}: children are nodes of any type but layer, without parentId, created inside the Group.",
@@ -266,7 +266,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         "image {src, file, x, y, width, height, preserveAspectRatio}: give src, file or both; an Image with file and no src is a missing link, drawn as its frame and both diagonals. An image has no appearance; crop one with kalamo_mask_make.",
         "appearance {fills, strokes}: omitted, a white Fill and a 1 pt black Stroke, or on text a black Fill and no Stroke. A layer's or group's appearance {fills, strokes, contents} paints the outline of every visible descendant, and contents is how many of its paints draw below the children; omitted, nothing.",
         "A Fill or Stroke may be {type: \"gradient\", gradient}: linear {stops, start, end} or radial {stops, center, radius, aspectRatio, angle, focus}, at least 2 stops {offset, color, midpoint}, in the Node's own coordinates; geometry left out spans the Node's bounds, and on a container the children's.",
-        "Give each node a clientKey to find its new id in the receipt's keyMap. At most 2000 Nodes per call, counting inline children. tags and meta (any JSON) are yours.",
+        "At most 2000 Nodes per call, counting inline children. tags and meta are yours.",
         `Coordinates, colours, d, container paint and defaults: ${CONVENTIONS}.`,
       ].join(" "),
       inputSchema: { docId, nodes: z.array(NodeInput).min(1), ...writeFields },
@@ -369,10 +369,12 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
     {
       title: "Update Nodes",
       description: [
-        "Change Nodes with one JSON Merge Patch (RFC 7396) each: objects merge, null deletes a key, arrays and everything else replace.",
-        "Writable on every Node: name, visible, locked, opacity (0-1), blendMode, tags, meta. A layer or group takes appearance {fills, strokes, contents} (see kalamo_node_create), merged like a leaf's, and appearance: null removes it; contents must stay within its fills and strokes after the merge. A Live Shape or path also takes its parameters (see kalamo_node_create) and appearance, without contents; a path takes d; a text takes content, fontFamily, fontStyle, fontSize, leading (null for Auto), tracking, alignment (null for left), ranges, x, y and appearance, and an Area Type also width and height, or frame, closed path data that reshapes it; a shaped Area Type's x, y, width and height are its frame's bounds and refused, and frame: null makes it the rectangle of its bounds. A text's kind converts it, as Illustrator's Type > Convert to Area Type / Point Type, keeping its id and every shown line in place: kind \"area\" frames the lines in the rectangle that holds them; kind \"point\" turns each soft wrap into a hard return, puts x, y at the first line's aligned start and baseline, and deletes the overflow with a TEXT_DISCARDED warning (undo restores it). A patch with kind may carry only name, visible, locked, opacity, blendMode, appearance, tags and meta; convert first and edit the layout in a second update. Writing content without ranges clears them, ranges: null clears them, and ranges replaces the whole list. An image takes x, y, width, height and preserveAspectRatio, and src and file (ADR-0042): src Relinks it with a data: URL or an image id already in the Document, replacing only the pixels, so the frame and preserveAspectRatio stay unless the patch sets them; file links an embedded image or relinks a linked one; file: null Embeds a linked image, which fails INVALID_IMAGE when it has no src, so set src in the same patch or first; src: null is refused.",
-        "fills and strokes replace as a whole list, so send every Fill or Stroke you want to keep; a gradient's geometry left out is taken from the Node's bounds after the patch.",
-        "Move, rotate or scale with kalamo_node_transform, restack with kalamo_node_reorder, and move to another parent or to an exact place with kalamo_node_reparent; transform, type, parentId, index and derived bounds are read-only.",
+        "Change Nodes with one JSON Merge Patch (RFC 7396) each: objects merge, null deletes a key, arrays and everything else replace, so fills, strokes and ranges are sent whole; a gradient's geometry left out spans the Node's bounds after the patch.",
+        "Every Node writes name, visible, locked, opacity (0-1), blendMode, tags and meta. A Live Shape or path writes its parameters as kalamo_node_create takes them, and appearance. A layer or group writes appearance with contents, which must stay within its fills and strokes after the merge, and appearance: null removes it.",
+        "A text writes content, fontFamily, fontStyle, fontSize, leading (null for Auto), tracking, alignment (null for left), ranges (writing content without them clears them), x, y and appearance; an Area Type also width and height, or frame, closed path data, and frame: null makes it the rectangle of its bounds. A shaped Area Type refuses x, y, width and height, its frame's bounds. kind converts Point Type and Area Type, keeping the id and every shown line; a patch with kind carries only name, visible, locked, opacity, blendMode, appearance, tags and meta.",
+        "An image writes x, y, width, height, preserveAspectRatio, src (Relink, keeping the frame unless the patch sets it) and file; file: null Embeds a linked image, failing INVALID_IMAGE without src, and src: null is refused.",
+        `How kind converts and src Relinks: ${CONVENTIONS}.`,
+        "transform, type, parentId, index and bounds are read-only: use kalamo_node_transform, kalamo_node_reparent and kalamo_node_reorder.",
         coordinates,
       ].join(" "),
       inputSchema: {
@@ -600,18 +602,18 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
     {
       title: "Path Operation",
       description: [
-        "Run a path operation on Nodes, in one Transaction.",
-        "op convert_to_path turns each Live Shape (rect, ellipse, line, polygon, star, spiral) into a path with the same outline, as Illustrator's Object > Shape > Expand Shape: it keeps its id, parent, stacking order, name, transform and appearance, and its parameters give way to d and fillRule. A path is left as it is; any other Node fails the call. kalamo_path_edit converts a Live Shape by itself, so convert first only to keep the shape as a path without editing it.",
-        "op reverse reverses each subpath's Anchor order, as Object > Path > Reverse Path Direction: an open subpath's start and end swap, a closed one keeps its first Anchor. op add_anchors adds an Anchor at the middle (t = 0.5) of every segment without changing the outline, as Object > Path > Add Anchor Points. Both convert a Live Shape to a path first and say so in warnings (CONVERTED_TO_PATH); any Node other than a path or Live Shape fails the call.",
-        "To remove chosen Anchors, as Remove Anchor Points does, use kalamo_path_edit remove_anchor.",
-        "op join, as Object > Path > Join: with anchors naming two open Endpoints it connects them, closing the subpath when both are its ends; without anchors it joins the named paths' open subpaths, closest Endpoints first, until one path is left, and closes a single open path. Endpoints within tolerance (in document units) merge into one Anchor keeping both Handles as they were (a Corner join: nothing aligns them), and farther ones get a straight segment. The topmost path keeps its id and appearance and takes every subpath of the others, which are deleted (deletedIds); paths without an open subpath are left as they are.",
-        "op average, as Object > Path > Average: moves the anchors listed, or every Anchor of nodeIds, to their mean position in document coordinates; axis horizontal puts them on one horizontal line (same y), vertical on one vertical line (same x), both on one point. Handles move with their Anchors.",
-        "op simplify, as Object > Path > Simplify: refits each subpath with as few Anchors as keep it within tolerance (in document units, default 1) of the original, the same least-squares fit kalamo_freehand_stroke uses. Ends stay put, closed subpaths stay closed, and Corner Anchors whose angle is at most cornerAngle (default 90) stay corners; Smooth Anchors never become one. toLines draws straight segments between original Anchors only, as Convert to Straight Lines, dropping those the lines pass within tolerance of.",
-        "op outline_stroke, as Object > Path > Outline Stroke: each Stroke becomes a path filled with its paint, the outline of what it paints (width, cap, join, miter limit and dashes), Skia's geometry, curves kept as curves. A path with one Stroke and no Fill becomes that outline itself, keeping its id. Otherwise a new Group takes its place, opacity and blend mode (createdIds lists it first): the path, keeping its id and only its Fills, at the bottom, and each outlined Stroke above it, bottom to top, as a new path. A Live Shape is converted first (CONVERTED_TO_PATH); a Node without a Stroke, or a Clipping Path, is left as it is, and the call fails when none has one.",
-        "op offset, as Object > Path > Offset Path: adds a copy of each path or Live Shape, its fill grown by distance (in document units; negative shrinks it), directly below the original, which stays as it is. join and miterLimit (default miter, 4) shape its corners, Skia's geometry; an open path is filled as if closed. Each copy is a new path (createdIds) with the original's appearance, name and transform, and fillRule evenodd. A Clipping Path, or a path that shrinks away, gets no copy, and the call fails when none does.",
-        "op divide_below, as Object > Path > Divide Objects Below: the one path or Live Shape in nodeIds, visible, unlocked and not a Clipping Path, cuts every filled path and Live Shape below it in paint order that it overlaps, in any Layer or Group, visible and unlocked, and is deleted (deletedIds). Each is cut in two, Skia's geometry: the part outside the cutter keeps its id (updatedIds) and the part inside is a new path directly above it (createdIds), both with its appearance, name and transform and fillRule evenodd; one wholly inside only becomes that part. A Live Shape cut is converted (CONVERTED_TO_PATH). Unfilled paths, texts, images and Clipping Paths are left as they are, and the call fails, changing nothing, when nothing below overlaps.",
-        "op split_into_grid, as Object > Path > Split Into Grid: replaces each closed path or Live Shape with rows × cols rects over its geometric bounds in document coordinates, gutter apart, each with its name and stacking place, no transform, and the topmost shape's appearance (createdIds, row by row from the top left; the shapes go in deletedIds). totalWidth and totalHeight, Illustrator's Totals, size the grid from the shape's top left instead of its bounds. Open paths, lines and Clipping Paths are left as they are, and the call fails when nothing is split.",
-        "op clean_up, as Object > Path > Clean Up: over the whole Document, nodeIds not needed, removes Stray Points (subpaths of one Anchor; a path left with none is deleted, others are updated), Live Shapes and paths with no Fill and no Stroke (unpainted), and texts of only spaces and hard returns (emptyText); each on by default. Hidden and locked Nodes, and Clipping Paths, are left as they are. deletedIds and updatedIds tell how many went; the call fails when there is nothing to clean up.",
+        "Run a path operation on nodeIds, in one Transaction, as Illustrator's Object > Path menu does; the fields say which op reads them.",
+        `Live Shapes, Clipping Paths, new paths and failures: ${CONVENTIONS}.`,
+        "convert_to_path: Object > Shape > Expand Shape; each Live Shape becomes a path with the same outline, keeping its id, place, name, transform and appearance, and a path is left as it is.",
+        "reverse: each subpath's Anchors in reverse order, a closed one keeping its first. add_anchors: an Anchor at the middle of every segment, the outline unchanged. Remove chosen Anchors with kalamo_path_edit remove_anchor.",
+        "join: with anchors naming two open Endpoints, connects them, closing the subpath when they are its two ends; without, joins the paths' open subpaths, closest Endpoints first, into the topmost path, which keeps its id and appearance while the others are deleted, and closes a single open path. Endpoints within tolerance merge into one Corner Anchor keeping both Handles; farther ones get a straight segment.",
+        "average: moves the anchors, or every Anchor of nodeIds, to their mean position along axis, Handles with them.",
+        "simplify: refits each subpath with as few Anchors as stay within tolerance, the fit kalamo_freehand_stroke uses; ends stay put and closed subpaths closed.",
+        "outline_stroke: each Stroke becomes a path filled with its paint, outlining its width, cap, join, miter limit and dashes. A path with one Stroke and no Fill becomes that outline, keeping its id; otherwise a new Group takes its place, opacity and blend mode (first in createdIds), holding the path with only its Fills and each outlined Stroke above it.",
+        "offset: adds a path below each path or Live Shape, its fill grown by distance; an open path is offset as if closed.",
+        "divide_below: the one path or Live Shape in nodeIds cuts every filled path and Live Shape it overlaps below it in paint order, in any Layer or Group, and is deleted. The part outside keeps the id (updatedIds) and the part inside is a new path just above it; unfilled paths, texts and images are left as they are.",
+        "split_into_grid: replaces each closed path or Live Shape with rows × cols rects over its geometric bounds, each in its stacking place with no transform and the topmost shape's appearance (createdIds row by row from the top left); open paths and lines are left as they are.",
+        "clean_up: removes the Stray Points, unpainted shapes and empty texts the fields choose, over the whole Document.",
       ].join(" "),
       inputSchema: { docId, ...PathOpInput.shape, ...txWrite },
       outputSchema: WriteReceipt.shape,
@@ -626,8 +628,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       title: "Freehand Stroke",
       description: [
         "Draw with Illustrator's Pencil: points is the Ink in drawing order, in document coordinates, and it is fitted with cubic Béziers into one new path under parentId (a Layer or Group), above its other children, in one Transaction.",
-        "fidelity is the Pencil's Fidelity, 0 Accurate to 100 Smooth (default 50): every point lies within 0.1 pt of the path at 0, 1 pt at 50 and 10 pt at 100, so a higher value gives fewer Anchors. A turn sharper than 60° becomes a Corner Anchor, a straight run between corners a line, and every other Anchor is Smooth. The path closes only when the last point repeats the first (within 0.001 pt).",
-        "pressure is accepted and ignored, as the Pencil draws at a fixed width. appearance is as kalamo_node_create takes it; omitted, a 1 pt black Stroke and no Fill.",
+        "A higher fidelity gives fewer Anchors. A turn sharper than 60° becomes a Corner Anchor, a straight run between corners a line, and every other Anchor is Smooth. The path closes only when the last point repeats the first (within 0.001 pt).",
         "createdIds is the path; read its d and Anchors with kalamo_node_get or kalamo_path_edit.",
       ].join(" "),
       inputSchema: { docId, ...FreehandStrokeInput.shape, ...txWrite },

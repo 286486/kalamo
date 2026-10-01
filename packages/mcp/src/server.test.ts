@@ -1357,6 +1357,9 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
   expect(described("kalamo_node_update")).toContain("clears");
   expect(described("kalamo_node_create")).toContain("image {");
   expect(described("kalamo_node_create")).toContain("missing link");
+  expect(JSON.stringify(byName.kalamo_node_create?.inputSchema)).toContain(
+    "at most 2048 characters",
+  );
   expect(described("kalamo_node_update")).toContain("preserveAspectRatio");
   // Relink and Embed (ADR-0042).
   expect(described("kalamo_node_update")).not.toContain("src is read-only");
@@ -1476,6 +1479,11 @@ it("serves skill://kalamo/drawing-conventions and points at it in the instructio
     "kalamo_image_place",
     "Template Layer",
     "LAST_LAYER",
+    // What kalamo_path_op and kalamo_node_update leave to this document (#229).
+    "## Path operations",
+    "CONVERTED_TO_PATH",
+    "TEXT_DISCARDED",
+    "2048 characters",
   ]) {
     expect(text).toContain(fact);
   }

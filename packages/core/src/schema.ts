@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { COLOR_PATTERN } from "./color.ts";
-import { type ImageInfo, preserveAspectRatio } from "./image.ts";
+import { type ImageInfo, MAX_FILE_LENGTH, preserveAspectRatio } from "./image.ts";
 import { compose, scaleOf } from "./matrix.ts";
 import { BUNDLED_FAMILIES_NOTE, BUNDLED_FONT, FONT_STYLES } from "./text.ts";
 
@@ -619,7 +619,7 @@ export const ImageShape = z.object({
     .string()
     .optional()
     .describe(
-      "Links the Image to this file: its path or URL as an SVG names it, which export SVG writes. Without src it is a missing link, drawn as a crossed frame; nothing is fetched.",
+      `Links the Image to this file: its path or URL as an SVG names it, at most ${MAX_FILE_LENGTH} characters and not a data: URL, which export SVG writes. Without src it is a missing link, drawn as a crossed frame; nothing is fetched.`,
     ),
   x: z.number().describe("The frame's left."),
   y: z.number().describe("The frame's top."),
@@ -667,14 +667,14 @@ export function imagePixels(
   }
 }
 
-const clientKey = z
-  .string()
-  .optional()
-  .describe("Your own key for this item; the receipt's keyMap maps it to the new id.");
+const clientKey = z.string().meta({
+  id: "ClientKey",
+  description: "Your own key for this item; the receipt's keyMap maps it to the new id.",
+});
 const tags = z.array(z.string());
 const meta = z.record(z.string(), z.unknown()).describe("Any JSON: your notes or data bindings.");
 const item = {
-  clientKey,
+  clientKey: clientKey.optional(),
   name: z.string().optional(),
   tags: tags.optional(),
   meta: meta.optional(),
@@ -682,10 +682,12 @@ const item = {
   parentId: z
     .string()
     .nullable()
-    .optional()
-    .describe(
-      "Id of a Layer or Group, never an Artboard; doc_create returns the default Layer id. Omitted or null, the Document root, which only a layer takes. Left out inside a group's children.",
-    ),
+    .meta({
+      id: "ParentId",
+      description:
+        "Id of a Layer or Group, never an Artboard; doc_create returns the default Layer id. Omitted or null, the Document root, which only a layer takes. Left out inside a group's children.",
+    })
+    .optional(),
 };
 const leaf = {
   ...item,

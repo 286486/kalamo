@@ -602,6 +602,26 @@ describe("tree rules (ADR-0005)", () => {
     ).toMatchObject({ code: "INVALID_PARENT", path: "nodes[1].parentId" });
     expect(t.doc.nodes.size).toBe(before);
   });
+
+  // The schema takes parentId optional on every type (#229), so core holds the root to Layers.
+  it.each([
+    ["omitted", child()],
+    ["null", { ...child(), parentId: null }],
+    ["omitted on a group", { type: "group" as const, children: [child()] }],
+  ])("rejects a leaf or group with parentId %s at the root, creating nothing", (_, node) => {
+    const before = t.doc.nodes.size;
+    expect(codeOf(() => createNodes(t.doc, [rect(t.layer), node]))).toMatchObject({
+      code: "INVALID_PARENT",
+      path: "nodes[1].parentId",
+      message: expect.stringContaining("only a Layer can"),
+    });
+    expect(t.doc.nodes.size).toBe(before);
+  });
+
+  it("puts a layer with parentId omitted or null at the root", () => {
+    const { nodes } = createNodes(t.doc, [{ type: "layer" }, { type: "layer", parentId: null }]);
+    expect(nodes.map((n) => n.parentId)).toEqual([null, null]);
+  });
 });
 
 describe("nodeView", () => {
