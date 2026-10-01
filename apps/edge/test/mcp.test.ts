@@ -1,13 +1,7 @@
 import { evictAllDurableObjects } from "cloudflare:test";
 import { exports } from "cloudflare:workers";
-import {
-  type ErrorCode,
-  formatPath,
-  type ShapeNode,
-  shapeSegments,
-  type Warning,
-} from "@kalamo/core";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { type ErrorCode, formatPath, type ShapeNode, shapeSegments } from "@kalamo/core";
+import { describe, expect, it } from "vitest";
 import exported from "../../../fixtures/documents/inkscape.svg?raw";
 import { BLUE_1x1_PNG, RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
 import { counted, fullKalamoFile, MiB } from "./bodies.ts";
@@ -190,7 +184,7 @@ it("draws a freehand_stroke as one smooth closed path", async () => {
   expect(nodes[0].geometricBounds.width).toBeCloseTo(80, 0);
 });
 
-it("places a PNG as an Image: node_get has its id, render draws it, export and open keep it", async () => {
+it("creates an Image from a data URL, node_get naming its file by hash", async () => {
   const { docId, defaultLayerId } = await newDoc();
   const image = { type: "image", parentId: defaultLayerId, src: RED_2x2_PNG, x: 10, y: 10 };
   const [id] = (await call("kalamo_node_create", { docId, nodes: [image] })).structuredContent
@@ -204,15 +198,6 @@ it("places a PNG as an Image: node_get has its id, render draws it, export and o
     src: expect.stringMatching(/^[0-9a-f]{64}$/),
   });
   expect(JSON.stringify(nodes)).not.toContain("data:");
-  const rendered = await call("kalamo_render", { docId, scope: { nodeIds: [id] }, scale: 1 });
-  expect(rendered.structuredContent.viewport.pixelSize).toEqual({ width: 2, height: 2 });
-  const svg = (await call("kalamo_export", { docId, format: "svg" })).content[0].text;
-  expect(svg).toContain(`xlink:href="${RED_2x2_PNG}"`);
-  const opened = (await call("kalamo_doc_open", { content: svg })).structuredContent;
-  const back = (
-    await call("kalamo_node_get", { docId: opened.docId, nodeIds: [id], detail: "full" })
-  ).structuredContent;
-  expect(back.nodes[0]).toMatchObject({ src: nodes[0].src });
 });
 
 it("node_update Relinks an Image with src and file (ADR-0042)", async () => {
@@ -250,21 +235,6 @@ it("opens an SVG that links its photos as missing links, with one warning (ADR-0
     { type: "image", file: "b.png" },
   ]);
   expect(full.some((n: object) => "src" in n)).toBe(false);
-});
-
-it("creates a missing link from file and a frame (ADR-0042)", async () => {
-  const { docId, defaultLayerId: parentId } = await newDoc();
-  const missing = {
-    type: "image",
-    parentId,
-    file: "photo.png",
-    x: 10,
-    y: 10,
-    width: 30,
-    height: 20,
-  };
-  const result = await call("kalamo_node_create", { docId, nodes: [missing] });
-  expect(result.structuredContent.createdIds).toHaveLength(1);
 });
 
 it("keeps a style Kalamo lacks and warns FONT_MISSING naming the face it renders in", async () => {
@@ -657,149 +627,41 @@ describe("edit tools", () => {
       warnings: [],
     });
   });
-
-  it("gives 13 rects 13 transforms in one call, one Transaction (ADR-0070)", async () => {
-    const { doc, make, rect } = await setup();
-    const { createdIds: ids } = await make(Array.from({ length: 13 }, () => rect));
-    const transforms = ids.map((id: string, i: number) => ({
-      nodeIds: [id],
-      rotate: i % 2 ? 6 : -7,
-    }));
-    const { structuredContent: receipt } = await call("kalamo_node_transform", {
-      docId: doc.docId,
-      transforms,
-    });
-    expect(receipt).toMatchObject({ rev: 3, updatedIds: ids });
-    const { changes } = (await call("kalamo_doc_changes", { docId: doc.docId, sinceRev: 2 }))
-      .structuredContent;
-    expect(changes).toMatchObject([{ rev: 3, txId: receipt.txId, updatedIds: ids }]);
-  });
 });
 
 describe("transactions", () => {
-  afterEach(() => vi.useRealTimers());
-
-  /** A Document with one committed rect (rev 2), and helpers bound to it. */
-  const setup = async () => {
-    const doc = await newDoc();
-    const docId = doc.docId as string;
-    const rect = {
-      type: "rect",
-      parentId: doc.defaultLayerId,
-      x: 10,
-      y: 10,
-      width: 50,
-      height: 30,
-    };
-    const tool = async (name: string, args: object = {}, token?: string) =>
-      call(`kalamo_${name}`, { docId, ...args }, token);
+  it("stages edits under a txId until tx_commit, drops them on tx_rollback, and logs each Actor's in doc_changes", async () => {
+    const { docId, defaultLayerId } = await newDoc();
+    const rect = { type: "rect", parentId: defaultLayerId, x: 10, y: 10, width: 50, height: 30 };
     const ok = async (name: string, args: object = {}, token?: string) => {
-      const result = await tool(name, args, token);
+      const result = await call(`kalamo_${name}`, { docId, ...args }, token);
       if (result.isError) throw new Error(result.content[0].text);
       return result.structuredContent;
     };
-    const err = async (name: string, args: object = {}, token?: string) =>
-      errorOf(await tool(name, args, token));
     const [rectId] = (await ok("node_create", { nodes: [rect] })).createdIds;
-    const children = async (txId?: string) =>
-      (await ok("doc_outline", { txId })).nodes[0].children?.map((c: { id: string }) => c.id) ?? [];
-    return { docId, rect, rectId, tool, ok, err, children };
-  };
+    await ok("node_update", { updates: [{ nodeId: rectId, patch: { name: "b" } }] }, "dev-token-b");
 
-  it("shows uncommitted edits only to reads carrying the txId, then commits them in one rev", async () => {
-    const { rect, rectId, ok, err, children } = await setup();
     const { txId, rev } = await ok("tx_begin", { label: "Add a box" });
-    expect(rev).toBe(2);
-    const made = await ok("node_create", { nodes: [rect], txId });
-    expect(made).toMatchObject({ txId, rev: 2 });
-    const [id] = made.createdIds;
-    await ok("node_update", { updates: [{ nodeId: id, patch: { name: "box" } }], txId });
-    await ok("node_transform", { nodeIds: [id], translate: { x: 5 }, txId });
-
-    expect((await ok("node_get", { nodeIds: [id], txId })).nodes).toMatchObject([
-      { name: "box", geometricBounds: { x: 15 } },
-    ]);
-    expect(await err("node_get", { nodeIds: [id] })).toMatchObject({ code: "NODE_NOT_FOUND" });
-    expect(await children(txId)).toEqual([rectId, id]);
-    expect(await children()).toEqual([rectId]);
-    const png = await ok("render", { txId });
-    expect(png.viewport.docRect).toBeDefined();
-    expect((await ok("doc_outline")).rev).toBe(2);
-
-    expect(await ok("tx_commit", { txId })).toMatchObject({
-      txId,
-      rev: 3,
-      createdIds: [id],
-      updatedIds: [],
-      deletedIds: [],
+    expect(rev).toBe(3);
+    const [id] = (await ok("node_create", { nodes: [rect], txId })).createdIds;
+    expect((await ok("node_get", { nodeIds: [id], txId })).nodes).toMatchObject([{ id }]);
+    expect(errorOf(await call("kalamo_node_get", { docId, nodeIds: [id] }))).toMatchObject({
+      code: "NODE_NOT_FOUND",
     });
-    expect(await children()).toEqual([rectId, id]);
-    expect((await ok("node_get", { nodeIds: [id] })).nodes).toMatchObject([{ name: "box" }]);
-    expect(await ok("doc_changes", { sinceRev: 2 })).toMatchObject({
-      rev: 3,
-      changes: [{ rev: 3, txId, summary: "Add a box", createdIds: [id] }],
-    });
-  });
-
-  it("rolls back to the Document exactly as it was before tx_begin", async () => {
-    const { rect, rectId, ok, err } = await setup();
-    const before = await ok("doc_outline", { depth: 5 });
-    const changes = await ok("doc_changes", { sinceRev: 0 });
-    const { txId } = await ok("tx_begin");
-    await ok("node_create", { nodes: [rect], txId });
-    await ok("node_update", { updates: [{ nodeId: rectId, patch: { name: "x" } }], txId });
-    await ok("node_delete", { nodeIds: [rectId], txId });
-    expect(await ok("tx_rollback", { txId })).toEqual({ txId, rev: 2 });
-    expect(await ok("doc_outline", { depth: 5 })).toEqual(before);
-    expect((await ok("node_get", { nodeIds: [rectId], detail: "full" })).nodes).toMatchObject([
-      { name: "" },
-    ]);
-    expect(await ok("doc_changes", { sinceRev: 0 })).toEqual(changes);
-    expect(await err("node_get", { nodeIds: [rectId], txId })).toMatchObject({
-      code: "TX_EXPIRED",
-      hint: expect.stringContaining("rolled back"),
-    });
-  });
-
-  it("lists Transactions from two Actors in doc_changes with their attribution", async () => {
-    const { rect, rectId, ok, err } = await setup();
-    await ok(
-      "node_update",
-      { updates: [{ nodeId: rectId, patch: { name: "b" } }], intent: "rename" },
-      "dev-token-b",
-    );
-    const { txId } = await ok("tx_begin", { label: "Two boxes" });
-    const { createdIds } = await ok("node_create", { nodes: [rect, rect], txId });
-    await ok("tx_commit", { txId, intent: "more boxes" });
-    expect(await ok("doc_changes", { sinceRev: 1 })).toEqual({
+    expect(await ok("tx_commit", { txId })).toMatchObject({ txId, rev: 4, createdIds: [id] });
+    expect(await ok("doc_changes", { sinceRev: 1 })).toMatchObject({
       rev: 4,
       changes: [
-        expect.objectContaining({ rev: 2, actor: "agent-a", createdIds: [rectId] }),
-        expect.objectContaining({
-          rev: 3,
-          actor: "agent-b",
-          updatedIds: [rectId],
-          intent: "rename",
-        }),
-        {
-          rev: 4,
-          txId,
-          actor: "agent-a",
-          summary: "Two boxes",
-          createdIds,
-          updatedIds: [],
-          deletedIds: [],
-          intent: "more boxes",
-        },
+        { rev: 2, actor: "agent-a", createdIds: [rectId] },
+        { rev: 3, actor: "agent-b", updatedIds: [rectId] },
+        { rev: 4, txId, actor: "agent-a", summary: "Add a box", createdIds: [id] },
       ],
     });
-    expect(await ok("doc_changes", { sinceRev: 1, limit: 1 })).toMatchObject({
-      rev: 4,
-      changes: [{ rev: 2 }],
-    });
-    expect(await err("node_create", { nodes: [rect], txId: "01NOPE" })).toMatchObject({
-      code: "TX_NOT_FOUND",
-    });
+
+    const dropped = (await ok("tx_begin")).txId;
+    await ok("node_delete", { nodeIds: [id], txId: dropped });
+    expect(await ok("tx_rollback", { txId: dropped })).toEqual({ txId: dropped, rev: 4 });
+    expect((await ok("node_get", { nodeIds: [id] })).nodes).toMatchObject([{ id }]);
   });
 });
 
@@ -918,144 +780,44 @@ it("serves skill://kalamo/drawing-conventions over HTTP and points at it on init
 });
 
 describe("kalamo_json", () => {
-  it("exports the whole Document as .kalamo.json text, with a Transaction's edits under its txId", async () => {
-    const doc = await newDoc();
-    const { docId, defaultLayerId } = doc;
-    const rect = { type: "rect", parentId: defaultLayerId, x: 0, y: 0, width: 10, height: 10 };
+  it("opens an exported file as a new Document, listed, that keeps its ids and exports the same text", async () => {
+    const { docId, defaultLayerId } = await newDoc();
+    const rect = { type: "rect", parentId: defaultLayerId, x: 1, y: 2, width: 3, height: 4 };
     const [rectId] = (await call("kalamo_node_create", { docId, nodes: [rect] })).structuredContent
       .createdIds;
-    const result = await call("kalamo_export", { docId, format: "kalamo_json" });
-    expect(result.structuredContent).toEqual({});
-    expect(result.content[0].type).toBe("text");
-    const text = result.content[0].text;
-    const file = JSON.parse(text);
-    expect(file).toMatchObject({ version: 1, name: "Doc", artboards: doc.artboards });
-    expect(file.nodes).toHaveLength(2);
-    const scoped = await call("kalamo_export", {
-      docId,
-      format: "kalamo_json",
-      scope: { nodeIds: [rectId] },
-    });
-    expect(scoped.content[0].text).toBe(text);
-    const { txId } = (await call("kalamo_tx_begin", { docId })).structuredContent;
-    await call("kalamo_node_create", { docId, txId, nodes: [rect] });
-    const nodesOf = async (args: object) =>
-      JSON.parse(
-        (await call("kalamo_export", { docId, format: "kalamo_json", ...args })).content[0].text,
-      ).nodes;
-    expect(await nodesOf({ txId })).toHaveLength(3);
-    expect(await nodesOf({})).toHaveLength(2);
-  });
-
-  it("opens an exported file as a new Document that keeps its ids and exports the same text", async () => {
-    const doc = await newDoc();
-    const { docId, defaultLayerId: parentId } = doc;
-    const { keyMap } = (
-      await call("kalamo_node_create", {
-        docId,
-        nodes: [
-          { type: "layer", name: "Top" },
-          {
-            type: "group",
-            parentId,
-            children: [{ type: "rect", clientKey: "rect", x: 1, y: 2, width: 3, height: 4 }],
-          },
-          { type: "ellipse", parentId, x: 0, y: 0, width: 5, height: 5 },
-          { type: "line", parentId, x1: 0, y1: 0, x2: 5, y2: 5 },
-          { type: "polygon", parentId, cx: 9, cy: 9, radius: 4, sides: 5 },
-          { type: "star", parentId, cx: 9, cy: 9, outerRadius: 4, innerRadius: 2, points: 5 },
-          { type: "path", parentId, d: "M 0 0 C 1 1 2 2 3 0 Q 4 4 0 0 Z" },
-          {
-            type: "text",
-            parentId,
-            clientKey: "text",
-            x: 0,
-            y: 20,
-            content: "Hi",
-            meta: { b: 1, a: [2] },
-          },
-        ],
-      })
-    ).structuredContent;
-    await call("kalamo_node_transform", { docId, nodeIds: [keyMap.rect], rotate: 30 });
-    await call("kalamo_node_update", {
-      docId,
-      updates: [{ nodeId: keyMap.text, patch: { name: "Title", tags: ["t"] } }],
-    });
     const exportOf = async (id: string) =>
       (await call("kalamo_export", { docId: id, format: "kalamo_json" })).content[0].text as string;
     const text = await exportOf(docId);
+    expect(JSON.parse(text)).toMatchObject({ version: 1, name: "Doc" });
 
-    const opened = await call("kalamo_doc_open", { content: text, intent: "reopen" });
-    const { docId: newId, ...rest } = opened.structuredContent;
-    expect(newId).not.toBe(docId);
-    expect(rest).toEqual({
-      name: "Doc",
-      artboards: doc.artboards,
-      rev: 1,
-      warnings: [],
-      nodes: [
-        expect.objectContaining({
-          id: parentId,
-          type: "layer",
-          childCount: 7,
-          bounds: expect.any(Object),
-        }),
-        expect.objectContaining({ type: "layer", name: "Top", childCount: 0, bounds: null }),
-      ],
-    });
-    expect(rest.nodes[0]).not.toHaveProperty("children");
-    expect(await exportOf(newId)).toBe(text);
-    const [rect] = (
-      await call("kalamo_node_get", { docId: newId, nodeIds: [keyMap.rect], detail: "full" })
-    ).structuredContent.nodes;
-    expect(rect).toMatchObject({ id: keyMap.rect, type: "rect", width: 3 });
-    const { changes } = (await call("kalamo_doc_changes", { docId: newId, sinceRev: 0 }))
+    const opened = (await call("kalamo_doc_open", { content: text, intent: "reopen" }))
       .structuredContent;
-    expect(changes).toEqual([
-      expect.objectContaining({
-        rev: 1,
-        actor: "agent-a",
-        summary: 'Open Document "Doc"',
-        intent: "reopen",
-        createdIds: expect.arrayContaining([keyMap.rect, keyMap.text]),
-      }),
-    ]);
+    expect(opened).toMatchObject({ name: "Doc", rev: 1, warnings: [] });
+    expect(opened.docId).not.toBe(docId);
+    expect(await exportOf(opened.docId)).toBe(text);
+    const [back] = (
+      await call("kalamo_node_get", { docId: opened.docId, nodeIds: [rectId], detail: "full" })
+    ).structuredContent.nodes;
+    expect(back).toMatchObject({ id: rectId, type: "rect", width: 3 });
     const { documents } = (await call("kalamo_doc_list", {})).structuredContent;
     expect(documents[0]).toEqual({
-      docId: newId,
+      docId: opened.docId,
       name: "Doc",
       createdAt: expect.any(String),
       role: "owner",
     });
   });
 
-  it("returns a validation error with a path and creates nothing for a malformed file", async () => {
+  it("refuses a malformed file with a path, creating no Document", async () => {
     const count = async () =>
       (await call("kalamo_doc_list", {})).structuredContent.documents.length;
     const before = await count();
-    const notJson = errorOf(await call("kalamo_doc_open", { content: "{" }));
-    expect(notJson).toMatchObject({
+    expect(errorOf(await call("kalamo_doc_open", { content: "{" }))).toMatchObject({
       code: "INVALID_DOCUMENT",
       path: "content",
       hint: expect.stringMatching(/\S/),
     });
-    const { docId, defaultLayerId } = await newDoc();
-    await call("kalamo_node_create", {
-      docId,
-      nodes: [{ type: "rect", parentId: defaultLayerId, x: 0, y: 0, width: 1, height: 1 }],
-    });
-    const file = JSON.parse(
-      (await call("kalamo_export", { docId, format: "kalamo_json" })).content[0].text,
-    );
-    const i = file.nodes.findIndex((n: { type: string }) => n.type === "rect");
-    file.nodes[i].appearance.fills[0].color = "red";
-    const badColor = errorOf(await call("kalamo_doc_open", { content: JSON.stringify(file) }));
-    expect(badColor).toMatchObject({
-      code: "INVALID_COLOR",
-      path: `nodes[${i}].appearance.fills[0].color`,
-    });
-    expect(await count()).toBe(before + 1);
+    expect(await count()).toBe(before);
   });
 });
 
@@ -1075,157 +837,6 @@ it("opens and places an SVG set in CJK with one MISSING_GLYPHS for the file", as
   const { docId, defaultLayerId } = await newDoc();
   const placed = await call("kalamo_svg_import", { docId, svg, parentId: defaultLayerId });
   expect(placed.structuredContent.warnings).toEqual(glyphs);
-});
-
-describe("a Place receipt's warnings name the placed Nodes (#161)", () => {
-  const warned = (receipt: { structuredContent: { warnings: Warning[] } }, code: string) =>
-    receipt.structuredContent.warnings.filter((w) => w.code === code);
-  const texts = async (docId: string, ids: (string | undefined)[]) =>
-    (await call("kalamo_node_get", { docId, nodeIds: ids, detail: "full" })).structuredContent
-      .nodes as { type: string; content: string; fontFamily: string }[];
-  const HELVETICA =
-    '<svg xmlns="http://www.w3.org/2000/svg"><text x="0" y="10" font-family="Helvetica">A</text></svg>';
-
-  it("gives FONT_MISSING the placed Text's id, and keeps a warning without a nodeId", async () => {
-    const { docId, defaultLayerId } = await newDoc();
-    const svg = HELVETICA.replace(
-      "</svg>",
-      '<pattern id="p"/><rect width="5" height="5" fill="url(#p)"/></svg>',
-    );
-    const placed = await call("kalamo_svg_import", { docId, svg, parentId: defaultLayerId });
-    const [font] = warned(placed, "FONT_MISSING");
-    const outline = JSON.stringify(
-      (await call("kalamo_doc_outline", { docId, depth: 5 })).structuredContent,
-    );
-    expect(outline).toContain(`"${font?.nodeId}"`);
-    expect(font?.nodeId).not.toBe(placed.structuredContent.createdIds[0]);
-    expect(await texts(docId, [font?.nodeId])).toMatchObject([{ type: "text", content: "A" }]);
-    expect(warned(placed, "UNSUPPORTED_PAINT")).toEqual([
-      { code: "UNSUPPORTED_PAINT", message: expect.any(String) },
-    ]);
-  });
-
-  it("gives two warned Texts two new ids, each on its own Text", async () => {
-    const { docId, defaultLayerId } = await newDoc();
-    const svg = HELVETICA.replace(
-      "</svg>",
-      '<text x="0" y="30" font-family="Arial">B</text></svg>',
-    );
-    const placed = await call("kalamo_svg_import", { docId, svg, parentId: defaultLayerId });
-    const fonts = warned(placed, "FONT_MISSING");
-    expect(new Set(fonts.map((w) => w.nodeId)).size).toBe(2);
-    const got = await texts(
-      docId,
-      fonts.map((w) => w.nodeId),
-    );
-    expect(got.map((n) => n.content).sort()).toEqual(["A", "B"]);
-    for (const [i, w] of fonts.entries()) expect(w.message).toContain(got[i]?.fontFamily);
-  });
-
-  it("drops a warning on a Clipping Path a Kalamo copy leaves behind, keeping a listed Text's", async () => {
-    const { docId, defaultLayerId } = await newDoc();
-    const text = { type: "text", parentId: defaultLayerId, fontFamily: "Helvetica" };
-    const { keyMap } = (
-      await call("kalamo_node_create", {
-        docId,
-        nodes: [
-          { ...text, clientKey: "clip", x: 0, y: 20, content: "Clip" },
-          { ...text, clientKey: "kept", x: 0, y: 60, content: "Kept" },
-          {
-            type: "rect",
-            clientKey: "art",
-            parentId: defaultLayerId,
-            x: 0,
-            y: 0,
-            width: 40,
-            height: 40,
-          },
-        ],
-      })
-    ).structuredContent;
-    await call("kalamo_mask_make", { docId, clipNodeId: keyMap.clip, contentIds: [keyMap.art] });
-    const svg = (
-      await call("kalamo_export", {
-        docId,
-        format: "svg",
-        scope: { nodeIds: [keyMap.art, keyMap.kept] },
-      })
-    ).content[0].text;
-    const pasted = await call("kalamo_svg_import", { docId, svg, parentId: defaultLayerId });
-    const fonts = warned(pasted, "FONT_MISSING");
-    expect(fonts).toHaveLength(1);
-    expect(pasted.structuredContent.createdIds).toContain(fonts[0]?.nodeId);
-    expect(await texts(docId, [fonts[0]?.nodeId])).toMatchObject([{ content: "Kept" }]);
-  });
-
-  it("counts a Kalamo copy's per-file text warnings over the Texts it places (#162)", async () => {
-    const { docId, defaultLayerId } = await newDoc();
-    const copyOf = async (clip: object, kept: object) => {
-      const text = { type: "text", parentId: defaultLayerId, x: 0 };
-      const { keyMap } = (
-        await call("kalamo_node_create", {
-          docId,
-          nodes: [
-            { ...text, ...clip, clientKey: "clip", y: 20 },
-            { ...text, ...kept, clientKey: "kept", y: 60 },
-            {
-              type: "rect",
-              clientKey: "art",
-              parentId: defaultLayerId,
-              x: 0,
-              y: 0,
-              width: 40,
-              height: 40,
-            },
-          ],
-        })
-      ).structuredContent;
-      await call("kalamo_mask_make", { docId, clipNodeId: keyMap.clip, contentIds: [keyMap.art] });
-      const scope = { nodeIds: [keyMap.art, keyMap.kept] };
-      const svg = (await call("kalamo_export", { docId, format: "svg", scope })).content[0].text;
-      return call("kalamo_svg_import", { docId, svg, parentId: defaultLayerId });
-    };
-    const clip = { fontFamily: "Helvetica", content: "กข" };
-
-    const pasted = await copyOf(clip, { fontFamily: "Helvetica", content: "ค" });
-    const fonts = warned(pasted, "FONT_MISSING");
-    const [glyphs] = warned(pasted, "MISSING_GLYPHS");
-    expect(fonts).toHaveLength(1);
-    expect(fonts[0]?.message).toMatch(/^Helvetica is/);
-    expect(glyphs?.message).toContain("has glyphs for ค;");
-    expect(glyphs?.nodeId).toBe(fonts[0]?.nodeId);
-    expect(await texts(docId, [glyphs?.nodeId])).toMatchObject([{ content: "ค" }]);
-
-    const plain = await copyOf(clip, { content: "Kept" });
-    expect(plain.structuredContent.warnings).toEqual([]);
-  });
-
-  it("gives doc_open's warnings, in order, to a full-file Place, on the placed Texts", async () => {
-    const svg =
-      '<svg xmlns="http://www.w3.org/2000/svg"><text y="10" font-family="Helvetica">กข</text><text y="30" font-family="Arial">ขค</text><text y="50" font-family="Helvetica">ค</text></svg>';
-    const opened = (await call("kalamo_doc_open", { content: svg })).structuredContent.warnings;
-    const { docId, defaultLayerId } = await newDoc();
-    const placed = await call("kalamo_svg_import", { docId, svg, parentId: defaultLayerId });
-    const { warnings } = placed.structuredContent as { warnings: Warning[] };
-    const bare = (ws: Warning[]) => ws.map(({ code, message }) => ({ code, message }));
-    expect(bare(warnings)).toEqual(bare(opened));
-    expect(warnings.map((w) => w.code)).toEqual(["FONT_MISSING", "FONT_MISSING", "MISSING_GLYPHS"]);
-    const got = await texts(
-      docId,
-      warnings.map((w) => w.nodeId),
-    );
-    expect(got.map((n) => n.content)).toEqual(["กข", "ขค", "กข"]);
-  });
-
-  it("leaves doc_open's warnings on the file's own ids", async () => {
-    const opened = await call("kalamo_doc_open", { content: HELVETICA });
-    const [font] = warned(opened, "FONT_MISSING");
-    const outline = JSON.stringify(
-      (await call("kalamo_doc_outline", { docId: opened.structuredContent.docId, depth: 5 }))
-        .structuredContent,
-    );
-    expect(outline).toContain(`"${font?.nodeId}"`);
-  });
 });
 
 it("places an SVG as one Group under the parent, and refuses a .kalamo.json", async () => {

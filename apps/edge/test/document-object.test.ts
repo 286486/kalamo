@@ -297,6 +297,7 @@ it("keeps a Transaction's edits in an overlay until commit, across a restart", a
 it("rolls back to the Document as it was before tx_begin", async () => {
   const { s, defaultLayerId, rectId } = await withRect("t2");
   const before = ok(await s.outline({ depth: 3 }, "agent-a"));
+  const log = ok(await s.changes(0));
   const { txId } = ok(await s.begin("agent-a"));
   ok(await s.createNodes([{ ...rect, parentId: defaultLayerId }], "agent-a", { txId }));
   ok(await s.updateNodes([{ nodeId: rectId, patch: { name: "x" } }], "agent-a", { txId }));
@@ -304,10 +305,56 @@ it("rolls back to the Document as it was before tx_begin", async () => {
   expect(ok(await s.rollback(txId, "agent-a"))).toEqual({ txId, rev: 2 });
   expect(ok(await s.outline({ depth: 3 }, "agent-a"))).toEqual(before);
   expect(await s.info()).toMatchObject({ rev: 2 });
+  expect(ok(await s.changes(0))).toEqual(log);
+  expect(await s.get([rectId], "full", "agent-a", txId)).toMatchObject({
+    error: { code: "TX_EXPIRED", hint: expect.stringContaining("rolled back") },
+  });
   expect(
     await s.createNodes([{ ...rect, parentId: defaultLayerId }], "agent-a", { txId }),
   ).toMatchObject({ error: { code: "TX_EXPIRED", hint: expect.stringContaining("rolled back") } });
   expect(await s.rollback(txId, "agent-a")).toMatchObject({ error: { code: "TX_EXPIRED" } });
+});
+
+it("exports a Transaction's edits as .kalamo.json only under its txId", async () => {
+  const { s, defaultLayerId } = await withRect("tx-file");
+  const ids = async (txId?: string) =>
+    JSON.parse(ok(await s.file("agent-a", txId)).text).nodes.map((n: { id: string }) => n.id);
+  const committed = await ids();
+  const { txId } = ok(await s.begin("agent-a"));
+  const [staged] = ok(
+    await s.createNodes([{ ...rect, parentId: defaultLayerId }], "agent-a", { txId }),
+  ).createdIds;
+  expect(await ids(txId)).toEqual([...committed, staged].sort());
+  expect(await ids()).toEqual(committed);
+  expect(await s.file("agent-b", txId)).toMatchObject({ error: { code: "TX_NOT_FOUND" } });
+});
+
+it("opens a file as rev 1 keeping its ids, outlined to depth 1, logged as Open with its intent", async () => {
+  const { s, defaultLayerId, rectId } = await withRect("open-from");
+  const file = parseDocument(ok(await s.file("agent-a")).text);
+  const opened = ok(
+    await stub("open-to").open({ docId: "open-to", ...file, actor: "agent-b", intent: "reopen" }),
+  );
+  expect(opened).toEqual({
+    docId: "open-to",
+    name: "Doc",
+    artboards: file.artboards,
+    rev: 1,
+    nodes: [expect.objectContaining({ id: defaultLayerId, type: "layer", childCount: 1 })],
+  });
+  expect(opened.nodes[0]).not.toHaveProperty("children");
+  expect(ok(await stub("open-to").get([rectId], "full", "agent-b")).nodes).toMatchObject([
+    { id: rectId, type: "rect" },
+  ]);
+  expect(ok(await stub("open-to").changes(0)).changes).toEqual([
+    expect.objectContaining({
+      rev: 1,
+      actor: "agent-b",
+      summary: 'Open Document "Doc"',
+      intent: "reopen",
+      createdIds: expect.arrayContaining([defaultLayerId, rectId]),
+    }),
+  ]);
 });
 
 it("merges per property at commit, and fails with NODE_GONE when an edited Node was deleted", async () => {
