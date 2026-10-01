@@ -18,6 +18,7 @@ import type { CurveAnchor } from "./curvature.ts";
 import { inRange, parseKey, segmentInRange } from "./direct.ts";
 import type { PaintPreview } from "./gradient.ts";
 import { prune } from "./isolation.ts";
+import { type Peers, peersAfter } from "./presence.ts";
 import { editable, objects } from "./selection.ts";
 
 /**
@@ -131,6 +132,8 @@ export interface ViewState {
   notice: string | null;
   /** The Gradient panel's or tool's paints, drawn until their answer (ADR-0081). */
   paintPreview: PaintPreview | null;
+  /** The Document's other connections, whose cursors and Selections are drawn (ADR-0090). */
+  peers: Peers;
 }
 
 /**
@@ -142,14 +145,10 @@ export function receive(
   msg: ServerMessage,
   docId: string,
 ): Partial<ViewState> | null {
-  // Presence, and an Agent's staged area, change no Document state (ADR-0090).
-  if (
-    msg.type === "presence" ||
-    msg.type === "joined" ||
-    msg.type === "left" ||
-    msg.type === "staged"
-  )
-    return {};
+  // Presence changes no Document state (ADR-0090); nor, yet, does an Agent's staged area.
+  if (msg.type === "presence" || msg.type === "joined" || msg.type === "left")
+    return { peers: peersAfter(s.peers, msg) };
+  if (msg.type === "staged") return {};
   if (msg.type === "rejected") {
     const gone = msg.error.code === "NODE_GONE";
     return {
@@ -237,7 +236,9 @@ export function receive(
     ...(answered && { drag: null }),
     anchors,
     segments,
-    ...(msg.type === "document" ? { edit: null } : settle(s.edit, msg.commandId)),
+    ...(msg.type === "document"
+      ? { edit: null, peers: peersAfter(s.peers, msg) }
+      : settle(s.edit, msg.commandId)),
     ...(msg.type === "document"
       ? s.pending.length > 0 && { pending: [] }
       : settlePending(s.pending, msg.commandId)),
