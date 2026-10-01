@@ -36,7 +36,8 @@ async function linesOf(call: Call, docId: string, t: Leaf): Promise<Bounds | nul
   }
 }
 
-const check: Check = async (call, docId) => {
+/** `svg`, the SVG arm's file, tells a text Kalamo cannot judge (#238) from one never broken. */
+async function judge(call: Call, docId: string, svg?: string) {
   const all = await leaves(call, docId);
   const rects = all.filter((n) => n.type === "rect");
   const texts = all.filter((n) => n.type === "text");
@@ -52,7 +53,7 @@ const check: Check = async (call, docId) => {
     assert(b, `"${t.content?.slice(0, 20)}…" shows no line`);
     // tspans positioned by x and dy open as one line until #238: past the page, no line is meant.
     assert(
-      b.width <= 600,
+      !svg?.includes("<tspan") || b.width <= 600,
       `Kalamo opened a text as one line ${b.width.toFixed(0)} pt wide, which it cannot judge (#238)`,
     );
     lines.push(b);
@@ -79,6 +80,10 @@ const check: Check = async (call, docId) => {
   // The rect's top is the text box's, at y 120, or the first line's ascender, which may rise above it.
   const top = Math.min(...lines.map((b) => b.y));
   assert(
+    Math.abs(top - 120) <= 4,
+    `the first line's top is at y ${top.toFixed(2)}, want the text box's, 120`,
+  );
+  assert(
     r.y >= Math.min(top, 120) - 1 && r.y <= 121,
     `the rect's top is at y ${r.y.toFixed(2)}, want the text box's (120) or the first line's (${top.toFixed(2)})`,
   );
@@ -95,9 +100,10 @@ const check: Check = async (call, docId) => {
     gap <= SLACK,
     `the rect's bottom is ${gap.toFixed(1)} pt below the last line, want at most ${SLACK}`,
   );
-};
+}
 
+const check: Check = (call, docId) => judge(call, docId);
 export default check;
 
 export const svgCheck: SvgCheck = async (call, files) =>
-  check(call, await openSvg(call, files["out.svg"]), []);
+  judge(call, await openSvg(call, files["out.svg"]), files["out.svg"]);

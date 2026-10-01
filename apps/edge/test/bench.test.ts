@@ -496,6 +496,15 @@ describe("fit", () => {
     await expect(fitSvg(call, { "out.svg": svg })).rejects.toThrow("#238");
   });
 
+  it("fails a paragraph never broken, or set as HTML, as the Agent's", async () => {
+    const page = (body: string) =>
+      `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="800" viewBox="0 0 600 800">${body}<rect x="140" y="120" width="320" height="100" fill="none" stroke="#3D3D44"/></svg>`;
+    const line = `<text x="140" y="132" font-family="Source Sans 3" font-size="16">${PARAGRAPH}</text>`;
+    await expect(fitSvg(call, { "out.svg": page(line) })).rejects.toThrow("reach past");
+    const html = `<foreignObject x="140" y="120" width="320" height="100"><div xmlns="http://www.w3.org/1999/xhtml">${PARAGRAPH}</div></foreignObject>`;
+    await expect(fitSvg(call, { "out.svg": page(html) })).rejects.toThrow("no text");
+  });
+
   it("accepts the paragraph written as one Point Type per line", async () => {
     const words = PARAGRAPH.split(" ");
     const lines = Array.from({ length: Math.ceil(words.length / 6) }, (_, i) =>

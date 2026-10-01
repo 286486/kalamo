@@ -19,6 +19,6 @@ Kalamo is a vector editor that runs in the browser. AI agents draw on it through
 The SVG arm's `out.svg` is opened in Kalamo, which lays out its text, and checked the same way.
 
 - The Document holds one rect and texts that read the paragraph, in order, with nothing else.
-- The rect has one 1 pt `#3D3D44` Stroke and no Fill, and is 320 pt wide at x 140, within 1 pt; its top is the text box's (y 120) or the first line's, whose ascender may rise above the box.
+- The rect has one 1 pt `#3D3D44` Stroke and no Fill, and is 320 pt wide at x 140, within 1 pt; its top is the text box's (y 120) or the first line's, whose ascender may rise above the box, and that line's top is within 4 pt of y 120.
 - The texts' lines, as Kalamo lays them out (an Area Type's `lineBounds`, a Point Type's bounds), lie within the rect's sides and above its bottom, which is at most 24 pt (one 16 pt line's leading and a little) below theirs.
-- A text Kalamo opens as one line wider than the page fails as unjudged: SVG Open joins tspans positioned by `x` and `dy` into one line until #238.
+- In an SVG with `<tspan>`, a text Kalamo opens as one line wider than the page fails as unjudged: SVG Open joins tspans positioned by `x` and `dy` into one line until #238.
