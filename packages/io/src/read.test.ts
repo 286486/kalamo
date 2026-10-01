@@ -23,7 +23,8 @@ import {
 import { describe, expect, it } from "vitest";
 import kalamoExport from "../../../fixtures/documents/inkscape.svg?raw";
 import { RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
-import { MIDPOINT_DOC, MIDPOINT_STOPS, midpointEdits } from "../../../fixtures/midpoint-edits.ts";
+import { MIDPOINT_STOPS } from "../../../fixtures/midpoint-edits.ts";
+import { exportedMidpointEdits } from "../../../fixtures/midpoint-export.ts";
 import reference from "../../core/src/spiral.inkscape.json" with { type: "json" };
 import { NS as DIALECT_NS } from "./dialect.ts";
 import { MAX_DEPTH, parseFile, parseSvg, resolveLinks, SVG_LIMIT, toSvg } from "./index.ts";
@@ -2647,16 +2648,7 @@ describe("gradients (ADR-0026)", () => {
   });
 
   describe("midpoints edited in Inkscape (ADR-0082)", () => {
-    const file = parseDocument(MIDPOINT_DOC);
-    const MIDPOINT_EDITS = midpointEdits(
-      toSvg({
-        id: "",
-        version: 1,
-        rev: 0,
-        ...file,
-        nodes: new Map(file.nodes.map((n) => [n.id, n])),
-      }),
-    );
+    const MIDPOINT_EDITS = exportedMidpointEdits();
     const readText = (text: string) => {
       const file = parseFile(text);
       const [leaf] = leaves(file);

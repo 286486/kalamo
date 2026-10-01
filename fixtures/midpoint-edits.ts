@@ -25,7 +25,7 @@ const NODE = {
   meta: {},
 };
 
-/** The Document, as `.kalamo.json`. */
+/** The Document, as `.kalamo.json`; `midpoint-edits.test.ts` checks it against the serializer. */
 export const MIDPOINT_DOC = JSON.stringify({
   version: 1,
   name: "Midpoint",
