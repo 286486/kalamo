@@ -14,5 +14,6 @@ In it, add an Inkscape layer named `Grid` (`<g inkscape:groupmode="layer" inksca
 
 - A top-level Layer named `Grid` holds exactly 100 `rect` Nodes, and the Document holds no other shapes.
 - Their bounds are 40×40 at x and y in 50, 100, …, 500, one per cell.
-- Each has one Fill `#3366CC` and no Stroke; the SVG export has exactly 100 `<path>`.
+- Each has one Fill `#3366CC` and no Stroke; the SVG export has exactly 100 `<rect>`.
+- The MCP arm's `kalamo_node_create` calls list at most 10 `rect` Nodes in all, inline children included: one row by hand, then `kalamo_node_duplicate` or `split_into_grid` for the rest.
 - The SVG arm's `out.svg`, opened in Kalamo, passes the same assertions; its prompt spells out the Inkscape layer markup, which is how an SVG file holds a Layer.

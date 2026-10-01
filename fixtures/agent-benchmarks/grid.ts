@@ -1,6 +1,22 @@
 import { assert, type Bounds, type Check, n3, openSvg, type SvgCheck } from "./mcp.ts";
 
-const check: Check = async (call, docId) => {
+type Listed = { type?: string; children?: Listed[] };
+const rectsIn = (nodes: Listed[] = []): number =>
+  nodes.reduce((k, n) => k + (n.type === "rect" ? 1 : 0) + rectsIn(n.children), 0);
+
+/** More than one row of 10 drawn by hand: the Agent listed the grid instead of repeating a rect. */
+const MAX_LISTED = 10;
+
+const check: Check = async (call, docId, _tools, trace) => {
+  if (trace) {
+    const listed = trace.calls
+      .filter((c) => c.name === "kalamo_node_create")
+      .reduce((k, c) => k + rectsIn(c.args?.nodes), 0);
+    assert(
+      listed <= MAX_LISTED,
+      `kalamo_node_create listed ${listed} rects, want at most ${MAX_LISTED}: repeat one instead`,
+    );
+  }
   const { nodes: layers } = (await call("kalamo_doc_outline", { docId, depth: 1 }))
     .structuredContent as { nodes: { id: string; name: string }[] };
   const layer = layers.find((l) => l.name === "Grid");

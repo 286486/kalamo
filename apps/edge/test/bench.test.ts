@@ -49,44 +49,93 @@ const newDoc = async (width: number, height: number) =>
   (await call("kalamo_doc_create", { name: "Bench", artboards: [{ width, height }] }))
     .structuredContent as { docId: string; defaultLayerId: string };
 
-const layer = async (docId: string, name: string) =>
-  (await call("kalamo_node_create", { docId, nodes: [{ type: "layer", name }] })).structuredContent
-    .createdIds[0] as string;
-
 describe("grid", () => {
-  const draw = async (count: number, inGroup = false) => {
-    const { docId } = await newDoc(600, 600);
-    let parentId = await layer(docId, "Grid");
-    if (inGroup)
-      parentId = (
-        await call("kalamo_node_create", {
-          docId,
-          nodes: [{ type: "group", parentId, name: "Cells" }],
-        })
-      ).structuredContent.createdIds[0];
-    const nodes = Array.from({ length: count }, (_, k) => ({
-      type: "rect",
-      parentId,
-      x: 50 + 50 * (k % 10),
-      y: 50 + 50 * Math.floor(k / 10),
-      width: 40,
-      height: 40,
-      appearance: { fills: [{ color: "#3366cc" }] },
-    }));
-    await call("kalamo_node_create", { docId, nodes });
-    return docId;
+  const cell = (parentId: string, k: number) => ({
+    type: "rect",
+    parentId,
+    x: 50 + 50 * (k % 10),
+    y: 50 + 50 * Math.floor(k / 10),
+    width: 40,
+    height: 40,
+    appearance: { fills: [{ color: "#3366cc" }] },
+  });
+  /** Every call made, logged as the bench's proxy logs an Agent's. */
+  const logging = () => {
+    const calls: Logged[] = [];
+    const logged: Call = async (name, args) => {
+      calls.push({ actor: "agent-a", client: "test", name, args });
+      return call(name, args);
+    };
+    return { calls, logged };
+  };
+  const grid0 = async (logged: Call, inGroup = false) => {
+    const { docId } = (
+      await logged("kalamo_doc_create", { name: "Bench", artboards: [{ width: 600, height: 600 }] })
+    ).structuredContent;
+    const create = async (node: object) =>
+      (await logged("kalamo_node_create", { docId, nodes: [node] })).structuredContent
+        .createdIds[0] as string;
+    let parentId = await create({ type: "layer", name: "Grid" });
+    if (inGroup) parentId = await create({ type: "group", parentId, name: "Cells" });
+    return { docId: docId as string, parentId };
+  };
+  const byHand = async (count: number, inGroup = false) => {
+    const { calls, logged } = logging();
+    const { docId, parentId } = await grid0(logged, inGroup);
+    const nodes = Array.from({ length: count }, (_, k) => cell(parentId, k));
+    await logged("kalamo_node_create", { docId, nodes });
+    return { docId, trace: { calls, commits: [] } };
   };
 
   it("accepts 100 rects in the Grid Layer", async () => {
-    await expect(grid(call, await draw(100), [])).resolves.toBeUndefined();
+    const { docId } = await byHand(100);
+    await expect(grid(call, docId, [])).resolves.toBeUndefined();
   });
 
   it("accepts the rects inside a Group in the Grid Layer", async () => {
-    await expect(grid(call, await draw(100, true), [])).resolves.toBeUndefined();
+    const { docId } = await byHand(100, true);
+    await expect(grid(call, docId, [])).resolves.toBeUndefined();
   });
 
   it("rejects 99 rects", async () => {
-    await expect(grid(call, await draw(99), [])).rejects.toThrow("99 rects");
+    const { docId } = await byHand(99);
+    await expect(grid(call, docId, [])).rejects.toThrow("99 rects");
+  });
+
+  it("rejects a run that listed every rect in kalamo_node_create", async () => {
+    const { docId, trace } = await byHand(100);
+    await expect(grid(call, docId, [], trace)).rejects.toThrow("listed 100 rects");
+  });
+
+  it("accepts one row drawn by hand, then duplicated down", async () => {
+    const { calls, logged } = logging();
+    const { docId, parentId } = await grid0(logged);
+    const nodes = Array.from({ length: 10 }, (_, k) => cell(parentId, k));
+    const { createdIds } = (await logged("kalamo_node_create", { docId, nodes })).structuredContent;
+    await logged("kalamo_node_duplicate", {
+      docId,
+      nodeIds: createdIds,
+      count: 9,
+      offset: { x: 0, y: 50 },
+    });
+    await expect(grid(call, docId, [], { calls, commits: [] })).resolves.toBeUndefined();
+  });
+
+  it("accepts one rect split into the grid", async () => {
+    const { calls, logged } = logging();
+    const { docId, parentId } = await grid0(logged);
+    const square = { ...cell(parentId, 0), width: 490, height: 490 };
+    const { createdIds } = (await logged("kalamo_node_create", { docId, nodes: [square] }))
+      .structuredContent;
+    await logged("kalamo_path_op", {
+      docId,
+      nodeIds: createdIds,
+      op: "split_into_grid",
+      rows: 10,
+      cols: 10,
+      gutter: 10,
+    });
+    await expect(grid(call, docId, [], { calls, commits: [] })).resolves.toBeUndefined();
   });
 });
 
