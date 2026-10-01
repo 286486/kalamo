@@ -259,6 +259,46 @@ describe("sharing", () => {
     expect((await browser(p.owner, `/api/docs/${docId}`)).status).toBe(200);
   });
 
+  it("relays a viewer's presence, and sends left for each socket 4003 closes (ADR-0090)", async () => {
+    const p = await cast();
+    const { docId } = await sharedDoc();
+    const owner = await socket(p.owner, docId);
+    await owner.next?.();
+    const viewer = await socket(p.viewer, docId);
+    const doc = await viewer.next?.();
+    expect(doc).toMatchObject({
+      type: "document",
+      role: "viewer",
+      peers: [{ actor: expect.any(String) }],
+    });
+    const joined = await owner.next?.();
+    if (joined?.type !== "joined") throw new Error("no joined");
+    const tab = await socket(p.viewer, docId);
+    await tab.next?.();
+    const joinedTab = await owner.next?.();
+    await viewer.next?.();
+    if (joinedTab?.type !== "joined") throw new Error("no joined");
+    expect(joinedTab.actor).toBe(joined.actor);
+
+    viewer.ws?.send(JSON.stringify({ type: "presence", cursor: { x: 3, y: 4 }, selection: [] }));
+    expect(await owner.next?.()).toEqual({
+      type: "presence",
+      peer: joined.peer,
+      actor: joined.actor,
+      cursor: { x: 3, y: 4 },
+      selection: [],
+    });
+    await tab.next?.();
+
+    expect((await shareWith(p.owner, docId, "vic", "editor")).status).toBe(200);
+    expect((await viewer.closed)?.code).toBe(4003);
+    expect((await tab.closed)?.code).toBe(4003);
+    const left = [await owner.next?.(), await owner.next?.()];
+    expect(left).toContainEqual({ type: "left", peer: joined.peer });
+    expect(left).toContainEqual({ type: "left", peer: joinedTab.peer });
+    owner.ws?.close();
+  });
+
   it("answers the Document read route with 401 without a session", async () => {
     const { docId } = await sharedDoc();
     const res = await hosted(`/api/docs/${docId}`, { headers: { origin: APP_ORIGIN } });

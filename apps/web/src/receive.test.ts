@@ -152,8 +152,34 @@ it("asks to reconnect on a missed rev, and drops an unanswered drag on a new Doc
     artboards: [],
     nodes: [a],
     role: "owner" as const,
+    peers: [],
   };
   expect(receive(state, msg, "d")).toMatchObject({ drag: null, selection: [a.id] });
+});
+
+const peer = { peer: "p", actor: "user_bob" };
+it.each([
+  { type: "presence" as const, ...peer, cursor: { x: 1, y: 2 } },
+  { type: "joined" as const, ...peer },
+  { type: "left" as const, peer: "p" },
+])("changes nothing on $type, and does not reconnect (ADR-0090)", (msg) => {
+  const { doc, a } = fixture();
+  const state = {
+    doc,
+    selection: [a.id],
+    drag: drag([a.id], "c1"),
+    pen: null,
+    pending: [],
+    opPreview: null,
+    paintPreview: null,
+    notice: null,
+    edit: null,
+    anchors: [],
+    segments: [],
+    layerRows: [],
+    isolated: null,
+  };
+  expect(receive(state, msg, "d")).toEqual({});
 });
 
 it("previews a drag as core moves it, skipping Nodes deleted meanwhile", () => {
@@ -282,6 +308,7 @@ it("keeps a path the Pen is still drawing across a reconnect, and drops every cr
     artboards: [],
     nodes: [a],
     role: "owner" as const,
+    peers: [],
   };
   expect(receive(state, msg, "d")).not.toHaveProperty("pen");
   expect(receive(state, msg, "d")).not.toHaveProperty("pending");
@@ -331,6 +358,7 @@ it("keeps a Direct Selection drag's preview until every path_edit is answered", 
     artboards: [],
     nodes: [a, b],
     role: "owner" as const,
+    peers: [],
   };
   expect(receive(state, msg, "d")).toMatchObject({ edit: null });
   // The preview converts the rect as core will, and leaves the Document alone.
@@ -408,6 +436,7 @@ it("keeps a Simplify preview until the answer to its path_op, and previews it wi
     artboards: [],
     nodes: [a],
     role: "owner" as const,
+    peers: [],
   };
   expect(receive(open, msg, "d")).not.toHaveProperty("simplify");
   const sent = { ...open, opPreview: { ...opPreview, commandId: "c1" } };
