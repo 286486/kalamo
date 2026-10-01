@@ -77,8 +77,10 @@ const app = {
       return placeBitmap(placeImage, request, env, principal);
     const relink = url.pathname.match(/^\/api\/docs\/([^/]+)\/relink-image$/)?.[1];
     if (relink && request.method === "POST") return relinkBitmap(relink, request, env, principal);
-    const roster = membersRoute(request, env, principal) ?? actorsRoute(request, env, principal);
-    if (roster) return answer(() => roster);
+    const members = membersRoute(request, env, principal);
+    if (members) return answer(() => members);
+    const actors = actorsRoute(request, env, principal);
+    if (actors) return answer(() => actors);
     const doc = url.pathname.match(/^\/api\/docs\/([^/]+)$/)?.[1];
     if (doc && request.method === "GET") return answer(() => readable(env, principal, doc));
     if (doc && request.method === "DELETE")

@@ -8,7 +8,7 @@ export interface Principal {
   access: "write" | "read";
 }
 
-/** Dev mode's one browser User, whose Actor keeps ADR-0010's `user`. */
+/** Dev mode's browser User without a `kalamo_dev_user` cookie, whose Actor keeps ADR-0010's `user`. */
 const LOCAL: Principal = { userId: "local", actor: "user", access: "write" };
 
 /**
