@@ -2,6 +2,7 @@ import { z } from "zod";
 import { COLOR_PATTERN } from "./color.ts";
 import { type ImageInfo, MAX_FILE_LENGTH, preserveAspectRatio } from "./image.ts";
 import { compose, scaleOf } from "./matrix.ts";
+import { autoSizeMisplaced } from "./stored-text.ts";
 import { BUNDLED_FAMILIES_NOTE, BUNDLED_FONT, FONT_STYLES } from "./text.ts";
 
 /**
@@ -421,13 +422,6 @@ export type CharacterRange = Omit<z.output<typeof CharacterRange>, "fill" | "str
 export const ALIGNMENTS = ["left", "center", "right", "justify"] as const;
 export type Alignment = (typeof ALIGNMENTS)[number];
 
-/** A text as stored: left, the default alignment, is dropped wherever a text comes in (ADR-0077). */
-export function storedAlignment<T extends { alignment?: Alignment | undefined }>(t: T): T {
-  if (t.alignment !== "left") return t;
-  const { alignment: _, ...rest } = t;
-  return rest as T;
-}
-
 /**
  * A text (ADR-0013, ADR-0022): Point Type from its baseline origin, or Area Type in its frame,
  * measured in the one bundled font. `textFrame` checks that the frame matches the kind.
@@ -555,7 +549,7 @@ export function textFrame(
   if (t.kind !== "area" && t.frame !== undefined) {
     ctx.addIssue({ code: "custom", path: ["frame"], message: "frame belongs to Area Type." });
   }
-  if (t.autoSize !== undefined && (t.kind !== "area" || t.frame !== undefined)) {
+  if (autoSizeMisplaced(t)) {
     ctx.addIssue({
       code: "custom",
       path: ["autoSize"],
@@ -612,7 +606,8 @@ function textInput(
   }
   textRanges(t, ctx);
   if (shaped.length > 1) issue("frameNodeId", "Pass frame or frameNodeId, not both.");
-  if (t.autoSize !== undefined)
+  // frame or frameNodeId shapes the frame.
+  if (autoSizeMisplaced({ kind: t.kind, frame: shaped[0], autoSize: t.autoSize }))
     issue("autoSize", `autoSize belongs to a rectangle; drop it, or drop ${shaped[0]}.`);
   for (const key of ["x", "y", "width", "height"] as const) {
     if (t[key] !== undefined) {

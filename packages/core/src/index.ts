@@ -14,5 +14,6 @@ export * from "./path.ts";
 export * from "./path-op.ts";
 export * from "./place.ts";
 export * from "./schema.ts";
+export { shapedFrame } from "./stored-text.ts";
 export * from "./text.ts";
 export * from "./tx.ts";
