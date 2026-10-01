@@ -162,6 +162,7 @@ describe("prune", () => {
       created: [],
       updated: [],
       deletedIds: [],
+      bounds: null,
       ...extra,
     });
     expect(receive(state, tx({}), "d")?.isolated).toBe(id("inner"));
@@ -400,6 +401,7 @@ describe("a sub-Layer or a single path (ADR-0058)", () => {
         created: [],
         updated: [],
         deletedIds: [id("a")],
+        bounds: null,
       };
       expect(receive(state, tx, "d")?.isolated).toBe(id("S"));
     });

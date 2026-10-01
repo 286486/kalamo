@@ -96,6 +96,7 @@ function accept(id?: string): string {
     intent: null,
     created: nodes,
     updated: [],
+    bounds: null,
     deletedIds: [],
     commandId,
   });
@@ -280,6 +281,7 @@ it("a prune by another Actor's tx while the create is in flight wins", () => {
     txId: "other",
     actor: "agent",
     intent: null,
+    bounds: null,
     created: [],
     updated: [{ ...leaf, clipping: true } as never],
     deletedIds: [],

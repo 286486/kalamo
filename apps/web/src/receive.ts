@@ -142,8 +142,14 @@ export function receive(
   msg: ServerMessage,
   docId: string,
 ): Partial<ViewState> | null {
-  // Presence changes no Document state (ADR-0090).
-  if (msg.type === "presence" || msg.type === "joined" || msg.type === "left") return {};
+  // Presence, and an Agent's staged area, change no Document state (ADR-0090).
+  if (
+    msg.type === "presence" ||
+    msg.type === "joined" ||
+    msg.type === "left" ||
+    msg.type === "staged"
+  )
+    return {};
   if (msg.type === "rejected") {
     const gone = msg.error.code === "NODE_GONE";
     return {

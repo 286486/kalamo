@@ -27,6 +27,7 @@ it("applies a tx message as a new Document: created and updated replace, deleted
     created: [c],
     updated: [{ ...a, name: "A" }],
     deletedIds: [b.id],
+    bounds: null,
   });
   expect(next.rev).toBe(7);
   expect(next.nodes.get(a.id)?.name).toBe("A");
