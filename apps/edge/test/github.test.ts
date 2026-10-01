@@ -95,6 +95,14 @@ describe("sign-in", () => {
     expect(await (await me(cookie)).json()).toMatchObject({ login: "new-name" });
   });
 
+  it("ignores dev mode's kalamo_dev_user cookie (ADR-0090)", async () => {
+    const { cookie } = await signIn({ id: 103, login: "gwen" });
+    expect(await (await me(`${cookie}; kalamo_dev_user=mallory`)).json()).toMatchObject({
+      login: "gwen",
+    });
+    expect((await me("kalamo_dev_user=mallory")).status).toBe(401);
+  });
+
   it("returns to the list for a path off the site", async () => {
     for (const bad of ["//evil.example/x", "https://evil.example", "/\\evil.example"]) {
       const { res } = await signIn({ id: 103, login: "bea" }, bad);

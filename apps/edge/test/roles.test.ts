@@ -354,6 +354,52 @@ describe("sharing", () => {
   });
 });
 
+describe("Actor labels (ADR-0090)", () => {
+  it("lists the owner's and Members' User and Agent Actors, revoked included, to any Role", async () => {
+    const owner = await person("ana");
+    const editor = await person("ben");
+    const viewer = await person("cyd");
+    const stranger = await person("dot");
+    const { ok } = await tool(owner, "kalamo_doc_create", {
+      name: "Labelled",
+      artboards: [{ width: 10, height: 10 }],
+    });
+    await tool(stranger, "kalamo_doc_create", {
+      name: "Other",
+      artboards: [{ width: 10, height: 10 }],
+    });
+    expect((await shareWith(owner, ok.docId, "ben", "editor")).status).toBe(200);
+    expect((await shareWith(owner, ok.docId, "cyd", "viewer")).status).toBe(200);
+    await authorizeMcp(editor.cookie, { name: "Cursor" });
+    const { agents } = await (await browser(editor, "/api/agents")).json<{
+      agents: { actorId: string; name: string }[];
+    }>();
+    const cursor = agents.find((a) => a.name === "Cursor (ben)")?.actorId;
+    expect((await browser(editor, `/api/agents/${cursor}`, { method: "DELETE" })).status).toBe(204);
+
+    const expected = ["ana", "ben", "cyd"].flatMap((login) => [
+      { name: login, kind: "user" },
+      { name: `Claude Code (${login})`, kind: "agent" },
+    ]);
+    expected.push({ name: "Cursor (ben)", kind: "agent" });
+    for (const who of [owner, editor, viewer]) {
+      const res = await browser(who, `/api/docs/${ok.docId}/actors`);
+      expect(res.status).toBe(200);
+      const { actors } = await res.json<{
+        actors: { actorId: string; name: string; kind: string }[];
+      }>();
+      expect(actors.map(({ name, kind }) => ({ name, kind })).sort(byName)).toEqual(
+        expected.sort(byName),
+      );
+      expect(actors.find((a) => a.name === "ana")?.actorId).toMatch(/^user_/);
+      expect(actors.find((a) => a.name === "Cursor (ben)")?.actorId).toBe(cursor);
+    }
+    expect(await outcomeOf(await browser(stranger, `/api/docs/${ok.docId}/actors`))).toBe(N);
+  });
+});
+
+const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
+
 describe("kalamo_doc_delete", () => {
   it("by the owner removes the Document for every member; by an editor it is PERMISSION_DENIED", async () => {
     const p = await cast();
@@ -402,5 +448,60 @@ describe("dev mode", () => {
       nodes: [{ type: "rect", parentId: defaultLayerId, x: 0, y: 0, width: 1, height: 1 }],
     });
     expect(errorOf(created)).toBeNull();
+  });
+
+  it("names each browser by its kalamo_dev_user cookie, and an invalid one is the local User", async () => {
+    const as = (cookie: string, path: string, init: RequestInit = {}) =>
+      exports.default.fetch(`http://kalamo${path}`, {
+        ...init,
+        headers: { cookie, ...init.headers },
+      });
+    expect(await (await as("kalamo_dev_user=alice", "/api/me")).json()).toMatchObject({
+      userId: "alice",
+      mode: "dev",
+    });
+    const { docId, defaultLayerId } = (
+      await call("kalamo_doc_create", { name: "Two", artboards: [{ width: 10, height: 10 }] })
+    ).structuredContent;
+    const { rev } = (await call("kalamo_doc_get_info", { docId })).structuredContent;
+    const users = ["kalamo_dev_user=alice", "kalamo_dev_user=bob-2", "kalamo_dev_user=Bad!"];
+    for (const [i, cookie] of users.entries()) {
+      const res = await as(cookie, `/api/docs/${docId}/ws`, { headers: { upgrade: "websocket" } });
+      const ws = res.webSocket as WebSocket;
+      const messages: { type: string }[] = [];
+      const arrived = (n: number) =>
+        new Promise<void>((resolve) => {
+          const check = () => messages.length >= n && resolve();
+          ws.addEventListener("message", (e) => {
+            messages.push(JSON.parse(e.data as string));
+            check();
+          });
+        });
+      const first = arrived(1);
+      ws.accept();
+      await first;
+      const second = arrived(2);
+      ws.send(
+        JSON.stringify({
+          type: "command",
+          id: `c${i}`,
+          command: {
+            type: "create",
+            nodes: [{ type: "rect", parentId: defaultLayerId, x: i, y: 0, width: 1, height: 1 }],
+          },
+        }),
+      );
+      await second;
+      ws.close();
+    }
+    const { changes } = (await call("kalamo_doc_changes", { docId, sinceRev: rev }))
+      .structuredContent;
+    expect(changes.map((c: { actor: string }) => c.actor)).toEqual([
+      "user_alice",
+      "user_bob-2",
+      "user",
+    ]);
+    const actors = await as("kalamo_dev_user=alice", `/api/docs/${docId}/actors`);
+    expect(await actors.json()).toEqual({ actors: [] });
   });
 });

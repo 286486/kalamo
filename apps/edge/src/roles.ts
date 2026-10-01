@@ -96,6 +96,32 @@ export async function listDocuments(env: Env, principal: Principal): Promise<Doc
 }
 
 /**
+ * `GET /api/docs/:docId/actors` (ADR-0090): the User and Agent Actors, revoked included, of the
+ * owner and every Member, so a browser can label whoever history and presence name. Null for
+ * other paths.
+ */
+export function actorsRoute(
+  request: Request,
+  env: Env,
+  principal: Principal,
+): Promise<object> | null {
+  const docId = new URL(request.url).pathname.match(/^\/api\/docs\/([^/]+)\/actors$/)?.[1];
+  if (!docId || request.method !== "GET") return null;
+  return actors(env, principal, docId);
+}
+
+async function actors(env: Env, principal: Principal, docId: string) {
+  await authorize(env, principal, docId, "read");
+  const { results } = await env.DB.prepare(
+    `SELECT a.id AS actorId, a.name, a.kind FROM actors a JOIN documents d ON d.id = ?1
+     WHERE a.user_id = d.owner_id OR a.user_id IN (SELECT user_id FROM members WHERE doc_id = ?1)`,
+  )
+    .bind(docId)
+    .all();
+  return { actors: results };
+}
+
+/**
  * `/api/docs/:docId/members[/:login]`, owner only: list, share with or change, and remove. A
  * change closes the member's sockets, which reconnect with the new Role. Null for other paths.
  */

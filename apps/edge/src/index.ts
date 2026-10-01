@@ -20,7 +20,7 @@ import { MAX_REQUEST_BYTES, readCapped } from "./body.ts";
 import { imageKey } from "./document-object.ts";
 import { agentPrincipal, oauthProvider, oauthRoute, revokedChallenge } from "./oauth.ts";
 import { ownerStorage, QUOTAS } from "./quotas.ts";
-import { authorize, listDocuments, membersRoute } from "./roles.ts";
+import { actorsRoute, authorize, listDocuments, membersRoute } from "./roles.ts";
 import { documentService, unwrap } from "./service.ts";
 
 export { DocumentObject } from "./document-object.ts";
@@ -79,6 +79,8 @@ const app = {
     if (relink && request.method === "POST") return relinkBitmap(relink, request, env, principal);
     const members = membersRoute(request, env, principal);
     if (members) return answer(() => members);
+    const actors = actorsRoute(request, env, principal);
+    if (actors) return answer(() => actors);
     const doc = url.pathname.match(/^\/api\/docs\/([^/]+)$/)?.[1];
     if (doc && request.method === "GET") return answer(() => readable(env, principal, doc));
     if (doc && request.method === "DELETE")
