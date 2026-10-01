@@ -2305,6 +2305,14 @@ describe("Convert to Area Type and Point Type (ADR-0079)", () => {
     }
   });
 
+  it("Area to Point keeps a soft hyphen where it ends a line, only inserting the return (ADR-0094)", () => {
+    const content = "xxxx x\u00ADyyyyyy";
+    const { doc, t } = make({ kind: "area", width: 45, height: 200, content });
+    expect(convert(doc, t.id, { kind: "point" }).warnings).toEqual([]);
+    expect(doc.nodes.get(t.id)).toMatchObject({ kind: "point", content: "xxxx x\u00AD\nyyyyyy" });
+    expectSame(doc.nodes.get(t.id) as Text, t);
+  });
+
   it("a trailing hard return survives Point to Area and back", () => {
     const { doc, t } = make({ content: "ab\n" });
     convert(doc, t.id, { kind: "area" });

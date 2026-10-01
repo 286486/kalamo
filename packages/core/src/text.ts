@@ -378,10 +378,13 @@ function metrics(text: TextLayout): Metric[] {
     const size = o?.fontSize ?? text.fontSize;
     const tracking = ((o?.tracking ?? text.tracking ?? 0) * size) / 1000;
     const { family, units } = drawn(characterFont(text, o), char);
+    // A soft hyphen draws nothing and takes no width or tracking, at a break too, as in Inkscape
+    // 1.2.2 (ADR-0094).
+    const shy = char === "\u00AD";
     return {
       char,
-      advance: (units * size) / SOURCE_SANS_3.unitsPerEm,
-      tracking,
+      advance: shy ? 0 : (units * size) / SOURCE_SANS_3.unitsPerEm,
+      tracking: shy ? 0 : tracking,
       family,
       size,
       overrides: o,

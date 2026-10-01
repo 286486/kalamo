@@ -1,18 +1,19 @@
 /**
  * Where Area Type may break a line: after white space that breaks (ADR-0022, ADR-0087); between CJK
  * characters (ADR-0064); after a solidus, a hyphen or a break-after dash in Latin text (ADR-0085);
- * and after `!`, `?`, `…`, an em dash or a zero-width space, and before an em dash, in Latin text
- * (ADR-0093). Each follows Pango 1.50's UAX #14, so Inkscape 1.2.2 wraps the exported SVG at the
- * same places. `Intl.Segmenter` has no line granularity, so the classes live here.
+ * after `!`, `?`, `…`, an em dash or a zero-width space, and before an em dash, in Latin text
+ * (ADR-0093); and after a soft hyphen (ADR-0094). Each follows Pango 1.50's UAX #14, so Inkscape
+ * 1.2.2 wraps the exported SVG at the same places. `Intl.Segmenter` has no line granularity, so the
+ * classes live here.
  */
 
 // ponytail: UAX #14 reduced to flags and small sets, checked against Pango 1.50.12: every CJK code
 // point beside an ideograph and a Latin letter (ADR-0064), and random Latin strings with `/`, `-`,
-// BA (ADR-0085), no-break spaces (ADR-0087), and EX, IN, B2 and ZW (ADR-0093). Still left out:
-// emoji as ID (`x|🙂|y`), IS/CL/CP before PR/OP (`a)|(b`), U+00AD, ZW beside CJK (`字`, U+200B,
-// `|」`) or before a tab, BA, EX, IN and B2 outside ASCII, Latin-1 and General Punctuation, Thai,
-// and rules across spaces but LB7, LB8 and LB17. Each needs its own class here; past a few more,
-// the pair table pays off.
+// BA (ADR-0085), no-break spaces (ADR-0087), EX, IN, B2 and ZW (ADR-0093), and U+00AD (ADR-0094).
+// Still left out: emoji as ID (`x|🙂|y`), IS/CL/CP before PR/OP (`a)|(b`), ZW beside CJK (`字`,
+// U+200B, `|」`) or before a tab, BA, EX, IN and B2 outside ASCII, Latin-1 and General
+// Punctuation, Thai, and rules across spaces but LB7, LB8 and LB17. Each needs its own class here;
+// past a few more, the pair table pays off.
 
 /** A character that breaks from its neighbours unless a flag below forbids it: UAX #14's ID, H2/H3, JL/JV/JT, CJ, NS, CL and OP of CJK width. */
 const CJK =
@@ -33,8 +34,8 @@ const PREFIX =
 /** UAX #14's PO: a unit or sign that no line break parts from the ideograph before it. */
 const POSTFIX = /[%¢°‰-‷₧₶₻₾⃀℃℉％￠]/u;
 
-/** Break after: UAX #14's SY and HY, and its BA in ASCII, Latin-1 and General Punctuation but U+00AD and spaces. */
-const BREAK_AFTER = /[-/|\u2010\u2012\u2013\u2027\u2056\u2058-\u205B\u205D\u205E]/u;
+/** Break after: UAX #14's SY and HY, and its BA in ASCII, Latin-1 and General Punctuation but spaces. */
+const BREAK_AFTER = /[-/|\u00AD\u2010\u2012\u2013\u2027\u2056\u2058-\u205B\u205D\u205E]/u;
 
 /** Break after but before GL: UAX #14's EX, IN and B2 in ASCII, Latin-1 and General Punctuation. */
 const BREAK_AFTER_PUNCTUATION = /[!?\u2014\u2024-\u2026]/u;

@@ -80,3 +80,26 @@ A text changes when its `layoutText`, `glyphs`, `pointType` or `areaFrame` diffe
   ```
   60000 texts, 52988 hold EX, IN, B2 or ZW; 24831 changed, 0 of them without one
   ```
+
+## Soft hyphen (#227) [M]
+
+#227 asks where Pango and Inkscape break at U+00AD, how wide and how visible Inkscape and resvg draw it, and what ADR-0094 changes from `main` (f9cf742). The same scripts measure it, each extended again:
+
+- `inkscape.mjs` adds #227's frame: `xxxx x` U+00AD `yyyyyy` 45 wide. Inkscape breaks after the soft hyphen, the saved line keeps it, and `text.test.ts` asserts the same lines. Point Type `ab` and `ab` with U+00AD between are both 28.8 wide under `inkscape --query-width` at 30 px, and both 38.8 with `letter-spacing="10"`: no width and no letter spacing.
+- `check.ts` adds U+00AD to the `latin` pool and to the "after / - or BA" rule. `check.ts latin f9cf742` prints:
+
+  ```
+  20000 strings, 2634 with a break that differs from Pango's
+  1311 IS, CL, CP, PR or PO before NU, OP, PR or PO
+  1183 a space before it: LB13 to LB16, across spaces
+  372 a CJK neighbour: ADR-0064's pairs
+  9 a space before a no-break space: LB13 to LB16, across spaces
+  against f9cf742: 1049 strings change at 1077 positions, 4 of them a removed break; 0 with a CJK neighbour; 0 now differ from Pango
+  ```
+
+  The 4 removed breaks are each a Hebrew letter, U+00AD and `—`, which LB21a keeps together. `check.ts cjk f9cf742` changes nothing.
+- `regress.ts` joins words with U+00AD, two of them, U+00AD and a space, `-` U+00AD and U+00AD `)` too, and counts the texts that hold one. `regress.ts f9cf742` prints:
+
+  ```
+  60000 texts, 45070 hold U+00AD; 44923 changed, 0 of them without one
+  ```

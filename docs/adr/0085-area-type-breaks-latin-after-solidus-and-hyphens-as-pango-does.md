@@ -19,7 +19,7 @@ Area Type broke Latin text only at spaces (ADR-0064, "Spaces break as before"). 
 
 `lineBreakUnits` keeps its signature and contract. It returns units in order, each ending at a break opportunity and keeping the spaces after it, and they join back into the paragraph. `layoutText`, `glyphs`, the canvas, SVG export, `io` and MCP call it unchanged.
 
-1. **Break after.** Between two non-space characters where neither is CJK, a line may break after SY (`/`), HY (`-`) and BA in ASCII, Latin-1 and General Punctuation: `|`, U+2010, U+2012, U+2013, U+2027, U+2056, U+2058–205B, U+205D and U+205E. U+00AD is left out, and the other BA characters are spaces, which break already. The break is suppressed, as Pango 1.50.12 suppresses it, when:
+1. **Break after.** Between two non-space characters where neither is CJK, a line may break after SY (`/`), HY (`-`) and BA in ASCII, Latin-1 and General Punctuation: `|`, U+2010, U+2012, U+2013, U+2027, U+2056, U+2058–205B, U+205D and U+205E. The other BA characters are spaces, which break already. Amended by ADR-0094: U+00AD, first left out as hyphenation, breaks after too, and takes no width. The break is suppressed, as Pango 1.50.12 suppresses it, when:
    - the next character is one that ADR-0064 keeps from starting a line (CL, CP, EX, IS, SY, NS, CJ, IN, BA, HY, QU, GL, WJ, ZW, CM), but `%`, which is PO and breaks: `a--b`, `a//b`, `a-)`, `a/"`, `a-.`, `a-!` stay whole, and `a-|%` breaks. Amended by ADR-0087: before GL, only a solidus suppresses the break, so `a/␣b` stays whole and `a-|␣b` and `a–|␣b` break;
    - a hyphen comes before a decimal digit (LB25): `a-1`, `-5`, `1-2`, `2026-09-30`;
    - a solidus continues a number, that is it follows `NU (NU | SY | IS)*`, and a digit, PR or PO comes after it (LB25): `1/2`, `1.2/3`, `a1/2`, `1/$` stay whole, and `a/1`, `1a/2`, `1)/2`, `1)/%` break;
@@ -55,7 +55,6 @@ The render golden and the `fixtures/documents/inkscape.svg` export snapshot chan
 
 Each of these is a Pango Latin break that Kalamo does not give, measured on 2026-09-30. Each needs its own class in `line-break.ts`, and they can be filed as a follow-up:
 
-- U+00AD soft hyphen. Pango breaks after it, and Inkscape wraps there. Whether Inkscape draws it there, and how wide Kalamo measures it, is hyphenation, which is out of scope.
 - EX: `x!|y`, `c?|d`. IN: `x…|y`. B2: `a|—|b`. Emoji as ID: `x|🙂|y`. ZWSP as a break opportunity. Amended by ADR-0093: EX, IN, B2 and ZWSP now break in ASCII, Latin-1 and General Punctuation, and emoji as ID is still left out.
 - IS, CL or CP before PR or OP, and PR or PO before PR, PO or OP: `C:|\x`, `a)|(b`, `a,|$5`, `$|$`.
 - Fullwidth forms beside Latin, such as `a|－|b`. These belong to ADR-0064's CJK rules.

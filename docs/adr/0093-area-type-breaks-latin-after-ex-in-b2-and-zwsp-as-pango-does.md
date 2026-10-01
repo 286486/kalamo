@@ -74,7 +74,7 @@ Every Area Type that holds `!`, `?`, U+2024–U+2026, U+2014 or U+200B can chang
 - ZW before a tab: Pango breaks `a{ZW}|⇥b`, since a tab is BA, not SP. Kalamo never starts a unit with white space, which a line's hanging spaces rely on, so it gives `a{ZW}⇥` · `b`.
 - EX, IN and B2 outside ASCII, Latin-1 and General Punctuation, such as `！` and `？`, which ADR-0064's CJK rules decide.
 - Rules across spaces but LB7, LB8 and LB17: `a !`, `( —`.
-- ADR-0085's other "Left out" items: U+00AD, emoji as ID, IS, CL or CP before PR or OP (#226), BA outside the three blocks, UAX #14 rules newer than Pango 1.50.
+- ADR-0085's other "Left out" items: U+00AD (amended by ADR-0094, which breaks after it), emoji as ID, IS, CL or CP before PR or OP (#226), BA outside the three blocks, UAX #14 rules newer than Pango 1.50.
 
 ## Considered Options
 

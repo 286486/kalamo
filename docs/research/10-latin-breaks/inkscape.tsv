@@ -24,3 +24,4 @@ width	text	align	lines	x
 45	"xxxx x…yyyyyy"		["xxxx x…","yyyyyy"]	[0,0]
 45	"xxxx x—yyyyyy"		["xxxx x—","yyyyyy"]	[0,0]
 45	"xxxx x​yyyyyy"		["xxxx x​","yyyyyy"]	[0,0]
+45	"xxxx x­yyyyyy"		["xxxx x­","yyyyyy"]	[0,0]

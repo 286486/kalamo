@@ -677,9 +677,10 @@ it("draws the fixture Document with known pixels", async () => {
   // the linear rect's first stop has a midpoint, and the elliptical ellipse a radial Stroke with two.
   // By #221, a twenty-second holding Area Type whose words are wider than a rectangle and a triangle.
   // By #222, a twenty-third holding Area Type that wraps after `/` and hyphens; by #236, it widens
-  // to hold an Auto Size Area Type, and by #225 an Area Type that wraps after `?` and before `—`.
+  // to hold an Auto Size Area Type, by #225 an Area Type that wraps after `?` and before `—`, and
+  // by #227 one that wraps at soft hyphens.
   expect(await hash(toSvg(doc, docRect(doc), { images }))).toBe(
-    "7c35f8ffb79ebcca820295723d0b585d94fa71f839d46904cc1cc3967dd73943",
+    "a099cbeb33764fef1f710205f67bb04d4bc5df277aa205ffc9c95f9ce61d745e",
   );
   expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned, images }))).toBe(
     "24c1e7ad8db33f59933a1b355c879cb19bfdfd67d70b11427b196aa646ea4b60",
@@ -808,6 +809,37 @@ it("draws a Clipping Mask's content only inside its Clipping Path", async () => 
   const drawn = await ink(toSvg(doc));
   expect(drawn.some(([x, y]) => x === 50 && y === 50)).toBe(true);
   expect(drawn.every(([x, y]) => x >= 39 && x <= 60 && y >= 39 && y <= 60)).toBe(true);
+});
+
+it("draws a soft hyphen as nothing, in a line, at a break and as a Clipping Path (ADR-0094)", async () => {
+  /** The ink of a text as `render` draws it, or of a red square it clips. */
+  const drawn = async (text: Record<string, unknown>, clips = false) => {
+    const { doc, defaultLayerId: parentId } = createDocument({
+      id: "d",
+      name: "Doc",
+      artboards: [{ width: 300, height: 150, background: "#FFFFFF" }],
+    });
+    const square = { type: "rect", parentId, x: 0, y: 0, width: 300, height: 150 };
+    const [n, red] = createNodes(doc, [
+      { type: "text", parentId, x: 10, y: 100, fontSize: 60, tracking: 200, ...text },
+      { ...square, appearance: { fills: [{ color: "#FF0000" }] } },
+    ] as never).nodes;
+    if (!n || !red) throw new Error("setup");
+    if (clips) makeMask(doc, { clipNodeId: n.id, contentIds: [red.id] });
+    else updateNodes(doc, [{ nodeId: red.id, patch: { visible: false } }]);
+    return ink(renderSvg(doc));
+  };
+  expect(await drawn({ content: "a\u00ADb" })).toEqual(await drawn({ content: "ab" }));
+  expect(await drawn({ content: "a\u00ADb" }, true)).toEqual(await drawn({ content: "ab" }, true));
+  const frame = { kind: "area", x: 10, y: 10, width: 140, height: 140 };
+  expect(await drawn({ ...frame, content: "xx x\u00ADyyy", tracking: 0 })).toEqual(
+    await drawn({ ...frame, content: "xx x yyy", tracking: 0 }),
+  );
+  // Tracked, the x's tracking before a soft hyphen that ends a line counts, as in Inkscape 1.2.2:
+  // `xx ` · `x{SHY}` · `yyy`, the last overflowing, where `xx x` alone fits.
+  expect(await drawn({ ...frame, content: "xx x\u00ADyyy" })).toEqual(
+    await drawn({ ...frame, content: "xx \nx" }),
+  );
 });
 
 it("clips by a text's Noto Sans SC glyphs, not by .notdef boxes (ADR-0052, ADR-0063)", async () => {

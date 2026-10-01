@@ -433,6 +433,12 @@ it("writes Area Type's overflow in a hidden tspan, so every character stays in t
   );
 });
 
+it("writes a soft hyphen as it is, ending the line it breaks, with no hyphen (ADR-0094)", () => {
+  const { svg } = areaText("xxxx x\u00ADyyyyyy", { width: 45, tracking: 100 });
+  expect(svg).toContain('y="30.25">xxxx x\u00AD</tspan><tspan x="150" y="44.65">yyyyyy</tspan>');
+  expect(svg).not.toContain("x-");
+});
+
 describe("Auto Size (ADR-0092)", () => {
   const autoText = (content: string) => {
     const { doc, defaultLayerId: parentId } = newDoc();

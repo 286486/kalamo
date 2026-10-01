@@ -1,10 +1,10 @@
-// #203's layout check, as ADR-0084 ran it, for ADR-0093 (ADR-0085 ran it before the no-break joins,
-// ADR-0087 before the EX, IN, B2 and ZW joins).
+// #203's layout check, as ADR-0084 ran it, for ADR-0094 (ADR-0085 ran it before the no-break joins,
+// ADR-0087 before the EX, IN, B2 and ZW joins, ADR-0093 before the soft-hyphen joins).
 // Run from the repo root: `node --experimental-transform-types
 // docs/research/10-latin-breaks/regress.ts <ref> [n]`. It lays out n random Area Types, 60,000 by
 // default, with that ref's core, extracted to `out/`, and with this checkout's, and counts the texts
-// whose `layoutText`, `glyphs`, `pointType` or `areaFrame` differ. Against 1d2243f, each changed text
-// should hold `!`, `?`, U+2024–U+2026, U+2014 or U+200B.
+// whose `layoutText`, `glyphs`, `pointType` or `areaFrame` differ. Against f9cf742, each changed text
+// should hold U+00AD.
 import { execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -47,6 +47,7 @@ const JOIN = [
   ...[" ", " ", " ", " ", "/", "-", "–", "|", "‐", "‒", "‧", ".", "\n", "  ", ", "],
   ...["\u00A0", "\u2007", "\u202F", "\uFEFF", " \u00A0", "-\u00A0"],
   ...["!", "?", "? ", "…", "‥", "—", "——", " — ", "\u200B", "!)", "?\u200B"],
+  ...["\u00AD", "\u00AD", "\u00AD\u00AD", "\u00AD ", "-\u00AD", "\u00AD)"],
 ];
 const FRAMES = [
   undefined,
@@ -56,7 +57,7 @@ const FRAMES = [
   "M 0 0 L 240 0 L 120 300 Z",
   "M 0 0 L 30 0 L 30 100 L 200 100 L 200 300 L 0 300 Z",
 ];
-const NEW = /[!?\u2014\u2024-\u2026\u200B]/u;
+const NEW = /\u00AD/u;
 
 let [changed, without, holding] = [0, 0, 0];
 for (let i = 0; i < Number(count); i++) {
@@ -103,5 +104,5 @@ for (let i = 0; i < Number(count); i++) {
   }
 }
 console.log(
-  `${count} texts, ${holding} hold EX, IN, B2 or ZW; ${changed} changed, ${without} of them without one`,
+  `${count} texts, ${holding} hold U+00AD; ${changed} changed, ${without} of them without one`,
 );
