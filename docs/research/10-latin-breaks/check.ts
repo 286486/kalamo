@@ -48,7 +48,8 @@ const breaks = (units: string[]) => {
 const CJK = /[　-〿぀-ヿ一-鿿가-힯！-ￜ]/u;
 const MARK = /\p{M}/u;
 const BREAK_AFTER = /[-/|‐‒–]/;
-const GLUE = /[\u00A0\u202F]/;
+/** The GL characters the `latin` pool draws (U+2007 is not in it). */
+const POOL_GLUE = /[\u00A0\u202F]/;
 
 /** A position's neighbours: the character before it, its base before any marks, and the next. */
 interface At {
@@ -70,13 +71,13 @@ const at = (cps: string[], i: number): At => {
 };
 const cjkNeighbour = ({ prev, base, next }: At) =>
   CJK.test(base) || CJK.test(next) || CJK.test(prev);
-const besideGlue = ({ prev, next }: At) => GLUE.test(prev) || GLUE.test(next);
+const besideGlue = ({ prev, next }: At) => POOL_GLUE.test(prev) || POOL_GLUE.test(next);
 
 /** The rule a difference from Pango falls under: the first that matches. */
 const RULES: [string, (a: At) => boolean][] = [
   [
     "a space before a no-break space: LB13 to LB16, across spaces",
-    (a) => breakingSpace(a.prev) && GLUE.test(a.next),
+    (a) => breakingSpace(a.prev) && POOL_GLUE.test(a.next),
   ],
   ["a space before it: LB13 to LB16, across spaces", (a) => breakingSpace(a.prev)],
   ["beside a no-break space", besideGlue],

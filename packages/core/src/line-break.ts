@@ -102,7 +102,7 @@ export function lineBreakUnits(paragraph: string): string[] {
       CJK.test(prev) || CJK.test(ch)
         ? breaksBetween(prev, ch)
         : breaksAfter(base, ch, beforeBase, inNumber);
-    // A breaking space before WJ does not break either (LB11), where it would before anything else.
+    // A unit never ends before WJ, not even after a breaking space (LB11); after one it ends before anything else, GL included (LB12a).
     if (unit && !breakingSpace(ch) && !WORD_JOINER.test(ch) && (breakingSpace(prev) || breaks)) {
       units.push(unit);
       unit = "";
