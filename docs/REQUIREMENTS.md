@@ -439,8 +439,8 @@ Kalamo 要填的空位是：**每个人带自己的 AI，人和这些 Agent 共�
 - **F-COLLAB-01** 同一文档同时被浏览器 UI 与一个或多个 Agent 编辑：所有变更经文档服务广播，UI 实时看到 Agent 的修改（带来源标识与高亮闪烁），Agent 通过 `doc_changes(sinceRev)` 拉取变更摘要（MCP 层无推送）。（P0）
 - **F-COLLAB-02** 冲突策略：服务端权威，按属性最后写入胜出；对结构性操作（删除父节点 vs 子节点被编辑）定义确定性规则（删除胜出，编辑方收到 `NODE_GONE`）。（P0）
 - **F-COLLAB-03** 节点软锁：UI 用户正在拖拽的对象对 Agent 返回 `LOCKED_BY_USER`；Agent 事务中的节点在 UI 显示"Agent 正在编辑"并禁止拖拽（可强制解锁）。（P1）
-- **F-COLLAB-04** Agent 光标 / 意图展示：UI 显示 Agent 当前正在操作的区域与一行说明（来自工具调用的 `intent` 字段）。（P1，M1 交付，ADR-0086）
-- **F-COLLAB-05** 多人协作（多浏览器用户）：其他 User 的光标与选区（P1，M1 交付，ADR-0086）；评论（P2）。
+- **F-COLLAB-04** Agent 光标 / 意图展示：UI 显示 Agent 当前正在操作的区域与一行说明（来自工具调用的 `intent` 字段）。（P1，M1 交付，ADR-0086）设计（ADR-0090）：工作区域是 Agent 最近一次写入的回执 `bounds`，`tx` 广播携带它，事务内暂存的写入另发 `staged`（只含区域与 `intent`）；画布上以虚线框和标签显示 5 分钟。
+- **F-COLLAB-05** 多人协作（多浏览器用户）：其他 User 的光标与选区（P1，M1 交付，ADR-0086）；评论（P2）。设计（ADR-0090）：每个浏览器连接是一个 Peer，经同一 WebSocket 发送文档坐标中的光标与 Selection（至多每 50 ms 一次，Selection 至多 1 000 个 id），Document 只转发不存储；新 Peer 加入时其余 Peer 重发；标签取自 D1 的 Actor 名称（`GET /api/docs/:docId/actors`）；dev 模式用 `kalamo_dev_user` cookie 区分浏览器 User。
 - **F-COLLAB-06** 权限：文档级 owner / editor / viewer；每个 Agent Actor 凭自己的 token 获得 editor 或 viewer；`run_script` 需要额外授权标志。（P1）现状（ADR-0047）：每个 Document 一个 owner（`documents.owner_id`）加任意 editor / viewer 成员（`members`）；Agent 取其 User 的 Role，只读 token 至多 viewer；无 Role 为 `DOC_NOT_FOUND`，Role 不足为 `PERMISSION_DENIED`；浏览器 File > Share… 分享，文档列表可删除；`run_script` 尚不存在。
 - **F-COLLAB-07** Actor：每次修改都记录其 Actor（人类 User，或一个 Agent 凭证）。每个 MCP 客户端授权时获得独立 token，一个 token 即一个 Agent Actor，历史中显示为"Claude Code（woody）"；人类可按 Actor 撤销或回看修改。（P0）
 
@@ -1009,6 +1009,7 @@ kalamo/
 | 63 | 区域文字在字符间断开过宽单元（2026-09-30） | 单元（单词、URL、CJK 簇）位于某个 span 开头且放不下时，若该 span 至少四个行框宽（行框为该行与文字自身 strut 的并集），就在字素簇之间断开，每段取放得下的最宽前缀，余下部分进入下一个 span 或下一条 band；更窄的 span 照旧跳过，矩形框照旧溢出。规则取自 Inkscape 1.2.2 源码与实测；Adobe 文档未写明 Illustrator 的做法，记为未验证。只因宽度而溢出的文字不再警告 `TEXT_OVERFLOW`；转为点文字时在断开处插入硬回车 | ADR-0084、#221 |
 | 64 | 区域文字在 `/` 和连字符之后换行（2026-10-01） | 拉丁文除空格外，也在 `/`（SY）、`-`（HY）以及 ASCII、Latin-1 与通用标点区块中的 BA 字符（如 `|`、en dash `–`、U+2010）之后换行，按 Pango 1.50.12 的规则抑制：下一字符不能居行首时（`%` 除外）、连字符后接数字、数字中的 `/` 后接数字或符号、紧邻希伯来字母时不断开。于是 URL、路径和连字符词与 Inkscape 1.2.2 在相同位置换行，`2026-09-30`、`1/2` 保持完整；CJK 换行不变。Adobe 文档未写明 Illustrator 的做法，记为未验证。软连字符 U+00AD、EX、IN、B2、emoji、ZWSP 与跨空格规则仍不计入 | ADR-0085、#222 |
 | 65 | 卖点：每个人带自己的 AI（2026-10-01） | 卖点从"Agent 能画图"改为"每个人带自己的 AI，人和各自的 Agent 编辑同一份文档"，产出仍是可交付矢量而非白板草图；Kalamo 不内置 AI；其他 User 的光标与选区、Agent 意图展示从 M3 提前到 M1，评论仍为 P2；MCP 工具定义瘦身进入 M1。依据调研十一：Haiku 4.5 直接写 SVG 与经 MCP 出图质量相当、成本低 4–9 倍，每轮约 10 万 token 花在工具定义上 | ADR-0086、§1.1–1.3、§3、F-COLLAB-04/05、§9 |
+| 66 | 在场与 Agent 工作区域（2026-10-01） | 光标与 Selection 由浏览器经 Document 的 WebSocket 发送，DO 只转发给其他连接、不存储（新连接加入时其余连接重发），不经 MCP；Agent 的工作区域是其最近一次写入的回执 `bounds` 加 `intent`，事务内暂存的写入也广播区域；每个 Actor 一种由 id 哈希决定的颜色；标签取自 D1 Actor 名称；Peer 的拖拽预览随软锁留在 M3 | ADR-0090、F-COLLAB-04/05、#232 |
 
 **剩余开放问题**
 
