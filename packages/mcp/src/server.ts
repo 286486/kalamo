@@ -1,7 +1,5 @@
 import {
   ArtboardInput,
-  BUNDLED_FAMILIES_NOTE,
-  BUNDLED_FONT,
   Color,
   DuplicateInput,
   FreehandStrokeInput,
@@ -81,7 +79,7 @@ const ifRev = z
   .int()
   .optional()
   .describe(
-    "Fail with REV_CONFLICT, changing nothing, unless the Document's committed rev equals this: set it to the rev you last read so you never overwrite someone else's newer edit.",
+    "Fail with REV_CONFLICT, changing nothing, unless the committed rev still equals this, the rev you last read.",
   );
 /** Accepted by every Node write (§6.4). */
 const writeFields = {
@@ -89,7 +87,7 @@ const writeFields = {
   txId: txId
     .optional()
     .describe(
-      "Transaction id from kalamo_tx_begin. The write stays invisible to others until kalamo_tx_commit, and the receipt's rev stays the committed rev. intent is then ignored: give it to kalamo_tx_commit.",
+      "From kalamo_tx_begin: others see the write, and rev moves, only at kalamo_tx_commit, which takes the intent instead.",
     ),
   ifRev,
   partial: z
@@ -186,7 +184,16 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         ? inputSchema.strict()
         : z.strictObject(inputSchema as z.ZodRawShape)
     ) as Strict<S>;
-    const advertised = z.toJSONSchema(real, { target: "draft-7", io: "input" });
+    // Schemas core names with an id (Fill, Appearance, Child…) are written once under $defs (#229).
+    const advertised = z.toJSONSchema(real, {
+      target: "draft-2020-12",
+      io: "input",
+      // zod bounds every int to the safe integers, which costs tokens and tells an Agent nothing.
+      override: ({ jsonSchema: s }) => {
+        if (s.minimum === Number.MIN_SAFE_INTEGER) delete s.minimum;
+        if (s.maximum === Number.MAX_SAFE_INTEGER) delete s.maximum;
+      },
+    });
     server.registerTool(
       name,
       { ...config, inputSchema: z.looseObject({}).meta(advertised) },
@@ -245,28 +252,22 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       title: "Create Nodes",
       description: [
         "Create Nodes in one atomic write: one bad item fails the call and creates nothing.",
-        "Each node needs parentId, the id of a Layer or Group, never an Artboard; a layer omits it to sit at the Document root.",
+        "Each node needs parentId, the id of a Layer or Group, never an Artboard; a layer omits it to sit at the Document root. The schema describes each field.",
         "Types:",
         "layer {name, appearance}: parent is the root or another Layer.",
         "group {children, appearance}: children are nodes of any type but layer, without parentId, created inside the Group.",
-        "A layer's or group's appearance {fills: [{color}], strokes: [{color, width, cap, join, miterLimit, dash}], contents} paints the outline of every visible descendant Live Shape and path and the glyphs of every text, each in its stacking order, each paint over all of them before the next, inside any Clipping Mask's Clipping Path; images and Clipping Paths get none. A gradient there is one field across every child, in document coordinates: left out, its geometry spans the container's geometricBounds (with inline children, theirs), and a container with nothing in it needs explicit geometry (else INVALID_INPUT); it moves with kalamo_node_transform on the container, not on a child alone. contents is how many of its paints, counted from the first Fill up through the Strokes, draw below the children: 0 (default) puts them all above, and 1 with one Stroke draws it behind every child, one outline around their union. Omitted, a layer or group paints nothing.",
-        "rect {x, y, width, height, radius}: radius is the corner radius.",
-        "ellipse {x, y, width, height, startAngle, endAngle, arcType}: x, y, width, height is its bounding box. startAngle and endAngle cut a pie, in degrees clockwise from 3 o'clock, default 0 and 360 for the whole ellipse; they are parametric, so a stretched pie keeps its share of the outline. arcType closes the ends: slice through the center (default), chord straight across, open not at all.",
+        "rect {x, y, width, height, radius}.",
+        "ellipse {x, y, width, height, startAngle, endAngle, arcType}: the angles are parametric, so a stretched pie keeps its share of the outline.",
         "line {x1, y1, x2, y2}.",
-        "polygon {cx, cy, radius, sides, angle, rounded, randomized}: radius is center to vertex.",
-        "star {cx, cy, outerRadius, innerRadius, points, angle, twist, rounded, randomized}.",
-        "On both, angle turns the first vertex, in degrees clockwise from straight up; a star's twist turns its inner vertices clockwise off the half step, in degrees; rounded is Inkscape's rounding, the handle length at each vertex as a fraction of the edge (0 sharp); randomized is Inkscape's jitter, as a fraction of the larger radius (0 regular). rounded and randomized are -10 to 10, all default 0.",
-        "spiral {cx, cy, radius, revolution, expansion, argument, t0}: Inkscape's spiral, always open, r = radius·t^expansion at 2π·revolution·t + argument for t from t0 to 1, turning clockwise from the center out. radius is center to the outer end; revolution is the turns from the center, 0.05 to 1024, default 3; expansion spreads them, 1 evenly (default), above 1 wider outward, below 1 wider inward, 0 to 1000; argument is the direction at the center, degrees clockwise from 3 o'clock, default 0; t0 cuts off the inner part, 0 to 0.999, default 0. Mirror it with kalamo_node_transform for a counterclockwise spiral.",
-        "path {d, fillRule}: SVG path data with absolute M, L, C, Q and Z only. Several subpaths with fillRule evenodd cut holes (a Compound Path); default nonzero.",
-        `text {x, y, content, fontSize, leading, tracking, alignment, ranges}: Point Type; x, y is where the baseline of the first character starts, and content breaks only at \\n. With kind "area" and width, height it is Area Type: x, y, width, height is its frame, content wraps at spaces (not at a no-break space such as U+00A0), after / and hyphens (not inside a number such as 2026-09-30 or 1/2), and between Chinese, Japanese and Korean characters, a word wider than a frame at least four line boxes wide (with one size, four leadings) breaks between characters, and what does not fit is not drawn and warns TEXT_OVERFLOW. Area Type flows in any closed path instead with frameNodeId, the id of a closed Live Shape or Path, as Illustrator's Area Type tool clicks a path: the text takes its parent (parentId must be it), stacking place and transform, its outline becomes the frame, and it is deleted with its Appearance (the receipt lists it in deletedIds); or with frame, closed path data. Each line wraps to the frame's width at its height, both sides of a concave frame filled left to right; x, y, width, height are then the frame's bounds and are not passed. fontSize is in pt, default 12; leading is the distance between baselines in pt, omitted for Auto (120% of the largest fontSize on each line, ranges included). fontFamily is any font name, kept as written; ${BUNDLED_FAMILIES_NOTE}; others render in ${BUNDLED_FONT} and the receipt warns FONT_MISSING. Characters none of them has (emoji, other scripts) render as .notdef boxes and warn MISSING_GLYPHS. fontStyle is the Illustrator style name, default Regular: Regular, Italic, Bold, Bold Italic, Black and Black Italic are bundled; Thin, ExtraLight, Light, Medium, Semibold, ExtraBold and their Italics are kept but render in the nearest bundled face and warn FONT_MISSING. tracking is the space after each character in 1/1000 em, -1000 to 10000, default 0. alignment is the Paragraph panel's left (default, not stored), center, right or justify, for every line: Point Type aligns about x, so center puts each line's middle at x and right its end, and justify lays out as left; Area Type aligns each line in the frame, and justify stretches every line but a paragraph's last to the frame's width by widening its word spaces. ranges are Character Ranges [{start, end, fill, stroke, baselineShift, rotation, tracking, fontStyle, fontFamily, fontSize}] over content's characters (code points, \\n included), end exclusive; a later range wins attribute by attribute, and they are stored canonical. fill replaces every Fill's colour for those characters, and stroke every Stroke's (a text with no Stroke draws none); baselineShift raises them in pt; rotation turns each in degrees clockwise about its baseline origin; tracking replaces the text's for those characters, in 1/1000 of their own em; fontStyle and fontFamily draw and measure them in that style and family, kept as written and warning FONT_MISSING as the text's do; fontSize sets their size in pt, and with Auto leading a line sits 120% of its largest size below the one before, as in Illustrator. A range value equal to the text's own is no override.`,
-        "image {src, file, x, y, width, height, preserveAspectRatio}: src is a data: URL of a PNG, JPEG or GIF file (WebP is refused: convert it to PNG), or the src id of an Image already in the Document, which reuses its file without resending it; file links the Image to a file by the path or URL an SVG names it with (not a data: URL, at most 2048 characters), which export SVG writes and nothing fetches; give src, file or both, and an Image with file and no src is a missing link, drawn as its frame and both diagonals; x, y, width, height is its frame, width and height both or neither, default the file's pixel size at 1 pt per pixel, and required without src; preserveAspectRatio is SVG's, default none (stretch to the frame). An image has no appearance; crop one with kalamo_mask_make.",
-        "Live Shapes, paths and text take appearance {fills: [{color}], strokes: [{color, width, cap, join, miterLimit, dash}]}; omit it for a white Fill and a 1 pt black Stroke, or on text a black Fill and no Stroke.",
-        'A Fill or Stroke may instead be {type: "gradient", gradient}, with gradient {type: "linear", stops, start, end} or {type: "radial", stops, center, radius, aspectRatio, angle, focus}; stops are at least 2 {offset 0-1, color, midpoint?}, the color\'s alpha is the stop\'s opacity, and midpoint (0.13-0.87, default 0.5, not on the last stop) is how far towards the next stop the two colours mix 50/50. Positions are in the Node\'s own coordinates and move with kalamo_node_transform. Leave the geometry out to span the Node\'s bounds: linear left to right, or along angle (degrees clockwise, not stored); radial from the center with Illustrator\'s radius. aspectRatio scales the radius across angle; focus is where the first stop sits. kalamo_node_get detail full returns the full geometry.',
-
-        "Give each node a clientKey to find its new id in the receipt's keyMap.",
-        "At most 2000 Nodes per call, counting inline children.",
-        "Also accepts tags and meta (any JSON) on each node.",
-        `Coordinates, colours, d and defaults: ${CONVENTIONS}.`,
+        "polygon {cx, cy, radius, sides, angle, rounded, randomized} and star {cx, cy, outerRadius, innerRadius, points, angle, twist, rounded, randomized}, as Inkscape's.",
+        "spiral {cx, cy, radius, revolution, expansion, argument, t0}: Inkscape's, always open, r = radius·t^expansion at 2π·revolution·t + argument, turning clockwise from the center out; mirror it with kalamo_node_transform for a counterclockwise one.",
+        "path {d, fillRule}.",
+        `text {x, y, content, fontFamily, fontStyle, fontSize, leading, tracking, alignment, ranges}: Point Type from its first baseline, breaking only at \\n. kind "area" makes Area Type, framed by x, y, width, height, by frame (closed path data) or by frameNodeId (a closed shape it takes the place of), wrapping as ${CONVENTIONS} says; what does not fit is not drawn and warns TEXT_OVERFLOW. Regular, Italic, Bold, Bold Italic, Black and Black Italic are bundled; another fontStyle, or a fontFamily that is not bundled, renders in the nearest bundled face and warns FONT_MISSING, and characters no bundled font has render as .notdef boxes and warn MISSING_GLYPHS. ranges are Character Ranges over content's code points: fill, stroke, baselineShift, rotation, tracking, fontStyle, fontFamily and fontSize for some characters, a later range winning attribute by attribute.`,
+        "image {src, file, x, y, width, height, preserveAspectRatio}: give src, file or both; an Image with file and no src is a missing link, drawn as its frame and both diagonals. An image has no appearance; crop one with kalamo_mask_make.",
+        "appearance {fills, strokes}: omitted, a white Fill and a 1 pt black Stroke, or on text a black Fill and no Stroke. A layer's or group's appearance {fills, strokes, contents} paints the outline of every visible descendant, and contents is how many of its paints draw below the children; omitted, nothing.",
+        "A Fill or Stroke may be {type: \"gradient\", gradient}: linear {stops, start, end} or radial {stops, center, radius, aspectRatio, angle, focus}, at least 2 stops {offset, color, midpoint}, in the Node's own coordinates; geometry left out spans the Node's bounds, and on a container the children's.",
+        "Give each node a clientKey to find its new id in the receipt's keyMap. At most 2000 Nodes per call, counting inline children. tags and meta (any JSON) are yours.",
+        `Coordinates, colours, d, container paint and defaults: ${CONVENTIONS}.`,
       ].join(" "),
       inputSchema: { docId, nodes: z.array(NodeInput).min(1), ...writeFields },
       outputSchema: WriteReceipt.shape,

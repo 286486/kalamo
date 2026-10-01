@@ -706,7 +706,7 @@ it("rejects an inline Layer in a Group's children with INVALID_PARENT, creating 
         {
           type: "group",
           parentId: defaultLayerId,
-          children: [child(), { type: "layer" }],
+          children: [child(), { type: "layer", parentId: defaultLayerId }],
         },
       ]),
     ),
@@ -717,6 +717,30 @@ it("rejects an inline Layer in a Group's children with INVALID_PARENT, creating 
   });
   expect(doc.nodes.size).toBe(before);
 });
+
+it.each([null, "elsewhere"])(
+  "rejects parentId %j on an inline child with INVALID_INPUT, creating nothing",
+  (parentId) => {
+    const { doc, defaultLayerId } = newDoc();
+    const before = doc.nodes.size;
+    expect(
+      codeOf(() =>
+        createNodes(doc, [
+          {
+            type: "group",
+            parentId: defaultLayerId,
+            children: [child(), { ...child(), parentId }],
+          },
+        ]),
+      ),
+    ).toMatchObject({
+      code: "INVALID_INPUT",
+      path: "nodes[0].children[1].parentId",
+      hint: expect.stringContaining("Leave parentId out"),
+    });
+    expect(doc.nodes.size).toBe(before);
+  },
+);
 
 it("gives each default Appearance its own arrays", () => {
   const { doc, defaultLayerId } = newDoc();

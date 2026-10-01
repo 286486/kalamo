@@ -107,7 +107,7 @@ describe("write tools pass the write and its options apart", () => {
     expect(docId).toBe("d");
     expect(options).toEqual({ ...opts, partial: false });
     expect(sent).toMatchObject([
-      { type: "layer", parentId: null },
+      { type: "layer", name: "L" },
       { type: "group", children: [{ type: "line" }] },
       { type: "rect", radius: 0 },
       { type: "ellipse", startAngle: 0, endAngle: 360, arcType: "slice" },
@@ -821,7 +821,7 @@ describe("arguments are parsed strictly: a bad one is INVALID_INPUT and nothing 
     [
       { type: "rect", parentId: "p", x: 0, y: 0, width: 1, height: 1, fill: "#FF0000" },
       "nodes[0].fill",
-      "nodes[0] takes: type, x, y, width, height, radius, clientKey, name, tags, meta, appearance, parentId.",
+      "nodes[0] takes: type, x, y, width, height, radius, clientKey, name, tags, meta, parentId, appearance.",
     ],
     [
       {
@@ -1066,7 +1066,7 @@ it("advertises each tool's real input schema, refusing unknown keys but in meta 
   // A failing SDK upgrade advertises the catch-all object instead, which fails every tool here.
   expect(loose.filter((at) => !/\.properties\.(meta(\.anyOf\.\d)?|patch)$/.test(at))).toEqual([]);
   expect(loose).toContain("kalamo_node_update.properties.updates.items.properties.patch");
-  expect(loose).toContain("kalamo_node_create.properties.nodes.items.oneOf.0.properties.meta");
+  expect(loose).toContain("kalamo_node_create.$defs.Node.oneOf.0.properties.meta");
 });
 
 describe("a KalamoError becomes the error result (F-MCP-15)", () => {
@@ -1410,18 +1410,40 @@ it("publishes appearance with contents on layer and group in node_create and nod
   const tools = (await client.listTools()).tools;
   const create = tools.find((t) => t.name === "kalamo_node_create");
   if (!create) throw new Error("setup");
-  const variants = (
-    (create.inputSchema.properties as { nodes: unknown }).nodes as { items: { oneOf: object[] } }
-  ).items.oneOf as { properties: Record<string, { const?: string; properties?: object }> }[];
+  type Schema = { $ref?: string; const?: string; properties?: Record<string, Schema> };
+  const defs = create.inputSchema.$defs as Record<string, Schema & { oneOf: Schema[] }>;
+  const deref = (s?: Schema) => (s?.$ref ? defs[s.$ref.replace("#/$defs/", "")] : s);
+  expect(create.inputSchema.properties?.nodes).toMatchObject({ items: { $ref: "#/$defs/Node" } });
   for (const type of ["layer", "group"]) {
-    const v = variants.find((o) => o.properties.type?.const === type);
-    expect(v?.properties.appearance?.properties, type).toHaveProperty("contents");
+    const v = defs.Node?.oneOf.find((o) => o.properties?.type?.const === type);
+    expect(deref(v?.properties?.appearance)?.properties, type).toHaveProperty("contents");
     expect(create.description).toContain(`${type} {`);
   }
   expect(create.description).toContain("contents");
   const update = tools.find((t) => t.name === "kalamo_node_update");
   expect(JSON.stringify(update?.inputSchema)).toContain('"contents"');
   expect(update?.description).toContain("appearance: null removes it");
+});
+
+it("keeps the tool definitions an Agent reads every turn within budget (#229)", async () => {
+  const { client } = await harness();
+  const { tools } = await client.listTools();
+  // What a client puts in the model's context for each tool; outputSchema stays with the client.
+  const sizes = Object.fromEntries(
+    tools.map((t) => [
+      t.name,
+      JSON.stringify({ name: t.name, description: t.description, inputSchema: t.inputSchema })
+        .length,
+    ]),
+  );
+  // Raise a budget only on purpose: every byte here is paid on every turn of every Agent.
+  expect(Object.values(sizes).reduce((a, b) => a + b)).toBeLessThanOrEqual(112_000);
+  for (const [name, size] of Object.entries(sizes)) expect(size, name).toBeLessThanOrEqual(28_000);
+  // A shared definition is written once per tool, not once per use: a Color Stop's offset sits in
+  // every Fill and Stroke of every type, and a Group's children are Nodes again.
+  const create = JSON.stringify(tools.find((t) => t.name === "kalamo_node_create"));
+  expect(create.split("0 at the gradient's start, 1 at its end.")).toHaveLength(2);
+  expect(create).toMatch(/"children":\{[^}]*"items":\{"\$ref":"#\/\$defs\/Node"\}/);
 });
 
 it("serves skill://kalamo/drawing-conventions and points at it in the instructions", async () => {

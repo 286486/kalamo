@@ -10,6 +10,7 @@ import { BUNDLED_FAMILIES_NOTE, BUNDLED_FONT, FONT_STYLES } from "./text.ts";
  * a generic INVALID_INPUT.
  */
 export const Color = z.unknown().meta({
+  id: "Color",
   type: "string",
   pattern: COLOR_PATTERN,
   description: "#RRGGBB or #RRGGBBAA, e.g. #FF8800.",
@@ -36,25 +37,27 @@ export type RenderScope = z.infer<typeof RenderScope>;
 export const RenderOverlay = z.enum(["bounds", "ids", "artboards"]);
 export type RenderOverlay = z.infer<typeof RenderOverlay>;
 
-const Point = z.strictObject({ x: z.number(), y: z.number() });
+const Point = z.strictObject({ x: z.number(), y: z.number() }).meta({ id: "Point" });
 export type Point = z.infer<typeof Point>;
 
 /** Illustrator's Midpoint range, 13%–87% of the way to the next stop (ADR-0081). */
 export const MIDPOINT_MIN = 0.13;
 export const MIDPOINT_MAX = 0.87;
 
-export const ColorStop = z.strictObject({
-  offset: z.number().min(0).max(1).describe("0 at the gradient's start, 1 at its end."),
-  color: Color.describe("#RRGGBB or #RRGGBBAA; the alpha is the stop's opacity."),
-  midpoint: z
-    .number()
-    .min(MIDPOINT_MIN)
-    .max(MIDPOINT_MAX)
-    .optional()
-    .describe(
-      "How far towards the next stop, 0.13-0.87, its colour and this one's mix 50/50. Default 0.5; not on the stop that sorts last.",
-    ),
-});
+export const ColorStop = z
+  .strictObject({
+    offset: z.number().min(0).max(1).describe("0 at the gradient's start, 1 at its end."),
+    color: Color.describe("#RRGGBB or #RRGGBBAA; the alpha is the stop's opacity."),
+    midpoint: z
+      .number()
+      .min(MIDPOINT_MIN)
+      .max(MIDPOINT_MAX)
+      .optional()
+      .describe(
+        "How far towards the next stop, 0.13-0.87, its colour and this one's mix 50/50. Default 0.5; not on the stop that sorts last.",
+      ),
+  })
+  .meta({ id: "ColorStop" });
 const stops = z
   .array(ColorStop)
   .min(2)
@@ -99,33 +102,38 @@ const distinct = (g: { start?: Point; end?: Point }, ctx: z.RefinementCtx) => {
 };
 
 /** A gradient as written; geometry left out comes from the leaf's own bounds. */
-export const Gradient = z.discriminatedUnion("type", [
-  z
-    .strictObject({
-      ...linear,
-      start: Point.optional().describe("Where the first stop sits. Default: from angle."),
-      end: Point.optional().describe("Where the last stop sits; with start or neither."),
+export const Gradient = z
+  .discriminatedUnion("type", [
+    z
+      .strictObject({
+        ...linear,
+        start: Point.optional().describe("Where the first stop sits. Default: from angle."),
+        end: Point.optional().describe("Where the last stop sits; with start or neither."),
+        angle: z
+          .number()
+          .optional()
+          .describe(
+            "Without start and end: the direction across the bounds, degrees clockwise from 3 o'clock; 0 is left to right, 90 top to bottom. Not stored.",
+          ),
+      })
+      .superRefine(distinct),
+    z.strictObject({
+      ...radial,
+      center: Point.optional().describe("Default: the bounds' centre."),
+      radius: positive
+        .optional()
+        .describe("Where the last stop sits. Default: sqrt((w² + h²) / 8), Illustrator's."),
+      aspectRatio: positive.default(1).describe("The radius across angle is radius × aspectRatio."),
       angle: z
         .number()
-        .optional()
-        .describe(
-          "Without start and end: the direction across the bounds, degrees clockwise from 3 o'clock; 0 is left to right, 90 top to bottom. Not stored.",
-        ),
-    })
-    .superRefine(distinct),
-  z.strictObject({
-    ...radial,
-    center: Point.optional().describe("Default: the bounds' centre."),
-    radius: positive
-      .optional()
-      .describe("Where the last stop sits. Default: sqrt((w² + h²) / 8), Illustrator's."),
-    aspectRatio: positive.default(1).describe("The radius across angle is radius × aspectRatio."),
-    angle: z.number().default(0).describe("Direction of radius, degrees clockwise from 3 o'clock."),
-    focus: Point.optional().describe(
-      "Where the first stop sits. Default: center; moved onto the ellipse when outside it.",
-    ),
-  }),
-]);
+        .default(0)
+        .describe("Direction of radius, degrees clockwise from 3 o'clock."),
+      focus: Point.optional().describe(
+        "Where the first stop sits. Default: center; moved onto the ellipse when outside it.",
+      ),
+    }),
+  ])
+  .meta({ id: "Gradient" });
 /** A gradient exactly as stored. */
 export const StoredGradient = z.discriminatedUnion("type", [
   z.strictObject(linear).superRefine(distinct),
@@ -148,11 +156,15 @@ const line = {
     .describe("Alternating dash and gap lengths in pt, e.g. [4, 2]; empty for a solid Stroke."),
 };
 // `type` is optional, not defaulted: zod refuses a defaulted discriminator. `paint` writes it.
-export const Fill = z.discriminatedUnion("type", [z.strictObject(solid), z.strictObject(gradient)]);
-export const Stroke = z.discriminatedUnion("type", [
-  z.strictObject({ ...solid, ...line }),
-  z.strictObject({ ...gradient, ...line }),
-]);
+export const Fill = z
+  .discriminatedUnion("type", [z.strictObject(solid), z.strictObject(gradient)])
+  .meta({ id: "Fill" });
+export const Stroke = z
+  .discriminatedUnion("type", [
+    z.strictObject({ ...solid, ...line }),
+    z.strictObject({ ...gradient, ...line }),
+  ])
+  .meta({ id: "Stroke" });
 /** The same, with every gradient's geometry, as a file stores them. */
 export const StoredFill = z.discriminatedUnion("type", [
   z.strictObject(solid),
@@ -164,10 +176,12 @@ export const StoredStroke = z.discriminatedUnion("type", [
 ]);
 
 export type AppearanceInput = z.output<typeof AppearanceInput>;
-export const AppearanceInput = z.strictObject({
-  fills: z.array(Fill).default([]).describe("Painted bottom to top."),
-  strokes: z.array(Stroke).default([]).describe("Painted bottom to top, above every Fill."),
-});
+export const AppearanceInput = z
+  .strictObject({
+    fills: z.array(Fill).default([]).describe("Painted bottom to top."),
+    strokes: z.array(Stroke).default([]).describe("Painted bottom to top, above every Fill."),
+  })
+  .meta({ id: "Appearance" });
 
 const contents = z
   .number()
@@ -179,7 +193,7 @@ const contents = z
 export type ContainerAppearanceInput = z.output<typeof ContainerAppearanceInput>;
 export const ContainerAppearanceInput = AppearanceInput.extend({
   contents: contents.default(0),
-});
+}).meta({ id: "ContainerAppearance" });
 
 export type Fill = { type: "solid"; color: string } | { type: "gradient"; gradient: Gradient };
 export type Stroke = Fill & Omit<z.output<(typeof Stroke.options)[0]>, "type" | "color">;
@@ -358,43 +372,45 @@ export const Shape = z.discriminatedUnion("type", [rect, ...Object.values(others
 export type Shape = z.output<typeof Shape>;
 
 /** Overrides for the characters from `start` up to `end` of a text's content (ADR-0029). */
-export const CharacterRange = z.strictObject({
-  start: z.number().int().min(0),
-  end: z.number().int().min(1),
-  fill: Color.optional().describe("Replaces every Fill's paint for these characters."),
-  stroke: Color.optional().describe(
-    "Replaces every Stroke's paint for these characters; a text with no Stroke draws none.",
-  ),
-  baselineShift: z.number().optional().describe("In pt, positive up."),
-  rotation: z
-    .number()
-    .min(-360)
-    .max(360)
-    .optional()
-    .describe("Degrees clockwise about each character's baseline origin."),
-  tracking: z
-    .number()
-    .min(-1000)
-    .max(10_000)
-    .optional()
-    .describe("Space after each character in 1/1000 of its own em, -1000 to 10000."),
-  fontStyle: z
-    .enum(FONT_STYLES)
-    .optional()
-    .describe("The style name these characters draw in, as the text's fontStyle."),
-  fontFamily: z
-    .string()
-    .min(1)
-    .optional()
-    .describe("Any font name for these characters, kept as written, as the text's fontFamily."),
-  fontSize: z
-    .number()
-    .positive()
-    .optional()
-    .describe(
-      "In pt, as the text's fontSize. With Auto leading a line is 120% of its largest size below the one before.",
+export const CharacterRange = z
+  .strictObject({
+    start: z.number().int().min(0),
+    end: z.number().int().min(1),
+    fill: Color.optional().describe("Replaces every Fill's paint for these characters."),
+    stroke: Color.optional().describe(
+      "Replaces every Stroke's paint for these characters; a text with no Stroke draws none.",
     ),
-});
+    baselineShift: z.number().optional().describe("In pt, positive up."),
+    rotation: z
+      .number()
+      .min(-360)
+      .max(360)
+      .optional()
+      .describe("Degrees clockwise about each character's baseline origin."),
+    tracking: z
+      .number()
+      .min(-1000)
+      .max(10_000)
+      .optional()
+      .describe("Space after each character in 1/1000 of its own em, -1000 to 10000."),
+    fontStyle: z
+      .enum(FONT_STYLES)
+      .optional()
+      .describe("The style name these characters draw in, as the text's fontStyle."),
+    fontFamily: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Any font name for these characters, kept as written, as the text's fontFamily."),
+    fontSize: z
+      .number()
+      .positive()
+      .optional()
+      .describe(
+        "In pt, as the text's fontSize. With Auto leading a line is 120% of its largest size below the one before.",
+      ),
+  })
+  .meta({ id: "CharacterRange" });
 /** A stored Character Range, its fill and stroke parsed to `#RRGGBB` or `#RRGGBBAA`. */
 export type CharacterRange = Omit<z.output<typeof CharacterRange>, "fill" | "stroke"> & {
   fill?: string;
@@ -662,6 +678,14 @@ const item = {
   name: z.string().optional(),
   tags: tags.optional(),
   meta: meta.optional(),
+  // Optional on every type, so one Node schema serves the top level and a Group's children (#229).
+  parentId: z
+    .string()
+    .nullable()
+    .optional()
+    .describe(
+      "Id of a Layer or Group, never an Artboard; doc_create returns the default Layer id. Omitted or null, the Document root, which only a layer takes. Left out inside a group's children.",
+    ),
 };
 const leaf = {
   ...item,
@@ -710,58 +734,42 @@ const LEAF_ITEMS = [
   ImageItem,
 ] as const;
 type LeafItem = (typeof LEAF_ITEMS)[number];
-interface GroupChild {
+interface GroupNodeInput {
   type: "group";
   clientKey?: string;
   name?: string;
   tags?: string[];
   meta?: Record<string, unknown>;
+  parentId?: string | null;
   appearance?: ContainerAppearanceInput;
-  children: ChildInput[];
+  children: NodeOutput[];
 }
-interface GroupChildIn extends Omit<GroupChild, "children" | "appearance"> {
+interface GroupNodeIn extends Omit<GroupNodeInput, "children" | "appearance"> {
   appearance?: z.input<typeof ContainerAppearanceInput>;
-  children?: ChildIn[];
+  children?: NodeInput[];
 }
+/** A Node to create, as core parses it. */
+export type NodeOutput = z.output<LeafItem> | GroupNodeInput | z.output<typeof LayerItem>;
 /**
- * A Node created inline in a Group, without `parentId`. `layer` parses only so core can reject it with
- * INVALID_PARENT and a hint rather than a generic INVALID_INPUT.
+ * A Node to create: under `parentId`, or inline in a Group's `children` without it. A `layer` among
+ * children parses only so core can reject it with INVALID_PARENT and a hint.
  */
-export type ChildInput = z.output<LeafItem> | GroupChild | z.output<typeof InlineLayer>;
-type ChildIn = z.input<LeafItem> | GroupChildIn | z.input<typeof InlineLayer>;
-const InlineLayer = z.strictObject({ type: z.literal("layer"), ...item });
-const ChildInput: z.ZodType<ChildInput, ChildIn> = z.lazy(() =>
-  z.discriminatedUnion("type", [...LEAF_ITEMS, GroupItem, InlineLayer]),
-);
+export type NodeInput = z.input<LeafItem> | GroupNodeIn | z.input<typeof LayerItem>;
 const container = {
   appearance: ContainerAppearanceInput.optional().describe(
     "Paints every descendant Live Shape's and path's outline, each in its stacking order; omit for none.",
   ),
 };
+const LayerItem = z.strictObject({ type: z.literal("layer"), ...item, ...container });
+export const NodeInput: z.ZodType<NodeOutput, NodeInput> = z
+  .lazy(() => z.discriminatedUnion("type", [LayerItem, ...LEAF_ITEMS, GroupItem]))
+  .meta({ id: "Node" });
 const GroupItem = z.strictObject({
   type: z.literal("group"),
   ...item,
   ...container,
-  children: z.array(ChildInput).default([]).describe("Created inside this Group, bottom to top."),
+  children: z.array(NodeInput).default([]).describe("Created inside this Group, bottom to top."),
 });
-
-const parentId = z
-  .string()
-  .describe("Id of a Layer or Group, never an Artboard. doc_create returns the default Layer id.");
-export const NodeInput = z.discriminatedUnion("type", [
-  z.strictObject({
-    type: z.literal("layer"),
-    ...item,
-    ...container,
-    parentId: z
-      .string()
-      .nullable()
-      .default(null)
-      .describe("Id of the parent Layer; omit or null for a top-level Layer."),
-  }),
-  ...[...LEAF_ITEMS, GroupItem].map((s) => s.extend({ parentId })),
-]);
-export type NodeInput = z.input<typeof NodeInput>;
 
 /** Illustrator's 16 blend modes, by their CSS names. */
 export const BlendMode = z.enum([
