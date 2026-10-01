@@ -1,8 +1,8 @@
 // Kalamo's `lineBreakUnits` against Pango 1.50.12 on random strings (#222, ADR-0085; #224, ADR-0087;
-// #225, ADR-0093). Run from the repo root: `node --experimental-transform-types
+// #225, ADR-0093; #227, ADR-0094). Run from the repo root: `node --experimental-transform-types
 // docs/research/10-latin-breaks/check.ts [latin|cjk] [ref]`. It prints each difference by the rule
 // Kalamo leaves out. `latin` draws from Latin letters, digits, spaces, U+00A0, U+202F,
-// `/-–‐‒|()"'.,$%!?…—`, U+200B, a combining mark, Hebrew and CJK; `cjk` from ADR-0064's alphabet.
+// `/-–‐‒|()"'.,$%!?…—`, U+200B, U+00AD, a combining mark, Hebrew and CJK; `cjk` from ADR-0064's alphabet.
 // With a git ref, such as 1d2243f, it also counts the strings whose breaks changed from that ref's
 // `line-break.ts`, the changed positions with a CJK neighbour, and the changed positions where Kalamo
 // now differs from Pango. ADR-0085 and ADR-0087 ran an earlier count, from the script at their commits.
@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { breakingSpace, lineBreakUnits } from "../../../packages/core/src/line-break.ts";
 
 const POOLS = {
-  latin: [..."abcxyz0123  \u00A0\u202F/-–‐‒|()\"'.,$%́אב字中「」，。!?…—\u200B"],
+  latin: [..."abcxyz0123  \u00A0\u202F/-–‐‒|()\"'.,$%́אב字中「」，。!?…—\u200B\u00AD"],
   cjk: [..."字中文我かなカナっャ한국「」（）『』，。、！？ー々・!),.:;?]}\"'-/|([{$%abc0123 "],
 };
 const [poolName = "latin", ref] = process.argv.slice(2);
@@ -45,7 +45,7 @@ const breaks = (units: string[]) => {
 };
 const CJK = /[　-〿぀-ヿ一-鿿가-힯！-ￜ]/u;
 const MARK = /\p{M}/u;
-const BREAK_AFTER = /[-/|‐‒–]/;
+const BREAK_AFTER = /[-/|‐‒–\u00AD]/;
 /** EX, IN, B2 and ZW, the classes ADR-0093 adds. */
 const PUNCTUATION = /[!?…—\u200B]/;
 /** The GL characters the `latin` pool draws (U+2007 is not in it). */

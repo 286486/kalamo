@@ -144,7 +144,7 @@
       "name": "Wide Units"
     },
     {
-      "frame": { "height": 80, "width": 590, "x": 0, "y": 500 },
+      "frame": { "height": 80, "width": 740, "x": 0, "y": 500 },
       "id": "01M38T29T8BREAKSARTB0ARD00",
       "name": "Latin Breaks"
     }
@@ -3559,6 +3559,38 @@
       "visible": true,
       "width": 120,
       "x": 460,
+      "y": 510
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#000000",
+            "type": "solid"
+          }
+        ],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "content": "Soft hy­phens let in­ter­na­tion­al­ize wrap with no hy­phen.",
+      "fontFamily": "Source Sans 3",
+      "fontSize": 12,
+      "fontStyle": "Regular",
+      "height": 60,
+      "id": "01M38T29T8BREAKS000000000E",
+      "index": "b0L",
+      "kind": "area",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "text",
+      "visible": true,
+      "width": 120,
+      "x": 610,
       "y": 510
     }
   ],
