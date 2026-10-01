@@ -1,6 +1,6 @@
 import { bounds, type Document, formatPath, type Rect, Shape, shapeSegments } from "@kalamo/core";
 import { forNewArt, leaving } from "./isolation.ts";
-import { colorOf, labelOf, type Peers } from "./presence.ts";
+import { colorOf, labelOf, type Peers, type visibleAreas } from "./presence.ts";
 import { copyInput, type PendingCreate } from "./receive.ts";
 import { send, useStore } from "./store.ts";
 import type { ToolEvent } from "./toolbox.ts";
@@ -126,6 +126,53 @@ export function commitDrag() {
 export function cancelDrag() {
   if (useStore.getState().drag?.commandId === null) useStore.setState({ drag: null });
   if (useStore.getState().edit?.commandIds === null) useStore.setState({ edit: null });
+}
+
+/** An Agent's Working Area pill, in document coordinates, and the whole `intent` its tooltip shows. */
+export type AreaPill = Rect & { intent: string | null };
+
+/** An `intent` longer than this is cut, ending in an ellipsis (ADR-0090). */
+const PILL_INTENT = 48;
+
+/**
+ * Each Agent's Working Area, dashed in its Actor's colour, with a pill on its top-left corner
+ * holding the label and `intent` (ADR-0090). Returns the pills, which the pointer hovers but never
+ * hits.
+ */
+export function drawAreas(
+  ctx: CanvasRenderingContext2D,
+  areas: ReturnType<typeof visibleAreas>,
+  names: ReadonlyMap<string, string>,
+  scale: number,
+): AreaPill[] {
+  ctx.save();
+  ctx.font = "11px system-ui, sans-serif";
+  ctx.textBaseline = "middle";
+  const pills = areas.map(({ actor, bounds: b, intent }) => {
+    const color = colorOf(actor);
+    ctx.lineWidth = 1 / scale;
+    ctx.setLineDash([4 / scale, 3 / scale]);
+    ctx.strokeStyle = color;
+    ctx.strokeRect(b.x, b.y, b.width, b.height);
+    const cut =
+      intent && intent.length > PILL_INTENT ? `${intent.slice(0, PILL_INTENT - 1)}…` : intent;
+    const text = cut ? `${labelOf(names, actor)} · ${cut}` : labelOf(names, actor);
+    const width = ctx.measureText(text).width + 8;
+    ctx.save();
+    // Screen px from here, the pill's bottom-left on the area's top-left corner.
+    ctx.translate(b.x, b.y);
+    ctx.scale(1 / scale, 1 / scale);
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.roundRect(0, -16, width, 16, 4);
+    ctx.fill();
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillText(text, 4, -8);
+    ctx.restore();
+    return { x: b.x, y: b.y - 16 / scale, width: width / scale, height: 16 / scale, intent };
+  });
+  ctx.restore();
+  return pills;
 }
 
 /**
