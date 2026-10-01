@@ -381,6 +381,10 @@ it.each([
   [45, "xxxx x\u200byyyyyy", ["xxxx x\u200b", "yyyyyy"]],
   // A soft hyphen breaks after, and its zero width fits the line (ADR-0094).
   [45, "xxxx x\u00ADyyyyyy", ["xxxx x\u00AD", "yyyyyy"]],
+  // IS, CL and CP break before OP and PR, and IS before PR (ADR-0095).
+  [45, "xxxx a)(bbbbb", ["xxxx a)", "(bbbbb"]],
+  [45, "xxxx a,$5555", ["xxxx a,", "$5555"]],
+  [60, "Open C:\\Users\\x now", ["Open C:", "\\Users\\x ", "now"]],
 ])("wraps Area Type %d wide where Inkscape does: %s", (width, content, want) => {
   const { lines, overflow } = area(content, { width, height: 300 });
   expect(lines.map((l) => l.text)).toEqual(want);
@@ -800,6 +804,77 @@ it("breaks Latin after a soft hyphen where Pango 1.50.12 does (ADR-0094)", () =>
   for (const unit of [`a${SHY})b`, `\u05D0${SHY}b`, `a${SHY}\u2060b`]) {
     expect(lineBreakUnits(unit)).toEqual([unit]);
   }
+});
+
+it("breaks Latin after IS, CL or CP and before OP, PR, PO or a digit, and between signs, where Pango 1.50.12 does (ADR-0095)", () => {
+  const breaks = [
+    ...[
+      ["a)", "(b"],
+      ["f(x)", "(y)"],
+      ["a]", "["],
+      ["x:", "(y"],
+      ["a,", "$5"],
+      ["C:", "\\x"],
+    ],
+    ...[
+      ["$", "$"],
+      ["%", "%"],
+      ["a)", "$"],
+      ["5%", "$"],
+      ["a,", "0"],
+      ["a.", "5"],
+      ["a:", "0"],
+    ],
+    ...[
+      ["a)", "%"],
+      ["$", "(a"],
+      ["%", "{a"],
+      ["$", "%"],
+      ["%", "$"],
+      ["$", "+5"],
+      ["+", "$5"],
+    ],
+    ...[
+      ["a+", "(b"],
+      ["a:", "\\", "\\"],
+      ["a,", "(5"],
+      ["$", "((5"],
+      ["$", "(-5"],
+    ],
+    // CL is `}` alone, and breaks before a letter too; `]` is CP, as `)` is.
+    ...[
+      ["x}", "y"],
+      ["x}", "1"],
+      ["1}", "5"],
+      ["x}", "#"],
+      ["x}", "\u05D0"],
+      ["x}", "{"],
+    ],
+    // A number keeps its signs and one closing bracket after it, no more (LB25).
+    ...[
+      ["1)]", "$"],
+      ["1),", "$"],
+      ["1),", "5"],
+      ["(1),", "5"],
+      ["1a)", "$"],
+      ["1)", "("],
+    ],
+    ...[
+      ["a$\u0301", "("],
+      ["a,\u0301", "5"],
+      ["a)\u0301", "$"],
+      ["x}\u0301", "b"],
+    ],
+  ];
+  for (const units of breaks) expect(lineBreakUnits(units.join(""))).toEqual(units);
+  const whole = [
+    ...["1)$", "1,0", "(1)2", "1)2", "a)1", "$5", "5%", "a]1", "1]2", "1]$", "1)%", "1}$"],
+    ...["$(5", "%(5", "$[5", "%{5", "$-5", "x]y", "x)y", "a]#", "a)\u05D0", "a.\u05D0"],
+    ...["1,$", "1.%", "1,)$", "1.$", "1:)%", "a1)$", "a1]$", "(1)$", "a%5", "a$5", "5$5"],
+    ...["$1$", 'x}"', "x}\u2060y", "a$\u0301(5", "1\u0301,5", "1)\u0301$", "1}\u0301$"],
+    ...["a]\u00A0b", "a}\u00A0b", "a,\u00A0b", "$\u00A0b"],
+  ];
+  for (const unit of whole) expect(lineBreakUnits(unit)).toEqual([unit]);
 });
 
 it("measures and draws a soft hyphen at no width and no tracking, inside a line and at its break (ADR-0094)", () => {

@@ -25,3 +25,6 @@ width	text	align	lines	x
 45	"xxxx x—yyyyyy"		["xxxx x—","yyyyyy"]	[0,0]
 45	"xxxx x​yyyyyy"		["xxxx x​","yyyyyy"]	[0,0]
 45	"xxxx x­yyyyyy"		["xxxx x­","yyyyyy"]	[0,0]
+45	"xxxx a)(bbbbb"		["xxxx a)","(bbbbb"]	[0,0]
+45	"xxxx a,$5555"		["xxxx a,","$5555"]	[0,0]
+60	"Open C:\\Users\\x now"		["Open C:","\\Users\\x ","now"]	[0,0,0]
