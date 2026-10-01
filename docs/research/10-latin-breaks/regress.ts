@@ -1,4 +1,4 @@
-// #203's layout check, as ADR-0084 ran it, for ADR-0086 (ADR-0085 ran it before the no-break joins).
+// #203's layout check, as ADR-0084 ran it, for ADR-0087 (ADR-0085 ran it before the no-break joins).
 // Run from the repo root: `node --experimental-transform-types
 // docs/research/10-latin-breaks/regress.ts <ref> [n]`. It lays out n random Area Types, 60,000 by
 // default, with that ref's core, extracted to `out/`, and with this checkout's, and counts the texts

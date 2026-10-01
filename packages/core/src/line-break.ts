@@ -1,5 +1,5 @@
 /**
- * Where Area Type may break a line: after white space that breaks (ADR-0022, ADR-0086); between CJK
+ * Where Area Type may break a line: after white space that breaks (ADR-0022, ADR-0087); between CJK
  * characters (ADR-0064); and after a solidus, a hyphen or a break-after dash in Latin text
  * (ADR-0085). Each follows Pango 1.50's UAX #14, so Inkscape 1.2.2 wraps the exported SVG at the same
  * places. `Intl.Segmenter` has no line granularity, so the classes live here.
@@ -7,9 +7,10 @@
 
 // ponytail: UAX #14 reduced to flags and small sets, checked against Pango 1.50.12: every CJK code
 // point beside an ideograph and a Latin letter (ADR-0064), and random Latin strings with `/`, `-`,
-// BA (ADR-0085) and no-break spaces (ADR-0086). Still left out: EX (`x!|y`), IN (`x…|y`), B2 (`a|—|b`), emoji as ID (`x|🙂|y`), ZWSP,
-// IS/CL/CP before PR/OP (`a)|(b`), U+00AD, BA outside ASCII, Latin-1 and General Punctuation, Thai,
-// and rules across spaces. Each needs its own class here; past a few more, the pair table pays off.
+// BA (ADR-0085) and no-break spaces (ADR-0087). Still left out: EX (`x!|y`), IN (`x…|y`), B2
+// (`a|—|b`), emoji as ID (`x|🙂|y`), ZWSP, IS/CL/CP before PR/OP (`a)|(b`), U+00AD, BA outside ASCII,
+// Latin-1 and General Punctuation, Thai, and rules across spaces. Each needs its own class here; past
+// a few more, the pair table pays off.
 
 /** A character that breaks from its neighbours unless a flag below forbids it: UAX #14's ID, H2/H3, JL/JV/JT, CJ, NS, CL and OP of CJK width. */
 const CJK =
@@ -53,7 +54,7 @@ const WORD_JOINER = /[\u2060\uFEFF]/u;
 
 /**
  * White space a line breaks after (ADR-0022): every character JavaScript's `/\s/` matches but GL
- * and WJ, which keep their neighbours together (ADR-0086).
+ * and WJ, which keep their neighbours together (ADR-0087).
  */
 export const breakingSpace = (ch: string) =>
   /\s/.test(ch) && !GLUE.test(ch) && !WORD_JOINER.test(ch);
@@ -101,6 +102,7 @@ export function lineBreakUnits(paragraph: string): string[] {
       CJK.test(prev) || CJK.test(ch)
         ? breaksBetween(prev, ch)
         : breaksAfter(base, ch, beforeBase, inNumber);
+    // A breaking space before WJ does not break either (LB11), where it would before anything else.
     if (unit && !breakingSpace(ch) && !WORD_JOINER.test(ch) && (breakingSpace(prev) || breaks)) {
       units.push(unit);
       unit = "";

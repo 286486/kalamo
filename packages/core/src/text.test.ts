@@ -337,7 +337,7 @@ it.each([
   // No break inside a number or before a digit, so the unit breaks between characters (ADR-0084).
   [60, "xxxxx 12/12345678", ["xxxxx ", "12/1234567", "8"]],
   [60, "xxxxx aa-12345678", ["xxxxx ", "aa-1234567", "8"]],
-  // A no-break space keeps its unit whole, broken between characters when wider (ADR-0086).
+  // A no-break space keeps its unit whole, broken between characters when wider (ADR-0087).
   [60, "xxxxx aa\u00A0bbbbbbbb", ["xxxxx ", "aa\u00A0bbbbbb", "bb"]],
   [60, "xxxxx 10\u00A0km/h", ["xxxxx ", "10\u00A0km/h"]],
   [60, "xxxxx aa\u202Fbbbbbbbb", ["xxxxx ", "aa\u202Fbbbbbbb", "b"]],
@@ -354,23 +354,33 @@ it.each([
   expect(overflow).toBe("");
 });
 
-// Inkscape 1.2.2 right-aligns `aaaaaaaaa` with and without a no-break space after it at the same x.
-it("hangs a no-break space that ends a line at a character break past a right-aligned frame, as Inkscape does (ADR-0086)", () => {
-  const { lines } = layoutText({
-    kind: "area",
-    x: 0,
-    y: 0,
-    width: 60,
-    height: 300,
-    content: "xxxxx aaaaaaaaa\u00A0bbbb",
-    fontSize: 12,
-    alignment: "right",
-  });
-  expect(lines.map((l) => l.text)).toEqual(["xxxxx ", "aaaaaaaaa\u00A0", "bbbb"]);
-  expect(lines.map((l) => l.x)).toEqual(
-    [33.240051, 5.5680313, 33.456024].map((x) => expect.closeTo(x, 3)),
-  );
-});
+// Inkscape 1.2.2 right-aligns `aaaaaaaaa` at the same x with each of these after it and with none,
+// so each hangs past the frame's edge as U+0020 does.
+it.each([
+  ["U+00A0", "\u00A0"],
+  ["U+202F", "\u202F"],
+  ["U+2007", "\u2007"],
+  ["U+FEFF", "\uFEFF"],
+  ["U+0020", " "],
+])(
+  "hangs %s that ends a line at a character break past a right-aligned frame, as Inkscape does (ADR-0087)",
+  (_, space) => {
+    const { lines } = layoutText({
+      kind: "area",
+      x: 0,
+      y: 0,
+      width: 60,
+      height: 300,
+      content: `xxxxx aaaaaaaaa${space}bbbb`,
+      fontSize: 12,
+      alignment: "right",
+    });
+    expect(lines.map((l) => l.text)).toEqual(["xxxxx ", `aaaaaaaaa${space}`, "bbbb"]);
+    expect(lines.map((l) => l.x)).toEqual(
+      [33.240051, 5.5680313, 33.456024].map((x) => expect.closeTo(x, 3)),
+    );
+  },
+);
 
 it("keeps empty paragraphs, and no line for a final return", () => {
   const { lines } = area("a\n\nb\n", { width: 100, height: 100 }, 15);
@@ -646,7 +656,7 @@ it("breaks Latin after a solidus, a hyphen and BA dashes, where Pango 1.50.12 do
   expect(lineBreakUnits("a /b")).toEqual(["a ", "/", "b"]);
 });
 
-it("never breaks after a no-break space or word joiner, nor before one but after a space, BA or HY, as Pango 1.50.12 does (ADR-0086)", () => {
+it("never breaks after a no-break space or word joiner, nor before one but after a space, BA or HY, as Pango 1.50.12 does (ADR-0087)", () => {
   // U+00A0, U+2007 and U+202F are UAX #14's GL; U+FEFF and U+2060 its WJ.
   const breaks = [
     ["a\u00A0b ", "c"],

@@ -14,3 +14,8 @@ width	text	align	lines	x
 60	"xxxxx aa bbbbbbbb"		["xxxxx ","aa bbbbbbb","b"]	[0,0,0]
 60	"xxxxx aa bbbbbbbb"		["xxxxx ","aa bbbbbb","bb"]	[0,0,0]
 60	"xxxxx aaaaaaaaa bbbb"	end	["xxxxx ","aaaaaaaaa ","bbbb"]	[33.240051,5.5680313,33.456024]
+60	"xxxxx aaaaaaaaa bbbb"	end	["xxxxx ","aaaaaaaaa ","bbbb"]	[33.240051,5.5680313,33.456024]
+60	"xxxxx aaaaaaaaa bbbb"	end	["xxxxx ","aaaaaaaaa ","bbbb"]	[33.240051,5.5680313,33.456024]
+60	"xxxxx aaaaaaaaa﻿bbbb"	end	["xxxxx ","aaaaaaaaa﻿","bbbb"]	[33.240051,5.5680313,33.456024]
+60	"xxxxx aaaaaaaaa bbbb"	end	["xxxxx ","aaaaaaaaa ","bbbb"]	[33.240051,5.5680313,33.456024]
+60	"xxxxx aaaaaaaaaabbbb"	end	["xxxxx ","aaaaaaaaa","abbbb"]	[33.240051,5.5680313,27.408028]

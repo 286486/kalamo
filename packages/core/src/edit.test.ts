@@ -2282,7 +2282,7 @@ describe("Convert to Area Type and Point Type (ADR-0079)", () => {
     ["U+202F", "aaaaaaaaa\u202Fbbbb"],
     ["U+FEFF", "aaaaaaaaa\uFEFFbbbb"],
   ])(
-    "Area to Point keeps %s where it ends a line, only inserting the returns (ADR-0086)",
+    "Area to Point keeps %s where it ends a line, only inserting the returns (ADR-0087)",
     (_, content) => {
       const { doc, t } = make({ kind: "area", width: 60, height: 200, content });
       expect(layoutText(t).lines[0]?.text).toBe(content.slice(0, content.length - 4));
@@ -2293,7 +2293,7 @@ describe("Convert to Area Type and Point Type (ADR-0079)", () => {
     },
   );
 
-  it("Area to Point keeps a no-break space before a soft wrap's space, and inside a unit (ADR-0086)", () => {
+  it("Area to Point keeps a no-break space before a soft wrap's space, and inside a unit (ADR-0087)", () => {
     for (const [content, want] of [
       ["xxxxx aa\u00A0 bbbbbbbb", "xxxxx aa\u00A0\nbbbbbbbb"],
       ["xxxxx aa\u00A0bbbbbbbb", "xxxxx\naa\u00A0bbbbbb\nbb"],

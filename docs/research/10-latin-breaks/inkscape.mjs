@@ -1,4 +1,4 @@
-// Where Inkscape 1.2.2 wraps each of ADR-0085's ten Area Type frames (#222) and ADR-0086's five (#224).
+// Where Inkscape 1.2.2 wraps each of ADR-0085's ten Area Type frames (#222) and ADR-0087's ten (#224).
 // Run from the repo root: `node docs/research/10-latin-breaks/inkscape.mjs`, which prints
 // `inkscape.tsv`. Each frame is a `<rect>` 300 tall, 12 px Source Sans 3, `font-kerning:none`,
 // `line-height:1.2`, and its `text-align` if any, as export writes an Area Type. Inkscape flows it
@@ -35,6 +35,11 @@ const FRAMES = [
   [60, "xxxxx aa\u202Fbbbbbbbb"],
   [60, "xxxxx aa\u2007bbbbbbbb"],
   [60, "xxxxx aaaaaaaaa\u00A0bbbb", "end"],
+  [60, "xxxxx aaaaaaaaa\u202Fbbbb", "end"],
+  [60, "xxxxx aaaaaaaaa\u2007bbbb", "end"],
+  [60, "xxxxx aaaaaaaaa\uFEFFbbbb", "end"],
+  [60, "xxxxx aaaaaaaaa bbbb", "end"],
+  [60, "xxxxx aaaaaaaaaabbbb", "end"],
 ];
 
 const xml = (t) => t.replaceAll("&", "&amp;").replaceAll("<", "&lt;");

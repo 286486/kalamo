@@ -434,7 +434,7 @@ export const characterFamilies = (text: TextLayout): BundledFamily[] =>
  * hang past the frame's edge and past a line's alignment, and are never widened (ADR-0022,
  * ADR-0077). Whitespace is every character JavaScript's `/\s/` matches, a no-break space included:
  * a line never breaks after it, but Inkscape 1.2.2 hangs it where a unit breaks between characters
- * after it or a breaking space follows it (ADR-0086).
+ * after it or a breaking space follows it (ADR-0087).
  */
 function hangsFrom(chars: string[], from = 0, to = chars.length): number {
   while (to > from && /\s/.test(chars[to - 1] as string)) to--;
@@ -606,13 +606,14 @@ function area(
   const width = (from: number, to: number) => span(m, from, hangsFrom(chars, from, to));
   /**
    * Where the widest prefix of whole grapheme clusters from `from` up to `to` that is at most `w`
-   * wide ends, `from` when none is, and where the cluster after it ends.
+   * wide ends, `from` when none is, and where the cluster after it ends. White space that ends the
+   * prefix hangs, as a no-break space does in Inkscape 1.2.2 (ADR-0087).
    */
   const prefix = (from: number, to: number, w: number) => {
     let [end, over] = [from, to];
     for (const { segment } of GRAPHEMES.segment(chars.slice(from, to).join(""))) {
       const next = end + [...segment].length;
-      if (span(m, from, next) > w) {
+      if (width(from, next) > w) {
         over = next;
         break;
       }
