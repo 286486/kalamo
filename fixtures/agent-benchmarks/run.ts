@@ -19,9 +19,22 @@ interface Run {
   turns: number;
   ms: number;
   cost: number;
+  /** Input tokens in thousands: the first turn's (tool definitions and system prompt), then all. */
+  prefix: number;
+  input: number;
+  /** The share of `input` written to the cache, which costs more than reading it. */
+  cacheWrite: number;
   model: string;
   error?: string;
 }
+
+interface Usage {
+  input_tokens: number;
+  cache_creation_input_tokens: number;
+  cache_read_input_tokens: number;
+}
+const inputOf = (u: Usage) =>
+  (u.input_tokens + u.cache_creation_input_tokens + u.cache_read_input_tokens) / 1000;
 
 /** One `claude -p` session that sees only the Kalamo MCP server and its resources. */
 async function agent(task: string, prompt: string): Promise<Run> {
@@ -70,7 +83,17 @@ async function agent(task: string, prompt: string): Promise<Run> {
   for await (const chunk of child.stdout) stream += chunk;
   writeFileSync(join(STATE, `${task}.jsonl`), stream);
 
-  const run: Run = { tools: [], turns: 0, ms: 0, cost: 0, model: "?", error: spawnError };
+  const run: Run = {
+    tools: [],
+    turns: 0,
+    ms: 0,
+    cost: 0,
+    prefix: 0,
+    input: 0,
+    cacheWrite: 0,
+    model: "?",
+    error: spawnError,
+  };
   for (const line of stream.split("\n").filter(Boolean)) {
     const event = JSON.parse(line);
     if (event.type === "system" && event.subtype === "init") {
@@ -78,6 +101,7 @@ async function agent(task: string, prompt: string): Promise<Run> {
       const server = event.mcp_servers.find((s: { name: string }) => s.name === "kalamo");
       if (server?.status !== "connected") run.error = `kalamo MCP server ${server?.status}`;
     }
+    if (event.type === "assistant" && !run.prefix) run.prefix = inputOf(event.message.usage);
     if (event.type === "assistant")
       for (const block of event.message.content)
         if (block.type === "tool_use") run.tools.push(block.name.replace(/^mcp__kalamo__/, ""));
@@ -85,6 +109,8 @@ async function agent(task: string, prompt: string): Promise<Run> {
       run.turns = event.num_turns;
       run.ms = event.duration_ms;
       run.cost = event.total_cost_usd;
+      run.input = inputOf(event.usage);
+      run.cacheWrite = event.usage.cache_creation_input_tokens / 1000;
       if (event.is_error) run.error ??= `claude: ${event.subtype}`;
     }
   }
@@ -137,6 +163,9 @@ try {
         `turns=${run.turns}`,
         `${(run.ms / 1000).toFixed(1)}s`,
         `$${run.cost.toFixed(2)}`,
+        `prefix=${run.prefix.toFixed(1)}k`,
+        `in=${run.input.toFixed(0)}k`,
+        `cacheWrite=${run.cacheWrite.toFixed(0)}k`,
         `model=${run.model}`,
         error ? `\n  ${error}` : "",
       ].join("  "),

@@ -9,33 +9,38 @@ An Agent reads every tool definition on every turn. Research 11 (#228) measured 
 
 ## Decision
 
-1. **Named definitions, written once per tool.** Core names the schemas that recur with zod's `id` metadata: `Node`, `Appearance`, `ContainerAppearance`, `Fill`, `Stroke`, `Gradient`, `ColorStop`, `CharacterRange`, `Color` and `Point`. `tool()` converts input schemas with `target: "draft-2020-12"`, which is MCP's default dialect, so zod writes each named schema once under `$defs`, and every use is a `$ref` that keeps its own `description` beside it. It also drops the `minimum` and `maximum` that zod gives every integer, the safe-integer bounds. The schema stays the one Kalamo parses with (ADR-0050).
-2. **One Node schema.** `parentId` is optional on every Node type, so a Group's `children` are Nodes again (`$ref: #/$defs/Node`). Core keeps the old rules: a Node other than a Layer with no `parentId`, or a null one, is INVALID_PARENT, as before; an inline child that gives `parentId`, even null, is INVALID_INPUT at `nodes[i].children[k].parentId`, where the old schema refused the unknown key.
-3. **Descriptions say a thing once.** A tool description names each form and what the schema cannot say. A field's meaning stays in the field's `description`, and the rules that hold across tools stay in the drawing conventions. `node_create`'s description went from 8.6 KB to 3.0 KB, and the shared write fields' `txId` and `ifRev` descriptions were shortened.
-4. **A budget, checked in a test.** `server.test.ts` measures each tool as a client gives it to the model, `JSON.stringify({name, description, inputSchema})`, leaving out `outputSchema`. The total may be at most 112,000 bytes and each tool at most 28,000. A change that needs more raises the number in the same commit.
+1. **Named definitions, written once per tool.** Core names the schemas that recur with zod's `id` metadata: `Node`, `Appearance`, `ContainerAppearance`, `Fill`, `Stroke`, `Gradient`, `ColorStop`, `CharacterRange`, `Color`, `Point`, `ParentId` and `ClientKey`. `tool()` converts input schemas with `target: "draft-2020-12"`, which is MCP's default dialect, so zod writes each named schema once under the tool's own `$defs`, and every use is a `$ref` that keeps its own `description` beside it. It also drops the `minimum` and `maximum` that zod gives every integer, the safe-integer bounds. The schema stays the one Kalamo parses with (ADR-0050), so no validation moves to the client.
+2. **One Node schema.** `parentId` is optional on every Node type, so a Group's `children` are Nodes again (`$ref: #/$defs/Node`). Core keeps the tree rules, with one change of code. A leaf or Group whose `parentId` is left out or null was INVALID_INPUT from the schema; it is now INVALID_PARENT from `assertParent`, at the same `nodes[i].parentId`, with the message and hint `kalamo_node_reparent` already gives a Node moved to the root. Keeping INVALID_INPUT would take a second check for the rule `assertParent` already holds. An inline child that gives `parentId`, even null, stays INVALID_INPUT at `nodes[i].children[k].parentId`, now raised by core instead of the schema's unknown key. `document.test.ts` covers both.
+3. **Descriptions say a thing once.** A tool description names each form and what the schema cannot say. A field's meaning stays in the field's `description`, and the rules that hold across tools stay in skill://kalamo/drawing-conventions, which each of these descriptions points to. `node_create`'s description went from 8.6 KB to 2.8 KB, `node_update`'s from 2.6 KB to 1.7 KB, `path_op`'s from 5.5 KB to 2.5 KB and `freehand_stroke`'s from 0.9 KB to 0.6 KB. What only a description said moved to the conventions: a Path operations section (which ops convert a Live Shape and warn CONVERTED_TO_PATH, what each leaves alone, when each fails, the receipt's ids), how `kind` converts a text, and how `src` and `file` Relink and Embed. The pitfalls an Agent meets while writing the patch stay in `node_update`: writing `content` clears `ranges`, and `file: null` without `src` fails INVALID_IMAGE. A linked Image's `file` field states its 2048-character limit.
+4. **A budget, checked in a test.** `server.test.ts` measures each tool as a client gives it to the model, `JSON.stringify({name, description, inputSchema})`, leaving out `outputSchema`. The total may be at most 112,000 bytes and each tool at most 28,000; the total is 100,774 and `node_create` 24,409, so each has about 10% to spare. A change that needs more raises the number in the same commit.
 
 ## Results
 
 | | Before | After |
 |---|---|---|
-| `tools/list` | 323 KB | 146 KB |
-| name, description and input schema, all tools | 285 KB | 108 KB |
-| `kalamo_node_create` | 196 KB | 27 KB |
-| `kalamo_node_update` | 21 KB | 15 KB |
+| `tools/list` | 323 KB | 139 KB |
+| name, description and input schema, all tools | 285 KB | 101 KB |
+| `kalamo_node_create` | 196 KB | 24 KB |
+| `kalamo_node_update` | 21 KB | 14 KB |
+| `kalamo_path_op` | 12 KB | 7 KB |
 | `kalamo_freehand_stroke` | 12 KB | 7 KB |
-| `kalamo_path_op` | 12 KB | 10 KB |
 
-`pnpm bench` on Claude Opus 5.5 (`claude-opus-5-5`), every task passing before and after. The first turn's input, the tool definitions and system prompt every turn starts with, went from 124.8k tokens to 46.9k in every task. Input tokens for each run, cache reads included, and cost:
+`pnpm bench` ran before, on main at bbbb81b in a detached worktree, and after, at 98fd225, alternating, twice with Claude Haiku 4.5 (`ANTHROPIC_MODEL=claude-haiku-4-5-20251001 pnpm bench`) and once with Claude Opus 5.5 (the default). Every task passed in every run. `pnpm bench` prints, for each task, the first turn's input (`prefix`: the tool definitions and system prompt every turn starts with), the input over all turns with cache reads (`in`), and what of it was written to the cache (`cacheWrite`). The prefix went from 100.7k to 39.2k tokens on Haiku and from 124.8k to 45.8k on Opus, in every task. Input and cost per run:
 
-| Task | Before | After |
-|---|---|---|
-| freehand | 530k, $0.25 | 218k, $0.54 (writing the new definitions to the cache); reruns 274k, $0.21 and 218k, $0.19 |
-| grid | 945k, $0.38; reruns 1,094k, $0.63 and 810k, $0.35 | 297k, $0.45; reruns 343k, $0.27 and 533k, $0.55 |
-| labels | 798k, $0.29 | 218k, $0.19 |
-| place | 529k, $0.23 | 218k, $0.17 |
-| transaction | 1,067k, $0.36 | 444k, $0.24 |
+| Task | Haiku before | Haiku after | Opus before | Opus after |
+|---|---|---|---|---|
+| freehand | 450k, $0.35; 444k, $0.15 | 190k, $0.16; 190k, $0.09 | 663k, $0.28 | 216k, $0.54 |
+| grid | 663k, $0.16; 545k, $0.15 | 353k, $0.15; 255k, $0.17 | 943k, $0.37 | 395k, $0.27 |
+| labels | 538k, $0.10; 535k, $0.09 | 230k, $0.06; 231k, $0.07 | 799k, $0.31 | 327k, $0.21 |
+| place | 427k, $0.08; 537k, $0.09 | 232k, $0.06; 186k, $0.06 | 530k, $0.23 | 219k, $0.18 |
+| transaction | 865k, $0.13; 862k, $0.13 | 378k, $0.09; 374k, $0.08 | 1,067k, $0.36 | 439k, $0.24 |
 
-grid's cost depends on how the Agent lays out the grid, before and after alike. It costs about $0.30 when the Agent keeps `kalamo_node_duplicate`'s copies, and about $0.60 when it reads that the copies carry a transform and redraws 99 rects with their own x and y. That takes about 10k output tokens and 80–90 s. The three runs each way average $0.45 before and $0.42 after. The first after-run of freehand paid to write the 47k-token prefix to the cache; the baseline found it already cached by an aborted run of the same code.
+Input fell by half or more in every run. Cost fell in every task but two, and both exceptions come from things that vary between runs, not from the definitions:
+
+- **The cache.** The first run of each variant pays to write the new prefix to the cache: Haiku's first freehand before wrote 121k tokens and cost $0.35, against $0.15 for the second, and Opus's freehand after wrote 58k and cost $0.54, where the other Opus runs wrote 13–20k. One run per variant on Opus cannot separate that write from the task. A run that starts within the cache's lifetime of one with the same definitions does not pay it.
+- **The Agent's plan.** grid on Haiku cost about the same before and after ($0.16 and $0.15, then $0.15 and $0.17) and took longer after (99 s and 88 s, against 59 s and 81 s), because the Agent wrote more output after (12.6k and 16.2k tokens, against 10.1k and 10.8k): how it lays out the 100 rects varies from run to run. Earlier Opus runs for this ADR cost about $0.30 when the Agent kept `kalamo_node_duplicate`'s copies and about $0.60 when it read that the copies carry a transform and redrew them.
+
+Two runs on Haiku and one on Opus show a direction, not a rate.
 
 ## Considered Options
 
