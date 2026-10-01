@@ -10,9 +10,9 @@
 // point beside an ideograph and a Latin letter (ADR-0064), and random Latin strings with `/`, `-`,
 // BA (ADR-0085), no-break spaces (ADR-0087), and EX, IN, B2 and ZW (ADR-0093). Still left out:
 // emoji as ID (`x|🙂|y`), IS/CL/CP before PR/OP (`a)|(b`), U+00AD, ZW beside CJK (`字`, U+200B,
-// `|」`), BA, EX, IN and B2 outside ASCII, Latin-1 and General Punctuation, Thai, and rules across
-// spaces but LB7, LB8 and LB17. Each needs its own class here; past a few more, the pair table pays
-// off.
+// `|」`) or before a tab, BA, EX, IN and B2 outside ASCII, Latin-1 and General Punctuation, Thai,
+// and rules across spaces but LB7, LB8 and LB17. Each needs its own class here; past a few more,
+// the pair table pays off.
 
 /** A character that breaks from its neighbours unless a flag below forbids it: UAX #14's ID, H2/H3, JL/JV/JT, CJ, NS, CL and OP of CJK width. */
 const CJK =
@@ -39,7 +39,7 @@ const BREAK_AFTER = /[-/|\u2010\u2012\u2013\u2027\u2056\u2058-\u205B\u205D\u205E
 /** Break after but before GL: UAX #14's EX, IN and B2 in ASCII, Latin-1 and General Punctuation. */
 const BREAK_AFTER_PUNCTUATION = /[!?\u2014\u2024-\u2026]/u;
 
-/** UAX #14's B2: a break before it too, but after OP, QU, BB, GL, WJ or B2, spaces between included (LB17). */
+/** UAX #14's B2: a break before it too, but after OP, QU, BB, GL, WJ or B2, and after B2 and spaces (LB17). */
 const EM_DASH = "\u2014";
 
 /** A unit that ends in B2, its marks and U+0020s: no break before another B2 (LB17). */
@@ -91,13 +91,14 @@ function breaksBetween(before: string, after: string) {
  */
 function breaksAfter(breaker: string, next: string, before: string, inNumber: boolean) {
   if (breaker === ZWSP) return next !== ZWSP;
-  if (!BREAK_AFTER.test(breaker)) {
-    if (next === EM_DASH) return breaker !== EM_DASH && !NO_BREAK_AFTER.test(breaker);
-    if (!BREAK_AFTER_PUNCTUATION.test(breaker)) return false;
+  if (next === EM_DASH && !BREAK_AFTER.test(breaker)) {
+    return breaker !== EM_DASH && !NO_BREAK_AFTER.test(breaker);
   }
+  const punctuation = BREAK_AFTER_PUNCTUATION.test(breaker);
+  if (!punctuation && !BREAK_AFTER.test(breaker)) return false;
   // `%` is UAX #14's PO, not a non-starter: Pango breaks `a-|%`.
   if (next !== "%" && NO_BREAK_BEFORE.test(next)) return false;
-  if (BREAK_AFTER_PUNCTUATION.test(breaker)) return !GLUE.test(next);
+  if (punctuation) return !GLUE.test(next);
   if (breaker === "/") {
     return (
       !GLUE.test(next) &&
@@ -126,11 +127,9 @@ export function lineBreakUnits(paragraph: string): string[] {
         : breaksAfter(base, ch, beforeBase, inNumber);
     // A unit never ends before ZW, nor before WJ but after ZW, not even after a breaking space (LB7,
     // LB8, LB11); after one it ends before anything else, GL included (LB12a), but B2 after B2 (LB17).
-    const ends = WORD_JOINER.test(ch)
-      ? ZWSP_SPACES.test(unit)
-      : breakingSpace(prev)
-        ? !(ch === EM_DASH && EM_DASH_SPACES.test(unit))
-        : breaks;
+    let ends = breaks;
+    if (WORD_JOINER.test(ch)) ends = ZWSP_SPACES.test(unit);
+    else if (breakingSpace(prev)) ends = !(ch === EM_DASH && EM_DASH_SPACES.test(unit));
     if (unit && !breakingSpace(ch) && ch !== ZWSP && ends) {
       units.push(unit);
       unit = "";
