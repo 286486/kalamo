@@ -487,6 +487,23 @@ describe("updateNodes", () => {
     ).toMatchObject({ code: "INVALID_PATCH", path: "updates[0].patch.twist" });
   });
 
+  it("changes a spiral's parameters, its d following, and refuses a key it lacks (ADR-0060)", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const at = { parentId: defaultLayerId, cx: 60, cy: 50, radius: 40 };
+    const [spiral] = createNodes(doc, [
+      { type: "spiral", ...at, revolution: 2.5, argument: 30, t0: 0.1 },
+    ]).nodes;
+    if (!spiral) throw new Error("setup");
+    const before = formatPath(shapeSegments(shape(doc, spiral.id)));
+    updateNodes(doc, [{ nodeId: spiral.id, patch: { revolution: 4, expansion: 0.5 } }]);
+    const after = shape(doc, spiral.id);
+    expect(after).toMatchObject({ revolution: 4, expansion: 0.5, argument: 30, t0: 0.1 });
+    expect(formatPath(shapeSegments(after))).not.toBe(before);
+    expect(
+      errorOf(() => updateNodes(doc, [{ nodeId: spiral.id, patch: { turns: 4 } }])),
+    ).toMatchObject({ code: "INVALID_PATCH", path: "updates[0].patch.turns" });
+  });
+
   it("changes an ellipse's angles and arc type, and refuses an arc type on a rect", () => {
     const { doc, defaultLayerId } = newDoc();
     const at = { parentId: defaultLayerId, x: 0, y: 0, width: 20, height: 10 };
