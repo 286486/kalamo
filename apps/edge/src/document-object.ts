@@ -1056,9 +1056,8 @@ export class DocumentObject extends DurableObject<Env> {
       this.broadcast({ type: "tx", rev, txId, actor, intent, ...change, commandId, skippedIds });
     }
     // Each Area Type's lines, as its bounds is its frame (ADR-0089).
-    const areas = [...created, ...updated].flatMap((n) =>
-      n.type === "text" && n.kind === "area" ? [n] : [],
-    );
+    const written = [...created, ...updated];
+    const areas = written.flatMap((n) => (n.type === "text" && n.kind === "area" ? [n] : []));
     return {
       txId,
       rev,
@@ -1067,7 +1066,7 @@ export class DocumentObject extends DurableObject<Env> {
       deletedIds,
       keyMap: meta.keyMap ?? {},
       bounds: union([
-        ...[...created, ...updated].map((n) => bounds(after, n)),
+        ...written.map((n) => bounds(after, n)),
         ...deletedIds.map((id) => bounds(before, before.nodes.get(id) as Node)),
       ]),
       warnings: meta.warnings ?? [],

@@ -55,6 +55,8 @@ it("bounds Area Type's shown lines, ascender to descender, not its frame (#230)"
   expect(box.y + box.height).toBeCloseTo(last.y + at12(326));
   expect(textBox(area)).toEqual({ x: 10, y: 20, width: 15, height: 200 });
   expect(linesBox({ ...area, height: 5 })).toBeNull();
+  expect(linesBox({ ...area, content: "Hi Hi\n\n" })).toEqual(box);
+  expect(linesBox({ ...area, content: " \n" })).toBeNull();
 });
 
 it("grows by each added character's advance, and counts .notdef for one the font lacks", () => {

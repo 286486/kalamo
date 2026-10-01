@@ -778,8 +778,8 @@ export function textBox(text: TextLayout): Rect {
  * from the ascender to the descender (ADR-0013, ADR-0022, ADR-0077), and of every character's cell:
  * its advance width from its origin, ascender to descender at its own size, raised by its baseline
  * shift and turned clockwise about the origin by its rotation (ADR-0029, ADR-0068). Area Type's
- * lines leave out the whitespace that hangs at their ends; null when its frame shows no line
- * (ADR-0089).
+ * lines leave out the whitespace that hangs at their ends, so a line of only whitespace draws
+ * nothing and counts for nothing; null when no line draws (ADR-0089).
  */
 export function linesBox(text: TextLayout): Rect | null {
   const { unitsPerEm, ascender, descender } = SOURCE_SANS_3;
@@ -795,6 +795,10 @@ export function linesBox(text: TextLayout): Rect | null {
   for (const l of lines) {
     const chars = [...l.text];
     const shown = text.kind === "area" ? hangsFrom(chars) : chars.length;
+    if (!shown && text.kind === "area") {
+      g += chars.length;
+      continue;
+    }
     add(l.x, l.y - ascender * s);
     add(l.x + Math.max(0, span(m, l.start, l.start + shown)), l.y - descender * s);
     for (const c of cells.slice(g, g + shown)) {
@@ -810,7 +814,7 @@ export function linesBox(text: TextLayout): Rect | null {
     }
     g += chars.length;
   }
-  if (!lines.length) return null;
+  if (left === Infinity) return null;
   return { x: left, y: top, width: right - left, height: bottom - top };
 }
 

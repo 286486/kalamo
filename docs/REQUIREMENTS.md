@@ -691,11 +691,12 @@ flowchart LR
   "keyMap": {"clientKey": "nodeId"},
   "bounds": {"x":0,"y":0,"width":0,"height":0},
   "warnings": [{"code":"TEXT_OVERFLOW","nodeId":"…","message":"…"}],
+  "lineBounds": {"nodeId": {"x":0,"y":0,"width":0,"height":0}},
   "failed": [{"index":0,"code":"…","message":"…","hint":"…","path":"…"}],
   "preview": {"type":"image","mimeType":"image/png","data":"…"}
 }
 ```
-`failed` 仅在调用带 `partial: true` 时出现：每个未生效项的下标与错误；已生效项照常列在 id 列表中，合为一个 Transaction。
+`failed` 仅在调用带 `partial: true` 时出现：每个未生效项的下标与错误；已生效项照常列在 id 列表中，合为一个 Transaction。`lineBounds` 仅在写入新增或修改了 Area Type 时出现：每个 Area Type 已显示各行的 bounds，一行也放不下时为 null（ADR-0089）。
 
 **文本 runs**
 - `content: [{text, style:{fontFamily, fontStyle, fontSize, fill, letterSpacing, ...}}]`；段落属性在节点级 `paragraphs[]`。纯字符串输入自动转为单 run。
