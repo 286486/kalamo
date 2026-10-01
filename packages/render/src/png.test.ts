@@ -676,9 +676,10 @@ it("draws the fixture Document with known pixels", async () => {
   // #200, a twenty-first holding shaped Area Type with a larger Character Range and CJK. By #64,
   // the linear rect's first stop has a midpoint, and the elliptical ellipse a radial Stroke with two.
   // By #221, a twenty-second holding Area Type whose words are wider than a rectangle and a triangle.
-  // By #222, a twenty-third holding Area Type that wraps after `/` and hyphens.
+  // By #222, a twenty-third holding Area Type that wraps after `/` and hyphens; by #236, it widens
+  // to hold an Auto Size Area Type.
   expect(await hash(toSvg(doc, docRect(doc), { images }))).toBe(
-    "c013b8a20b1f7151eab80f8ed42acfaf9464f383cadfac2bb35654b1baeca756",
+    "656133e683f63c3c13b2ffbd63fe6d67aad7d6e29ed2db82eef6c2eb893fc587",
   );
   expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned, images }))).toBe(
     "24c1e7ad8db33f59933a1b355c879cb19bfdfd67d70b11427b196aa646ea4b60",

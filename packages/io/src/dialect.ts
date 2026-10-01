@@ -39,7 +39,8 @@ export type KalamoAttr =
   | "meta"
   | "src"
   | "midpoint"
-  | "simulated";
+  | "simulated"
+  | "autosize";
 
 export const kalamo = (name: KalamoAttr) => `kalamo:${name}` as const;
 

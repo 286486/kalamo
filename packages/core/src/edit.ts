@@ -43,7 +43,7 @@ import {
   type Warning,
   Writable,
 } from "./schema.ts";
-import { areaFrame, canonicalRanges, pointType } from "./text.ts";
+import { areaFrame, canonicalRanges, pointType, storedAutoSize } from "./text.ts";
 
 const isContainer = (n: Node): n is LayerNode | GroupNode =>
   n.type === "layer" || n.type === "group";
@@ -245,9 +245,11 @@ function writableSchema(node: Node) {
     // A text's kind converts before this schema applies (ADR-0079). Only Area Type has a frame
     // (ADR-0022); a shaped one's is path data, and `frame: null` makes it the rectangle of its bounds
     // (ADR-0078).
-    const { type: _, kind: __, width, height, frame: shape, ...text } = TextShape.shape;
+    const { type: _, kind: __, width, height, frame: shape, autoSize, ...text } = TextShape.shape;
     const frame =
-      node.kind === "area" ? { width: width.unwrap(), height: height.unwrap(), frame: shape } : {};
+      node.kind === "area"
+        ? { width: width.unwrap(), height: height.unwrap(), frame: shape, autoSize }
+        : {};
     return Writable.extend(text)
       .extend(frame)
       .extend({ appearance: AppearanceInput })
@@ -287,7 +289,7 @@ function converted(
         },
       ]
     : [];
-  const { width: _, height: __, frame: ___, ...text } = node;
+  const { width: _, height: __, frame: ___, autoSize: ____, ...text } = node;
   return { node: { ...text, kind: "point", ...layout }, warnings };
 }
 
@@ -364,6 +366,25 @@ function patched(doc: Document, raw: UpdateInput, i: number): { node: Node; warn
         "Write frame to reshape it, or frame: null first to make it the rectangle of its bounds.",
       );
     }
+    // Auto Size fits the height; writing a height or a frame path turns it off (ADR-0092).
+    if (patch.autoSize === true) {
+      if (shaped) {
+        throw invalid(
+          ".autoSize",
+          "Auto Size belongs to a rectangular frame.",
+          "Send frame: null with it to make the frame the rectangle of its bounds.",
+        );
+      }
+      if ("height" in patch) {
+        throw invalid(
+          ".height",
+          "autoSize: true fits the height to the lines.",
+          "Drop height to keep Auto Size, or drop autoSize to fix the height.",
+        );
+      }
+    } else if ("height" in patch || typeof patch.frame === "string") {
+      patch = { ...patch, autoSize: null };
+    }
   }
   const merged = mergePatch(node, patch) as Record<string, unknown>;
   // Indices into the old content would style the wrong characters of the new one (ADR-0029).
@@ -389,6 +410,13 @@ function patched(doc: Document, raw: UpdateInput, i: number): { node: Node; warn
       next,
       shapedFrame(parsePath(patch.frame, `${at}.frame`), `${at}.frame`, "INVALID_PATCH"),
     );
+  }
+  if (next.type === "text") {
+    const ranges = canonicalRanges(next.ranges, `${at}.ranges`, next);
+    if (ranges) next.ranges = ranges;
+    else delete next.ranges;
+    // Laid out with canonical ranges, and before painting, so a gradient spans the fitted frame.
+    next = storedAutoSize(next);
   }
   // SVG clips everything away through a hidden clip path; Illustrator unclips (ADR-0021).
   if ("clipping" in next && next.clipping && !next.visible) {
@@ -420,11 +448,6 @@ function patched(doc: Document, raw: UpdateInput, i: number): { node: Node; warn
     }
   } else {
     next.appearance = paint(next.appearance as AppearanceInput, `${at}.appearance`, next);
-  }
-  if (next.type === "text") {
-    const ranges = canonicalRanges(next.ranges, `${at}.ranges`, next);
-    if (ranges) next.ranges = ranges;
-    else delete next.ranges;
   }
   if (next.type === "path" && "d" in patch) next.d = formatPath(parsePath(next.d, `${at}.d`));
   return { node: next, warnings };

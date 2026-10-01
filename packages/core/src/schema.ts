@@ -444,6 +444,12 @@ export const TextShape = z.object({
   y: z.number().describe("Point Type: the first baseline. Area Type: the frame's top."),
   width: z.number().positive().optional().describe("Area Type only: the frame's width."),
   height: z.number().positive().optional().describe("Area Type only: the frame's height."),
+  autoSize: z
+    .boolean()
+    .optional()
+    .describe(
+      "Rectangular Area Type only: Auto Size, height fitted to the lines on every write; omit height. Writing height or frame turns it off.",
+    ),
   frame: z
     .string()
     .optional()
@@ -541,6 +547,7 @@ export function textFrame(
     width?: number;
     height?: number;
     frame?: string | undefined;
+    autoSize?: boolean | undefined;
   },
   ctx: z.RefinementCtx,
 ) {
@@ -548,7 +555,16 @@ export function textFrame(
   if (t.kind !== "area" && t.frame !== undefined) {
     ctx.addIssue({ code: "custom", path: ["frame"], message: "frame belongs to Area Type." });
   }
+  if (t.autoSize !== undefined && (t.kind !== "area" || t.frame !== undefined)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["autoSize"],
+      message: "autoSize belongs to rectangular Area Type: a shaped frame or Point Type has none.",
+    });
+  }
   for (const key of ["width", "height"] as const) {
+    // Auto Size derives the height (ADR-0092).
+    if (key === "height" && t.autoSize) continue;
     if (t.kind === "area" && t[key] === undefined) {
       ctx.addIssue({ code: "custom", path: [key], message: "Area Type needs width and height." });
     } else if (t.kind !== "area" && t[key] !== undefined) {
@@ -573,12 +589,16 @@ function textInput(
     height?: number | undefined;
     frame?: string | undefined;
     frameNodeId?: string | undefined;
+    autoSize?: boolean | undefined;
   },
   ctx: z.RefinementCtx,
 ) {
   const issue = (key: string, message: string) =>
     ctx.addIssue({ code: "custom", path: [key], message });
   const shaped = (["frame", "frameNodeId"] as const).filter((k) => t[k] !== undefined);
+  if (t.autoSize && t.kind === "area" && !shaped.length && t.height !== undefined) {
+    issue("height", "autoSize fits the height to the lines; drop height, or drop autoSize.");
+  }
   if (t.kind !== "area" || shaped.length === 0) {
     for (const key of ["x", "y"] as const) {
       if (t[key] === undefined)
@@ -592,6 +612,8 @@ function textInput(
   }
   textRanges(t, ctx);
   if (shaped.length > 1) issue("frameNodeId", "Pass frame or frameNodeId, not both.");
+  if (t.autoSize !== undefined)
+    issue("autoSize", `autoSize belongs to a rectangle; drop it, or drop ${shaped[0]}.`);
   for (const key of ["x", "y", "width", "height"] as const) {
     if (t[key] !== undefined) {
       issue(
