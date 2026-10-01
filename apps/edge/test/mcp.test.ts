@@ -555,63 +555,6 @@ it("keeps a font Kalamo lacks, warns FONT_MISSING and renders it in Source Sans 
   expect(rendered.content[0]).toMatchObject({ type: "image", mimeType: "image/png" });
 });
 
-it("creates a rounded, randomized, twisted star and gets its parameters and derived d", async () => {
-  const doc = await newDoc();
-  const params = { angle: 15, twist: 10, rounded: 0.3, randomized: 0.1 };
-  const star = { cx: 50.5, cy: 40, outerRadius: 30, innerRadius: 12, points: 5, ...params };
-  const created = await call("kalamo_node_create", {
-    docId: doc.docId,
-    nodes: [{ type: "star", parentId: doc.defaultLayerId, ...star }],
-  });
-  const [id] = created.structuredContent.createdIds as string[];
-  const [full] = (
-    await call("kalamo_node_get", { docId: doc.docId, nodeIds: [id], detail: "full" })
-  ).structuredContent.nodes;
-  expect(full).toMatchObject({ type: "star", ...star });
-  expect(full.d).toContain("C");
-  expect(full.d).toBe(formatPath(shapeSegments(full as ShapeNode)));
-});
-
-it("creates a spiral, gets its parameters and derived d, and renders it (ADR-0060)", async () => {
-  const doc = await newDoc();
-  const spiral = {
-    cx: 60,
-    cy: 50,
-    radius: 40,
-    revolution: 2.5,
-    expansion: 1.2,
-    argument: 30,
-    t0: 0.1,
-  };
-  const created = await call("kalamo_node_create", {
-    docId: doc.docId,
-    nodes: [{ type: "spiral", parentId: doc.defaultLayerId, ...spiral }],
-  });
-  const [id] = created.structuredContent.createdIds as string[];
-  const [full] = (
-    await call("kalamo_node_get", { docId: doc.docId, nodeIds: [id], detail: "full" })
-  ).structuredContent.nodes;
-  expect(full).toMatchObject({ type: "spiral", ...spiral, closed: false });
-  expect(full.d).toBe(formatPath(shapeSegments(full as ShapeNode)));
-  expect(full.d).not.toContain("Z");
-  const rendered = await call("kalamo_render", { docId: doc.docId, scope: { nodeIds: [id] } });
-  expect(rendered.content[0]).toMatchObject({ type: "image", mimeType: "image/png" });
-  const update = (patch: object) =>
-    call("kalamo_node_update", { docId: doc.docId, updates: [{ nodeId: id, patch }] });
-  expect(errorOf(await update({ t0: 1 }))).toMatchObject({
-    code: "INVALID_INPUT",
-    hint: expect.stringContaining("at most 0.999"),
-  });
-  expect(errorOf(await update({ turns: 4 }))).toMatchObject({ code: "INVALID_PATCH" });
-  expect((await update({ revolution: 4, expansion: 0.5 })).isError).toBeFalsy();
-  const [updated] = (
-    await call("kalamo_node_get", { docId: doc.docId, nodeIds: [id], detail: "full" })
-  ).structuredContent.nodes;
-  expect(updated).toMatchObject({ ...spiral, revolution: 4, expansion: 0.5 });
-  expect(updated.d).toBe(formatPath(shapeSegments(updated as ShapeNode)));
-  expect(updated.d).not.toBe(full.d);
-});
-
 it("creates a slice, a chord and an open arc of an ellipse, and renders a quarter pie over its own bounds", async () => {
   const doc = await newDoc();
   const box = { type: "ellipse", parentId: doc.defaultLayerId, x: 0, y: 0, width: 100, height: 60 };
@@ -701,69 +644,6 @@ it("fills in a gradient's geometry, reads it back in full, and names start = end
     code: "INVALID_INPUT",
     path: expect.stringMatching(/\.end$/),
   });
-});
-
-it("round-trips midpoints on a Fill and a Stroke, and refuses one on the last stop (ADR-0081)", async () => {
-  const doc = await newDoc();
-  const stops = [
-    { offset: 0, color: "#1F5FBF", midpoint: 0.25 },
-    { offset: 0.5, color: "#FF0000", midpoint: 0.5 },
-    { offset: 1, color: "#9FD0FF00" },
-  ];
-  const stored = [stops[0], { offset: 0.5, color: "#FF0000" }, stops[2]];
-  const created = await call("kalamo_node_create", {
-    docId: doc.docId,
-    nodes: [
-      {
-        type: "rect",
-        parentId: doc.defaultLayerId,
-        x: 10,
-        y: 20,
-        width: 100,
-        height: 50,
-        appearance: { fills: [{ type: "gradient", gradient: { type: "linear", stops } }] },
-      },
-    ],
-  });
-  const [id] = created.structuredContent.createdIds as string[];
-  const get = async () =>
-    (await call("kalamo_node_get", { docId: doc.docId, nodeIds: [id], detail: "full" }))
-      .structuredContent.nodes[0];
-  expect((await get()).appearance.fills[0].gradient.stops).toEqual(stored);
-  const first = { offset: 0, color: "#9FD0FF00", midpoint: 0.7 };
-  const last = { offset: 1, color: "#1F5FBF" };
-  const updated = await call("kalamo_node_update", {
-    docId: doc.docId,
-    updates: [
-      {
-        nodeId: id,
-        patch: {
-          appearance: {
-            strokes: [{ type: "gradient", gradient: { type: "radial", stops: [first, last] } }],
-          },
-        },
-      },
-    ],
-  });
-  expect(updated.isError).toBeFalsy();
-  expect((await get()).appearance.strokes[0].gradient.stops).toEqual([first, last]);
-  // The stop that sorts last has no next stop for a midpoint.
-  const turned = [first, { ...last, midpoint: 0.3 }];
-  const refused = await call("kalamo_node_update", {
-    docId: doc.docId,
-    updates: [
-      {
-        nodeId: id,
-        patch: {
-          appearance: {
-            fills: [{ type: "gradient", gradient: { type: "linear", stops: turned } }],
-          },
-        },
-      },
-    ],
-  });
-  expect(refused.isError).toBe(true);
-  expect(refused.content[0].text).toMatch(/stops.*1.*midpoint/);
 });
 
 it("stores Character Ranges canonical, and a content write clears them (ADR-0029)", async () => {

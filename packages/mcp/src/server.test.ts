@@ -87,6 +87,7 @@ describe("write tools pass the write and its options apart", () => {
         rounded: 0.3,
         randomized: 0.1,
       },
+      { type: "spiral", parentId: "p", cx: 0, cy: 0, radius: 9, revolution: 2.5, t0: 0.1 },
       { type: "path", parentId: "p", d: "M 0 0 L 1 1" },
       { type: "text", parentId: "p", x: 0, y: 0, content: "Hi" },
       {
@@ -114,12 +115,13 @@ describe("write tools pass the write and its options apart", () => {
       { type: "ellipse", startAngle: 300, endAngle: 60, arcType: "chord" },
       { type: "polygon", angle: 0, rounded: 0, randomized: 0 },
       { type: "star", angle: 0, twist: 10, rounded: 0.3, randomized: 0.1 },
+      { type: "spiral", radius: 9, revolution: 2.5, expansion: 1, argument: 0, t0: 0.1 },
       { type: "path", fillRule: "nonzero" },
       { type: "text", kind: "point", fontFamily: "Source Sans 3", fontSize: 12 },
       { type: "text", kind: "area", width: 50, height: 20, content: "a\nb", fontSize: 12 },
       { type: "image", src: "data:image/png;base64,AAAA", preserveAspectRatio: "none" },
     ]);
-    expect(sent?.[10]).not.toHaveProperty("appearance");
+    expect(sent?.[11]).not.toHaveProperty("appearance");
     await call("kalamo_node_create", { docId: "d", nodes: [nodes[2]] });
     expect(service.createNodes.mock.calls[1]?.[2]).toEqual({ partial: false });
   });
@@ -875,6 +877,12 @@ describe("arguments are parsed strictly: a bad one is INVALID_INPUT and nothing 
       },
       "nodes[0].revolution",
       "nodes[0].revolution must be at least 0.05.",
+    ],
+    [
+      "kalamo_node_update",
+      { docId: "d", updates: [{ nodeId: "s", patch: { t0: 1 } }] },
+      "updates[0].patch.t0",
+      "updates[0].patch.t0 must be at most 0.999.",
     ],
     [
       "kalamo_render",
