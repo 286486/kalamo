@@ -1,0 +1,9 @@
+run	seconds	usd	tool_calls	turns	input_ktok	output_ktok
+chart-mcp	48	0.319	6	7	765	5.1
+chart-svg	36	0.059	1	2	23	5.9
+edit-mcp	17	0.273	5	6	537	1.8
+edit-svg	9	0.029	5	6	29	1.2
+glass-mcp	80	0.458	14	15	1711	10.2
+glass-svg	43	0.068	1	2	24	7.1
+text-mcp	82	0.47	17	18	2042	6.4
+text-svg	93	0.112	1	2	31	13.3

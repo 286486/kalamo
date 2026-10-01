@@ -53,6 +53,8 @@
 
 **Kalamo 是一个运行在浏览器里的专业矢量绘图工具，文档模型从第一天起就是为 AI Agent 通过 MCP 读写而设计的，同时给人类用户提供接近 Adobe Illustrator 核心体验的画布与面板。**
 
+**卖点：每个人带自己的 AI。** 每人用自己惯用的 MCP 客户端接入，人和各自的 Agent 一起编辑同一份文档，产出可交付的矢量作品，而不是白板草图。Kalamo 不内置 AI（ADR-0086）。
+
 ### 1.1.1 产品名：Kalamo
 
 - **含义**：源自希腊语 *kálamos*（芦苇笔），最早的书写与绘图工具。同一个词沿用为拉丁语 *calamus*、阿拉伯语 *qalam*（笔）、土耳其语 *kalem*、印地语与乌尔都语 *kalam*、斯瓦希里语 *kalamu*、俄语 *калам*（芦苇笔），在十几种语言里都是"笔"。英文读作 KAH-lah-moh，中文读作"卡拉莫"（kǎ lā mò），日文カラモ。
@@ -70,15 +72,16 @@
 | Figma / Penpot / Canva 有官方 MCP，但它们是 UI 设计 / 模板工具：布尔运算不稳定、没有可变宽度描边、没有图表工具、没有专业级路径编辑 | 适合排版界面，不适合插画、信息图、手绘 |
 | Excalidraw / tldraw 有优秀的 agent 集成，但只是白板：无真正贝塞尔编辑、无布尔、无排版引擎 | 产出物是草图，不是可交付的矢量作品 |
 | 图表 MCP（antvis、Vega-Lite）输出 PNG 或不可编辑 SVG | 图表生成后人无法继续在同一工具里精修 |
+| 会写文件的 Agent 可以直接输出 SVG：调研十一中 Haiku 4.5 直接写 SVG 与经 Kalamo MCP 出图质量相当，成本低 4–9 倍 | 单次出图本身不构成卖点 |
 
-Kalamo 要填的空位是：**Agent 能生成、人能精修、二者共享同一份可编辑矢量文档**。
+Kalamo 要填的空位是：**每个人带自己的 AI，人和这些 Agent 共享同一份可编辑矢量文档：Agent 能生成，人能精修，谁改了什么彼此看得见**（ADR-0086）。
 
 ### 1.3 目标
 
 1. **复刻 Illustrator 核心功能**：覆盖调研报告一 §6 中第一梯队 14 项与第二梯队的大部分（详见附录 A）。
 2. **三大场景可交付**：图表 / 信息图、插画 / 图标 / Logo、自由手绘 / 速写。
 3. **MCP 优先**：每一个人能在 UI 里完成的编辑，Agent 都能通过 MCP 完成，且能拿到视觉与结构两种反馈。
-4. **人机同一文档**：人类在浏览器中打开的文档与 Agent 正在编辑的文档是同一份实时状态，变更双向可见。
+4. **人机同一文档**：人类在浏览器中打开的文档与 Agent 正在编辑的文档是同一份实时状态，变更双向可见。多人可各自带自己的 Agent 加入同一文档（ADR-0086）。
 5. **开放格式**：原生文件为可读 JSON，SVG 无损往返，PDF 导出。**编辑往返以 Inkscape 为目标**：Kalamo → Inkscape 编辑 → Kalamo 不丢失 Document 能表达的任何结构（ADR-0017）。
 6. **开源**：全部代码以 Apache-2.0 发布（见 §8.4），任何人可自托管；官方托管版跑在 Cloudflare 上。
 7. **托管即服务**：官方托管版基于 Cloudflare（Workers、Durable Objects、R2、D1），全球边缘低延迟，文档在边缘节点上权威存储与同步。
@@ -147,6 +150,7 @@ Kalamo 要填的空位是：**Agent 能生成、人能精修、二者共享同�
 | **P2 设计师 / 插画师** | 熟悉 Illustrator，希望在浏览器里获得相近的手感 | 钢笔手感、快捷键一致、布尔与外观栈可靠、导出可交付 |
 | **P3 知识工作者 / 开发者** | 需要做图表、架构图、流程图、幻灯片配图；愿意用自然语言让 Agent 起稿再手工微调 | 从数据 / 描述到图，一分钟内出可编辑结果 |
 | **P4 开发者（集成方）** | 想把 Kalamo 嵌入自己的产品或流水线，headless 生成 SVG / PNG | 无 UI 运行、稳定 API、可自托管 |
+| **P5 协作小组** | 两到数人（如设计师与产品经理），各自用自己的 MCP 客户端（Claude Code、Claude Desktop 等） | 和各自的 Agent 在同一份文档上并行工作；看得见谁（人或 Agent）在改什么；改动互不覆盖 |
 
 ### 3.2 三大场景
 
@@ -173,6 +177,7 @@ Kalamo 要填的空位是：**Agent 能生成、人能精修、二者共享同�
 - **US-04（P2 / P3）**：用 iPad 触控笔手绘一张流程草图，Shaper 把潦草矩形和箭头识别为规整形状，Agent 再把手写文字替换为文字对象并对齐。
 - **US-05（P4）**：CI 流水线中 headless 调用 MCP：读取架构 YAML，生成架构图 SVG 提交到仓库。
 - **US-06（P1）**：Agent 打开一份已有插画，用 `doc_outline` 看结构、`scene_describe` 拿摘要，再局部 `render` 某个组，找到"太阳"对象并把渐变从黄改成橙。
+- **US-07（P5 + P1）**：产品经理在 Claude Desktop 里让 Agent 起草一张用户流程图；设计师在浏览器里看到这个 Agent 的工作区域和意图说明，随手调整版式；设计师自己的 Claude Code 再按设计规范统一描边与配色。两个 Agent 动手前都先用 `doc_changes` 读取别人的修改，并用 `ifRev` 防止覆盖（ADR-0086）。
 
 ---
 
@@ -434,8 +439,8 @@ Kalamo 要填的空位是：**Agent 能生成、人能精修、二者共享同�
 - **F-COLLAB-01** 同一文档同时被浏览器 UI 与一个或多个 Agent 编辑：所有变更经文档服务广播，UI 实时看到 Agent 的修改（带来源标识与高亮闪烁），Agent 通过 `doc_changes(sinceRev)` 拉取变更摘要（MCP 层无推送）。（P0）
 - **F-COLLAB-02** 冲突策略：服务端权威，按属性最后写入胜出；对结构性操作（删除父节点 vs 子节点被编辑）定义确定性规则（删除胜出，编辑方收到 `NODE_GONE`）。（P0）
 - **F-COLLAB-03** 节点软锁：UI 用户正在拖拽的对象对 Agent 返回 `LOCKED_BY_USER`；Agent 事务中的节点在 UI 显示"Agent 正在编辑"并禁止拖拽（可强制解锁）。（P1）
-- **F-COLLAB-04** Agent 光标 / 意图展示：UI 显示 Agent 当前正在操作的区域与一行说明（来自工具调用的 `intent` 字段）。（P1）
-- **F-COLLAB-05** 多人协作（多浏览器用户）：光标、选区、评论。（P2）
+- **F-COLLAB-04** Agent 光标 / 意图展示：UI 显示 Agent 当前正在操作的区域与一行说明（来自工具调用的 `intent` 字段）。（P1，M1 交付，ADR-0086）
+- **F-COLLAB-05** 多人协作（多浏览器用户）：其他 User 的光标与选区（P1，M1 交付，ADR-0086）；评论（P2）。
 - **F-COLLAB-06** 权限：文档级 owner / editor / viewer；每个 Agent Actor 凭自己的 token 获得 editor 或 viewer；`run_script` 需要额外授权标志。（P1）现状（ADR-0047）：每个 Document 一个 owner（`documents.owner_id`）加任意 editor / viewer 成员（`members`）；Agent 取其 User 的 Role，只读 token 至多 viewer；无 Role 为 `DOC_NOT_FOUND`，Role 不足为 `PERMISSION_DENIED`；浏览器 File > Share… 分享，文档列表可删除；`run_script` 尚不存在。
 - **F-COLLAB-07** Actor：每次修改都记录其 Actor（人类 User，或一个 Agent 凭证）。每个 MCP 客户端授权时获得独立 token，一个 token 即一个 Agent Actor，历史中显示为"Claude Code（woody）"；人类可按 Actor 撤销或回看修改。（P0）
 
@@ -900,9 +905,9 @@ kalamo/
 | 阶段 | 周期（估） | 目标 | 退出标准 |
 |---|---|---|---|
 | **M0 基础骨架（headless-first）** | 4–6 周 | `core` 文档模型 + 命令 + 事务 + 历史；Canvas2D 渲染；**浏览器端只是查看器**：打开文档、缩放平移、选择、移动、删除、图层面板，不含绘图工具；`.kalamo.json` 导入导出；MCP（无状态 HTTP，本地 `wrangler dev`）：`doc_*`、`doc_outline`、`node_get/query`、`node_create/update/delete/transform`、`render`、`export(svg/png)`、`tx_*`；Agent 是 M0 唯一的画图者 | Claude Code 能创建 100 个矩形 / 文字并截图；浏览器能看到并拖动它们；撤销正常；core 测试在 workerd 中通过；3 个 Agent 基准任务用 `pnpm bench` 在本地跑通 |
-| **M1 MVP（Illustrator 第一梯队 + 图表 + 托管）** | 10–12 周 | 钢笔 / 曲率 / 铅笔；路径编辑与 `Object > Path` 主要命令；布尔（live + expand）与 Shape Builder；对齐分布、智能参考线；填充 / 描边 / 线性径向渐变 / 色板；文字（点 / 区域、HarfBuzz、转曲）；剪切蒙版；画板；**Inkscape 往返：可编辑 SVG 导出、SVG 导入（打开 / 置入）、多文档标签页与跨标签页复制粘贴、`pnpm roundtrip`**（ADR-0017）；9 个 `chart_create_*`（Illustrator 同款）+ `chart_update/expand` + `diagram_create`（Mermaid flowchart）；`validate`、`scene_describe`、skills；**Cloudflare 托管上线**：Worker + Document DO + R2 + D1、OAuth、Streamable HTTP MCP、resvg 渲染；Apache-2.0 公开仓库 | 成功指标表 §1.5 中的 Agent 基准任务 ≥ 80% 一次通过；SVG 往返 diff < 1%；托管版可被 Claude Desktop 远程连接；Inkscape 往返检查通过（像素 diff 在按画板分区的预算内，ADR-0017） |
+| **M1 MVP（Illustrator 第一梯队 + 图表 + 托管）** | 10–12 周 | 钢笔 / 曲率 / 铅笔；路径编辑与 `Object > Path` 主要命令；布尔（live + expand）与 Shape Builder；对齐分布、智能参考线；填充 / 描边 / 线性径向渐变 / 色板；文字（点 / 区域、HarfBuzz、转曲）；剪切蒙版；画板；**Inkscape 往返：可编辑 SVG 导出、SVG 导入（打开 / 置入）、多文档标签页与跨标签页复制粘贴、`pnpm roundtrip`**（ADR-0017）；9 个 `chart_create_*`（Illustrator 同款）+ `chart_update/expand` + `diagram_create`（Mermaid flowchart）；`validate`、`scene_describe`、skills；**Cloudflare 托管上线**：Worker + Document DO + R2 + D1、OAuth、Streamable HTTP MCP、resvg 渲染；Apache-2.0 公开仓库；**多人在场**：其他 User 的光标与选区、Agent 工作区域与意图展示（ADR-0086）；MCP 工具定义瘦身 | 成功指标表 §1.5 中的 Agent 基准任务 ≥ 80% 一次通过；SVG 往返 diff < 1%；托管版可被 Claude Desktop 远程连接；Inkscape 往返检查通过（像素 diff 在按画板分区的预算内，ADR-0017）；两位浏览器用户与两个不同 MCP 客户端的 Agent 同时编辑一份文档的基准任务通过（ADR-0086） |
 | **M2 手绘 + 插画深度** | 8 周 | 压感手绘管线、Blob Brush、Eraser、Shaper；Calligraphic / Art 画笔；Appearance 多重 fill / stroke + Graphic Styles + 基础 Effects（阴影 / 发光 / 模糊 / 圆角 / 偏移）；不透明度蒙版；Symbols；Repeat；Blend；Recolor；Image Trace；可变宽度描边；路径文字；Asset Export、PDF 导出；连接线绑定；`run_script` 沙箱 | 插画基准任务通过；触控笔设备实测 |
-| **M3 性能与协作** | 6–8 周 | CanvasKit 渲染后端（浏览器与 Worker）；10k 节点性能达标；多用户协作（光标 / 选区）；软锁与 Agent 意图展示；版本历史（R2 快照）；Queues 长任务；审计与配额；Docker 自托管镜像 | §7.1 性能表全部达标 |
+| **M3 性能与协作** | 6–8 周 | CanvasKit 渲染后端（浏览器与 Worker）；10k 节点性能达标；评论；软锁；版本历史（R2 快照）；Queues 长任务；审计与配额；Docker 自托管镜像 | §7.1 性能表全部达标 |
 | **M4 扩展** | 持续 | Freeform 渐变、Envelope、Live Paint 组、CMYK 文档模式（近似预览）、更多 Effects 与图表类型、Pattern Brush、OpenType 特性、PDF 导入、插件 API、纵排、稳定器 | 按需求排期 |
 
 ### 9.2 MoSCoW 汇总
@@ -911,7 +916,7 @@ kalamo/
 |---|---|
 | **Must（M0–M1）** | 扁平场景图与 JSON 格式；Canvas2D 渲染；选择 / 形状 / 钢笔 / 曲率 / 铅笔；路径编辑；布尔 + Shape Builder；变换 / 对齐 / 吸附；填充 / 描边 / 渐变 / 色板；文字基础与转曲；剪切蒙版；图层；画板；SVG / PNG 导入导出；撤销与事务；MCP 全部 P0 工具 + render + skills；P0 图表与 Mermaid 图示 |
 | **Should（M2）** | 手绘管线与 Shaper；画笔；Appearance 栈 / Graphic Styles / 基础 Effects；不透明度蒙版；Symbols / Repeat / Blend；Recolor；Image Trace；PDF 导出；连接线；`run_script` |
-| **Could（M3–M4）** | CanvasKit；多人协作；版本历史；Freeform 渐变；Envelope；Live Paint 组；CMYK 文档模式（近似）；更多图表；Pattern Brush；OpenType 面板；PDF 导入；插件 API |
+| **Could（M3–M4）** | CanvasKit；评论；版本历史；Freeform 渐变；Envelope；Live Paint 组；CMYK 文档模式（近似）；更多图表；Pattern Brush；OpenType 面板；PDF 导入；插件 API |
 | **Won't（本产品范围外）** | ICC 色彩管理与印刷生产；3D；Perspective Grid；Gradient Mesh；Liquify；Puppet Warp；`.ai` 高保真；EPS / DXF；非 Cloudflare 官方托管 |
 
 ---
@@ -1002,6 +1007,7 @@ kalamo/
 | 62 | 矩形区域文字走 band 填充（2026-09-30） | 矩形区域文字与异形区域文字共用一个贪心 band 填充，矩形每个 band 一个 span（框宽）；宽于框的单元及其后全部溢出，结果与原来逐行相同（Inkscape 1.2.2 实测会在字符间断开该词，另见 #221）；矩形行仍按所含字符定行距（Illustrator 规则），异形 band 仍按所试单元；行在其 band（行框上下各去十分之一，下缘至少到文字自身 strut 的下缘）落入框内时显示，单一字号不变，strut 更低的混合字号行按 Inkscape 实测隐藏；转为区域文字的框高随之覆盖 band 下缘 | ADR-0083、#203 |
 | 63 | 区域文字在字符间断开过宽单元（2026-09-30） | 单元（单词、URL、CJK 簇）位于某个 span 开头且放不下时，若该 span 至少四个行框宽（行框为该行与文字自身 strut 的并集），就在字素簇之间断开，每段取放得下的最宽前缀，余下部分进入下一个 span 或下一条 band；更窄的 span 照旧跳过，矩形框照旧溢出。规则取自 Inkscape 1.2.2 源码与实测；Adobe 文档未写明 Illustrator 的做法，记为未验证。只因宽度而溢出的文字不再警告 `TEXT_OVERFLOW`；转为点文字时在断开处插入硬回车 | ADR-0084、#221 |
 | 64 | 区域文字在 `/` 和连字符之后换行（2026-10-01） | 拉丁文除空格外，也在 `/`（SY）、`-`（HY）以及 ASCII、Latin-1 与通用标点区块中的 BA 字符（如 `|`、en dash `–`、U+2010）之后换行，按 Pango 1.50.12 的规则抑制：下一字符不能居行首时（`%` 除外）、连字符后接数字、数字中的 `/` 后接数字或符号、紧邻希伯来字母时不断开。于是 URL、路径和连字符词与 Inkscape 1.2.2 在相同位置换行，`2026-09-30`、`1/2` 保持完整；CJK 换行不变。Adobe 文档未写明 Illustrator 的做法，记为未验证。软连字符 U+00AD、EX、IN、B2、emoji、ZWSP 与跨空格规则仍不计入 | ADR-0085、#222 |
+| 65 | 卖点：每个人带自己的 AI（2026-10-01） | 卖点从"Agent 能画图"改为"每个人带自己的 AI，人和各自的 Agent 编辑同一份文档"，产出仍是可交付矢量而非白板草图；Kalamo 不内置 AI；其他 User 的光标与选区、Agent 意图展示从 M3 提前到 M1，评论仍为 P2；MCP 工具定义瘦身进入 M1。依据调研十一：Haiku 4.5 直接写 SVG 与经 MCP 出图质量相当、成本低 4–9 倍，每轮约 10 万 token 花在工具定义上 | ADR-0086、§1.1–1.3、§3、F-COLLAB-04/05、§9 |
 
 **剩余开放问题**
 
