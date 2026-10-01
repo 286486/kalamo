@@ -2,17 +2,19 @@
  * Where Area Type may break a line: after white space that breaks (ADR-0022, ADR-0087); between CJK
  * characters (ADR-0064); after a solidus, a hyphen or a break-after dash in Latin text (ADR-0085);
  * after `!`, `?`, `…`, an em dash or a zero-width space, and before an em dash, in Latin text
- * (ADR-0093); and after a soft hyphen (ADR-0094). Each follows Pango 1.50's UAX #14, so Inkscape
+ * (ADR-0093); after a soft hyphen (ADR-0094); and after IS, CL, CP, PR and PO before an opening
+ * bracket, a sign or a digit (ADR-0095). Each follows Pango 1.50's UAX #14, so Inkscape
  * 1.2.2 wraps the exported SVG at the same places. `Intl.Segmenter` has no line granularity, so the
  * classes live here.
  */
 
 // ponytail: UAX #14 reduced to flags and small sets, checked against Pango 1.50.12: every CJK code
 // point beside an ideograph and a Latin letter (ADR-0064), and random Latin strings with `/`, `-`,
-// BA (ADR-0085), no-break spaces (ADR-0087), EX, IN, B2 and ZW (ADR-0093), and U+00AD (ADR-0094).
-// Still left out: emoji as ID (`x|🙂|y`), IS/CL/CP before PR/OP (`a)|(b`), ZW beside CJK (`字`,
-// U+200B, `|」`) or before a tab, BA, EX, IN and B2 outside ASCII, Latin-1 and General
-// Punctuation, Thai, and rules across spaces but LB7, LB8 and LB17. Each needs its own class here;
+// BA (ADR-0085), no-break spaces (ADR-0087), EX, IN, B2 and ZW (ADR-0093), U+00AD (ADR-0094), and
+// IS, CL, CP, PR and PO before OP, PR, PO and NU (ADR-0095). Still left out: emoji as ID
+// (`x|🙂|y`, `a)|🙂`), OP and CL outside ASCII (`a)|¿`), ZW beside CJK (`字`, U+200B, `|」`) or
+// before a tab, BA, EX, IN and B2 outside ASCII, Latin-1 and General Punctuation, Thai, and rules
+// across spaces but LB7, LB8 and LB17. Each needs its own class here;
 // past a few more, the pair table pays off.
 
 /** A character that breaks from its neighbours unless a flag below forbids it: UAX #14's ID, H2/H3, JL/JV/JT, CJ, NS, CL and OP of CJK width. */
@@ -58,6 +60,21 @@ const DIGIT = /\p{Nd}/u;
 /** UAX #14's IS, which continues a number as a solidus does (LB25). */
 const INFIX = /[,.:;]/;
 
+/** UAX #14's OP in ASCII. */
+const OPEN = /[([{]/;
+
+/** UAX #14's CP and CL in ASCII: one after a number keeps a sign after it on the line (LB25). */
+const CLOSE = /[)\]}]/;
+
+/** UAX #14's CL in ASCII, which breaks before a letter and a digit, where CP does not (LB30). */
+const CLOSE_BRACE = "}";
+
+/**
+ * How the text so far ends, for LB25: in `NU (NU | SY | IS)*` (`open`), in that and one CL or CP
+ * (`closed`), or in neither.
+ */
+type NumberState = "open" | "closed" | "none";
+
 /** UAX #14's HL, which LB21a and LB21b keep beside a hyphen or solidus. */
 const HEBREW = /[\u05D0-\u05EA\u05EF-\u05F2\uFB1D\uFB1F-\uFB28\uFB2A-\uFB4F]/u;
 
@@ -88,12 +105,31 @@ function breaksBetween(before: string, after: string) {
 
 /**
  * Whether a line may break after `breaker`, the base of the marks before `next`, where `before` is
- * the base before it and `inNumber` says `breaker` ends `NU (NU | SY | IS)*`.
+ * the base before it, `number` how the text ends at `breaker` and `afterNext` the character after
+ * `next`.
  */
-function breaksAfter(breaker: string, next: string, before: string, inNumber: boolean) {
+function breaksAfter(
+  breaker: string,
+  next: string,
+  before: string,
+  number: NumberState,
+  afterNext: string,
+) {
   if (breaker === ZWSP) return next !== ZWSP;
   if (next === EM_DASH && !BREAK_AFTER.test(breaker)) {
     return breaker !== EM_DASH && !NO_BREAK_AFTER.test(breaker);
+  }
+  const sign = PREFIX.test(breaker) || POSTFIX.test(breaker);
+  if (sign || INFIX.test(breaker) || CLOSE.test(breaker)) {
+    // A number keeps a sign after it whole, its closing bracket between: `1,$`, `1)%` (LB25).
+    if (PREFIX.test(next) || POSTFIX.test(next)) return number === "none";
+    // A sign keeps an opening bracket before a digit: `$(5` (LB25).
+    if (OPEN.test(next)) return !(sign && DIGIT.test(afterNext));
+    // A sign keeps a digit (LB25), CP a digit (LB30), IS one inside a number (LB25): `a,|0`, `1,0`.
+    if (DIGIT.test(next))
+      return breaker === CLOSE_BRACE || (INFIX.test(breaker) && number !== "open");
+    // CL breaks before a letter too: `x}|y`. IS, CP, PR and PO keep one (LB24, LB29, LB30).
+    return breaker === CLOSE_BRACE && !GLUE.test(next) && !NO_BREAK_BEFORE.test(next);
   }
   const punctuation = BREAK_AFTER_PUNCTUATION.test(breaker);
   if (!punctuation && !BREAK_AFTER.test(breaker)) return false;
@@ -104,7 +140,7 @@ function breaksAfter(breaker: string, next: string, before: string, inNumber: bo
     return (
       !GLUE.test(next) &&
       !HEBREW.test(next) &&
-      !(inNumber && (DIGIT.test(next) || PREFIX.test(next) || POSTFIX.test(next)))
+      !(number === "open" && (DIGIT.test(next) || PREFIX.test(next) || POSTFIX.test(next)))
     );
   }
   return !HEBREW.test(before) && !(breaker === "-" && DIGIT.test(next));
@@ -116,16 +152,17 @@ function breaksAfter(breaker: string, next: string, before: string, inNumber: bo
  */
 export function lineBreakUnits(paragraph: string): string[] {
   const units: string[] = [];
+  const chars = [...paragraph];
   let unit = "";
   let prev = "";
   let base = "";
   let beforeBase = "";
-  let inNumber = false;
-  for (const ch of paragraph) {
+  let number: NumberState = "none";
+  for (const [i, ch] of chars.entries()) {
     const breaks =
       CJK.test(prev) || CJK.test(ch)
         ? breaksBetween(prev, ch)
-        : breaksAfter(base, ch, beforeBase, inNumber);
+        : breaksAfter(base, ch, beforeBase, number, chars[i + 1] ?? "");
     // A unit never ends before ZW, nor before WJ but after ZW, not even after a breaking space (LB7,
     // LB8, LB11); after one it ends before anything else, GL included (LB12a), but B2 after B2 (LB17).
     let ends = breaks;
@@ -139,7 +176,9 @@ export function lineBreakUnits(paragraph: string): string[] {
     prev = ch;
     // A mark after ZW is a letter of its own (LB8 before LB9).
     if (!MARK.test(ch) || base === ZWSP) {
-      inNumber = DIGIT.test(ch) || (inNumber && (ch === "/" || INFIX.test(ch)));
+      if (DIGIT.test(ch)) number = "open";
+      else if (number === "open" && CLOSE.test(ch)) number = "closed";
+      else if (number !== "open" || (ch !== "/" && !INFIX.test(ch))) number = "none";
       beforeBase = base;
       base = ch;
     }

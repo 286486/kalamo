@@ -1,5 +1,5 @@
 // Kalamo's `lineBreakUnits` against Pango 1.50.12 on random strings (#222, ADR-0085; #224, ADR-0087;
-// #225, ADR-0093; #227, ADR-0094). Run from the repo root: `node --experimental-transform-types
+// #225, ADR-0093; #227, ADR-0094; #226, ADR-0095). Run from the repo root: `node --experimental-transform-types
 // docs/research/10-latin-breaks/check.ts [latin|cjk] [ref]`. It prints each difference by the rule
 // Kalamo leaves out. `latin` draws from Latin letters, digits, spaces, U+00A0, U+202F,
 // `/-–‐‒|()"'.,$%!?…—`, U+200B, U+00AD, a combining mark, Hebrew and CJK; `cjk` from ADR-0064's alphabet.
@@ -90,7 +90,8 @@ const RULES: [string, (a: At) => boolean][] = [
     (a) => /[.,:;)\]}$%]/.test(a.base) && /[0-9([{$%]/.test(a.next),
   ],
   ["EX before anything", (a) => /[!?]/.test(a.base)],
-  ["CL before a letter", (a) => /[\]}]/.test(a.base) && /\p{L}/u.test(a.next)],
+  // `]` is CP, as `)` is, and keeps a letter (LB30); `}` alone is CL.
+  ["CL before a letter", (a) => a.base === "}" && /\p{L}/u.test(a.next)],
 ];
 
 const counts = new Map<string, number>();

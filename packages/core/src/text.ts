@@ -409,7 +409,7 @@ function span(m: Metric[], from: number, to: number) {
  * later line one of its own leadings below the one before (ADR-0068). Area Type wraps in its frame
  * as Inkscape 1.2 draws it, at spaces, between CJK characters (ADR-0064), after a solidus or hyphen
  * (ADR-0085), after `!`, `?`, `…`, an em dash or a zero-width space and before an em dash
- * (ADR-0093), and inside a unit wider than its span (ADR-0084): each line keeps its trailing spaces
+ * (ADR-0093), after closing punctuation and signs before a bracket, sign or digit (ADR-0095), and inside a unit wider than its span (ADR-0084): each line keeps its trailing spaces
  * and hard return, so its lines and `overflow`, the text that does not fit, join back into `content`.
  */
 export function layoutText(text: TextLayout): { lines: TextLine[]; overflow: string } {
@@ -912,7 +912,7 @@ export function storedAutoSize<T extends TextLayout & { autoSize?: boolean | und
 
 /**
  * Convert to Point Type (ADR-0079): Area Type's shown lines, each soft wrap a hard return in place
- * of the line's last whitespace, or inserted after a break with no space (ADR-0064, ADR-0085, ADR-0093) or a
+ * of the line's last whitespace, or inserted after a break with no space (ADR-0064, ADR-0085, ADR-0093, ADR-0095) or a
  * broken unit's piece (ADR-0084), which shifts the ranges after it.
  * The overflow is discarded, and so is the hard return before it unless it is all that shows;
  * `discarded` counts what goes.

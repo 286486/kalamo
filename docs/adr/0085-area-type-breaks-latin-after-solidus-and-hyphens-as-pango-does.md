@@ -31,7 +31,7 @@ Area Type broke Latin text only at spaces (ADR-0064, "Spaces break as before"). 
 4. **Spaces are unchanged.** A break follows every run of white space, trailing spaces hang, and a unit never starts with a space. So `a /b` gives `a ` · `/` · `b`. Pango keeps `a /` together (LB13 applies across the space), and ADR-0064 leaves that rule out. Amended by ADR-0087: the white space that breaks is every character `/\s/` matches but GL (U+00A0, U+2007, U+202F) and WJ (U+FEFF). No break falls after GL or WJ or before WJ, and a break falls before GL only after a space, HY or BA. At a line's end, all four hang as a space does. Amended by ADR-0093: no break falls between a space and U+200B (LB7), nor before U+2014 when U+2014 and U+0020s come before it (LB17).
 5. **Everything downstream is unchanged.** A unit is still unbreakable in ADR-0064's sense, so a URL is several units. ADR-0084's character break applies only when one of those units is wider than its span, so `xxxxx 12/12345678` at 60 still gives `xxxxx ` · `12/1234567` · `8`, as Inkscape does. ADR-0077's justify widens only U+0020, so a line that ends after `/` with no space stays left, as a piece does. ADR-0079's Convert to Point Type inserts a `\n` after each such break, as after a CJK break. ADR-0022's overflow and `TEXT_OVERFLOW` do not change.
 
-The state is two values beside the previous character: the base before the current marks with the base before it, for LB9 and LB21a, and whether the text so far ends in `NU (NU | SY | IS)*`, for LB25.
+The state is two values beside the previous character: the base before the current marks with the base before it, for LB9 and LB21a, and whether the text so far ends in `NU (NU | SY | IS)*`, for LB25. Amended by ADR-0095: the number state also says whether the text ends in such a number and one CL or CP, and IS, CL, CP, PR and PO break before OP, PR, PO and NU.
 
 ## How it was checked
 
@@ -56,7 +56,7 @@ The render golden and the `fixtures/documents/inkscape.svg` export snapshot chan
 Each of these is a Pango Latin break that Kalamo does not give, measured on 2026-09-30. Each needs its own class in `line-break.ts`, and they can be filed as a follow-up:
 
 - EX: `x!|y`, `c?|d`. IN: `x…|y`. B2: `a|—|b`. Emoji as ID: `x|🙂|y`. ZWSP as a break opportunity. Amended by ADR-0093: EX, IN, B2 and ZWSP now break in ASCII, Latin-1 and General Punctuation, and emoji as ID is still left out.
-- IS, CL or CP before PR or OP, and PR or PO before PR, PO or OP: `C:|\x`, `a)|(b`, `a,|$5`, `$|$`.
+- IS, CL or CP before PR or OP, and PR or PO before PR, PO or OP: `C:|\x`, `a)|(b`, `a,|$5`, `$|$`. Amended by ADR-0095: these now break, and LB25 keeps a number, one closing bracket after it and its signs whole.
 - Fullwidth forms beside Latin, such as `a|－|b`. These belong to ADR-0064's CJK rules.
 - BA outside ASCII, Latin-1 and General Punctuation, such as Indic danda, Tibetan, Ethiopic and Supplemental Punctuation.
 - UAX #14 rules newer than Pango 1.50, such as Unicode 15.1's LB20a, which forbids a break after a word-initial hyphen. Pango 1.50 breaks `-|a` and `a |-|b`, and so does Kalamo.

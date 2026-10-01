@@ -1,6 +1,6 @@
 # Latin line breaks after solidus and hyphens (research notes, 2026-10-01)
 
-For #222: where Inkscape 1.2.2 and Pango 1.50.12 break Latin text after `/`, `-` and BA, and what Kalamo's `lineBreakUnits` changes from `main` (2070333). Decision: ADR-0085. #224 extends the same scripts to no-break spaces (ADR-0087), in its section, and #225 to EX, IN, B2 and ZW (ADR-0093), in the last. The figures before #224's section come from the scripts as #222 left them, at d6e0e0a, and #224's from the scripts at ad8d708.
+For #222: where Inkscape 1.2.2 and Pango 1.50.12 break Latin text after `/`, `-` and BA, and what Kalamo's `lineBreakUnits` changes from `main` (2070333). Decision: ADR-0085. #224 extends the same scripts to no-break spaces (ADR-0087), #225 to EX, IN, B2 and ZW (ADR-0093), #227 to the soft hyphen (ADR-0094) and #226 to closing punctuation and signs (ADR-0095), each in its own section. The figures before #224's section come from the scripts as #222 left them, at d6e0e0a, and #224's from the scripts at ad8d708.
 
 Legend as in `06-illustrator-drawing-tools.md`: **[A]** the Adobe doc states it; **[M]** measured here. ADR-0085 records the Illustrator search, which is unverified.
 
@@ -102,4 +102,26 @@ A text changes when its `layoutText`, `glyphs`, `pointType` or `areaFrame` diffe
 
   ```
   60000 texts, 45070 hold U+00AD; 44923 changed, 0 of them without one
+  ```
+
+## Closing punctuation and signs (#226) [M]
+
+#226 asks where Pango and Inkscape break after IS, CL, CP, PR and PO, before OP, PR, PO and a digit, and what ADR-0095 changes from `main` (9d032c7). The same scripts measure it, each extended again:
+
+- `inkscape.mjs` adds #226's three frames: `xxxx a)(bbbbb` and `xxxx a,$5555` 45 wide, and `Open C:\Users\x now` 60 wide. Inkscape breaks after `)`, `,` and `:`, and `text.test.ts` asserts the same lines.
+- `check.ts` needs no new pool characters: the `latin` and `cjk` pools already draw `.,:;)]}$%(`. Its "CL before a letter" rule now matches `}` alone, since GLib classes `]` as CP. `check.ts latin 9d032c7` prints:
+
+  ```
+  20000 strings, 1518 with a break that differs from Pango's
+  1183 a space before it: LB13 to LB16, across spaces
+  372 a CJK neighbour: ADR-0064's pairs
+  9 a space before a no-break space: LB13 to LB16, across spaces
+  against 9d032c7: 1242 strings change at 1311 positions, 0 of them a removed break; 0 with a CJK neighbour; 0 now differ from Pango
+  ```
+
+  `check.ts cjk 9d032c7` prints 928 differing strings, 901 positions after a space and 42 with a CJK neighbour, and `against 9d032c7: 2434 strings change at 2602 positions, 0 of them a removed break; 0 with a CJK neighbour; 0 now differ from Pango`.
+- `regress.ts` joins words with `)(`, `](`, `}`, `,$`, `:\`, `:`, `.`, `,`, `$`, `%`, `%$`, `$$`, `)$`, `(`, `)` and `}(` too, and counts the texts that hold IS, CP, CL, PR or PO. `regress.ts 9d032c7` prints:
+
+  ```
+  60000 texts, 53159 hold IS, CP, CL, PR or PO; 21682 changed, 0 of them without one
   ```
