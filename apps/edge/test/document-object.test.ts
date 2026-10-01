@@ -1,6 +1,6 @@
 import { evictDurableObject, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
-import { type DuplicateInput, parseDocument, resolveImages } from "@kalamo/core";
+import { type DuplicateInput, linesBox, parseDocument, resolveImages } from "@kalamo/core";
 import { afterEach, expect, it, vi } from "vitest";
 
 const stub = (docId: string) => env.DOCUMENT.get(env.DOCUMENT.idFromName(docId));
@@ -1024,6 +1024,45 @@ it("aligns a text's receipt bounds, node_update moving them and null restoring l
   };
   expect(restored).not.toHaveProperty("alignment");
   expect(restored.geometricBounds).toEqual(leftBounds);
+});
+
+it("gives each written Area Type's shown lines' bounds in the receipt, so a box can fit them (#230)", async () => {
+  const s = stub("line-bounds");
+  const { defaultLayerId: parentId } = ok(
+    await s.create({ docId: "line-bounds", name: "Doc", artboards, actor: "agent-a" }),
+  );
+  const area = {
+    type: "text",
+    kind: "area",
+    parentId,
+    x: 10,
+    y: 20,
+    width: 15,
+    height: 200,
+  } as const;
+  const created = ok(
+    await s.createNodes(
+      [
+        { ...area, content: "Hi Hi", fontSize: 12 },
+        { type: "rect", parentId, x: 0, y: 0, width: 5, height: 5 },
+      ],
+      "agent-a",
+    ),
+  );
+  const [id = "", rectId = ""] = created.createdIds;
+  const lines = linesBox({ ...area, content: "Hi Hi", fontSize: 12 });
+  expect(created.lineBounds).toEqual({ [id]: lines });
+  expect(created.lineBounds).not.toHaveProperty(rectId);
+  // Two lines in a 200 pt frame end far above its bottom, which `bounds` reaches.
+  expect((lines?.y ?? 0) + (lines?.height ?? 0)).toBeLessThan(60);
+  expect(created.bounds).toMatchObject({ y: 0, height: 220 });
+
+  const moved = ok(await s.transformNodes({ nodeIds: [id], translate: { x: 5 } }, "agent-a"));
+  expect(moved.lineBounds).toEqual({ [id]: { ...lines, x: 15 } });
+  const short = ok(await s.updateNodes([{ nodeId: id, patch: { height: 5 } }], "agent-a"));
+  expect(short.lineBounds).toEqual({ [id]: null });
+  const rect = ok(await s.updateNodes([{ nodeId: rectId, patch: { name: "Box" } }], "agent-a"));
+  expect(rect).not.toHaveProperty("lineBounds");
 });
 
 it("flows Area Type in a closed Live Shape by frameNodeId, deleting it, and undo restores it (ADR-0078)", async () => {

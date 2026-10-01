@@ -765,17 +765,23 @@ export function glyphs(text: TextLayout): Glyph[] {
   });
 }
 
-/**
- * A text's box: Area Type's frame. Point Type's is the union of its lines, each from its aligned
- * start for its width, at least 0, and from the ascender to the descender (ADR-0013, ADR-0022,
- * ADR-0077), and of every character's cell: its advance width from its origin, ascender to descender
- * at its own size, raised by its baseline shift and turned clockwise about the origin by its rotation
- * (ADR-0029, ADR-0068).
- */
+/** A text's box: Area Type's frame, Point Type's `linesBox` (ADR-0013, ADR-0022). */
 export function textBox(text: TextLayout): Rect {
   if (text.kind === "area") {
     return { x: text.x, y: text.y, width: text.width ?? 0, height: text.height ?? 0 };
   }
+  return linesBox(text) as Rect;
+}
+
+/**
+ * The union of a text's shown lines, each from its aligned start for its width, at least 0, and
+ * from the ascender to the descender (ADR-0013, ADR-0022, ADR-0077), and of every character's cell:
+ * its advance width from its origin, ascender to descender at its own size, raised by its baseline
+ * shift and turned clockwise about the origin by its rotation (ADR-0029, ADR-0068). Area Type's
+ * lines leave out the whitespace that hangs at their ends, so a line of only whitespace draws
+ * nothing and counts for nothing; null when no line draws (ADR-0089).
+ */
+export function linesBox(text: TextLayout): Rect | null {
   const { unitsPerEm, ascender, descender } = SOURCE_SANS_3;
   const s = text.fontSize / unitsPerEm;
   const { lines, m } = layout(text);
@@ -784,21 +790,31 @@ export function textBox(text: TextLayout): Rect {
     [left, top] = [Math.min(left, x), Math.min(top, y)];
     [right, bottom] = [Math.max(right, x), Math.max(bottom, y)];
   };
+  const cells = glyphs(text);
+  let g = 0;
   for (const l of lines) {
+    const chars = [...l.text];
+    const shown = text.kind === "area" ? hangsFrom(chars) : chars.length;
+    if (!shown && text.kind === "area") {
+      g += chars.length;
+      continue;
+    }
     add(l.x, l.y - ascender * s);
-    add(l.x + Math.max(0, span(m, l.start, l.start + [...l.text].length)), l.y - descender * s);
-  }
-  for (const g of glyphs(text)) {
-    const a = ((g.rotation ?? 0) * Math.PI) / 180;
-    const [cos, sin] = [Math.cos(a), Math.sin(a)];
-    const shift = g.baselineShift ?? 0;
-    const k = (g.fontSize ?? text.fontSize) / unitsPerEm;
-    for (const dx of [0, g.width]) {
-      for (const dy of [-ascender * k - shift, -descender * k - shift]) {
-        add(g.x + cos * dx - sin * dy, g.y + sin * dx + cos * dy);
+    add(l.x + Math.max(0, span(m, l.start, l.start + shown)), l.y - descender * s);
+    for (const c of cells.slice(g, g + shown)) {
+      const a = ((c.rotation ?? 0) * Math.PI) / 180;
+      const [cos, sin] = [Math.cos(a), Math.sin(a)];
+      const shift = c.baselineShift ?? 0;
+      const k = (c.fontSize ?? text.fontSize) / unitsPerEm;
+      for (const dx of [0, c.width]) {
+        for (const dy of [-ascender * k - shift, -descender * k - shift]) {
+          add(c.x + cos * dx - sin * dy, c.y + sin * dx + cos * dy);
+        }
       }
     }
+    g += chars.length;
   }
+  if (left === Infinity) return null;
   return { x: left, y: top, width: right - left, height: bottom - top };
 }
 

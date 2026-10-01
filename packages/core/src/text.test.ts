@@ -4,6 +4,7 @@ import { lineBreakUnits } from "./line-break.ts";
 import { NOTO_SANS_KR } from "./noto-sans-kr.ts";
 import { NOTO_SANS_SC } from "./noto-sans-sc.ts";
 import { parsePath, pathBounds } from "./path.ts";
+import type { Rect } from "./schema.ts";
 import { SOURCE_SANS_3 } from "./source-sans-3.ts";
 import {
   canonicalRanges,
@@ -16,8 +17,10 @@ import {
   glyphWarnings,
   hasGlyph,
   layoutText,
+  linesBox,
   notdefBox,
   overflowWarnings,
+  type TextLine,
   textBox,
 } from "./text.ts";
 
@@ -31,6 +34,29 @@ it("measures a line by its advance widths, from the ascender to the descender", 
   expect(box.y).toBeCloseTo(50 - at12(1000));
   expect(box.width).toBeCloseTo(at12(652 + 246));
   expect(box.height).toBeCloseTo(at12(1000 + 326));
+});
+
+it("bounds Area Type's shown lines, ascender to descender, not its frame (#230)", () => {
+  const area = {
+    kind: "area",
+    x: 10,
+    y: 20,
+    width: 15,
+    height: 200,
+    content: "Hi Hi",
+    fontSize: 12,
+  } as const;
+  const [first, last] = layoutText(area).lines as [TextLine, TextLine];
+  expect(last.y - first.y).toBeCloseTo(14.4);
+  const box = linesBox(area) as Rect;
+  expect(box.x).toBe(10);
+  expect(box.y).toBeCloseTo(first.y - at12(1000));
+  expect(box.width).toBeCloseTo(at12(652 + 246));
+  expect(box.y + box.height).toBeCloseTo(last.y + at12(326));
+  expect(textBox(area)).toEqual({ x: 10, y: 20, width: 15, height: 200 });
+  expect(linesBox({ ...area, height: 5 })).toBeNull();
+  expect(linesBox({ ...area, content: "Hi Hi\n\n" })).toEqual(box);
+  expect(linesBox({ ...area, content: " \n" })).toBeNull();
 });
 
 it("grows by each added character's advance, and counts .notdef for one the font lacks", () => {

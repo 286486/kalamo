@@ -1150,6 +1150,12 @@ export const WriteReceipt = z.object({
   keyMap: z.record(z.string(), z.string()),
   bounds: Rect.nullable(),
   warnings: z.array(Warning),
+  lineBounds: z
+    .record(z.string(), Rect.nullable())
+    .optional()
+    .describe(
+      "Each created or updated Area Type's shown lines, ascender to descender, by id, where bounds is its frame: fit a box around the text to these. null when no line fits the frame.",
+    ),
   failed: z
     .array(
       z.object({
