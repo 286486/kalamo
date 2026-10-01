@@ -145,12 +145,15 @@ export function areasAfter(areas: Areas, msg: ServerMessage, now: number): Areas
   });
 }
 
+/** An Actor row's kind (CONTEXT.md). */
+export type ActorKind = "user" | "agent";
+
 /** An Agent Actor: its row's kind, or, with no row, any id but a User Actor's. */
-export const isAgent = (kinds: ReadonlyMap<string, string>, actor: string) =>
+const isAgent = (kinds: ReadonlyMap<string, ActorKind>, actor: string) =>
   kinds.has(actor) ? kinds.get(actor) === "agent" : actor !== "user" && !actor.startsWith("user_");
 
 /** The Agents' Working Areas shown at `now`: those with bounds, written less than AREA_SHOWN ago. */
-export function visibleAreas(areas: Areas, kinds: ReadonlyMap<string, string>, now: number) {
+export function visibleAreas(areas: Areas, kinds: ReadonlyMap<string, ActorKind>, now: number) {
   return [...areas].flatMap(([actor, { bounds, intent, at }]) =>
     bounds && now - at < AREA_SHOWN && isAgent(kinds, actor) ? [{ actor, bounds, intent, at }] : [],
   );

@@ -11,7 +11,13 @@ import {
 import { create } from "zustand";
 import { parseKey } from "./direct.ts";
 import type { ImageCache } from "./images.ts";
-import { type Areas, areasAfter, type Pointer, presenceSender } from "./presence.ts";
+import {
+  type ActorKind,
+  type Areas,
+  areasAfter,
+  type Pointer,
+  presenceSender,
+} from "./presence.ts";
 import { afterProbe, type Probe, receive, type ViewState } from "./receive.ts";
 import type { Tool, ToolGroup } from "./toolbox.ts";
 import type { FillStroke } from "./tools.ts";
@@ -39,8 +45,8 @@ export interface State extends ViewState {
   fillStroke: FillStroke;
   /** The shown Document's Actors' names, by Actor id, from its Actor rows (ADR-0090). */
   actorNames: ReadonlyMap<string, string>;
-  /** Their kinds, `user` or `agent`, by Actor id. */
-  actorKinds: ReadonlyMap<string, string>;
+  /** Their kinds, by Actor id. */
+  actorKinds: ReadonlyMap<string, ActorKind>;
   /** Each Actor's last write, drawn as an Agent's Working Area (ADR-0090). */
   areas: Areas;
 }
@@ -151,7 +157,7 @@ async function fetchActors(docId: string): Promise<Pick<State, "actorNames" | "a
     const res = await fetch(`/api/docs/${docId}/actors`);
     if (!res.ok) return { actorNames: new Map(), actorKinds: new Map() };
     const { actors } = (await res.json()) as {
-      actors: { actorId: string; name: string; kind: string }[];
+      actors: { actorId: string; name: string; kind: ActorKind }[];
     };
     return {
       actorNames: new Map(actors.map((a) => [a.actorId, a.name])),

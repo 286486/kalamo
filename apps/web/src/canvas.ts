@@ -132,7 +132,7 @@ export function cancelDrag() {
 export type AreaPill = Rect & { intent: string | null };
 
 /** An `intent` longer than this is cut, ending in an ellipsis (ADR-0090). */
-const PILL_INTENT = 48;
+const INTENT_CUT = 48;
 
 /**
  * Each Agent's Working Area, dashed in its Actor's colour, with a pill on its top-left corner
@@ -155,7 +155,7 @@ export function drawAreas(
     ctx.strokeStyle = color;
     ctx.strokeRect(b.x, b.y, b.width, b.height);
     const cut =
-      intent && intent.length > PILL_INTENT ? `${intent.slice(0, PILL_INTENT - 1)}…` : intent;
+      intent && intent.length > INTENT_CUT ? `${intent.slice(0, INTENT_CUT - 1)}…` : intent;
     const text = cut ? `${labelOf(names, actor)} · ${cut}` : labelOf(names, actor);
     const width = ctx.measureText(text).width + 8;
     ctx.save();

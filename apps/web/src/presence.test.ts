@@ -129,7 +129,7 @@ it("shows an Agent's area until 5 minutes after its last write, and never a User
   areas = areasAfter(areas, write("tx", "user", box(5), null), 0);
   areas = areasAfter(areas, write("tx", "a1", box(5), null), 0);
   // a1's row says it is a User Actor, whatever its id.
-  const kinds = new Map([["a1", "user"]]);
+  const kinds = new Map([["a1", "user" as const]]);
   const shown = (now: number) => visibleAreas(areas, kinds, now).map((a) => a.actor);
   expect(shown(AREA_SHOWN - 1000)).toEqual(["agent-a"]);
   expect(shown(AREA_SHOWN)).toEqual([]);
