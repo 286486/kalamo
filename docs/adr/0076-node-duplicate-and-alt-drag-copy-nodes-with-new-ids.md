@@ -78,3 +78,17 @@ Grid runs on Opus 5.5, 2026-10-02, at warm-cache cost; the first run after a def
 | what landed where (shipped) | 6 | 4: 2.2–2.6k, $0.30–0.32 | 0 | 2: 10.4–10.6k, $0.48 |
 
 Saying how a copy is stored steered every Agent away from `kalamo_node_duplicate`, so it is left out. In these 3 runs the receipt alone did not help. With the shipped wording no run deleted its copies, but 2 of 6 still wrote all 100 rects by hand, at the cost #235 set out to remove. Main's wording did that in none of today's 3 runs and in 1 of the 6 runs of 2026-10-01 that #235 reports; the samples are too small to tell the wordings apart on this. How a copy is stored has not changed: it still keeps its parameters and is moved by its `transform`, as Alt-drag does.
+
+## Telling an Agent to repeat a shape
+
+Amended by #244. After #235, 2 of 6 grid runs still listed 99 rects in one `kalamo_node_create`, at about 10k output tokens, $0.48 and 85–92 s, against about 2.2k, $0.31 and 30 s for a run that copied. drawing-conventions now names the two repeat routes and gives the cost of listing every shape as the reason: for a grid of equal rects with equal gaps, one rect covering the grid split with `kalamo_path_op` `split_into_grid` (`rows`, `cols`, `gutter`); for a row of any other Node, `kalamo_node_duplicate` with `count` and `offset`, then the row duplicated for the other rows. `kalamo_path_op`'s `split_into_grid` text says the rects are `gutter` apart and that one rect covering a grid becomes it, and `kalamo_node_create` points at both routes in one sentence. Neither says how a copy is stored. The grid task's MCP check now also fails a run whose `kalamo_node_create` calls list more than 10 rects in all, so one row drawn by hand and duplicated still passes.
+
+Grid runs on Opus 5.5, 2026-10-02, `.wrangler/bench` cleared first. Every run wrote the same 17k to the cache, so none is a cold-cache outlier; the per-run table is on #244.
+
+| Wording | Runs | Split one rect | Duplicated | Listed the rects | Failed the check |
+|---|---|---|---|---|---|
+| both repeat routes, cost as the reason (shipped) | 12 | 12: 1.5–1.9k output tokens, $0.22–0.24, 21–30 s, 6–7 calls | 0 | 0 | 0 |
+
+Every Agent took the grid route, which is the cheapest: one call, plain rects with no transform, and about 1.7k output tokens against duplicate's 2.2k. The first wording reached the 1-in-10 bar, so no other was tried.
+
+The rest of `pnpm bench` on this wording, with `.wrangler/bench` cleared: every task passed in both arms. freehand $0.20, transaction $0.24 and grid $0.23 are at or below #235's figures. labels ($0.20–0.22 in 4 runs) and place ($0.18 in 2 runs) sit $0.01 above #235's $0.21 and $0.17, and origin/main, run alternately with this branch on the same day, cost the same: labels $0.22 twice, place $0.17 and $0.18. place also costs more as `.wrangler/bench` fills up: after 20-odd runs, `kalamo_doc_list` returns 6k characters instead of 2k, and place costs $0.20.

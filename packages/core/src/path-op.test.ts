@@ -871,6 +871,26 @@ describe("pathOp split_into_grid", () => {
     ).toMatchObject({ code: "INVALID_PATH", path: "nodeIds" });
   });
 
+  it("splits the bench's 490 pt square 10x10 with 10 pt gutters into its 40 pt grid", () => {
+    const { doc, defaultLayerId: layer } = setup("M 0 0");
+    const [rect] = createNodes(doc, [
+      { type: "rect", parentId: layer, x: 50, y: 50, width: 490, height: 490 },
+    ]).nodes as [Node];
+    const input = {
+      nodeIds: [rect.id],
+      op: "split_into_grid" as const,
+      rows: 10,
+      cols: 10,
+      gutter: 10,
+    };
+    const cells = pathOp(doc, input).created as Extract<Node, { type: "rect" }>[];
+    const at = Array.from({ length: 10 }, (_, k) => 50 + 50 * k);
+    expect(cells.map((c) => [c.x, c.y, c.width, c.height])).toEqual(
+      at.flatMap((y) => at.map((x) => [x, y, 40, 40])),
+    );
+    for (const c of cells) expect(c.transform).toEqual([1, 0, 0, 1, 0, 0]);
+  });
+
   it("refuses gutters that leave no room", () => {
     const { doc, defaultLayerId: layer } = setup("M 0 0");
     const [rect] = createNodes(doc, [
