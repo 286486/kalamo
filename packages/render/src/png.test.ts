@@ -21,7 +21,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { COMPOSITING, near } from "../../../fixtures/compositing.ts";
 import fixture from "../../../fixtures/documents/inkscape.kalamo.json?raw";
 import { RED_2x2_PNG } from "../../../fixtures/images.ts";
-import { MIDPOINT_DOC, midpointEdits } from "../../../fixtures/midpoint-edits.ts";
+import { exportedMidpointEdits } from "../../../fixtures/midpoint-export.ts";
 import { changedPixels, differs, VECTOR_BUDGET } from "../../../fixtures/png.ts";
 import { LAZY_FONTS, renderFonts, svgToPixels, svgToPng } from "./png.ts";
 import { fit, renderSvg } from "./svg.ts";
@@ -1175,10 +1175,7 @@ it("draws a midpoint's 50/50 mix where it sits (ADR-0081)", async () => {
 });
 
 it("draws a midpoint edited in Inkscape as resvg draws the edited file (ADR-0082)", async () => {
-  const opened = parseDocument(MIDPOINT_DOC);
-  const midpoint = { id: "", version: 1 as const, rev: 0, ...opened };
-  const nodes = new Map(opened.nodes.map((n) => [n.id, n]));
-  for (const [name, svg] of Object.entries(midpointEdits(toSvg({ ...midpoint, nodes })))) {
+  for (const [name, svg] of Object.entries(exportedMidpointEdits())) {
     const file = parseFile(svg);
     const doc = {
       ...createDocument({ id: "d", name, artboards: [] }).doc,
