@@ -1,6 +1,6 @@
 # Kalamo
 
-A vector drawing tool that runs in the browser, built so AI agents can read and write the document through MCP while a person edits the same file in a normal Illustrator-style canvas.
+A vector drawing tool that runs in the browser. Each person brings their own AI agent over MCP, and people and agents edit the same document on an Illustrator-style canvas.
 
 ![A night landscape with its ridge path's anchors and handles, an Agent → Document ← Person diagram, and a stacked bar chart](docs/images/readme-hero.png)
 
