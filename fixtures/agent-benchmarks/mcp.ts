@@ -9,21 +9,69 @@ export interface ToolResult {
 /** Calls one Kalamo tool; the runner's is `httpCall`, the unit test's goes through the Worker. */
 export type Call = (name: string, args: unknown) => Promise<ToolResult>;
 
-/** A task's assertions: throw an Error naming what is wrong. `tools` are the Agent's calls, in order. */
-export type Check = (call: Call, docId: string, tools: string[]) => Promise<void>;
+/** A task's session: the Agent Actor it runs as, and the MCP client it runs in. */
+export interface Agent {
+  actor: string;
+  client: "claude" | "codex";
+}
+
+/** One `tools/call` an Agent made, as the bench's proxy saw it go to `/mcp`. */
+export interface Logged {
+  actor: string;
+  /** The `clientInfo.name` its MCP client sent in `initialize`. */
+  client: string;
+  name: string;
+  // biome-ignore lint/suspicious/noExplicitAny: assertions read arbitrary arguments
+  args: any;
+  /** Absent when the answer was not a JSON-RPC result. */
+  result?: ToolResult;
+}
+
+/** A Transaction someone other than an Agent committed: the setup, or a scripted browser User. */
+export interface Commit {
+  actor: string;
+  rev: number;
+}
+
+/** What happened besides the Document: every Agent call, and every other commit. */
+export interface Trace {
+  calls: Logged[];
+  commits: Commit[];
+}
+
+/**
+ * A task's assertions: throw an Error naming what is wrong. `tools` are the Agents' calls by name,
+ * in order.
+ */
+export type Check = (call: Call, docId: string, tools: string[], trace?: Trace) => Promise<void>;
 
 /** A write-SVG session's text files, by name: what it starts with, or what it leaves. */
 export type Files = Record<string, string>;
+
+/**
+ * Runs before the bench forwards each Agent call to `/mcp`, so people can edit the Document while
+ * that Agent works.
+ */
+// biome-ignore lint/suspicious/noExplicitAny: a task reads the arguments it cares about
+export type Interject = (actor: string, name: string, args: any) => Promise<void>;
 
 /** What a setup made: the Document the MCP arm edits, and the files the SVG arm starts with. */
 export interface Start {
   docId: string;
   files?: Files;
+  interject?: Interject;
+  /** The setup's and its people's commits, filled in as they make them. */
+  commits?: Commit[];
+  /** Closes what the setup opened, once the check is done. */
+  close?: () => void;
 }
+
+/** Opens the Document's WebSocket as the dev-mode browser User `user` (ADR-0090). */
+export type Connect = (user: string, docId: string) => Promise<WebSocket>;
 
 /** Builds what a task's prompts say already exists, in a Document named `name`; `other` is a
  * second Actor, the one whose changes an Agent must find. */
-export type Setup = (call: Call, name: string, other: Call) => Promise<Start>;
+export type Setup = (call: Call, name: string, other: Call, connect?: Connect) => Promise<Start>;
 
 /** A task's assertions on the files a write-SVG session left; `call` opens them in Kalamo. */
 export type SvgCheck = (call: Call, files: Files) => Promise<void>;
@@ -106,3 +154,44 @@ export async function leaves(call: Call, docId: string): Promise<Leaf[]> {
 
 /** A colour as the assertions compare it. */
 export const hex = (c: string | undefined) => c?.toUpperCase();
+
+/** A scripted browser User on one Document: its gestures as commands, ADR-0010's wire protocol. */
+export async function browserUser(connect: Connect, user: string, docId: string) {
+  const ws = await connect(user, docId);
+  const actor = `user_${user}`;
+  const ids = new Map<string, string>(); // the Nodes it has seen, by name
+  const acks = new Map<string, { resolve(rev: number): void; reject(e: Error): void }>();
+  const opened = new Promise<void>((resolve, reject) => {
+    ws.addEventListener("close", () => reject(new Error(`${user}'s socket closed`)));
+    ws.addEventListener("message", (e) => {
+      const m = JSON.parse(e.data as string);
+      if (m.type === "document" || m.type === "tx")
+        for (const n of m.type === "document" ? m.nodes : [...m.created, ...m.updated])
+          ids.set(n.name, n.id);
+      if (m.type === "document") resolve();
+      if (m.type === "tx") acks.get(m.commandId)?.resolve(m.rev);
+      if (m.type === "rejected")
+        acks.get(m.id)?.reject(new Error(`${user}'s command: ${JSON.stringify(m.error)}`));
+    });
+  });
+  (ws as { accept?(): void }).accept?.(); // a Workers socket delivers nothing until accepted
+  await opened;
+  let next = 1;
+  return {
+    id(name: string) {
+      const id = ids.get(name);
+      assert(id, `${user} sees no Node named ${name}`);
+      return id;
+    },
+    /** Sends one command and resolves once its Transaction is committed. */
+    async send(command: unknown): Promise<Commit> {
+      const id = `${user}-${next++}`;
+      const rev = await new Promise<number>((resolve, reject) => {
+        acks.set(id, { resolve, reject });
+        ws.send(JSON.stringify({ type: "command", id, command }));
+      });
+      return { actor, rev };
+    },
+    close: () => ws.close(),
+  };
+}
