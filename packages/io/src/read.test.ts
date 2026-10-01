@@ -3725,3 +3725,128 @@ describe("Area Type in a closed path (ADR-0078)", () => {
     expect(strip(leaves(file)[0] as never)).toEqual(strip(n as never));
   });
 });
+
+describe("positioned tspan lines (ADR-0091)", () => {
+  const one = (body: string, attrs = 'width="600" height="800" viewBox="0 0 600 800"') => {
+    const file = parseFile(svg(attrs, body));
+    return { node: leaves(file)[0] as unknown as Record<string, unknown>, warnings: file.warnings };
+  };
+  const paragraph = (second: string) =>
+    `<text x="140" y="132" font-family="Source Sans 3" font-size="16"><tspan x="140" dy="0">Kalamo is a vector</tspan><tspan x="140" ${second}>editor in the browser</tspan></text>`;
+  const LINES = { message: expect.stringMatching(/^Positioned lines/) };
+  const DROPPED = { message: expect.stringMatching(/^A tspan's x, y, dx or dy/) };
+
+  it.each([['dy="1.2em"'], ['dy="19.2"'], ['dy="19.2px"'], ['y="151.2"']])(
+    "opens a paragraph written with %s as lines, not words run together across a line",
+    (second) => {
+      const { node, warnings } = one(paragraph(second));
+      expect(node).toMatchObject({
+        kind: "point",
+        x: 140,
+        y: 132,
+        content: "Kalamo is a vector\neditor in the browser",
+      });
+      expect(node).not.toHaveProperty("leading");
+      expect(warnings).toEqual([]);
+    },
+  );
+
+  it("gives a step other than 120 % as leading", () => {
+    expect(one(paragraph('dy="24"')).node).toMatchObject({ leading: 24 });
+  });
+
+  it("lets the positions win over line-height", () => {
+    const body = paragraph('dy="24"').replace("<text ", '<text line-height="2" ');
+    expect(one(body).node).toMatchObject({ leading: 24 });
+  });
+
+  it("makes direct text before the first positioned tspan the first line", () => {
+    const { node, warnings } = one(
+      '<text x="10" y="20" font-size="10">First<tspan x="10" dy="12">Second</tspan></text>',
+    );
+    expect(node).toMatchObject({ x: 10, y: 20, content: "First\nSecond" });
+    expect(warnings).toEqual([]);
+  });
+
+  it("drops pretty-printed whitespace at line ends", () => {
+    const { node } = one(
+      '<text x="10" y="20" font-size="10">\n  <tspan x="10" dy="12">One two</tspan>\n  <tspan x="10" dy="12">three</tspan>\n</text>',
+    );
+    expect(node).toMatchObject({ content: "One two\nthree" });
+  });
+
+  it("keeps an empty positioned line", () => {
+    const { node } = one(
+      '<text x="10" y="20" font-size="10"><tspan x="10" dy="0">A</tspan><tspan x="10" dy="14"> </tspan><tspan x="10" dy="14">B</tspan></text>',
+    );
+    expect(node).toMatchObject({ content: "A\n\nB", leading: 14 });
+  });
+
+  it("moves the Node's y by a first tspan's dy, which was ignored", () => {
+    const { node, warnings } = one(
+      '<text x="10" y="20" font-size="10"><tspan x="10" dy="5">A</tspan><tspan x="10" dy="12">B</tspan></text>',
+    );
+    expect(node).toMatchObject({ x: 10, y: 25, content: "A\nB" });
+    expect(warnings).toEqual([]);
+  });
+
+  it.each([
+    ["different x", '<tspan x="10" dy="14">B</tspan><tspan x="30" dy="14">C</tspan>'],
+    ["unequal steps", '<tspan x="10" dy="14">B</tspan><tspan x="10" dy="20">C</tspan>'],
+  ])("approximates lines at %s with one warning", (_, rest) => {
+    const { node, warnings } = one(
+      `<text x="10" y="20" font-size="10"><tspan x="10" dy="0">A</tspan>${rest}<tspan x="40" dy="30">D</tspan></text>`,
+    );
+    expect(node).toMatchObject({ x: 10, y: 20, content: "A\nB\nC\nD", leading: 14 });
+    expect(warnings).toMatchObject([LINES]);
+  });
+
+  it.each([
+    ["a kerning dx", '<tspan dx="2">B</tspan>'],
+    ["a column on the same baseline", '<tspan x="200" dy="0">B</tspan>'],
+    ["an upward move", '<tspan x="10" dy="-12">B</tspan>'],
+    ["a nested dy", '<tspan x="10" dy="12">B<tspan dy="2">C</tspan></tspan>'],
+    ["a list of positions", '<tspan x="10 20" dy="12">B</tspan>'],
+    ["an unreadable length", '<tspan x="10" dy="1.2ex">B</tspan>'],
+  ])("warns of %s it drops", (_, rest) => {
+    const { node, warnings } = one(`<text x="10" y="20" font-size="10">A${rest}</text>`);
+    expect(node).toMatchObject({ x: 10, y: 20 });
+    expect((node.content as string).startsWith("A")).toBe(true);
+    expect(warnings).toMatchObject([DROPPED]);
+  });
+
+  it("starts no line at a kerning dx, a same-baseline column or an upward move", () => {
+    const { node } = one(
+      '<text x="10" y="20" font-size="10">A<tspan dx="2">B</tspan><tspan x="200" dy="0">C</tspan><tspan x="10" dy="-12">D</tspan></text>',
+    );
+    expect(node).toMatchObject({ content: "ABCD" });
+  });
+
+  it("keeps a nested styled tspan's Character Range in a positioned line", () => {
+    const { node } = one(
+      '<text x="10" y="20" font-size="10"><tspan x="10" dy="0">A</tspan><tspan x="10" dy="12">B<tspan fill="#ff0000">C</tspan></tspan></text>',
+    );
+    expect(node).toMatchObject({
+      content: "A\nBC",
+      ranges: [expect.objectContaining({ start: 3, end: 4, fill: "#FF0000" })],
+    });
+  });
+
+  it("aligns positioned lines by text-anchor", () => {
+    const body = paragraph('dy="1.2em"').replace("<text ", '<text text-anchor="middle" ');
+    expect(one(body).node).toMatchObject({ x: 140, alignment: "center" });
+  });
+
+  it("scales x, y, fontSize and leading with a baked root scale", () => {
+    const { node } = one(paragraph('dy="24"'), 'width="1200" height="1600" viewBox="0 0 600 800"');
+    expect(node).toMatchObject({ x: 280, y: 264, fontSize: 32, leading: 48 });
+  });
+
+  it("leaves Area Type's positioned tspans to the layout", () => {
+    const { node, warnings } = one(
+      '<defs><rect id="fr" x="20" y="20" width="150" height="200"/></defs><text style="shape-inside:url(#fr);font-size:12px"><tspan x="27" y="30">The quick </tspan><tspan x="25" y="44">fox.</tspan></text>',
+    );
+    expect(node).toMatchObject({ kind: "area", content: "The quick fox." });
+    expect(warnings).toEqual([]);
+  });
+});
