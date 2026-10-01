@@ -31,7 +31,7 @@ import {
   type Rect,
   type ShapeNode,
 } from "./schema.ts";
-import { type Glyph, glyphs, layoutText } from "./text.ts";
+import { areaFrame, type Glyph, glyphs, layoutText, overflowWarnings } from "./text.ts";
 
 const newDoc = () => {
   const { doc, defaultLayerId } = createDocument({
@@ -2542,5 +2542,169 @@ describe("Convert to Area Type and Point Type (ADR-0079)", () => {
     expect(doc.nodes.get(t.id)).toEqual(t);
     convert(doc, t.id, { kind: "point", name: "Body", opacity: 0.5 });
     expect(doc.nodes.get(t.id)).toMatchObject({ kind: "point", name: "Body", opacity: 0.5 });
+  });
+});
+
+describe("Auto Size (ADR-0092)", () => {
+  type Text = Extract<Node, { type: "text" }>;
+  const make = (extra: object) => {
+    const { doc, defaultLayerId } = newDoc();
+    const [t] = createNodes(doc, [
+      {
+        type: "text",
+        kind: "area",
+        parentId: defaultLayerId,
+        x: 10,
+        y: 20,
+        width: 100,
+        autoSize: true,
+        content: "one",
+        ...extra,
+      } as never,
+    ]).nodes as [Text];
+    return { doc, t, defaultLayerId };
+  };
+  const update = (doc: Document, id: string, patch: Record<string, unknown>) => {
+    updateNodes(doc, [{ nodeId: id, patch }]);
+    return doc.nodes.get(id) as Text;
+  };
+  // Lines that never wrap: Convert to Area Type's frame reaches the same lowest bottom.
+  const pointHeight = (extra: object) =>
+    areaFrame({ x: 0, y: 0, fontFamily: "Source Sans 3", fontSize: 12, content: "", ...extra })
+      .height;
+
+  it.each([
+    [{ content: "one\ntwo" }, 28.8],
+    [{ content: "one\ntwo\nthree", leading: 20 }, 60],
+    [{ content: "one\n" }, 14.4],
+    [{ content: "  " }, 14.4],
+    [{ content: " \n " }, 28.8],
+  ])("stores the fitted height of %j, the frame being its bounds", (extra, height) => {
+    const { doc, t } = make(extra);
+    expect(t).toMatchObject({ autoSize: true, x: 10, y: 20, width: 100, height });
+    expect(near(bounds(doc, t))).toEqual({ x: 10, y: 20, width: 100, height });
+  });
+
+  it("fits mixed Character Range sizes and a set leading as Convert to Area Type stacks them", () => {
+    const ranges = [
+      { start: 0, end: 3, fontSize: 30 },
+      { start: 8, end: 11, fontSize: 6 },
+    ];
+    for (const leading of [undefined, 16]) {
+      const content = "big\nsmall\ntiny";
+      const { t } = make({ content, ranges, ...(leading && { leading }) });
+      expect(t.height).toBe(pointHeight({ content, ranges, leading }));
+      expect(layoutText(t).overflow).toBe("");
+    }
+  });
+
+  it("refits on every edit to the layout, staying on", () => {
+    const { doc, t } = make({ content: "one" });
+    expect(update(doc, t.id, { content: "one\ntwo" }).height).toBe(28.8);
+    expect(update(doc, t.id, { content: "one" }).height).toBe(14.4);
+    expect(update(doc, t.id, { fontSize: 24 })).toMatchObject({ height: 28.8, autoSize: true });
+    // Two words that wrap at a narrower width.
+    update(doc, t.id, { content: "one two", fontSize: 12 });
+    expect(update(doc, t.id, { width: 30 })).toMatchObject({ height: 28.8, autoSize: true });
+    const ranges = [{ start: 0, end: 3, fontSize: 16 }];
+    const ranged = update(doc, t.id, { ranges });
+    expect(ranged).toMatchObject({ height: pointHeight({ content: "one\ntwo", ranges }) });
+    expect(ranged.height).toBeGreaterThan(28.8);
+    expect(update(doc, t.id, { leading: 10 }).height).toBe(
+      pointHeight({ content: "one\ntwo", leading: 10, ranges }),
+    );
+    expect(update(doc, t.id, { alignment: "center" })).toMatchObject({ autoSize: true });
+  });
+
+  it("turns off with height, frame, false or null; true fits a fixed frame", () => {
+    const { doc, t } = make({ content: "one" });
+    expect(update(doc, t.id, { height: 50 })).not.toHaveProperty("autoSize");
+    expect(doc.nodes.get(t.id)).toMatchObject({ height: 50 });
+    expect(update(doc, t.id, { autoSize: true })).toMatchObject({ autoSize: true, height: 14.4 });
+    for (const off of [false, null]) {
+      update(doc, t.id, { autoSize: true });
+      const fixed = update(doc, t.id, { autoSize: off });
+      expect(fixed).not.toHaveProperty("autoSize");
+      expect(update(doc, t.id, { content: "one\ntwo" }).height).toBe(14.4);
+      update(doc, t.id, { content: "one" });
+    }
+    update(doc, t.id, { autoSize: true });
+    const shaped = update(doc, t.id, { frame: "M 0 0 L 90 0 L 45 60 Z" });
+    expect(shaped).not.toHaveProperty("autoSize");
+    expect(shaped).toMatchObject({ frame: "M 0 0 L 90 0 L 45 60 Z", height: 60 });
+  });
+
+  it("refuses each misuse at its key, writing nothing", () => {
+    const { doc, t } = make({ content: "one" });
+    const point = make({ kind: "point", width: undefined, autoSize: undefined }).t;
+    const { doc: pdoc } = make({});
+    pdoc.nodes.set(point.id, point);
+    const before = doc.nodes.get(t.id);
+    const refuse = (d: Document, id: string, patch: Record<string, unknown>, key: string) =>
+      expect(errorOf(() => updateNodes(d, [{ nodeId: id, patch }]))).toMatchObject({
+        code: "INVALID_PATCH",
+        path: `updates[0].patch.${key}`,
+      });
+    refuse(doc, t.id, { autoSize: true, height: 30 }, "height");
+    refuse(doc, t.id, { autoSize: true, frame: "M 0 0 L 90 0 L 45 60 Z" }, "autoSize");
+    refuse(doc, t.id, { autoSize: true, kind: "area" }, "autoSize");
+    refuse(pdoc, point.id, { autoSize: true }, "autoSize");
+    expect(doc.nodes.get(t.id)).toBe(before);
+    update(doc, t.id, { frame: "M 0 0 L 90 0 L 45 60 Z" });
+    refuse(doc, t.id, { autoSize: true }, "autoSize");
+    // The input schema refuses the mixes at create: MCP answers them INVALID_INPUT.
+    const issue = (extra: object) =>
+      NodeInput.safeParse({
+        type: "text",
+        kind: "area",
+        parentId: "l",
+        x: 0,
+        y: 0,
+        width: 100,
+        content: "x",
+        autoSize: true,
+        ...extra,
+      }).error?.issues[0];
+    expect(issue({})).toBeUndefined();
+    expect(issue({ height: 30 })).toMatchObject({ path: ["height"] });
+    expect(
+      issue({ x: undefined, y: undefined, width: undefined, frame: "M 0 0 L 9 0 L 9 9 Z" }),
+    ).toMatchObject({ path: ["autoSize"] });
+    expect(issue({ x: undefined, y: undefined, width: undefined, frameNodeId: "s" })).toMatchObject(
+      { path: ["autoSize"] },
+    );
+    expect(issue({ kind: "point", width: undefined })).toMatchObject({ path: ["autoSize"] });
+    expect(issue({ autoSize: false })).toMatchObject({ path: ["height"] });
+  });
+
+  it("converts: Area to Point drops the flag and Point to Area leaves it off", () => {
+    const { doc, t } = make({ content: "one two" });
+    const point = update(doc, t.id, { kind: "point" });
+    expect(point).not.toHaveProperty("autoSize");
+    expect(update(doc, t.id, { kind: "area" })).not.toHaveProperty("autoSize");
+  });
+
+  it("transform and duplicate keep the flag and height", () => {
+    const { doc, t } = make({ content: "one\ntwo" });
+    transformNodes(doc, { nodeIds: [t.id], scale: { x: 2, y: 3 } });
+    const scaled = doc.nodes.get(t.id) as Text;
+    expect(scaled).toMatchObject({ autoSize: true, height: 28.8, width: 100 });
+    expect(scaled.transform).not.toEqual(t.transform);
+    const [copy] = duplicateNodes(doc, { nodeIds: [t.id] }).created as [Text];
+    expect(copy).toMatchObject({ autoSize: true, height: 28.8 });
+  });
+
+  it("still warns TEXT_OVERFLOW for a unit no height shows", () => {
+    const { t } = make({ content: "a Pneumonoultramicroscopic word", width: 20 });
+    expect(t.height).toBe(14.4);
+    expect(overflowWarnings([t])).toMatchObject([{ code: "TEXT_OVERFLOW" }]);
+  });
+
+  it("refits a stale stored height on Open", () => {
+    const { doc, t } = make({ content: "one\ntwo" });
+    const file = JSON.parse(serializeDocument(doc));
+    file.nodes.find((n: { id: string }) => n.id === t.id).height = 3;
+    const read = parseDocument(JSON.stringify(file)).nodes.find((n) => n.id === t.id);
+    expect(read).toEqual(t);
   });
 });

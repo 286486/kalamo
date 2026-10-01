@@ -17,6 +17,7 @@ import {
   updateNodes,
 } from "@kalamo/core";
 import { describe, expect, it } from "vitest";
+import { NS } from "./dialect.ts";
 import { parseSvg } from "./read.ts";
 import { scopeRect, svgRect, toSvg } from "./write.ts";
 
@@ -430,6 +431,52 @@ it("writes Area Type's overflow in a hidden tspan, so every character stays in t
   expect(svg).toMatch(
     /y="30.25">one&#10;<\/tspan><tspan style="visibility:hidden">two&#10;three<\/tspan><\/text>/,
   );
+});
+
+describe("Auto Size (ADR-0092)", () => {
+  const autoText = (content: string) => {
+    const { doc, defaultLayerId: parentId } = newDoc();
+    const [node] = createNodes(doc, [
+      { type: "text", kind: "area", parentId, x: 150, y: 20, width: 100, autoSize: true, content },
+    ]).nodes as [Node];
+    return { doc, node, svg: toSvg(doc) };
+  };
+
+  it("writes kalamo:autosize beside the fitted rect and reads back the same Node", () => {
+    const { doc, node, svg } = autoText("one\ntwo");
+    expect(svg).toContain(
+      `<rect id="area-z-${node.id}" x="150" y="20" width="100" height="28.8"/>`,
+    );
+    expect(svg).toMatch(/<text [^>]*kalamo:autosize="true"/);
+    const file = parseSvg(svg);
+    expect(file.warnings).toEqual([]);
+    const opened = { ...doc, nodes: new Map(file.nodes.map((n) => [n.id, n])) };
+    expect(JSON.parse(serializeDocument(opened))).toEqual(JSON.parse(serializeDocument(doc)));
+  });
+
+  it("refits the height of lengthened content on import, ignoring the rect's", () => {
+    const { node, svg } = autoText("one");
+    const longer = svg.replace(">one</tspan>", ">one\ntwo\nthree</tspan>");
+    expect(longer).not.toBe(svg);
+    const back = parseSvg(longer).nodes.find((n) => n.id === node.id);
+    expect(back).toMatchObject({ autoSize: true, height: 43.2, content: "one\ntwo\nthree" });
+  });
+
+  it.each([
+    ["Point Type", '<text x="0" y="10" kalamo:autosize="true">a</text>'],
+    [
+      "a shaped frame",
+      '<defs><circle id="f" cx="50" cy="50" r="40"/></defs><text kalamo:autosize="true" style="shape-inside:url(#f)">a</text>',
+    ],
+  ])("warns and drops the attribute on %s", (_, body) => {
+    const file = parseSvg(
+      `<svg xmlns="http://www.w3.org/2000/svg" xmlns:kalamo="${NS.kalamo}" width="100" height="100">${body}</svg>`,
+    );
+    expect(file.warnings).toMatchObject([
+      { code: "UNSUPPORTED_ATTRIBUTE", message: expect.stringMatching(/autosize/) },
+    ]);
+    expect(file.nodes.find((n) => n.type === "text")).not.toHaveProperty("autoSize");
+  });
 });
 
 describe("alignment (ADR-0077)", () => {

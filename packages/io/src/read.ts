@@ -1167,6 +1167,15 @@ class Reader {
     const fontSize = round3((length(own["font-size"]) ?? 12) * k);
     const all = this.chars(e, style, 0, { style });
     const frame = this.frame(style);
+    // Auto Size refits the height from the content when the Node is checked (ADR-0092).
+    const autoSize = kalamoAttr(e, "autosize") === "true" && frame !== undefined && "rect" in frame;
+    if (kalamoAttr(e, "autosize") !== null && !autoSize) {
+      this.warn(
+        "UNSUPPORTED_ATTRIBUTE",
+        "kalamo:autosize",
+        "kalamo:autosize is true on a text flowing in a shape-inside <rect>; elsewhere Auto Size is off.",
+      );
+    }
     const positioned = frame || line ? undefined : this.positioned(e, style, all);
     const [p0, p1] = positioned ?? [];
     const step = p0 && p1 && round3((p1.y - p0.y) * k);
@@ -1252,6 +1261,7 @@ class Reader {
         content,
         ...aligned,
         ...(ranges && { ranges }),
+        ...(autoSize && { autoSize }),
       };
       return { shape, style };
     }

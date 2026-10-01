@@ -871,6 +871,7 @@ function text(n: TextNode, a: Attrs, extra: (string | false)[], chunked: boolean
     "font-weight": weight === 400 ? undefined : weight,
     "font-style": italic ? "italic" : undefined,
     "letter-spacing": n.tracking ? formatNumber((n.tracking * n.fontSize) / 1000) : undefined,
+    [kalamo("autosize")]: n.autoSize && "true",
     ...a,
     style: style(
       ...extra,

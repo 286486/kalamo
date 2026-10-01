@@ -28,7 +28,7 @@ import {
   textFrame,
   Writable,
 } from "./schema.ts";
-import { canonicalRanges } from "./text.ts";
+import { canonicalRanges, storedAutoSize } from "./text.ts";
 
 /** Upgrades the raw JSON of one schema version to the next, before validation (F-DOC-06). */
 export type Migration = (raw: Record<string, unknown>) => Record<string, unknown>;
@@ -182,14 +182,16 @@ export function parseNode(raw: unknown, at: string): Node {
   }
   if (n.type === "image") return n;
   if (n.type === "text") {
-    const { ranges, ...text } = storedAlignment(n);
+    const { ranges, ...stored } = storedAlignment(n);
     // A shaped frame's bounds are always its own (ADR-0078).
-    if (text.frame !== undefined) {
-      Object.assign(text, shapedFrame(parsePath(text.frame, `${at}.frame`), `${at}.frame`));
+    if (stored.frame !== undefined) {
+      Object.assign(stored, shapedFrame(parsePath(stored.frame, `${at}.frame`), `${at}.frame`));
     }
-    const canonical = canonicalRanges(ranges, `${at}.ranges`, text);
+    const canonical = canonicalRanges(ranges, `${at}.ranges`, stored);
+    // Auto Size refits a stale height (ADR-0092).
+    const text = storedAutoSize({ ...stored, ...(canonical && { ranges: canonical }) });
     const appearance = paint(text.appearance as AppearanceInput, `${at}.appearance`, text);
-    return { ...text, ...(canonical && { ranges: canonical }), appearance } as Node;
+    return { ...text, appearance } as Node;
   }
   const painted = {
     ...n,

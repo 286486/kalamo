@@ -1183,6 +1183,38 @@ it("undoes a Convert to Point Type, restoring the overflow it deleted (ADR-0079)
   expect(await full()).toEqual(before);
 });
 
+it("undoes and redoes an Auto Size refit, restoring the height and flag (ADR-0092)", async () => {
+  const s = stub("auto-size-undo");
+  const { defaultLayerId } = ok(
+    await s.create({ docId: "auto-size-undo", name: "Doc", artboards, actor: "a" }),
+  );
+  const text = {
+    type: "text" as const,
+    kind: "area" as const,
+    parentId: defaultLayerId,
+    x: 0,
+    y: 0,
+    width: 50,
+    autoSize: true,
+    content: "one",
+  };
+  const [id] = ok(await s.createNodes([text], "user")).createdIds as [string];
+  const full = async () => ok(await s.get([id], "full", "user")).nodes[0];
+  const before = await full();
+  expect(before).toMatchObject({ autoSize: true, height: 14.4 });
+  ok(await s.updateNodes([{ nodeId: id, patch: { content: "one\ntwo" } }], "user"));
+  const grown = await full();
+  expect(grown).toMatchObject({ autoSize: true, height: 28.8 });
+  ok(await s.updateNodes([{ nodeId: id, patch: { height: 40 } }], "user"));
+  expect(await full()).not.toHaveProperty("autoSize");
+  ok(await s.undo("user"));
+  expect(await full()).toEqual(grown);
+  ok(await s.undo("user"));
+  expect(await full()).toEqual(before);
+  ok(await s.redo("user"));
+  expect(await full()).toEqual(grown);
+});
+
 it("writes several Nodes' paints from the Gradient panel as one Transaction and one undo step (ADR-0081)", async () => {
   const s = stub("appearance");
   const { defaultLayerId } = ok(

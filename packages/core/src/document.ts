@@ -40,7 +40,7 @@ import {
   TextShape,
   textFrame,
 } from "./schema.ts";
-import { canonicalRanges, linesBox, textBox } from "./text.ts";
+import { canonicalRanges, linesBox, storedAutoSize, textBox } from "./text.ts";
 
 /** Server-generated ULID for Documents, Nodes, Artboards and Transactions. */
 export const newId = () => ulid();
@@ -296,7 +296,7 @@ export function createNodes(
       );
       const canonical = canonicalRanges(ranges, `${path}.ranges`, parsed);
       // Measured with its ranges, so a default gradient spans the bounds they give.
-      const text = { ...parsed, ...(canonical && { ranges: canonical }) };
+      const text = storedAutoSize({ ...parsed, ...(canonical && { ranges: canonical }) });
       const appearance = paint(
         input.appearance ?? defaultTypeAppearance(),
         `${path}.appearance`,

@@ -508,7 +508,11 @@ function lineBoxes(text: TextLayout, m: Metric[]) {
   };
   const minBreakWidth = (b: ReturnType<typeof lineBox>) =>
     4 * (Math.max(b.ascent, strut.ascent) + Math.max(b.descent, strut.descent));
-  return { lineBox, band, minBreakWidth };
+  // A frame shows the line on `baseline` down to its box's bottom, lines × leading at one size, or
+  // its band's where the strut reaches lower (ADR-0079).
+  const bottom = (baseline: number, b: ReturnType<typeof lineBox>) =>
+    Math.max(baseline + b.descent, band(baseline, b).bottom);
+  return { lineBox, band, minBreakWidth, bottom, strut };
 }
 
 type LineBoxes = ReturnType<typeof lineBoxes>;
@@ -597,8 +601,8 @@ function area(
   text: TextLayout,
   m: Metric[],
   chars: string[],
-  { lineBox, band, minBreakWidth }: LineBoxes,
-): { lines: TextLine[]; overflow: string; spans: Span[] } {
+  { lineBox, band, minBreakWidth, bottom: lineBottom }: LineBoxes,
+): { lines: TextLine[]; overflow: string; spans: Span[]; bottom: number } {
   const { x, y, content, width: frameWidth = 0, height = 0 } = text;
   const edges = text.frame ? edgesOf(text.frame) : undefined;
   const bottom = y + height;
@@ -668,11 +672,13 @@ function area(
   const lines: TextLine[] = [];
   const spans: Span[] = [];
   let prev: number | undefined;
+  // The lowest shown line's bottom, from the frame's top.
+  let low = 0;
   let u = 0;
   // The first character not laid out, inside unit u once a piece of it is.
   let at = 0;
   while (u < units.length) {
-    const overflow = () => ({ lines, overflow: chars.slice(at).join(""), spans });
+    const overflow = () => ({ lines, overflow: chars.slice(at).join(""), spans, bottom: low });
     // A line is sized from its first character up, so a piece is not sized by the rest of its unit.
     let box = lineBox(at, at);
     for (;;) {
@@ -703,11 +709,12 @@ function area(
         spans.push(p.span);
       }
       prev = next;
+      low = Math.max(low, lineBottom(next, box));
       [u, at] = [after, rest];
       break;
     }
   }
-  return { lines, overflow: "", spans };
+  return { lines, overflow: "", spans, bottom: low };
 }
 
 /**
@@ -838,7 +845,7 @@ function roundUp(n: number, per = 1000) {
 export function areaFrame(text: TextLayout): Rect {
   const { lines, m } = layout({ ...text, kind: "point" });
   const chars = m.map((c) => c.char);
-  const { lineBox, band } = lineBoxes(text, m);
+  const { lineBox, bottom } = lineBoxes(text, m);
   const width = (from: number, to: number) => span(m, from, hangsFrom(chars, from, to));
   let [widest, height] = [0, 0];
   let prev: number | undefined;
@@ -860,9 +867,7 @@ export function areaFrame(text: TextLayout): Rect {
     const b = lineBox(l.start, Math.min(to + 1, m.length));
     prev = stack(prev, b);
     if (!i) ascent = prev;
-    // The line box's bottom, lines × leading at one size, or its band's where the strut reaches
-    // lower, so the line shows.
-    height = Math.max(height, prev + b.descent, band(prev, b).bottom);
+    height = Math.max(height, bottom(prev, b));
   });
   // Every line empty or all spaces has no width; a frame needs one. A centred frame's width is an
   // even thousandth, so its middle, where the lines centre, is Point Type's x on the way back.
@@ -874,6 +879,31 @@ export function areaFrame(text: TextLayout): Rect {
     width: widest,
     height: roundUp(height),
   };
+}
+
+/**
+ * Auto Size (ADR-0092): the height that shows every line a rectangular Area Type's width allows,
+ * down to the lowest one's bottom as `areaFrame` reaches it; one line box at the Node's size and
+ * leading when none shows.
+ */
+export function autoHeight(text: TextLayout): number {
+  const m = metrics(text);
+  const boxes = lineBoxes(text, m);
+  const fit = area(
+    { ...text, height: Infinity },
+    m,
+    m.map((c) => c.char),
+    boxes,
+  );
+  return roundUp(fit.lines.length ? fit.bottom : boxes.strut.leading);
+}
+
+/** A text as stored: Auto Size's height fitted, and off, its default, dropped (ADR-0092). */
+export function storedAutoSize<T extends TextLayout & { autoSize?: boolean | undefined }>(t: T): T {
+  if (t.autoSize) return { ...t, height: autoHeight(t) };
+  if (!("autoSize" in t)) return t;
+  const { autoSize: _, ...rest } = t;
+  return rest as T;
 }
 
 /**
