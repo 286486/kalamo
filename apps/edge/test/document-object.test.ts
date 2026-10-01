@@ -1223,8 +1223,37 @@ it("undoes a Convert to Point Type, restoring the overflow it deleted (ADR-0079)
   const receipt = ok(await s.updateNodes([{ nodeId: id, patch: { kind: "point" } }], "user"));
   expect(receipt.warnings).toMatchObject([{ code: "TEXT_DISCARDED", nodeId: id }]);
   expect(await full()).toMatchObject({ kind: "point", content: "one two\nthree four " });
+  expect(receipt.bounds).toEqual((await full())?.geometricBounds);
   ok(await s.undo("user"));
   expect(await full()).toEqual(before);
+});
+
+it("warns TEXT_OVERFLOW in each create and update receipt while an Area Type does not fit", async () => {
+  const s = stub("overflow");
+  const { defaultLayerId } = ok(
+    await s.create({ docId: "overflow", name: "Doc", artboards, actor: "a" }),
+  );
+  const text = {
+    type: "text" as const,
+    kind: "area" as const,
+    parentId: defaultLayerId,
+    x: 10,
+    y: 10,
+    width: 100,
+    height: 20,
+    content: "one\ntwo\nthree",
+  };
+  const created = ok(await s.createNodes([text], "a"));
+  const [id] = created.createdIds as [string];
+  expect(created.warnings).toEqual([
+    expect.objectContaining({ code: "TEXT_OVERFLOW", nodeId: id }),
+  ]);
+  const update = async (height: number) =>
+    ok(await s.updateNodes([{ nodeId: id, patch: { height } }], "a")).warnings;
+  expect(await update(80)).toEqual([]);
+  expect(await update(30)).toEqual([
+    expect.objectContaining({ code: "TEXT_OVERFLOW", nodeId: id }),
+  ]);
 });
 
 it("undoes and redoes an Auto Size refit, restoring the height and flag (ADR-0092)", async () => {

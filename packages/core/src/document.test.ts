@@ -1006,14 +1006,14 @@ describe("text", () => {
       const node = create({
         ranges: [
           { start: 0, end: 3, fill: "#FF0000" },
-          { start: 2, end: 5, fill: "#0000FF", rotation: 10 },
+          { start: 2, end: 5, fill: "#0000FF80", rotation: -10 },
           { start: 4, end: 5, rotation: 0 },
         ],
       });
       expect(node).toHaveProperty("ranges", [
         { start: 0, end: 2, fill: "#FF0000" },
-        { start: 2, end: 4, fill: "#0000FF", rotation: 10 },
-        { start: 4, end: 5, fill: "#0000FF" },
+        { start: 2, end: 4, fill: "#0000FF80", rotation: -10 },
+        { start: 4, end: 5, fill: "#0000FF80" },
       ]);
     });
 

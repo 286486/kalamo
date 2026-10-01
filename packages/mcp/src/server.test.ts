@@ -126,17 +126,24 @@ describe("write tools pass the write and its options apart", () => {
     expect(service.createNodes.mock.calls[1]?.[2]).toEqual({ partial: false });
   });
 
-  it("node_create and node_update: a text's alignment arrives as sent, null included (ADR-0077)", async () => {
+  it("node_create and node_update: a text's alignment, tracking, Character Ranges and kind arrive as sent, null included (ADR-0029, ADR-0077, ADR-0079)", async () => {
     const { service, call } = await harness({
       createNodes: async () => receipt,
       updateNodes: async () => receipt,
     });
+    const ranges = [
+      { start: 0, end: 1, fill: "#FF0000" },
+      { start: 1, end: 2, fill: "#0000FF80", baselineShift: 2, rotation: -10 },
+    ];
     const text = { type: "text", parentId: "p", x: 0, y: 0, content: "Hi" };
-    await call("kalamo_node_create", { docId: "d", nodes: [{ ...text, alignment: "center" }] });
-    expect(service.createNodes.mock.calls[0]?.[1]).toMatchObject([{ alignment: "center" }]);
+    const created = { ...text, alignment: "center", tracking: 100, ranges };
+    await call("kalamo_node_create", { docId: "d", nodes: [created] });
+    expect(service.createNodes.mock.calls[0]?.[1]).toMatchObject([created]);
     const updates = [
       { nodeId: "t", patch: { alignment: "right" } },
       { nodeId: "t", patch: { alignment: null } },
+      { nodeId: "a", patch: { kind: "area" } },
+      { nodeId: "p", patch: { kind: "point" } },
     ];
     await call("kalamo_node_update", { docId: "d", updates });
     expect(service.updateNodes.mock.calls[0]?.[1]).toEqual(updates);
