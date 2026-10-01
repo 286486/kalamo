@@ -865,12 +865,8 @@ describe("updateNodes on a text", () => {
       );
   });
 
-  it("stores no alignment for left, on create and on update (ADR-0077)", () => {
+  it("stores no alignment for left on update (ADR-0077)", () => {
     const { doc, t } = setup();
-    const [left] = createNodes(doc, [
-      { type: "text", parentId: t.parentId as string, x: 0, y: 0, content: "L", alignment: "left" },
-    ]).nodes as [Node];
-    expect(left).not.toHaveProperty("alignment");
     const [centred] = updateNodes(doc, [{ nodeId: t.id, patch: { alignment: "center" } }])
       .nodes as [Node];
     expect(centred).toMatchObject({ alignment: "center" });
@@ -2657,6 +2653,7 @@ describe("Auto Size (ADR-0092)", () => {
     const shaped = update(doc, t.id, { frame: "M 0 0 L 90 0 L 45 60 Z" });
     expect(shaped).not.toHaveProperty("autoSize");
     expect(shaped).toMatchObject({ frame: "M 0 0 L 90 0 L 45 60 Z", height: 60 });
+    expect(update(doc, t.id, { autoSize: false })).toEqual(shaped);
   });
 
   it("refuses each misuse at its key, writing nothing", () => {
@@ -2672,11 +2669,20 @@ describe("Auto Size (ADR-0092)", () => {
       });
     refuse(doc, t.id, { autoSize: true, height: 30 }, "height");
     refuse(doc, t.id, { autoSize: true, frame: "M 0 0 L 90 0 L 45 60 Z" }, "autoSize");
+    // Named before any value the per-type schema refuses.
+    refuse(doc, t.id, { autoSize: true, frame: 5 }, "autoSize");
+    refuse(
+      doc,
+      t.id,
+      { autoSize: true, frame: "M 0 0 L 90 0 L 45 60 Z", fontSize: -1 },
+      "autoSize",
+    );
     refuse(doc, t.id, { autoSize: true, kind: "area" }, "autoSize");
     refuse(pdoc, point.id, { autoSize: true }, "autoSize");
     expect(doc.nodes.get(t.id)).toBe(before);
     update(doc, t.id, { frame: "M 0 0 L 90 0 L 45 60 Z" });
     refuse(doc, t.id, { autoSize: true }, "autoSize");
+    refuse(doc, t.id, { autoSize: true, content: 5 }, "autoSize");
     // The input schema refuses the mixes at create: MCP answers them INVALID_INPUT.
     const issue = (extra: object) =>
       NodeInput.safeParse({

@@ -12,7 +12,6 @@ import {
   paint,
   paintContainer,
   paintOrder,
-  shapedFrame,
   union,
 } from "./document.ts";
 import { collect, type Failed, KalamoError } from "./errors.ts";
@@ -34,7 +33,6 @@ import {
   type ReorderOp,
   type ReparentInput,
   SHAPES,
-  storedAlignment,
   TextShape,
   type TransformInput,
   TransformNodesInput,
@@ -43,7 +41,8 @@ import {
   type Warning,
   Writable,
 } from "./schema.ts";
-import { areaFrame, canonicalRanges, pointType, storedAutoSize } from "./text.ts";
+import { refuseMisplacedAutoSize, storedText } from "./stored-text.ts";
+import { areaFrame, pointType } from "./text.ts";
 
 const isContainer = (n: Node): n is LayerNode | GroupNode =>
   n.type === "layer" || n.type === "group";
@@ -366,23 +365,26 @@ function patched(doc: Document, raw: UpdateInput, i: number): { node: Node; warn
         "Write frame to reshape it, or frame: null first to make it the rectangle of its bounds.",
       );
     }
-    // Auto Size fits the height; writing a height or a frame path turns it off (ADR-0092).
+    // Auto Size fits the height; writing a height or a frame path turns it off (ADR-0092). false
+    // is off too, merged as null so a shaped frame, which never has the key, takes it.
     if (patch.autoSize === true) {
-      if (shaped) {
-        throw invalid(
-          ".autoSize",
-          "Auto Size belongs to a rectangular frame.",
-          "Send frame: null with it to make the frame the rectangle of its bounds.",
-        );
-      }
-      if ("height" in patch) {
-        throw invalid(
-          ".height",
-          "autoSize: true fits the height to the lines.",
-          "Drop height to keep Auto Size, or drop autoSize to fix the height.",
-        );
-      }
-    } else if ("height" in patch || typeof patch.frame === "string") {
+      refuseMisplacedAutoSize(
+        { kind: "area", frame: shaped ? (patch.frame ?? node.frame) : undefined, autoSize: true },
+        at,
+        "INVALID_PATCH",
+      );
+    }
+    if (patch.autoSize === true && "height" in patch) {
+      throw invalid(
+        ".height",
+        "autoSize: true fits the height to the lines.",
+        "Drop height to keep Auto Size, or drop autoSize to fix the height.",
+      );
+    }
+    if (
+      patch.autoSize === false ||
+      (patch.autoSize !== true && ("height" in patch || typeof patch.frame === "string"))
+    ) {
       patch = { ...patch, autoSize: null };
     }
   }
@@ -404,20 +406,7 @@ function patched(doc: Document, raw: UpdateInput, i: number): { node: Node; warn
   }
   // From the merge, so null deletes an optional key such as leading.
   let next = { ...merged, ...parsed.data } as Node;
-  if (next.type === "text") next = storedAlignment(next);
-  if (next.type === "text" && typeof patch.frame === "string") {
-    Object.assign(
-      next,
-      shapedFrame(parsePath(patch.frame, `${at}.frame`), `${at}.frame`, "INVALID_PATCH"),
-    );
-  }
-  if (next.type === "text") {
-    const ranges = canonicalRanges(next.ranges, `${at}.ranges`, next);
-    if (ranges) next.ranges = ranges;
-    else delete next.ranges;
-    // Laid out with canonical ranges, and before painting, so a gradient spans the fitted frame.
-    next = storedAutoSize(next);
-  }
+  if (next.type === "text") next = storedText(next, at, "INVALID_PATCH");
   // SVG clips everything away through a hidden clip path; Illustrator unclips (ADR-0021).
   if ("clipping" in next && next.clipping && !next.visible) {
     throw invalid(

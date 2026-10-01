@@ -3,7 +3,6 @@ import { ulid } from "ulid";
 import type { z } from "zod";
 import { parseColor } from "./color.ts";
 import { collect, type Failed, KalamoError } from "./errors.ts";
-import { edgesOf, windsTwice } from "./frame.ts";
 import { fileProblem, MAX_FILE_LENGTH, preserveAspectRatio } from "./image.ts";
 import { applyTo, IDENTITY, multiply, scaleOf, transformSegments } from "./matrix.ts";
 import { formatPath, parsePath, pathBounds, round3, type Segment, shapeSegments } from "./path.ts";
@@ -35,12 +34,12 @@ import {
   Shape,
   type ShapeNode,
   type Stroke,
-  storedAlignment,
   type TextNode,
   TextShape,
   textFrame,
 } from "./schema.ts";
-import { canonicalRanges, linesBox, storedAutoSize, textBox } from "./text.ts";
+import { allSubpathsClosed, shapedFrame, storedText } from "./stored-text.ts";
+import { linesBox, textBox } from "./text.ts";
 
 /** Server-generated ULID for Documents, Nodes, Artboards and Transactions. */
 export const newId = () => ulid();
@@ -111,50 +110,6 @@ interface Out {
   painted: { node: LayerNode | GroupNode; appearance: ContainerAppearanceInput; path: string }[];
   /** The Nodes a text's `frameNodeId` consumes, deleted once the item stands (ADR-0078). */
   consumed: string[];
-}
-
-/** Whether every subpath of `segments` is closed with Z. */
-const allSubpathsClosed = (segments: Segment[]) =>
-  segments.at(-1)?.cmd === "Z" &&
-  segments.every((s, i) => s.cmd !== "M" || i === 0 || segments[i - 1]?.cmd === "Z");
-
-/**
- * A shaped Area Type's frame, normalized, and its bounds to 3 decimals, which the text stores as
- * its `x, y, width, height` (ADR-0078). Refuses open or empty path data, and an evenodd outline
- * whose holes the frame's nonzero inside would fill.
- */
-export function shapedFrame(
-  segments: Segment[],
-  path: string,
-  code: "INVALID_INPUT" | "INVALID_PATCH" = "INVALID_INPUT",
-  fillRule: "nonzero" | "evenodd" = "nonzero",
-): { frame: string } & Rect {
-  const invalid = (message: string, hint: string) => new KalamoError({ code, message, hint, path });
-  if (!allSubpathsClosed(segments)) {
-    throw invalid(
-      "The frame is open: Area Type flows only inside a closed path.",
-      "End every subpath with Z, or use a closed Live Shape or Path.",
-    );
-  }
-  // The bounds of the frame as stored, to 3 decimals, so a file reads back the same (ADR-0078).
-  const frame = formatPath(segments);
-  const exact = pathBounds(parsePath(frame, path));
-  const b = exact && {
-    x: round3(exact.x),
-    y: round3(exact.y),
-    width: round3(exact.width),
-    height: round3(exact.height),
-  };
-  if (!b || b.width <= 0 || b.height <= 0) {
-    throw invalid("The frame encloses no area.", "Give the frame a width and a height.");
-  }
-  if (fillRule === "evenodd" && windsTwice(edgesOf(frame))) {
-    throw invalid(
-      "The frame's holes wind the same way as its outline: the evenodd rule leaves them empty, but a frame's inside is nonzero.",
-      "Reverse each hole's direction so it winds against the outline, or frame the text in a shape without holes.",
-    );
-  }
-  return { frame, ...b };
 }
 
 /** The Nodes `frameNodeId` may name; the open ones among them are refused as open (ADR-0078). */
@@ -286,17 +241,13 @@ export function createNodes(
         shaped = consume(doc, input.frameNodeId, parentId, path, taken);
         out.consumed.push(input.frameNodeId);
         Object.assign(at, { index: shaped.index, transform: shaped.transform });
-      } else if (input.kind === "area" && input.frame !== undefined) {
-        shaped = shapedFrame(parsePath(input.frame, `${path}.frame`), `${path}.frame`);
       }
       const { index: _, transform: __, ...frame } = shaped;
       const { frameNodeId: ___, ...fields } = input;
-      const { ranges, ...parsed } = storedAlignment(
-        TextShape.superRefine(textFrame).parse({ ...fields, ...frame }),
-      );
-      const canonical = canonicalRanges(ranges, `${path}.ranges`, parsed);
-      // Measured with its ranges, so a default gradient spans the bounds they give.
-      const text = storedAutoSize({ ...parsed, ...(canonical && { ranges: canonical }) });
+      // Stored before the parse, which needs a shaped frame's bounds and keeps only the shape.
+      const text = TextShape.superRefine(textFrame).parse(
+        storedText({ ...fields, ...frame }, path, "INVALID_INPUT"),
+      ) as TextShape;
       const appearance = paint(
         input.appearance ?? defaultTypeAppearance(),
         `${path}.appearance`,
