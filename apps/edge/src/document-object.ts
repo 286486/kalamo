@@ -104,11 +104,14 @@ type EditEntry<C> = {
  * Worker authenticated it as, and their Role on this Document (ADR-0047).
  */
 interface Attachment {
-  peer: string;
+  /** Null once the socket has left, so a close the DO starts sends `left` once. */
+  peer: string | null;
   actor: string;
   userId: string;
   role: Role;
 }
+
+const attachmentOf = (ws: WebSocket) => ws.deserializeAttachment() as Attachment | null;
 
 /** RPC results carry errors as data: Workers RPC keeps only the message of a thrown error. */
 export type Result<T> = T | { error: ErrorData };
@@ -415,7 +418,7 @@ export class DocumentObject extends DurableObject<Env> {
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  /** Completes the close handshake a browser starts, so it leaves getWebSockets. */
+  /** Completes the close handshake a browser starts, so it leaves getWebSockets, and sends `left`. */
   override webSocketClose(ws: WebSocket) {
     this.close(ws);
   }
@@ -426,11 +429,11 @@ export class DocumentObject extends DurableObject<Env> {
 
   /** Every way a socket leaves: the other Peers hear `left` first (ADR-0090). */
   private close(ws: WebSocket, code?: number, reason?: string) {
-    const attachment = ws.deserializeAttachment() as Attachment | null;
+    const attachment = attachmentOf(ws);
     if (attachment?.peer) {
-      // Once: a close the DO starts ends in webSocketClose too. Unlisted, it is no Peer to others.
       this.broadcast({ type: "left", peer: attachment.peer }, attachment.peer);
-      ws.serializeAttachment({ ...attachment, peer: "" } satisfies Attachment);
+      // A close the DO starts ends in webSocketClose too.
+      ws.serializeAttachment({ ...attachment, peer: null } satisfies Attachment);
     }
     ws.close(code, reason);
   }
@@ -438,7 +441,7 @@ export class DocumentObject extends DurableObject<Env> {
   /** The open sockets' Peers, as attached when accepted. */
   private peers() {
     return this.ctx.getWebSockets().flatMap((ws) => {
-      const attachment = ws.deserializeAttachment() as Attachment | null;
+      const attachment = attachmentOf(ws);
       return attachment?.peer ? [{ peer: attachment.peer, actor: attachment.actor }] : [];
     });
   }
@@ -455,7 +458,7 @@ export class DocumentObject extends DurableObject<Env> {
     const parsed = ClientMessage.safeParse(json);
     // A malformed message is a client bug; the browser reconnects and gets the Document again.
     if (!parsed.success) return this.close(ws, 1007, "Expected a command or presence message.");
-    const attachment = ws.deserializeAttachment() as Attachment | null;
+    const attachment = attachmentOf(ws);
     // A socket accepted before its Peer, Actor or Role was kept: the browser reconnects for them.
     if (!attachment?.peer) return this.close(ws, 1012, "Reconnect.");
     const { peer, actor, role } = attachment;
@@ -608,7 +611,7 @@ export class DocumentObject extends DurableObject<Env> {
   /** Closes the User's sockets after their Role changed, so they reconnect as the new Role. */
   disconnect(userId: string) {
     for (const ws of this.ctx.getWebSockets()) {
-      const attachment = ws.deserializeAttachment() as Attachment | null;
+      const attachment = attachmentOf(ws);
       if (attachment?.userId === userId) this.close(ws, ACCESS_CHANGED, "Your access changed.");
     }
   }
@@ -616,7 +619,11 @@ export class DocumentObject extends DurableObject<Env> {
   /** Deletes the Document: its storage, its image files and every socket. */
   async destroy() {
     const docId = this.sql.exec<{ id: string }>("SELECT id FROM doc").toArray()[0]?.id;
-    for (const ws of this.ctx.getWebSockets()) ws.close(DOC_DELETED, "The Document was deleted.");
+    // Every socket closes, so none needs `left`.
+    for (const ws of this.ctx.getWebSockets()) {
+      ws.serializeAttachment(null);
+      ws.close(DOC_DELETED, "The Document was deleted.");
+    }
     await this.ctx.storage.deleteAlarm();
     await this.ctx.storage.deleteAll();
     this.schema();
@@ -637,7 +644,7 @@ export class DocumentObject extends DurableObject<Env> {
   private broadcast(msg: ServerMessage, except?: string) {
     const data = JSON.stringify(msg);
     for (const ws of this.ctx.getWebSockets()) {
-      if (except && (ws.deserializeAttachment() as Attachment | null)?.peer === except) continue;
+      if (except && attachmentOf(ws)?.peer === except) continue;
       try {
         ws.send(data);
       } catch {

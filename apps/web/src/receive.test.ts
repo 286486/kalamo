@@ -157,7 +157,12 @@ it("asks to reconnect on a missed rev, and drops an unanswered drag on a new Doc
   expect(receive(state, msg, "d")).toMatchObject({ drag: null, selection: [a.id] });
 });
 
-it("changes nothing on presence, joined or left, and does not reconnect (ADR-0090)", () => {
+const peer = { peer: "p", actor: "user_bob" };
+it.each([
+  { type: "presence" as const, ...peer, cursor: { x: 1, y: 2 } },
+  { type: "joined" as const, ...peer },
+  { type: "left" as const, peer: "p" },
+])("changes nothing on $type, and does not reconnect (ADR-0090)", (msg) => {
   const { doc, a } = fixture();
   const state = {
     doc,
@@ -174,10 +179,7 @@ it("changes nothing on presence, joined or left, and does not reconnect (ADR-009
     layerRows: [],
     isolated: null,
   };
-  const peer = { peer: "p", actor: "user_bob" };
-  expect(receive(state, { type: "presence", ...peer, cursor: { x: 1, y: 2 } }, "d")).toEqual({});
-  expect(receive(state, { type: "joined", ...peer }, "d")).toEqual({});
-  expect(receive(state, { type: "left", peer: "p" }, "d")).toEqual({});
+  expect(receive(state, msg, "d")).toEqual({});
 });
 
 it("previews a drag as core moves it, skipping Nodes deleted meanwhile", () => {

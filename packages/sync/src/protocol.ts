@@ -73,17 +73,11 @@ export interface RejectedMessage {
   error: ErrorData;
 }
 
-/** A point in document coordinates (pt). */
-export interface Cursor {
-  x: number;
-  y: number;
-}
-
 /** Another Peer's pointer and, when it changed, Selection, as that browser sent it. */
 export interface PresenceMessage extends Peer {
   type: "presence";
-  /** Null when the pointer is off the canvas or the tab is hidden. */
-  cursor: Cursor | null;
+  /** The pointer in document coordinates (pt), or null off the canvas or in a hidden tab. */
+  cursor: { x: number; y: number } | null;
   /** Left out when the Selection has not changed since the Peer's last message. */
   selection?: string[];
 }
