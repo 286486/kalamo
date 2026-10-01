@@ -1,4 +1,6 @@
+import { exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
+import collab, { setup as collabSetup } from "../../../fixtures/agent-benchmarks/collab.ts";
 import edits, {
   setup as editsSetup,
   svgCheck as editsSvg,
@@ -13,7 +15,13 @@ import inkscape, {
   svgCheck as inkscapeSvg,
 } from "../../../fixtures/agent-benchmarks/inkscape.ts";
 import labels, { svgCheck as labelsSvg } from "../../../fixtures/agent-benchmarks/labels.ts";
-import { type Bounds, type Call, exportSvg } from "../../../fixtures/agent-benchmarks/mcp.ts";
+import {
+  type Bounds,
+  type Call,
+  type Connect,
+  exportSvg,
+  type Logged,
+} from "../../../fixtures/agent-benchmarks/mcp.ts";
 import person, {
   setup as personSetup,
   svgCheck as personSvg,
@@ -516,5 +524,124 @@ describe("fit", () => {
     );
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="800" viewBox="0 0 600 800">${texts.join("")}<rect x="140" y="120" width="320" height="${20 * lines.length + 4}" fill="none" stroke="#3D3D44" stroke-width="1"/></svg>`;
     await expect(fitSvg(call, { "out.svg": svg })).resolves.toBeUndefined();
+  });
+});
+
+describe("collab", () => {
+  const connect: Connect = async (user, docId) => {
+    const res = await exports.default.fetch(`http://kalamo/api/docs/${docId}/ws`, {
+      headers: { upgrade: "websocket", cookie: `kalamo_dev_user=${user}` },
+    });
+    if (!res.webSocket) throw new Error(`no WebSocket: ${res.status}`);
+    return res.webSocket;
+  };
+
+  /** Both Agents' sessions, each call through the setup's hook and logged, as the bench's proxy. */
+  const play = async ({ ifRev = true, reread = true, client = "codex-mcp-client" } = {}) => {
+    const start = await collabSetup(call, "Bench", other, connect);
+    const { docId } = start;
+    const calls: Logged[] = [];
+    const as =
+      (actor: string, token: string, clientName: string) =>
+      async (name: string, args: Record<string, unknown>) => {
+        await start.interject?.(actor, name, args);
+        const result = await rpcCall(name, args, token);
+        calls.push({ actor, client: clientName, name, args, result });
+        return result;
+      };
+    /** One Agent's write, read with doc_changes and retried once it meets REV_CONFLICT. */
+    const write = async (
+      agent: ReturnType<typeof as>,
+      name: string,
+      args: (ids: Map<string, string>, retry: boolean) => object,
+    ) => {
+      const read = async () => {
+        const { rev, nodes } = (await agent("kalamo_doc_outline", { docId, depth: 2 }))
+          .structuredContent;
+        const ids = new Map<string, string>([["layer", nodes[0].id]]);
+        for (const n of nodes[0].children ?? []) ids.set(n.name, n.id);
+        return { rev, ids };
+      };
+      const { rev, ids } = await read();
+      const first = await agent(name, { docId, ...(ifRev && { ifRev: rev }), ...args(ids, false) });
+      if (!first.isError) return;
+      if (reread) await agent("kalamo_doc_changes", { docId, sinceRev: rev });
+      const again = await read();
+      await agent(name, { docId, ifRev: again.rev, ...args(again.ids, true) });
+    };
+    const steps = (ids: Map<string, string>) => ({
+      nodes: Array.from({ length: 5 }, (_, k) => ({
+        type: "rect",
+        parentId: ids.get("layer"),
+        name: `Step ${k + 1}`,
+        x: 40 + 150 * k,
+        y: 120,
+        width: 120,
+        height: 80,
+        appearance: { fills: [{ color: "#E63946" }] },
+      })),
+    });
+    // The retry has read bob's recolour of Step 4.
+    const restyle = (ids: Map<string, string>, retry: boolean) => ({
+      updates: [1, 2, 3, 4, 5]
+        .filter((i) => !(retry && i === 4))
+        .map((i) => ({
+          nodeId: ids.get(`Step ${i}`),
+          patch: {
+            appearance: {
+              fills: [{ color: "#3565E8" }],
+              strokes: [{ color: "#1D3557", width: 2 }],
+            },
+          },
+        })),
+    });
+    try {
+      await write(as("agent-a", "dev-token-a", "claude-code"), "kalamo_node_create", steps);
+      await write(as("agent-b", "dev-token-b", client), "kalamo_node_update", restyle);
+    } finally {
+      start.close?.();
+    }
+    return { docId, calls, commits: start.commits ?? [] };
+  };
+
+  it("accepts both Agents retrying after reading the people's changes", async () => {
+    const { docId, ...trace } = await play();
+    await expect(collab(call, docId, [], trace)).resolves.toBeUndefined();
+  });
+
+  it("rejects both Agents in one MCP client", async () => {
+    const { docId, ...trace } = await play({ client: "claude-code" });
+    await expect(collab(call, docId, [], trace)).rejects.toThrow(
+      "agent-a: claude-code, agent-b: claude-code",
+    );
+  });
+
+  it("rejects history that names the wrong person", async () => {
+    const { docId, calls, commits } = await play();
+    const swapped = commits.map((c) => ({
+      ...c,
+      actor: c.actor === "user_bob" ? "user_alice" : c.actor,
+    }));
+    await expect(collab(call, docId, [], { calls, commits: swapped })).rejects.toThrow(
+      "attributed to user_bob, want user_alice",
+    );
+  });
+
+  it("rejects a retry that did not read kalamo_doc_changes", async () => {
+    const { docId, ...trace } = await play({ reread: false });
+    await expect(collab(call, docId, [], trace)).rejects.toThrow("did not read kalamo_doc_changes");
+  });
+
+  it("rejects writes without ifRev, which lose bob's recolour", async () => {
+    const { docId, ...trace } = await play({ ifRev: false });
+    await expect(collab(call, docId, [], trace)).rejects.toThrow("Step 4 has appearance");
+  });
+
+  it("rejects an Agent that met no REV_CONFLICT", async () => {
+    const { docId, calls, commits } = await play();
+    const clean = calls.filter((c) => !c.result?.isError);
+    await expect(collab(call, docId, [], { calls: clean, commits })).rejects.toThrow(
+      "no write of agent-a's failed",
+    );
   });
 });
