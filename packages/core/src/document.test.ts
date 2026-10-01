@@ -602,6 +602,26 @@ describe("tree rules (ADR-0005)", () => {
     ).toMatchObject({ code: "INVALID_PARENT", path: "nodes[1].parentId" });
     expect(t.doc.nodes.size).toBe(before);
   });
+
+  // The schema takes parentId optional on every type (#229), so core holds the root to Layers.
+  it.each([
+    ["omitted", child()],
+    ["null", { ...child(), parentId: null }],
+    ["omitted on a group", { type: "group" as const, children: [child()] }],
+  ])("rejects a leaf or group with parentId %s at the root, creating nothing", (_, node) => {
+    const before = t.doc.nodes.size;
+    expect(codeOf(() => createNodes(t.doc, [rect(t.layer), node]))).toMatchObject({
+      code: "INVALID_PARENT",
+      path: "nodes[1].parentId",
+      message: expect.stringContaining("only a Layer can"),
+    });
+    expect(t.doc.nodes.size).toBe(before);
+  });
+
+  it("puts a layer with parentId omitted or null at the root", () => {
+    const { nodes } = createNodes(t.doc, [{ type: "layer" }, { type: "layer", parentId: null }]);
+    expect(nodes.map((n) => n.parentId)).toEqual([null, null]);
+  });
 });
 
 describe("nodeView", () => {
@@ -706,7 +726,7 @@ it("rejects an inline Layer in a Group's children with INVALID_PARENT, creating 
         {
           type: "group",
           parentId: defaultLayerId,
-          children: [child(), { type: "layer" }],
+          children: [child(), { type: "layer", parentId: defaultLayerId }],
         },
       ]),
     ),
@@ -717,6 +737,30 @@ it("rejects an inline Layer in a Group's children with INVALID_PARENT, creating 
   });
   expect(doc.nodes.size).toBe(before);
 });
+
+it.each([null, "elsewhere"])(
+  "rejects parentId %j on an inline child with INVALID_INPUT, creating nothing",
+  (parentId) => {
+    const { doc, defaultLayerId } = newDoc();
+    const before = doc.nodes.size;
+    expect(
+      codeOf(() =>
+        createNodes(doc, [
+          {
+            type: "group",
+            parentId: defaultLayerId,
+            children: [child(), { ...child(), parentId }],
+          },
+        ]),
+      ),
+    ).toMatchObject({
+      code: "INVALID_INPUT",
+      path: "nodes[0].children[1].parentId",
+      hint: expect.stringContaining("Leave parentId out"),
+    });
+    expect(doc.nodes.size).toBe(before);
+  },
+);
 
 it("gives each default Appearance its own arrays", () => {
   const { doc, defaultLayerId } = newDoc();

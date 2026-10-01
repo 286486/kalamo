@@ -12,7 +12,6 @@ import {
   AppearanceInput,
   type Artboard,
   type ArtboardInput,
-  type ChildInput,
   type ColorStop,
   type ContainerAppearance,
   type ContainerAppearanceInput,
@@ -29,6 +28,7 @@ import {
   type Matrix,
   type Node,
   NodeInput,
+  type NodeOutput,
   type NodeQuery,
   type Point,
   type Rect,
@@ -260,12 +260,7 @@ export function createNodes(
     lastIndex.set(parentId, index);
     return index;
   };
-  const add = (
-    input: z.output<typeof NodeInput> | ChildInput,
-    parentId: string | null,
-    path: string,
-    out: Out,
-  ) => {
+  const add = (input: NodeOutput, parentId: string | null, path: string, out: Out) => {
     const at = {
       ...base(parentId, nextIndex(parentId)),
       ...(input.tags && { tags: input.tags }),
@@ -333,6 +328,14 @@ export function createNodes(
             path: `${path}.children[${k}].type`,
           });
         }
+        if (child.parentId !== undefined) {
+          throw new KalamoError({
+            code: "INVALID_INPUT",
+            message: "A Group's inline children take the Group as their parent.",
+            hint: "Leave parentId out of children, or create the Node on its own under that parentId.",
+            path: `${path}.children[${k}].parentId`,
+          });
+        }
         add(child, node.id, `${path}.children[${k}]`, out);
       });
     }
@@ -350,8 +353,9 @@ export function createNodes(
     // Each item collects into its own lists, so a failure halfway through a Group leaves no trace.
     const out: Out = { nodes: [], keyMap: {}, painted: [], consumed: [] };
     const input = NodeInput.parse(raw);
-    assertParent(doc, input, input.parentId, `nodes[${i}].parentId`);
-    add(input, input.parentId, `nodes[${i}]`, out);
+    const parentId = input.parentId ?? null;
+    assertParent(doc, input, parentId, `nodes[${i}].parentId`);
+    add(input, parentId, `nodes[${i}]`, out);
     if (out.painted.length > 0) {
       const view = {
         ...doc,
