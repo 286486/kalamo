@@ -26,7 +26,7 @@ Kalamo follows Illustrator (REQUIREMENTS §2). Adobe's help and Adobe staff answ
 - **Clipping.** A top-level copy of a Clipping Path loses `clipping`, as a moved one does (ADR-0071) and as a pasted one does (ADR-0053). Copied beside itself in its Clip Group it would otherwise be a second Clipping Path, which ADR-0072's tree rule forbids. The original keeps clipping. A copied Clip Group or clipped Layer keeps its Clipping Path, so the copy still clips.
 - **Tree rules.** A copy whose parent would break them, such as a Layer into a Group or a target inside a copied Node, is refused with `INVALID_PARENT`, `path` `targetParentId`, and nothing is written.
 - **Locks bind people, not Agents** (ADR-0027). The edit does not check `locked`. The browser copies only what a plain drag would move.
-- **One write.** One Transaction, one WriteReceipt, `rev` +1 and one undo step (ADR-0011). `createdIds` lists every new Node, descendants included. The receipt adds `copies`: each copied source id mapped to its new top-level ids, in order *k* = 1…`count`. Errors: `NODE_NOT_FOUND` with `path` `nodeIds[i]` or `targetParentId`, `INVALID_PARENT` as above, and `INVALID_INPUT` for a `count` out of range or an unknown key: the input schema is strict (ADR-0050). There is no `partial`, because a half-made copy set has no use.
+- **One write.** One Transaction, one WriteReceipt, `rev` +1 and one undo step (ADR-0011). `createdIds` lists every new Node, descendants included. The receipt adds `copies`: each copied source id mapped to its new top-level ids, in order *k* = 1…`count`, and `geometricBounds`: each of those top-level copies' geometricBounds in document coordinates, read from the written Document, so an Agent sees where each copy landed without a `kalamo_node_get` (#235). Errors: `NODE_NOT_FOUND` with `path` `nodeIds[i]` or `targetParentId`, `INVALID_PARENT` as above, and `INVALID_INPUT` for a `count` out of range or an unknown key: the input schema is strict (ADR-0050). There is no `partial`, because a half-made copy set has no use.
 
 ## The browser: Alt-drag with the Selection tool
 
@@ -63,3 +63,18 @@ Amended by #195. Illustrator's Layers panel menu has Duplicate "<name>" (Duplica
 - `DocumentService` gains `duplicateNodes`, returning a `DuplicateReceipt`. The socket `ClientMessage` union gains `duplicate`.
 - The Selection tool's `keyChange` watches Alt, and its press no longer starts a move for a viewer.
 - Layers-panel Alt-drag (#194) and Duplicate Layer (#195) build on this edit. `DuplicateInput` gains the browser-only `layerSuffix`, and `keysTaken` covers every open `role=menu` popover, the panel menu's too.
+
+## Telling an Agent where its copies are
+
+Amended by #235. An Agent that read a copy's `transform` beside its original's `x` sometimes deleted the copies and drew them again by hand: 2 of 6 `pnpm bench` grid runs on Opus 5.5, at about 4–5× the output tokens. The receipt now gives each top-level copy's `geometricBounds`, keyed by copy id, and the tool description and drawing-conventions say only that this is where the copy landed and that a copy there is finished. They do not say that a copy keeps its original's parameters and is moved by its `transform`, though #235 asked for that sentence.
+
+Grid runs on Opus 5.5, 2026-10-02, at warm-cache cost; the first run after a definition change pays about $0.35 more to write the cache:
+
+| Wording | Runs | Duplicated, kept the copies | Deleted the copies, redrew | Wrote the rects by hand |
+|---|---|---|---|---|
+| main | 3 | 2: 2.1–2.2k output tokens, $0.27 | 1: 11.8k, $0.58 | 0 |
+| main, with the new receipt | 3 | 1: 2.3k, $0.32 | 0 | 2: 10.6–11.1k, $0.49 |
+| the mechanism sentence, in two lengths | 8 | 0 | 0 | 8: 9.3–10.9k, $0.44–0.49 |
+| what landed where (shipped) | 6 | 4: 2.2–2.6k, $0.30–0.32 | 0 | 2: 10.4–10.6k, $0.48 |
+
+Saying how a copy is stored steered every Agent away from `kalamo_node_duplicate`, so it is left out. In these 3 runs the receipt alone did not help. With the shipped wording no run deleted its copies, but 2 of 6 still wrote all 100 rects by hand, at the cost #235 set out to remove. Main's wording did that in none of today's 3 runs and in 1 of the 6 runs of 2026-10-01 that #235 reports; the samples are too small to tell the wordings apart on this. How a copy is stored has not changed: it still keeps its parameters and is moved by its `transform`, as Alt-drag does.

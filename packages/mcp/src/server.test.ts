@@ -339,13 +339,14 @@ describe("write tools pass the write and its options apart", () => {
 
   it("node_duplicate: nodeIds, offset, count and targetParentId as sent, apart from the write options", async () => {
     const copies = { a: ["a1", "a2"] };
+    const geometricBounds = { a1: { x: 5, y: 0, width: 10, height: 10 }, a2: null };
     const { service, call } = await harness({
-      duplicateNodes: async () => ({ ...receipt, copies }),
+      duplicateNodes: async () => ({ ...receipt, copies, geometricBounds }),
     });
     const input = { nodeIds: ["a"], offset: { x: 5, y: 0 }, count: 2, targetParentId: "g" };
     const result = await call("kalamo_node_duplicate", { docId: "d", ...input, ...opts });
     expect(service.duplicateNodes.mock.calls[0]).toStrictEqual(["d", input, opts]);
-    expect(result.structuredContent).toEqual({ ...receipt, copies });
+    expect(result.structuredContent).toEqual({ ...receipt, copies, geometricBounds });
     await call("kalamo_node_duplicate", { docId: "d", nodeIds: ["a"], targetParentId: null });
     expect(service.duplicateNodes.mock.calls[1]).toStrictEqual([
       "d",
