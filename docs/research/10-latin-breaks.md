@@ -1,6 +1,6 @@
 # Latin line breaks after solidus and hyphens (research notes, 2026-10-01)
 
-For #222: where Inkscape 1.2.2 and Pango 1.50.12 break Latin text after `/`, `-` and BA, and what Kalamo's `lineBreakUnits` changes from `main` (2070333). Decision: ADR-0085. #224 extends the same scripts to no-break spaces (ADR-0087), in its section at the end. The figures before that section come from the scripts as #222 left them, at d6e0e0a.
+For #222: where Inkscape 1.2.2 and Pango 1.50.12 break Latin text after `/`, `-` and BA, and what Kalamo's `lineBreakUnits` changes from `main` (2070333). Decision: ADR-0085. #224 extends the same scripts to no-break spaces (ADR-0087), in its section, and #225 to EX, IN, B2 and ZW (ADR-0093), in the last. The figures before #224's section come from the scripts as #222 left them, at d6e0e0a, and #224's from the scripts at ad8d708.
 
 Legend as in `06-illustrator-drawing-tools.md`: **[A]** the Adobe doc states it; **[M]** measured here. ADR-0085 records the Illustrator search, which is unverified.
 
@@ -56,4 +56,27 @@ A text changes when its `layoutText`, `glyphs`, `pointType` or `areaFrame` diffe
 
   ```
   60000 texts, 51730 hold a no-break space or U+FEFF; 27614 changed, 0 of them without one
+  ```
+
+## EX, IN, B2 and ZW (#225) [M]
+
+#225 asks where Pango and Inkscape break after `!`, `?`, U+2024–U+2026, U+2014 and U+200B, and before U+2014, and what ADR-0093 changes from `main` (1d2243f). The same scripts measure it, each extended again:
+
+- `inkscape.mjs` adds #225's five frames: the `search?query=` URL sentence 120 wide, and `xxxx x!yyyyyy`, `xxxx x…yyyyyy`, `xxxx x—yyyyyy` and `xxxx x` U+200B `yyyyyy` 45 wide. Inkscape breaks after `?`, `!`, `…`, `—` and U+200B, and `text.test.ts` asserts the same lines.
+- `check.ts` adds `!?…—` and U+200B to the `latin` pool, a rule for positions after EX, IN, B2 or ZW or before B2, and, with a ref, counts the changed positions with a CJK neighbour and those that now differ from Pango. `check.ts latin 1d2243f` prints:
+
+  ```
+  20000 strings, 2746 with a break that differs from Pango's
+  1361 IS, CL, CP, PR or PO before NU, OP, PR or PO
+  1235 a space before it: LB13 to LB16, across spaces
+  367 a CJK neighbour: ADR-0064's pairs
+  13 a space before a no-break space: LB13 to LB16, across spaces
+  against 1d2243f: 5855 strings change at 7313 positions, 126 of them a removed break; 0 with a CJK neighbour; 0 now differ from Pango
+  ```
+
+  The new rule counts nothing. Moved ahead of the space and CJK rules, it counts three positions without a CJK neighbour, each `OP SP ÷ B2` such as `( —`, LB14 across a space. Of the removed breaks, 124 fall between a space and U+200B (LB7) and 2 between `— ` and `—` (LB17). `check.ts cjk 1d2243f` prints 3,232 differing strings, at 2,497 IS, CL, CP, PR or PO positions, 901 after a space, 105 CL before a letter and 42 with a CJK neighbour: the 919 "EX before anything" positions of `main` are gone, `against 1d2243f: 904 strings change at 919 positions, 0 of them a removed break; 0 with a CJK neighbour; 0 now differ from Pango`.
+- `regress.ts` joins words with `!`, `?`, `? `, `…`, `‥`, `—`, `——`, ` — `, U+200B, `!)` and `?` U+200B too, and counts the texts that hold EX, IN, B2 or ZW. `regress.ts 1d2243f` prints:
+
+  ```
+  60000 texts, 52988 hold EX, IN, B2 or ZW; 24831 changed, 0 of them without one
   ```

@@ -1,16 +1,18 @@
 /**
  * Where Area Type may break a line: after white space that breaks (ADR-0022, ADR-0087); between CJK
- * characters (ADR-0064); and after a solidus, a hyphen or a break-after dash in Latin text
- * (ADR-0085). Each follows Pango 1.50's UAX #14, so Inkscape 1.2.2 wraps the exported SVG at the same
- * places. `Intl.Segmenter` has no line granularity, so the classes live here.
+ * characters (ADR-0064); after a solidus, a hyphen or a break-after dash in Latin text (ADR-0085);
+ * and after `!`, `?`, `…`, an em dash or a zero-width space, and before an em dash, in Latin text
+ * (ADR-0093). Each follows Pango 1.50's UAX #14, so Inkscape 1.2.2 wraps the exported SVG at the
+ * same places. `Intl.Segmenter` has no line granularity, so the classes live here.
  */
 
 // ponytail: UAX #14 reduced to flags and small sets, checked against Pango 1.50.12: every CJK code
 // point beside an ideograph and a Latin letter (ADR-0064), and random Latin strings with `/`, `-`,
-// BA (ADR-0085) and no-break spaces (ADR-0087). Still left out: EX (`x!|y`), IN (`x…|y`), B2
-// (`a|—|b`), emoji as ID (`x|🙂|y`), ZWSP, IS/CL/CP before PR/OP (`a)|(b`), U+00AD, BA outside ASCII,
-// Latin-1 and General Punctuation, Thai, and rules across spaces. Each needs its own class here; past
-// a few more, the pair table pays off.
+// BA (ADR-0085), no-break spaces (ADR-0087), and EX, IN, B2 and ZW (ADR-0093). Still left out:
+// emoji as ID (`x|🙂|y`), IS/CL/CP before PR/OP (`a)|(b`), U+00AD, ZW beside CJK (`字`, U+200B,
+// `|」`) or before a tab, BA, EX, IN and B2 outside ASCII, Latin-1 and General Punctuation, Thai,
+// and rules across spaces but LB7, LB8 and LB17. Each needs its own class here; past a few more,
+// the pair table pays off.
 
 /** A character that breaks from its neighbours unless a flag below forbids it: UAX #14's ID, H2/H3, JL/JV/JT, CJ, NS, CL and OP of CJK width. */
 const CJK =
@@ -33,6 +35,21 @@ const POSTFIX = /[%¢°‰-‷₧₶₻₾⃀℃℉％￠]/u;
 
 /** Break after: UAX #14's SY and HY, and its BA in ASCII, Latin-1 and General Punctuation but U+00AD and spaces. */
 const BREAK_AFTER = /[-/|\u2010\u2012\u2013\u2027\u2056\u2058-\u205B\u205D\u205E]/u;
+
+/** Break after but before GL: UAX #14's EX, IN and B2 in ASCII, Latin-1 and General Punctuation. */
+const BREAK_AFTER_PUNCTUATION = /[!?\u2014\u2024-\u2026]/u;
+
+/** UAX #14's B2: a break before it too, but after OP, QU, BB, GL, WJ or B2, and after B2 and spaces (LB17). */
+const EM_DASH = "\u2014";
+
+/** A unit that ends in B2, its marks and U+0020s: no break before another B2 (LB17). */
+const EM_DASH_SPACES = /\u2014\p{M}* +$/u;
+
+/** UAX #14's ZW: a break after it before anything but ZW, WJ included (LB7, LB8), and none before it. */
+const ZWSP = "\u200B";
+
+/** A unit that ends in ZW and U+0020s: a break before WJ (LB8). */
+const ZWSP_SPACES = /\u200B *$/u;
 
 /** UAX #14's NU: a solidus inside `NU (NU | SY | IS)*` keeps a number, or a sign after it, whole (LB25). */
 const DIGIT = /\p{Nd}/u;
@@ -73,9 +90,15 @@ function breaksBetween(before: string, after: string) {
  * the base before it and `inNumber` says `breaker` ends `NU (NU | SY | IS)*`.
  */
 function breaksAfter(breaker: string, next: string, before: string, inNumber: boolean) {
-  if (!BREAK_AFTER.test(breaker)) return false;
+  if (breaker === ZWSP) return next !== ZWSP;
+  if (next === EM_DASH && !BREAK_AFTER.test(breaker)) {
+    return breaker !== EM_DASH && !NO_BREAK_AFTER.test(breaker);
+  }
+  const punctuation = BREAK_AFTER_PUNCTUATION.test(breaker);
+  if (!punctuation && !BREAK_AFTER.test(breaker)) return false;
   // `%` is UAX #14's PO, not a non-starter: Pango breaks `a-|%`.
   if (next !== "%" && NO_BREAK_BEFORE.test(next)) return false;
+  if (punctuation) return !GLUE.test(next);
   if (breaker === "/") {
     return (
       !GLUE.test(next) &&
@@ -102,14 +125,19 @@ export function lineBreakUnits(paragraph: string): string[] {
       CJK.test(prev) || CJK.test(ch)
         ? breaksBetween(prev, ch)
         : breaksAfter(base, ch, beforeBase, inNumber);
-    // A unit never ends before WJ, not even after a breaking space (LB11); after one it ends before anything else, GL included (LB12a).
-    if (unit && !breakingSpace(ch) && !WORD_JOINER.test(ch) && (breakingSpace(prev) || breaks)) {
+    // A unit never ends before ZW, nor before WJ but after ZW, not even after a breaking space (LB7,
+    // LB8, LB11); after one it ends before anything else, GL included (LB12a), but B2 after B2 (LB17).
+    let ends = breaks;
+    if (WORD_JOINER.test(ch)) ends = ZWSP_SPACES.test(unit);
+    else if (breakingSpace(prev)) ends = !(ch === EM_DASH && EM_DASH_SPACES.test(unit));
+    if (unit && !breakingSpace(ch) && ch !== ZWSP && ends) {
       units.push(unit);
       unit = "";
     }
     unit += ch;
     prev = ch;
-    if (!MARK.test(ch)) {
+    // A mark after ZW is a letter of its own (LB8 before LB9).
+    if (!MARK.test(ch) || base === ZWSP) {
       inNumber = DIGIT.test(ch) || (inNumber && (ch === "/" || INFIX.test(ch)));
       beforeBase = base;
       base = ch;

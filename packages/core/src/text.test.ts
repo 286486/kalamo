@@ -368,6 +368,16 @@ it.each([
   [60, "xxxxx 10\u00A0km/h", ["xxxxx ", "10\u00A0km/h"]],
   [60, "xxxxx aa\u202Fbbbbbbbb", ["xxxxx ", "aa\u202Fbbbbbbb", "b"]],
   [60, "xxxxx aa\u2007bbbbbbbb", ["xxxxx ", "aa\u2007bbbbbb", "bb"]],
+  // EX, IN, B2 and ZWSP break after, and B2 before (ADR-0093).
+  [
+    120,
+    "See https://example.com/search?query=vector-editors for details.",
+    ["See https://", "example.com/search?", "query=vector-editors ", "for details."],
+  ],
+  [45, "xxxx x!yyyyyy", ["xxxx x!", "yyyyyy"]],
+  [45, "xxxx x\u2026yyyyyy", ["xxxx x\u2026", "yyyyyy"]],
+  [45, "xxxx x\u2014yyyyyy", ["xxxx x\u2014", "yyyyyy"]],
+  [45, "xxxx x\u200byyyyyy", ["xxxx x\u200b", "yyyyyy"]],
 ])("wraps Area Type %d wide where Inkscape does: %s", (width, content, want) => {
   const { lines, overflow } = area(content, { width, height: 300 });
   expect(lines.map((l) => l.text)).toEqual(want);
@@ -713,6 +723,54 @@ it("never breaks after a no-break space or word joiner, nor before one but after
     ],
   ];
   for (const unit of whole) expect(lineBreakUnits(unit)).toEqual([unit]);
+});
+
+it("breaks Latin after EX, IN, B2 and ZWSP, and before B2, where Pango 1.50.12 does (ADR-0093)", () => {
+  const ZW = "\u200B";
+  const breaks = [
+    ["Stop!", "Go"],
+    ["x!!", "y"],
+    ["x!", "0"],
+    ["x!", "%"],
+    ["x!", "(y"],
+    ["x!", "$5"],
+    ["x!-", "y"],
+    ["https://", "x.com/", "search?", "q=a&b=c"],
+    ["wait…", "what"],
+    ["x……", "y"],
+    ["x-…", "y"],
+    ["1…", "2"],
+    ["word", "—", "word"],
+    ["a", "——", "b"],
+    ["a ", "—", "b"],
+    ["a-", "—", "b"],
+    ["a)", "—", "b"],
+    ["a!", "—", "b"],
+    ["x", "—", "%"],
+    ["a", "—́", "b"],
+    ["a", "— —", "b"],
+    ["a", "—  —", "b"],
+    ["א-—", "b"],
+    [`a${ZW}`, "b"],
+    [`a${ZW}${ZW}`, "b"],
+    [`a${ZW}`, ")b"],
+    [`a${ZW} `, "b"],
+    [`a${ZW}`, "-", "b"],
+    [`a${ZW}`, "\u00A0b"],
+    [`a${ZW}`, "%"],
+    [`a ${ZW}`, "b"],
+    [`a-${ZW}`, "b"],
+    // ZW does not take a mark after it, which starts a unit as a letter (LB8 before LB9).
+    [`a${ZW}`, "́b"],
+    // WJ keeps a break before it but after ZW, spaces between included (LB8 before LB11).
+    [`a${ZW}`, "\u2060b"],
+    [`a${ZW} `, "\u2060b"],
+  ];
+  for (const units of breaks) expect(lineBreakUnits(units.join(""))).toEqual(units);
+  const whole = ["x!)y", 'x?"y', "x!\u00A0y", "x…)y", "x…\u00A0y", "(—)", '"—"', "a\u00A0—"];
+  for (const unit of whole) expect(lineBreakUnits(unit)).toEqual([unit]);
+  // Pango keeps `a !` together (LB13 across a space); spaces break as before (ADR-0064).
+  expect(lineBreakUnits("a ! b")).toEqual(["a ", "! ", "b"]);
 });
 
 // Noto Sans SC draws each ideograph and CJK punctuation mark 1000 units wide, 12pt at fontSize 12.
