@@ -1,4 +1,4 @@
-import { assert, type Bounds, type Check } from "./mcp.ts";
+import { assert, type Bounds, type Check, openSvg, type SvgCheck } from "./mcp.ts";
 
 const named: Record<string, string[]> = {
   Circle: ["ellipse"],
@@ -52,3 +52,6 @@ const check: Check = async (call, docId) => {
 };
 
 export default check;
+
+export const svgCheck: SvgCheck = async (call, files) =>
+  check(call, await openSvg(call, files["out.svg"]), []);

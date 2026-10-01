@@ -899,7 +899,7 @@ kalamo/
 - **团队**：一人 + Claude Code 重度使用，接近全职。估算按此给出；若投入变化，先砍 M1 范围而不是延长周期。
 - **Hero slice**：第一个端到端可交付的场景是**图表 / 图示**（数据或 Mermaid 进，可编辑矢量出）。插画在 M1 后半接上，手绘在 M2。
 - **主要客户端**：Claude Code，以 HTTP 连接本地 `wrangler dev`。skill 文档与基准任务按它编写；OAuth 随 M1 托管上线。
-- **Agent 基准测试**：`fixtures/agent-benchmarks/` 每个任务一个 Markdown（提示词 + 结构断言说明）加同名 TypeScript 断言；`pnpm bench` 启动本地 `wrangler dev`，在空目录用 `claude -p` 非交互模式只连 kalamo MCP 端点跑（不给 Bash / Write / Edit），断言自己通过 MCP 读回 Document，检查 `doc_outline`、节点属性与 SVG 导出，并报告每个任务的通过与否、工具调用数与耗时。只在本地运行：CI 不跑 Claude Code（2026-09-24 决定）。M0 即搭最小版（3 个任务），它也是调整工具描述与粒度的评测工具。
+- **Agent 基准测试**：`fixtures/agent-benchmarks/` 每个任务一个 Markdown（提示词 + 结构断言说明）加同名 TypeScript 断言；`pnpm bench` 启动本地 `wrangler dev`，在空目录用 `claude -p` 非交互模式只连 kalamo MCP 端点跑（不给 Bash / Write / Edit），断言自己通过 MCP 读回 Document，检查 `doc_outline`、节点属性与 SVG 导出，并报告每个任务的通过与否、工具调用数与耗时。任务可另写一节 `## SVG prompt` 与 `svgCheck`：同一任务再以写 SVG 文件为基线跑一遍（只给 Read / Write / Edit，起始文件由 setup 给出），把写出的文件用 `kalamo_doc_open` 打开后同样断言，报告两臂并列（通过、调用数、耗时、费用、输入 token）；提示词以 `---` 分成多轮会话依次运行；`--model` 选模型（#231，研究 11）。只在本地运行：CI 不跑 Claude Code（2026-09-24 决定）。M0 即搭最小版（3 个任务），它也是调整工具描述与粒度的评测工具。
 
 ### 9.1 阶段
 

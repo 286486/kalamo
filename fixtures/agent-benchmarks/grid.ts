@@ -1,4 +1,4 @@
-import { assert, type Bounds, type Check, n3 } from "./mcp.ts";
+import { assert, type Bounds, type Check, n3, openSvg, type SvgCheck } from "./mcp.ts";
 
 const check: Check = async (call, docId) => {
   const { nodes: layers } = (await call("kalamo_doc_outline", { docId, depth: 1 }))
@@ -52,3 +52,6 @@ const check: Check = async (call, docId) => {
 };
 
 export default check;
+
+export const svgCheck: SvgCheck = async (call, files) =>
+  check(call, await openSvg(call, files["out.svg"]), []);

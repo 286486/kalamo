@@ -1,4 +1,15 @@
-import { assert, type Bounds, type Check, n3, type Setup } from "./mcp.ts";
+import {
+  assert,
+  type Bounds,
+  type Check,
+  exportSvg,
+  hex,
+  leaves,
+  n3,
+  openSvg,
+  type Setup,
+  type SvgCheck,
+} from "./mcp.ts";
 
 // place.md's SVG: its artwork spans (10, 10)–(230, 110).
 const WIDTH = 220;
@@ -7,7 +18,8 @@ const CENTRE = { x: 560, y: 150 };
 // setup's doc_create and node_create.
 const SETUP_REV = 2;
 
-/** The Document the prompt calls existing: a background rect in Layer 1, and an empty Logo Layer. */
+/** The Document the prompt calls existing: a background rect in Layer 1, and an empty Logo Layer;
+ * the SVG arm's poster.svg is its export. */
 export const setup: Setup = async (call, name) => {
   const { docId, defaultLayerId } = (
     await call("kalamo_doc_create", { name, artboards: [{ width: 800, height: 600 }] })
@@ -27,7 +39,7 @@ export const setup: Setup = async (call, name) => {
       { type: "layer", name: "Logo" },
     ],
   });
-  return docId;
+  return { docId, files: { "poster.svg": await exportSvg(call, docId) } };
 };
 
 interface OutlineNode {
@@ -81,13 +93,50 @@ const check: Check = async (call, docId, tools) => {
 
   const b = (await call("kalamo_node_get", { docId, nodeIds: [group.id] })).structuredContent
     .nodes[0].geometricBounds as Bounds;
-  assert(n3(b.width) === WIDTH && n3(b.height) === HEIGHT, `the Group is ${b.width}×${b.height}`);
+  placedAt(b, "the Group");
+};
+
+function placedAt(b: Bounds, what: string) {
+  assert(n3(b.width) === WIDTH && n3(b.height) === HEIGHT, `${what} is ${b.width}×${b.height}`);
   const cx = n3(b.x + b.width / 2);
   const cy = n3(b.y + b.height / 2);
   assert(
     cx === CENTRE.x && cy === CENTRE.y,
-    `the Group's centre (${cx}, ${cy}), want (${CENTRE.x}, ${CENTRE.y})`,
+    `${what}'s centre (${cx}, ${cy}), want (${CENTRE.x}, ${CENTRE.y})`,
   );
+}
+
+/** poster.svg, opened in Kalamo: the background as it was, and the logo's three shapes in Logo. */
+export const svgCheck: SvgCheck = async (call, files) => {
+  const docId = await openSvg(call, files["poster.svg"]);
+  const { nodes: layers } = (await call("kalamo_doc_outline", { docId, depth: 1 }))
+    .structuredContent as { nodes: OutlineNode[] };
+  const logo = layers.find((l) => l.name === "Logo");
+  assert(logo, `no top-level Layer named "Logo" (found ${layers.map((l) => l.name)})`);
+  const all = await leaves(call, docId);
+  const parents = new Map<string, string | null>();
+  for (const n of (await call("kalamo_node_query", { docId, limit: 1000 })).structuredContent
+    .nodes as { id: string; parentId: string | null }[])
+    parents.set(n.id, n.parentId);
+  const under = (id: string | null | undefined): boolean =>
+    id === logo.id || (id != null && under(parents.get(id)));
+  const logoShapes = all.filter((n) => under(n.parentId));
+  const rest = all.filter((n) => !under(n.parentId));
+  assert(logoShapes.length === 3, `Logo holds ${logoShapes.length} shapes, want 3`);
+  const [paper] = rest;
+  assert(
+    rest.length === 1 &&
+      paper &&
+      n3(paper.geometricBounds.width) === 800 &&
+      n3(paper.geometricBounds.height) === 600 &&
+      hex(paper.appearance.fills[0]?.color) === "#F4F1EA",
+    `outside Logo the Document holds ${rest.map((n) => n.type)}, want the background as it was`,
+  );
+  const xs = logoShapes.flatMap(({ geometricBounds: g }) => [g.x, g.x + g.width]);
+  const ys = logoShapes.flatMap(({ geometricBounds: g }) => [g.y, g.y + g.height]);
+  const x = Math.min(...xs);
+  const y = Math.min(...ys);
+  placedAt({ x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y }, "the logo");
 };
 
 export default check;
