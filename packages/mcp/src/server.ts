@@ -172,7 +172,8 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
   /**
    * Registers a tool whose arguments Kalamo parses, strictly: the SDK advertises the real schema
    * through `.meta()` but validates only that the arguments are an object, so a bad argument is
-   * INVALID_INPUT like any other error and is logged by `run` (ADR-0050).
+   * INVALID_INPUT like any other error and is logged by `run` (ADR-0050). Named schemas are written
+   * once under the tool's `$defs` (ADR-0088).
    */
   const tool = <S extends z.ZodRawShape | z.ZodObject>(
     name: string,

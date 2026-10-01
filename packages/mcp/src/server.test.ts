@@ -1435,8 +1435,9 @@ it("keeps the tool definitions an Agent reads every turn within budget (#229)", 
   const sizes = Object.fromEntries(
     tools.map((t) => [
       t.name,
-      JSON.stringify({ name: t.name, description: t.description, inputSchema: t.inputSchema })
-        .length,
+      Buffer.byteLength(
+        JSON.stringify({ name: t.name, description: t.description, inputSchema: t.inputSchema }),
+      ),
     ]),
   );
   // Raise a budget only on purpose: every byte here is paid on every turn of every Agent.

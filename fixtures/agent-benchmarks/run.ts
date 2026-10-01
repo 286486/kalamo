@@ -19,8 +19,9 @@ interface Run {
   turns: number;
   ms: number;
   cost: number;
-  /** Input tokens in thousands: the first turn's (tool definitions and system prompt), then all. */
+  /** The first turn's input tokens in thousands: the tool definitions and system prompt. */
   prefix: number;
+  /** Input tokens in thousands over all turns, cache reads included. */
   input: number;
   /** The share of `input` written to the cache, which costs more than reading it. */
   cacheWrite: number;
