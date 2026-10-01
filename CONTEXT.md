@@ -29,7 +29,7 @@ _Avoid_: Reference layer、Trace layer、Background layer
 _Avoid_: Container、Frame
 
 **Selection（选区）**：
-人类用户在 UI 中当前选中的 Node 集合。它是 UI 便利，不是文档状态；Agent 操作以显式 Node ID 为准。
+人类用户在 UI 中当前选中的 Node 集合。它是 UI 便利，不是文档状态；Agent 操作以显式 Node ID 为准。它作为 Presence 转发给同一 Document 的其他 Peer，但从不写入 Document（ADR-0090）。
 _Avoid_: 把 Selection 作为工具调用的隐式参数
 
 **Arrange（排列）**：
@@ -273,6 +273,18 @@ _Avoid_: Result、Response、Ack
 **Actor（参与者）**：
 做出修改的身份：一个人类 User，或一个 Agent 凭证。每个 Transaction 记录其 Actor；同一个人授权的两个 MCP 客户端是两个不同的 Actor。
 _Avoid_: Session、Client、Connection、User（Actor 可能是 Agent）
+
+**Presence（在场）**：
+一个浏览器连接当前的指针位置（文档坐标）与 Selection，经 Document 的 WebSocket 转发（附上 peer 与 Actor）给其他 Peer，对应 F-COLLAB-05 的光标与选区。Document 只转发、不存储，不开 Transaction，不改 Revision；MCP 看不到它（ADR-0090）。
+_Avoid_: Awareness、Session state、Cursor（泛指时）
+
+**Peer（在场连接）**：
+连到一个 Document 的一个浏览器连接，即一个标签页；一个 User 的两个标签页是两个 Peer，标签相同。Agent 没有连接，因而不是 Peer（ADR-0090）。
+_Avoid_: Collaborator、Client、Session
+
+**Working Area（工作区域）**：
+浏览器为一个 Agent Actor 显示的区域：它最近一次写入（已提交或暂存在 Transaction 中）的回执 `bounds`，附该写入的 `intent`，对应 F-COLLAB-04。最后一次写入 5 分钟后不再显示（ADR-0090）。
+_Avoid_: Agent cursor、Focus、Viewport
 
 **User（用户）**：
 一个用 GitHub 登录 Kalamo 的人，按 GitHub 数字 id 识别，login 每次登录时刷新。每个 User 有一个自己的 User Actor（`user_<userId>`），他在浏览器里的所有标签页都以它编辑。dev 模式只有一个本地 User `local`，其 Actor 是 `user`（ADR-0047）。
