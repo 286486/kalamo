@@ -2675,6 +2675,9 @@ describe("Auto Size (ADR-0092)", () => {
     );
     expect(issue({ kind: "point", width: undefined })).toMatchObject({ path: ["autoSize"] });
     expect(issue({ autoSize: false })).toMatchObject({ path: ["height"] });
+    expect(issue({ kind: "point", width: undefined, autoSize: false })).toMatchObject({
+      path: ["autoSize"],
+    });
   });
 
   it("converts: Area to Point drops the flag and Point to Area leaves it off", () => {

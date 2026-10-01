@@ -886,7 +886,7 @@ export function areaFrame(text: TextLayout): Rect {
  * down to the lowest one's bottom as `areaFrame` reaches it; one line box at the Node's size and
  * leading when none shows.
  */
-export function autoHeight(text: TextLayout): number {
+function autoHeight(text: TextLayout): number {
   const m = metrics(text);
   const boxes = lineBoxes(text, m);
   const fit = area(

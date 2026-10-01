@@ -555,7 +555,7 @@ export function textFrame(
   if (t.kind !== "area" && t.frame !== undefined) {
     ctx.addIssue({ code: "custom", path: ["frame"], message: "frame belongs to Area Type." });
   }
-  if (t.autoSize && (t.kind !== "area" || t.frame !== undefined)) {
+  if (t.autoSize !== undefined && (t.kind !== "area" || t.frame !== undefined)) {
     ctx.addIssue({
       code: "custom",
       path: ["autoSize"],
@@ -612,7 +612,7 @@ function textInput(
   }
   textRanges(t, ctx);
   if (shaped.length > 1) issue("frameNodeId", "Pass frame or frameNodeId, not both.");
-  if (t.autoSize)
+  if (t.autoSize !== undefined)
     issue("autoSize", `autoSize belongs to a rectangle; drop it, or drop ${shaped[0]}.`);
   for (const key of ["x", "y", "width", "height"] as const) {
     if (t[key] !== undefined) {

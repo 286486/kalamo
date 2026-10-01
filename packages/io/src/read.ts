@@ -1168,8 +1168,9 @@ class Reader {
     const all = this.chars(e, style, 0, { style });
     const frame = this.frame(style);
     // Auto Size refits the height from the content when the Node is checked (ADR-0092).
-    const autoSize = kalamoAttr(e, "autosize") === "true" && frame !== undefined && "rect" in frame;
-    if (kalamoAttr(e, "autosize") !== null && !autoSize) {
+    const marked = kalamoAttr(e, "autosize");
+    const autoSize = marked === "true" && frame !== undefined && "rect" in frame;
+    if (marked !== null && !autoSize) {
       this.warn(
         "UNSUPPORTED_ATTRIBUTE",
         "kalamo:autosize",
