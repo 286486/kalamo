@@ -1071,7 +1071,8 @@ export class DocumentObject extends DurableObject<Env> {
   }
 
   /**
-   * The WriteReceipt of a write, and its `tx` broadcast unless it was staged in a Transaction.
+   * The WriteReceipt of a write, and its broadcast: `tx`, or `staged` with only its `bounds` when
+   * staged in a Transaction (ADR-0090).
    * `bounds` covers the created and updated Nodes after the write and the deleted Nodes before it
    * (CONTEXT.md, WriteReceipt), whichever entry point made the change.
    */
@@ -1092,13 +1093,29 @@ export class DocumentObject extends DurableObject<Env> {
   ): WriteReceipt {
     const { created, updated, deletedIds } = change;
     const { txId, rev, actor, opts, skipped = [] } = meta;
-    if (!opts.txId) {
-      const { intent = null, commandId } = opts;
+    const written = [...created, ...updated];
+    const area = union([
+      ...written.map((n) => bounds(after, n)),
+      ...deletedIds.map((id) => bounds(before, before.nodes.get(id) as Node)),
+    ]);
+    const { intent = null, commandId } = opts;
+    if (opts.txId) {
+      this.broadcast({ type: "staged", txId, actor, intent, bounds: area });
+    } else {
       const skippedIds = skipped.length > 0 ? skipped : undefined;
-      this.broadcast({ type: "tx", rev, txId, actor, intent, ...change, commandId, skippedIds });
+      this.broadcast({
+        type: "tx",
+        rev,
+        txId,
+        actor,
+        intent,
+        ...change,
+        bounds: area,
+        commandId,
+        skippedIds,
+      });
     }
     // Each Area Type's lines, as its bounds is its frame (ADR-0089).
-    const written = [...created, ...updated];
     const areas = written.flatMap((n) => (n.type === "text" && n.kind === "area" ? [n] : []));
     return {
       txId,
@@ -1107,10 +1124,7 @@ export class DocumentObject extends DurableObject<Env> {
       updatedIds: updated.map((n) => n.id),
       deletedIds,
       keyMap: meta.keyMap ?? {},
-      bounds: union([
-        ...written.map((n) => bounds(after, n)),
-        ...deletedIds.map((id) => bounds(before, before.nodes.get(id) as Node)),
-      ]),
+      bounds: area,
       warnings: meta.warnings ?? [],
       ...(areas.length > 0 && {
         lineBounds: Object.fromEntries(areas.map((n) => [n.id, lineBounds(after, n)])),

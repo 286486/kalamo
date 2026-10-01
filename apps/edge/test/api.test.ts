@@ -79,7 +79,9 @@ it("sends the Document on connect, then a tx after node_create commits", async (
     intent: "A box",
     updated: [],
     deletedIds: [],
+    bounds: receipt.bounds,
   });
+  expect(receipt.bounds).toEqual({ x: 10, y: 10, width: 50, height: 30 });
   expect(tx?.type === "tx" && tx.created).toMatchObject([
     { id: receipt.createdIds[0], type: "rect", width: 50 },
   ]);
@@ -99,19 +101,45 @@ it("counts open sockets in doc_get_info, and drops one the browser closes", asyn
   await vi.waitFor(async () => expect(await browsers()).toBe(0), { timeout: 1000 });
 });
 
-it("broadcasts a Transaction once, at tx_commit, not its staged writes", async () => {
+it("broadcasts a staged write's area, not its Nodes, then the Transaction once at tx_commit (ADR-0090)", async () => {
   const { docId, defaultLayerId } = await newDoc();
   const { messages, received } = await subscribe(docId);
   await received(1);
   const { txId } = (await call("kalamo_tx_begin", { docId })).structuredContent;
-  const staged = (await call("kalamo_node_create", { docId, txId, nodes: [rect(defaultLayerId)] }))
-    .structuredContent;
-  expect(messages).toHaveLength(1);
+  const staged = (
+    await call("kalamo_node_create", { docId, txId, nodes: [rect(defaultLayerId)], intent: "Box" })
+  ).structuredContent;
+  const [, area] = await received(2);
+  expect(area).toEqual({
+    type: "staged",
+    txId,
+    actor: "agent-a",
+    intent: "Box",
+    bounds: { x: 10, y: 10, width: 50, height: 30 },
+  });
 
-  await call("kalamo_tx_commit", { docId, txId });
-  const [, tx] = await received(2);
+  const commit = (await call("kalamo_tx_commit", { docId, txId })).structuredContent;
+  const [, , tx] = await received(3);
   expect(tx).toMatchObject({ type: "tx", rev: 2, txId, updated: [], deletedIds: [] });
   expect(tx?.type === "tx" && tx.created.map((n) => n.id)).toEqual(staged.createdIds);
+  expect(tx?.type === "tx" && tx.bounds).toEqual(commit.bounds);
+  expect(commit.bounds).toEqual({ x: 10, y: 10, width: 50, height: 30 });
+  expect(messages).toHaveLength(3);
+});
+
+it("broadcasts nothing more for a Transaction rolled back", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const { received } = await subscribe(docId);
+  await received(1);
+  const { txId } = (await call("kalamo_tx_begin", { docId })).structuredContent;
+  await call("kalamo_node_create", { docId, txId, nodes: [rect(defaultLayerId)] });
+  await received(2);
+  await call("kalamo_tx_rollback", { docId, txId });
+  const { txId: later } = (
+    await call("kalamo_node_create", { docId, nodes: [rect(defaultLayerId)] })
+  ).structuredContent;
+  const [, , next] = await received(3);
+  expect(next).toMatchObject({ type: "tx", txId: later });
 });
 
 it("lists Documents newest first at GET /api/docs", async () => {

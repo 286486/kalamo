@@ -24,6 +24,7 @@ const tx = (doc: Document, extra: Partial<TxMessage>): TxMessage => ({
   created: [],
   updated: [],
   deletedIds: [],
+  bounds: null,
   ...extra,
 });
 
@@ -162,6 +163,7 @@ it.each([
   { type: "presence" as const, ...peer, cursor: { x: 1, y: 2 } },
   { type: "joined" as const, ...peer },
   { type: "left" as const, peer: "p" },
+  { type: "staged" as const, txId: "t", actor: "agent-a", intent: null, bounds: null },
 ])("changes nothing on $type, and does not reconnect (ADR-0090)", (msg) => {
   const { doc, a } = fixture();
   const state = {

@@ -9,6 +9,7 @@ import {
   NodeInput,
   PathEditInput,
   PathOpInput,
+  type Rect,
   ReorderOp,
   ReparentInput,
   Stroke,
@@ -54,6 +55,8 @@ export interface TxMessage {
   updated: Node[];
   /** Includes the descendants of every deleted Node. */
   deletedIds: string[];
+  /** The WriteReceipt's `bounds`: where the Transaction changed the Document (ADR-0090). */
+  bounds: Rect | null;
   /** The `id` of the browser command this Transaction answers. */
   commandId?: string;
   /**
@@ -61,6 +64,18 @@ export interface TxMessage {
    * tree rule or be a second Clipping Path (ADR-0072).
    */
   skippedIds?: string[];
+}
+
+/**
+ * A write staged in an open Transaction: where it changed the Transaction's view, never its Nodes,
+ * which every browser gets in one `tx` at tx_commit (ADR-0090).
+ */
+export interface StagedMessage {
+  type: "staged";
+  txId: string;
+  actor: string;
+  intent: string | null;
+  bounds: Rect | null;
 }
 
 /**
@@ -96,6 +111,7 @@ export interface LeftMessage {
 export type ServerMessage =
   | DocumentMessage
   | TxMessage
+  | StagedMessage
   | RejectedMessage
   | PresenceMessage
   | JoinedMessage
