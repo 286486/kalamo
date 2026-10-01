@@ -44,6 +44,19 @@ const check: Check = async (call, docId) => {
     rects.length === 1 && texts.length + 1 === all.length,
     `the Document holds ${all.map((n) => n.type)}, want one rect and texts`,
   );
+  // HTML in a <foreignObject>, say, is not text Kalamo or Inkscape can edit, and opens as nothing.
+  assert(texts.length > 0, "no text, as SVG <text>, in the Document");
+  const lines: Bounds[] = [];
+  for (const t of texts) {
+    const b = await linesOf(call, docId, t);
+    assert(b, `"${t.content?.slice(0, 20)}…" shows no line`);
+    // tspans positioned by x and dy open as one line until #238: past the page, no line is meant.
+    assert(
+      b.width <= 600,
+      `Kalamo opened a text as one line ${b.width.toFixed(0)} pt wide, which it cannot judge (#238)`,
+    );
+    lines.push(b);
+  }
   const words = (s: string) => s.split(/\s+/).filter(Boolean).join(" ");
   const read = words(texts.map((t) => t.content).join(" "));
   assert(read === PARAGRAPH, `the texts read "${read}"`);
@@ -59,23 +72,24 @@ const check: Check = async (call, docId) => {
   );
   const r = rect.geometricBounds;
   assert(
-    near(r.x, 140) && near(r.y, 120) && near(r.width, 320),
-    `the rect is at ${JSON.stringify(r)}, want 320 pt wide at (140, 120)`,
+    near(r.x, 140) && near(r.width, 320),
+    `the rect is at ${JSON.stringify(r)}, want 320 pt wide at x 140`,
   );
 
-  // Not the top: the rect's top is the text box's, and a first line's ascender may rise above it.
-  let bottom = -Infinity;
-  for (const t of texts) {
-    const b = await linesOf(call, docId, t);
-    assert(b, `"${t.content?.slice(0, 20)}…" shows no line`);
+  // The rect's top is the text box's, at y 120, or the first line's ascender, which may rise above it.
+  const top = Math.min(...lines.map((b) => b.y));
+  assert(
+    r.y >= Math.min(top, 120) - 1 && r.y <= 121,
+    `the rect's top is at y ${r.y.toFixed(2)}, want the text box's (120) or the first line's (${top.toFixed(2)})`,
+  );
+  for (const b of lines)
     assert(
       b.x >= r.x - 0.5 &&
         b.x + b.width <= r.x + r.width + 0.5 &&
         b.y + b.height <= r.y + r.height + 0.5,
       `lines at ${JSON.stringify(b)} reach past the sides or bottom of the rect at ${JSON.stringify(r)}`,
     );
-    bottom = Math.max(bottom, b.y + b.height);
-  }
+  const bottom = Math.max(...lines.map((b) => b.y + b.height));
   const gap = r.y + r.height - bottom;
   assert(
     gap <= SLACK,

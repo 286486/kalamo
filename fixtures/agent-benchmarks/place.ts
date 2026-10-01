@@ -126,8 +126,9 @@ export const svgCheck: SvgCheck = async (call, files) => {
   const [paper] = rest;
   assert(
     rest.length === 1 &&
-      paper?.geometricBounds.width === 800 &&
-      paper.geometricBounds.height === 600 &&
+      paper &&
+      n3(paper.geometricBounds.width) === 800 &&
+      n3(paper.geometricBounds.height) === 600 &&
       hex(paper.appearance.fills[0]?.color) === "#F4F1EA",
     `outside Logo the Document holds ${rest.map((n) => n.type)}, want the background as it was`,
   );

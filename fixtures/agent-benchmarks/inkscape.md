@@ -1,6 +1,6 @@
 ## Prompt
 
-Using the kalamo tools, open Document `{{docId}}`: a page a person drew in Inkscape and opened in Kalamo.
+Using the kalamo tools, edit the Kalamo Document `{{docId}}`, a page a person drew in Inkscape and opened in Kalamo.
 
 Move the Group `Badge` so the centre of its bounds is at (450, 120) pt from the top-left corner of the page, and fill the `Star` in it `#3565E8`. Change nothing else.
 

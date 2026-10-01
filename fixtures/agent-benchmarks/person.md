@@ -1,6 +1,6 @@
 ## Prompt
 
-Using the kalamo tools, open Document `{{docId}}`. You drew it, up to rev 2; someone else has edited it since.
+Using the kalamo tools, edit the Kalamo Document `{{docId}}`. You drew it, up to rev 2; someone else has edited it since.
 
 Recolour every dot filled `#E63946` to `#3565E8`, except the Nodes the other person changed after rev 2: they have the final say on those, so leave them exactly as they are. Change nothing else.
 

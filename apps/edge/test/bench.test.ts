@@ -13,7 +13,7 @@ import inkscape, {
   svgCheck as inkscapeSvg,
 } from "../../../fixtures/agent-benchmarks/inkscape.ts";
 import labels, { svgCheck as labelsSvg } from "../../../fixtures/agent-benchmarks/labels.ts";
-import type { Bounds, Call } from "../../../fixtures/agent-benchmarks/mcp.ts";
+import { type Bounds, type Call, exportSvg } from "../../../fixtures/agent-benchmarks/mcp.ts";
 import person, {
   setup as personSetup,
   svgCheck as personSvg,
@@ -27,15 +27,15 @@ import transaction from "../../../fixtures/agent-benchmarks/transaction.ts";
 import { call as rpcCall } from "./rpc.ts";
 
 /** The benchmark assertions' Call, through the Worker; a failed call throws, as over HTTP. */
-const as =
+const callAs =
   (token: string): Call =>
   async (name, args) => {
     const result = await rpcCall(name, args, token);
     if (result.isError) throw new Error(`${name}: ${result.content[0]?.text}`);
     return result;
   };
-const call = as("dev-token-a");
-const other = as("dev-token-b");
+const call = callAs("dev-token-a");
+const other = callAs("dev-token-b");
 
 const newDoc = async (width: number, height: number) =>
   (await call("kalamo_doc_create", { name: "Bench", artboards: [{ width, height }] }))
@@ -269,8 +269,7 @@ describe("transaction", () => {
 });
 
 /** A Document as the SVG file a write-SVG session would leave. */
-const exported = async (docId: string) =>
-  (await call("kalamo_export", { docId, format: "svg" })).content[0]?.text as string;
+const exported = (docId: string) => exportSvg(call, docId);
 
 const idsNamed = async (docId: string, nameRegex: string) =>
   (await call("kalamo_node_query", { docId, nameRegex, limit: 1000 })).structuredContent.nodes.map(
@@ -434,7 +433,8 @@ describe("fit", () => {
     expect(fitTask.split(PARAGRAPH)).toHaveLength(3);
   });
 
-  const framed = async (spare: number) => {
+  /** Area Type with a rect from `top` (the frame's 120 when omitted) to its lines' bottom + spare. */
+  const framed = async (spare: number, top?: (lines: Bounds) => number) => {
     const { docId, defaultLayerId: parentId } = await newDoc(600, 800);
     const text = {
       type: "text",
@@ -452,6 +452,7 @@ describe("fit", () => {
     const { lineBounds, createdIds } = (await call("kalamo_node_create", { docId, nodes: [text] }))
       .structuredContent;
     const lines = lineBounds[createdIds[0]] as Bounds;
+    const y = top?.(lines) ?? 120;
     await call("kalamo_node_create", {
       docId,
       nodes: [
@@ -459,9 +460,9 @@ describe("fit", () => {
           type: "rect",
           parentId,
           x: 140,
-          y: 120,
+          y,
           width: 320,
-          height: lines.y + lines.height - 120 + spare,
+          height: lines.y + lines.height - y + spare,
           appearance: { fills: [], strokes: [{ color: "#3d3d44", width: 1 }] },
         },
       ],
@@ -478,6 +479,21 @@ describe("fit", () => {
   it("rejects a rect two lines short, or three lines too tall", async () => {
     await expect(fit(call, await framed(-40), [])).rejects.toThrow("reach past");
     await expect(fit(call, await framed(60), [])).rejects.toThrow("60.0 pt below the last line");
+  });
+
+  it("accepts a rect from the first line's ascender, and rejects one from 10 pt above it", async () => {
+    await expect(fit(call, await framed(0, (l) => l.y), [])).resolves.toBeUndefined();
+    await expect(fit(call, await framed(0, (l) => l.y - 10), [])).rejects.toThrow(
+      "the rect's top is at",
+    );
+  });
+
+  it("fails tspans positioned by dy as unjudged (#238)", async () => {
+    const tspans = PARAGRAPH.split(". ").map(
+      (l, i) => `<tspan x="140" dy="${i ? 19.2 : 0}">${l}</tspan>`,
+    );
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="800" viewBox="0 0 600 800"><text x="140" y="132" font-family="Source Sans 3" font-size="16">${tspans.join("")}</text><rect x="140" y="120" width="320" height="100" fill="none" stroke="#3D3D44"/></svg>`;
+    await expect(fitSvg(call, { "out.svg": svg })).rejects.toThrow("#238");
   });
 
   it("accepts the paragraph written as one Point Type per line", async () => {

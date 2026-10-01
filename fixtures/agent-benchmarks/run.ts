@@ -153,17 +153,18 @@ async function sessions(
   let total: Run | undefined;
   for (const [i, prompt] of prompts.entries()) {
     const run = await agent(prompts.length > 1 ? `${log}-${i + 1}` : log, arm, cwd, prompt, model);
-    total = total && {
-      ...total,
-      tools: [...total.tools, ...run.tools],
-      turns: total.turns + run.turns,
-      ms: total.ms + run.ms,
-      cost: total.cost + run.cost,
-      input: total.input + run.input,
-      cacheWrite: total.cacheWrite + run.cacheWrite,
-      error: total.error ?? run.error,
-    };
-    total ??= run;
+    total = total
+      ? {
+          ...total,
+          tools: [...total.tools, ...run.tools],
+          turns: total.turns + run.turns,
+          ms: total.ms + run.ms,
+          cost: total.cost + run.cost,
+          input: total.input + run.input,
+          cacheWrite: total.cacheWrite + run.cacheWrite,
+          error: total.error ?? run.error,
+        }
+      : run;
     if (total.error) break;
   }
   return total as Run;
@@ -263,10 +264,12 @@ try {
         );
         error = run.error;
         if (!error) {
-          const files: Files = Object.fromEntries(
-            readdirSync(cwd).map((f) => [f, readFileSync(join(cwd, f), "utf8")]),
-          );
           try {
+            const files: Files = Object.fromEntries(
+              readdirSync(cwd, { withFileTypes: true })
+                .filter((f) => f.isFile())
+                .map((f) => [f.name, readFileSync(join(cwd, f.name), "utf8")]),
+            );
             await svgCheck?.(call, files);
           } catch (e) {
             error = (e as Error).message;

@@ -1,14 +1,14 @@
 ## Prompt
 
-Using the kalamo tools, open Document `{{docId}}`: a seat plan with rows `A` to `J` of 20 seats each, seat `C5` named `C5`. Seats `C5` to `C9` have been sold: fill them `#9AA0A6`. Change nothing else.
+Using the kalamo tools, edit the Kalamo Document `{{docId}}`, a seat plan with rows `A` to `J` of 20 seats each, seat `C5` named `C5`. Seats `C5` to `C9` have been sold: fill them `#9AA0A6`. Change nothing else.
 
 ---
 
-Using the kalamo tools, open Document `{{docId}}`: a seat plan with rows `A` to `J` of 20 seats each, seat `C5` named `C5`. Row `J` has been taken out of the venue: delete its seats. Change nothing else.
+Using the kalamo tools, edit the Kalamo Document `{{docId}}`, a seat plan with rows `A` to `J` of 20 seats each, seat `C5` named `C5`. Row `J` has been taken out of the venue: delete its seats. Change nothing else.
 
 ---
 
-Using the kalamo tools, open Document `{{docId}}`: a seat plan with rows of 20 seats each, seat `C5` named `C5`. Widen the aisle: move seats 11 to 20 of every row 30 pt to the right. Change nothing else.
+Using the kalamo tools, edit the Kalamo Document `{{docId}}`, a seat plan with rows of 20 seats each, seat `C5` named `C5`. Widen the aisle: move seats 11 to 20 of every row 30 pt to the right. Change nothing else.
 
 ## SVG prompt
 
