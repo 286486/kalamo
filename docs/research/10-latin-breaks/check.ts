@@ -1,17 +1,20 @@
-// Kalamo's `lineBreakUnits` against Pango 1.50.12 on random strings (#222, ADR-0085). Run from the
-// repo root: `node --experimental-transform-types docs/research/10-latin-breaks/check.ts [latin|cjk]
-// [ref]`. It prints each difference by the rule Kalamo leaves out. `latin` draws from Latin letters,
-// digits, spaces, `/-–‐‒|()"'.,$%`, a combining mark, Hebrew and CJK; `cjk` from ADR-0064's alphabet.
-// With a git ref, such as 2070333, it also counts the strings whose breaks changed from that ref's
-// `line-break.ts`, and the changed positions that are not a break after `/`, `-` or BA without a CJK
-// neighbour where Kalamo now equals Pango.
+// Kalamo's `lineBreakUnits` against Pango 1.50.12 on random strings (#222, ADR-0085; #224, ADR-0087).
+// Run from the repo root: `node --experimental-transform-types docs/research/10-latin-breaks/check.ts
+// [latin|cjk] [ref]`. It prints each difference by the rule Kalamo leaves out. `latin` draws from
+// Latin letters, digits, spaces, U+00A0, U+202F, `/-–‐‒|()"'.,$%`, a combining mark, Hebrew and CJK;
+// `cjk` from ADR-0064's alphabet.
+// With a git ref, such as 2070333 or f14ce8c, it also counts the strings whose breaks changed from
+// that ref's `line-break.ts`. It counts apart the changed positions where Kalamo now differs from
+// Pango after a space, which ADR-0085 and ADR-0087 leave out (LB13 to LB16 across spaces), and the
+// rest that differ from Pango or are neither after `/`, `-` or BA without a CJK neighbour (ADR-0085)
+// nor beside a no-break space (ADR-0087).
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { lineBreakUnits } from "../../../packages/core/src/line-break.ts";
+import { breakingSpace, lineBreakUnits } from "../../../packages/core/src/line-break.ts";
 
 const POOLS = {
-  latin: [..."abcxyz0123  /-–‐‒|()\"'.,$%́אב字中「」，。"],
+  latin: [..."abcxyz0123  \u00A0\u202F/-–‐‒|()\"'.,$%́אב字中「」，。"],
   cjk: [..."字中文我かなカナっャ한국「」（）『』，。、！？ー々・!),.:;?]}\"'-/|([{$%abc0123 "],
 };
 const [poolName = "latin", ref] = process.argv.slice(2);
@@ -45,6 +48,8 @@ const breaks = (units: string[]) => {
 const CJK = /[　-〿぀-ヿ一-鿿가-힯！-ￜ]/u;
 const MARK = /\p{M}/u;
 const BREAK_AFTER = /[-/|‐‒–]/;
+/** The GL characters the `latin` pool draws (U+2007 is not in it). */
+const POOL_GLUE = /[\u00A0\u202F]/;
 
 /** A position's neighbours: the character before it, its base before any marks, and the next. */
 interface At {
@@ -66,10 +71,16 @@ const at = (cps: string[], i: number): At => {
 };
 const cjkNeighbour = ({ prev, base, next }: At) =>
   CJK.test(base) || CJK.test(next) || CJK.test(prev);
+const besideGlue = ({ prev, next }: At) => POOL_GLUE.test(prev) || POOL_GLUE.test(next);
 
 /** The rule a difference from Pango falls under: the first that matches. */
 const RULES: [string, (a: At) => boolean][] = [
-  ["a space before it: LB13 to LB16, across spaces", (a) => /\s/.test(a.prev)],
+  [
+    "a space before a no-break space: LB13 to LB16, across spaces",
+    (a) => breakingSpace(a.prev) && POOL_GLUE.test(a.next),
+  ],
+  ["a space before it: LB13 to LB16, across spaces", (a) => breakingSpace(a.prev)],
+  ["beside a no-break space", besideGlue],
   ["a mark starting the string", (a) => a.leadingMark],
   ["a CJK neighbour: ADR-0064's pairs", cjkNeighbour],
   ["after / - or BA", (a) => BREAK_AFTER.test(a.base)],
@@ -107,7 +118,7 @@ if (ref) {
   const file = join(out, `line-break-${ref}.ts`);
   writeFileSync(file, execFileSync("git", ["show", `${ref}:packages/core/src/line-break.ts`]));
   const before: typeof lineBreakUnits = (await import(file)).lineBreakUnits;
-  let [changed, positions, removed, other] = [0, 0, 0, 0];
+  let [changed, positions, removed, acrossSpaces, other] = [0, 0, 0, 0, 0];
   strings.forEach((s, k) => {
     const cps = [...s];
     const [m, q, p] = [breaks(before(s)), breaks(lineBreakUnits(s)), breaks(pango[k] as string[])];
@@ -118,11 +129,14 @@ if (ref) {
       positions++;
       if (m.has(i)) removed++;
       const a = at(cps, i);
-      if (!BREAK_AFTER.test(a.base) || cjkNeighbour(a) || p.has(i) !== q.has(i)) other++;
+      const latin = BREAK_AFTER.test(a.base) && !cjkNeighbour(a);
+      const pangoMatch = p.has(i) === q.has(i);
+      if (!pangoMatch && breakingSpace(a.prev)) acrossSpaces++;
+      else if (!(latin || besideGlue(a)) || !pangoMatch) other++;
     }
     if (c) changed++;
   });
   console.log(
-    `against ${ref}: ${changed} strings change at ${positions} positions, ${removed} of them a removed break, ${other} not a Pango-matching break after / - or BA without a CJK neighbour`,
+    `against ${ref}: ${changed} strings change at ${positions} positions, ${removed} of them a removed break; ${acrossSpaces} differ from Pango after a space (LB13 to LB16, across spaces); ${other} others are not a Pango-matching break after / - or BA without a CJK neighbour or beside a no-break space`,
   );
 }

@@ -1,6 +1,6 @@
 # Latin line breaks after solidus and hyphens (research notes, 2026-10-01)
 
-For #222: where Inkscape 1.2.2 and Pango 1.50.12 break Latin text after `/`, `-` and BA, and what Kalamo's `lineBreakUnits` changes from `main` (2070333). Decision: ADR-0085.
+For #222: where Inkscape 1.2.2 and Pango 1.50.12 break Latin text after `/`, `-` and BA, and what Kalamo's `lineBreakUnits` changes from `main` (2070333). Decision: ADR-0085. #224 extends the same scripts to no-break spaces (ADR-0087), in its section at the end. The figures before that section come from the scripts as #222 left them, at d6e0e0a.
 
 Legend as in `06-illustrator-drawing-tools.md`: **[A]** the Adobe doc states it; **[M]** measured here. ADR-0085 records the Illustrator search, which is unverified.
 
@@ -34,3 +34,26 @@ In both pools, no difference from Pango falls after `/`, `-` or BA without a CJK
 ```
 
 A text changes when its `layoutText`, `glyphs`, `pointType` or `areaFrame` differs. The other 29,216 give identical values.
+
+## No-break spaces (#224) [M]
+
+#224 asks where Pango and Inkscape break beside U+00A0, U+2007, U+202F and U+FEFF, and what ADR-0087 changes from `main` (f14ce8c). The same scripts measure it, each extended:
+
+- `inkscape.mjs` adds ten frames: the four no-break frames of #224, 60 wide, and `xxxxx aaaaaaaaa␣bbbb` right-aligned with U+00A0, U+202F, U+2007, U+FEFF and U+0020 for ␣, and with nothing there (`aaaaaaaaaa`). It also prints each line tspan's `x`. Every right-aligned `aaaaaaaaa` line starts at 5.568, the bare one too, so Inkscape hangs each of the four as it hangs U+0020. Had it not, the U+2007 line would start 5.964 further left.
+- `check.ts` adds U+00A0 and U+202F to the `latin` pool, and a rule for positions beside them, which it prints on their own line when a space comes before them. `check.ts latin f14ce8c` prints:
+
+  ```
+  20000 strings, 3014 with a break that differs from Pango's
+  1752 IS, CL, CP, PR or PO before NU, OP, PR or PO
+  1315 a space before it: LB13 to LB16, across spaces
+  282 a CJK neighbour: ADR-0064's pairs
+  10 a space before a no-break space: LB13 to LB16, across spaces
+  against f14ce8c: 5114 strings change at 6565 positions, 5458 of them a removed break; 10 differ from Pango after a space (LB13 to LB16, across spaces); 0 others are not a Pango-matching break after / - or BA without a CJK neighbour or beside a no-break space
+  ```
+
+  Ten positions beside a no-break space differ from Pango, each a space before it: `OP SP ÷ GL`, such as `( ␣` and `「 ␣`. Pango keeps them whole by LB14 across the space, and Kalamo breaks there as it breaks `( a`, which #224 and ADR-0085 leave out. No other position beside a no-break space differs. They are the ten changed positions the comparison counts after a space. `check.ts cjk f14ce8c` changes nothing.
+- `regress.ts` joins words with the four characters, ` ␣` and `-␣` too, and counts the texts that hold one. `regress.ts f14ce8c` prints:
+
+  ```
+  60000 texts, 51730 hold a no-break space or U+FEFF; 27614 changed, 0 of them without one
+  ```
