@@ -22,7 +22,7 @@ import { COMPOSITING, near } from "../../../fixtures/compositing.ts";
 import fixture from "../../../fixtures/documents/inkscape.kalamo.json?raw";
 import { RED_2x2_PNG } from "../../../fixtures/images.ts";
 import { MIDPOINT_DOC, midpointEdits } from "../../../fixtures/midpoint-edits.ts";
-import { differs, VECTOR_BUDGET } from "../../../fixtures/png.ts";
+import { changedPixels, differs, VECTOR_BUDGET } from "../../../fixtures/png.ts";
 import { LAZY_FONTS, renderFonts, svgToPixels, svgToPng } from "./png.ts";
 import { fit, renderSvg } from "./svg.ts";
 
@@ -197,15 +197,15 @@ it.each([
         ranges: [{ start: 3, end: 12, fill: "#FF0000", baselineShift: 2 }],
       },
     ]).nodes as [Node];
-    const pixels = async () => (await svgToPixels(renderSvg(doc), 2)).pixels;
-    const area = await pixels();
-    expect(area.some((v) => v !== 255)).toBe(true);
+    const draw = () => svgToPixels(renderSvg(doc), 2);
+    const area = await draw();
+    expect(area.pixels.some((v) => v !== 255)).toBe(true);
     updateNodes(doc, [{ nodeId: t.id, patch: { kind: "point" } }]);
     expect(doc.nodes.get(t.id)).toMatchObject({ kind: "point" });
-    expect(await pixels()).toEqual(area);
+    expect(changedPixels(area.pixels, (await draw()).pixels, area.width)).toEqual([]);
     updateNodes(doc, [{ nodeId: t.id, patch: { kind: "area" } }]);
     expect(doc.nodes.get(t.id)).toMatchObject({ kind: "area" });
-    expect(await pixels()).toEqual(area);
+    expect(changedPixels(area.pixels, (await draw()).pixels, area.width)).toEqual([]);
   },
 );
 
