@@ -1,11 +1,17 @@
-import { type ClientMessage, PRESENCE_INTERVAL, type ServerMessage } from "@kalamo/sync";
+import {
+  type ClientMessage,
+  PRESENCE_INTERVAL,
+  type PresenceMessage,
+  type ServerMessage,
+} from "@kalamo/sync";
 
-export type Cursor = { x: number; y: number } | null;
+/** The pointer in document coordinates, or null off the canvas (ADR-0090). */
+export type Pointer = PresenceMessage["cursor"];
 
 /** Another connection to the Document, as its last messages left it (ADR-0090). */
 export interface PeerView {
   actor: string;
-  cursor: Cursor;
+  cursor: Pointer;
   selection: string[];
 }
 
@@ -41,9 +47,9 @@ const MAX_IDS = 1000;
  * and on each `joined`, which asks for it.
  */
 export function presenceSender(post: (msg: ClientMessage) => void, selection: string[] = []) {
-  let cursor: Cursor = null;
+  let cursor: Pointer = null;
   /** What the Peers last got; null when they must get everything. */
-  let sent: { cursor: Cursor; selection: string[] } | null = null;
+  let sent: { cursor: Pointer; selection: string[] } | null = null;
   let lastAt = Number.NEGATIVE_INFINITY;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -67,7 +73,7 @@ export function presenceSender(post: (msg: ClientMessage) => void, selection: st
     else timer = setTimeout(flush, wait);
   };
   return {
-    update(next: { cursor?: Cursor; selection?: string[] }) {
+    update(next: { cursor?: Pointer; selection?: string[] }) {
       if (next.cursor !== undefined) cursor = next.cursor;
       if (next.selection) selection = next.selection;
       schedule();

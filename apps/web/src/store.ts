@@ -11,7 +11,7 @@ import {
 import { create } from "zustand";
 import { parseKey } from "./direct.ts";
 import type { ImageCache } from "./images.ts";
-import { type Cursor, presenceSender } from "./presence.ts";
+import { type Pointer, presenceSender } from "./presence.ts";
 import { afterProbe, type Probe, receive, type ViewState } from "./receive.ts";
 import type { Tool, ToolGroup } from "./toolbox.ts";
 import type { FillStroke } from "./tools.ts";
@@ -105,7 +105,7 @@ let socket: WebSocket | null = null;
 let presence: ReturnType<typeof presenceSender> | null = null;
 
 /** The pointer over the canvas in document coordinates, or null once it is off it (ADR-0090). */
-export const pointerAt = (cursor: Cursor) => presence?.update({ cursor });
+export const pointerAt = (cursor: Pointer) => presence?.update({ cursor });
 
 /**
  * Each Document Tab's viewport, Selection and Isolation while another tab is shown, for the page's
@@ -140,7 +140,7 @@ async function probe(docId: string): Promise<Probe> {
 }
 
 /** The Document's Actor rows' names; none when the request fails, so ids label them. */
-async function actorNames(docId: string): Promise<Map<string, string>> {
+async function fetchActorNames(docId: string): Promise<Map<string, string>> {
   try {
     const res = await fetch(`/api/docs/${docId}/actors`);
     if (!res.ok) return new Map();
@@ -185,11 +185,11 @@ export function connect(docId: string): () => void {
   const unwatch = useStore.subscribe((s, prev) => {
     if (s.selection !== prev.selection) sender.update({ selection: s.selection });
   });
-  /** The Actors this connection fetched the names for, at most once each. */
+  /** The Actors this connection fetched the names for, at most once each; a fetch gets them all. */
   let asked = new Set<string>();
-  const nameActors = (actors: string[]) => {
+  const fetchNames = (actors: string[]) => {
     for (const a of actors) asked.add(a);
-    actorNames(docId).then((names) => {
+    fetchActorNames(docId).then((names) => {
       if (!stopped) useStore.setState({ actorNames: names });
     });
   };
@@ -221,13 +221,13 @@ export function connect(docId: string): () => void {
       if (msg.type === "document" || msg.type === "joined") sender.resend();
       if (msg.type === "document") {
         asked = new Set();
-        nameActors(msg.peers.map((p) => p.actor));
+        fetchNames(msg.peers.map((p) => p.actor));
       } else if (
         (msg.type === "presence" || msg.type === "joined") &&
         !asked.has(msg.actor) &&
         !useStore.getState().actorNames.has(msg.actor)
       )
-        nameActors([msg.actor]);
+        fetchNames([msg.actor]);
       if (msg.type === "document") {
         accessChanged = false;
         const { tool } = useStore.getState();
