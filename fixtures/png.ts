@@ -59,3 +59,21 @@ export const VECTOR_BUDGET = 0.007;
 /** Whether the pixel at byte `i` of two RGBA8 images differs. */
 export const differs = (a: Uint8Array, b: Uint8Array, i: number) =>
   [0, 1, 2, 3].some((k) => Math.abs((a[i + k] ?? 0) - (b[i + k] ?? 0)) > TOLERANCE);
+
+/**
+ * The pixels where two RGBA8 images of `width` differ in any byte, the first ten as
+ * `x,y: before → after`. Vitest's `toEqual` walks a typed array element by element, which takes
+ * about 0.4 s per 400×240 image in workerd (#215).
+ */
+export function changedPixels(before: Uint8Array, after: Uint8Array, width: number) {
+  if (before.length !== after.length) return [`${before.length} bytes → ${after.length} bytes`];
+  const out: string[] = [];
+  let count = 0;
+  for (let i = 0; i < before.length; i += 4) {
+    if ([0, 1, 2, 3].every((k) => before[i + k] === after[i + k])) continue;
+    const [was, now] = [before.subarray(i, i + 4), after.subarray(i, i + 4)];
+    if (++count <= 10) out.push(`${(i / 4) % width},${Math.floor(i / 4 / width)}: ${was} → ${now}`);
+  }
+  if (count > 10) out.push(`and ${count - 10} more`);
+  return out;
+}
