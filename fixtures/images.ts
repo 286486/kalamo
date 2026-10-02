@@ -281,3 +281,78 @@ export const WEBP_CAP_LOSSY =
   "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" +
   "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" +
   "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==";
+
+// The oriented JPEG fixtures: one 8 × 4 baseline JPEG with no APP segment, its quadrants red, green,
+// blue and yellow (top left, top right, bottom left, bottom right), made once by sharp 0.35.4
+// (libvips) from raw RGB with `.jpeg({ quality: 100, chromaSubsampling: "4:4:4" })`. Each variant
+// adds one APP1 Exif block after the SOI: a TIFF header, then IFD0 of two SHORT entries, ImageWidth
+// (0x0100) 8 and Orientation (0x0112), and no next IFD.
+/** The 8 × 4 JPEG the oriented variants are made from, orientation 1 by having no Exif. */
+export const QUADRANTS_8x4_JPEG =
+  "data:image/jpeg;base64,/9j/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/2wBDAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAARCAAEAAgDAREAAhEBAxEB/8QAFAABAAAAAAAAAAAAAAAAAAAABv/EACIQAAADBwUAAAAAAAAAAAAAAAQUFgUGExUXGCQDCAo0Nv/EABUBAQEAAAAAAAAAAAAAAAAAAAUI/8QAJxEAAAQDBgcAAAAAAAAAAAAABhQVFgcXGAMEBQglNwkKGSMmNTb/2gAMAwEAAhEDEQA/AD3Gkdpibj71Kzglkjbck3ki3dlqirxOPKa7DOHJGyu+aLlcWBHExp95trK7AvIN0/6TANKia9Vj/wDJhgOl9i03NXcoQDFKSniJPSpx5R1E4TuBVSMWNYnxQW7XPeZ4yOV5Xdm7w0a8y0t7bP2UP1pal+EfolZNSdIIH8TO/wD/2Q==";
+
+/**
+ * QUADRANTS_8x4_JPEG with an Exif `orientation`, little-endian (`II`) unless `bigEndian`; `ifd0`
+ * overrides IFD0's offset, so a value past the block makes the EXIF malformed.
+ */
+export function orientedJpeg(
+  orientation: number,
+  { bigEndian = false, ifd0 = 8 }: { bigEndian?: boolean; ifd0?: number } = {},
+): string {
+  const le = !bigEndian;
+  const tiff = new DataView(new ArrayBuffer(8 + 2 + 2 * 12 + 4));
+  tiff.setUint16(0, le ? 0x4949 : 0x4d4d);
+  tiff.setUint16(2, 42, le);
+  tiff.setUint32(4, ifd0, le);
+  tiff.setUint16(8, 2, le);
+  for (const [k, tag, value] of [
+    [0, 0x0100, 8],
+    [1, 0x0112, orientation],
+  ] as const) {
+    const e = 10 + 12 * k;
+    tiff.setUint16(e, tag, le);
+    tiff.setUint16(e + 2, 3, le);
+    tiff.setUint32(e + 4, 1, le);
+    tiff.setUint16(e + 8, value, le);
+  }
+  const length = 2 + 6 + tiff.byteLength;
+  // atob and btoa, since Node 24 outside Vitest has no Uint8Array.fromBase64.
+  const jpeg = Uint8Array.from(atob(QUADRANTS_8x4_JPEG.split(",")[1] ?? ""), (c) =>
+    c.charCodeAt(0),
+  );
+  const bytes = new Uint8Array([
+    0xff,
+    0xd8,
+    0xff,
+    0xe1,
+    length >> 8,
+    length & 0xff,
+    ...[0x45, 0x78, 0x69, 0x66, 0, 0],
+    ...new Uint8Array(tiff.buffer),
+    ...jpeg.subarray(2),
+  ]);
+  return `data:image/jpeg;base64,${btoa(String.fromCharCode(...bytes))}`;
+}
+
+/** The quadrant colours. */
+export const QUADRANT = {
+  R: [255, 0, 0],
+  G: [0, 255, 0],
+  B: [0, 0, 255],
+  Y: [255, 255, 0],
+} as const;
+
+/**
+ * Each orientation's upright photo, its quadrants' colours top left, top right, bottom left, bottom
+ * right, worked out by hand from the TIFF 6.0 definitions; checked against Inkscape 1.2.2.
+ */
+export const UPRIGHT_QUADRANTS: Record<number, string> = {
+  1: "RGBY",
+  2: "GRYB",
+  3: "YBGR",
+  4: "BYRG",
+  5: "RBGY",
+  6: "BRYG",
+  7: "YGBR",
+  8: "GYRB",
+};
