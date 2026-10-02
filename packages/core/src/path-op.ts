@@ -772,6 +772,9 @@ const EMPTY: Record<Combining, string> = {
   minus_back: "The objects behind cover all of the frontmost one.",
 };
 
+/** Why a text is refused where an outline is needed. */
+const OUTLINES_HINT = "A text has no outline until Create Outlines, still to come.";
+
 /**
  * The paths and Live Shapes of `n` that paint, back to front, as a Shape Mode or Make takes a
  * selected Node: a Group or Layer's leaves, no Clipping Path or mask, nor what a mask holds.
@@ -810,13 +813,9 @@ function shapeMode(
       const what =
         node.type === "group" || node.type === "layer"
           ? `A ${node.type} with no path or Live Shape`
-          : "clipping" in node && node.clipping
-            ? "A Clipping Path"
-            : `A ${node.type}`;
+          : notCompoundPart(node);
       const hint =
-        node.type === "text"
-          ? "A text has no outline until Create Outlines, still to come."
-          : "Name paths, Live Shapes, or Groups of them.";
+        node.type === "text" ? OUTLINES_HINT : "Name paths, Live Shapes, or Groups of them.";
       throw invalid(`nodeIds[${i}]`, `${what} is not a ${PATH_OP_TEXT[op].menu} operand.`, hint);
     }
     if (node.parentId === null) {
@@ -933,7 +932,7 @@ function makeCompoundPath(doc: Document, nodeIds: string[]): PathOpResult {
       if (!what) return node as WithAnchors;
       const hint =
         node.type === "text"
-          ? "A text has no outline until Create Outlines, still to come."
+          ? OUTLINES_HINT
           : "Name paths and Live Shapes; select the ones inside a Group.";
       throw invalid(at, `${what} cannot be part of a Compound Path.`, hint);
     })

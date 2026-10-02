@@ -1047,6 +1047,18 @@ describe("pathOp Shape Modes, on real PathKit (ADR-0104)", () => {
       message: "Minus Back combines two or more objects.",
     });
     expect(await fails([layer, a.id])).toMatchObject({ path: "nodeIds[0]" });
+    const image = { ...a, id: "image", type: "image", index: "a9" } as unknown as Node;
+    const mask = { ...a, id: "mask", opacityMask: {}, index: "a8" } as unknown as Node;
+    for (const n of [image, mask]) doc.nodes.set(n.id, n);
+    expect(await fails([a.id, image.id])).toMatchObject({
+      path: "nodeIds[1]",
+      message: "An image is not a Unite operand.",
+    });
+    expect(await fails([a.id, mask.id])).toMatchObject({
+      path: "nodeIds[1]",
+      message: "An Opacity Mask is not a Unite operand.",
+    });
+    for (const n of [image, mask]) doc.nodes.delete(n.id);
     expect(await fails([a.id, "nope"])).toMatchObject({
       code: "NODE_NOT_FOUND",
       path: "nodeIds[1]",
