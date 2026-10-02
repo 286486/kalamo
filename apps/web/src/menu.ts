@@ -33,7 +33,7 @@ import {
 import { shareDialog } from "./share.ts";
 import { startSimplify } from "./simplify.ts";
 import { splitGridDialog } from "./splitGrid.ts";
-import { canEdit, type State, send, useStore } from "./store.ts";
+import { afterReverse, canEdit, type State, send, useStore } from "./store.ts";
 import { OPENABLE } from "./tabs.ts";
 import { drawing, undoAnchor } from "./tools.ts";
 import { artboardsRect, fit, zoomAt, zoomStep } from "./viewport.ts";
@@ -397,26 +397,28 @@ export function documentMenus(tabs: {
               if (s.tool === "curvature" && drawing(s)) return true;
               return doc !== null && s.selection.some((id) => editable(doc, doc.nodes.get(id)));
             },
-            run: () => {
-              const { doc, selection, anchors, segments, tool } = useStore.getState();
-              // The Curvature tool removes an Anchor and keeps the curve connected (research 06 §2).
-              if (tool === "curvature" && removeCurveAnchor()) return;
-              if (!doc) return;
-              if (tool === "curvature" && anchors.length > 0) {
-                sendAnchorEdits(curvatureClearInputs(doc, selection, anchors));
-                return;
-              }
-              if (anchors.length > 0 || segments.length > 0) {
-                // Selected Anchors go with their segments and selected segments alone, opening the
-                // path (research §4), and selected objects with neither go whole: one command per
-                // path.
-                sendAnchorEdits(clearInputs(doc, selection, anchors, segments));
-                return;
-              }
-              // The answering tx prunes the Selection; a rejection keeps it for another press.
-              const nodeIds = selection.filter((id) => editable(doc, doc.nodes.get(id)));
-              if (nodeIds.length > 0) send({ type: "delete", nodeIds });
-            },
+            // A Delete while a Reverse Path Direction press is in flight waits for it (ADR-0110).
+            run: () =>
+              afterReverse(() => {
+                const { doc, selection, anchors, segments, tool } = useStore.getState();
+                // The Curvature tool removes an Anchor and keeps the curve connected (research 06 §2).
+                if (tool === "curvature" && removeCurveAnchor()) return;
+                if (!doc) return;
+                if (tool === "curvature" && anchors.length > 0) {
+                  sendAnchorEdits(curvatureClearInputs(doc, selection, anchors));
+                  return;
+                }
+                if (anchors.length > 0 || segments.length > 0) {
+                  // Selected Anchors go with their segments and selected segments alone, opening the
+                  // path (research §4), and selected objects with neither go whole: one command per
+                  // path.
+                  sendAnchorEdits(clearInputs(doc, selection, anchors, segments));
+                  return;
+                }
+                // The answering tx prunes the Selection; a rejection keeps it for another press.
+                const nodeIds = selection.filter((id) => editable(doc, doc.nodes.get(id)));
+                if (nodeIds.length > 0) send({ type: "delete", nodeIds });
+              }),
           },
         ]),
       ],
@@ -468,10 +470,11 @@ export function documentMenus(tabs: {
               {
                 label: "Remove Anchor Points",
                 enabled: ({ doc, anchors }) => doc !== null && anchors.some((k) => inRange(doc, k)),
-                run: () => {
-                  const { doc, anchors } = useStore.getState();
-                  if (doc) sendAnchorEdits(removeAnchorInputs(doc, anchors));
-                },
+                run: () =>
+                  afterReverse(() => {
+                    const { doc, anchors } = useStore.getState();
+                    if (doc) sendAnchorEdits(removeAnchorInputs(doc, anchors));
+                  }),
               },
               {
                 ...pathOp("divide_below"),

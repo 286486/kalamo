@@ -1,6 +1,6 @@
 import type { Anchor } from "@kalamo/core";
 import { convertInputs, convertTargets } from "./direct.ts";
-import { send, useStore } from "./store.ts";
+import { afterReverse, send, useStore } from "./store.ts";
 
 /** One `path_edit` per path, previewed until each is answered, as a Direct Selection drag is. */
 function convert(type: Anchor["type"]) {
@@ -25,7 +25,12 @@ export function AnchorsBar() {
   const button = (type: Anchor["type"], label: string) => {
     const name = `Convert selected anchor points to ${type}`;
     return (
-      <button type="button" aria-label={name} title={name} onClick={() => convert(type)}>
+      <button
+        type="button"
+        aria-label={name}
+        title={name}
+        onClick={() => afterReverse(() => convert(type))}
+      >
         {label}
       </button>
     );

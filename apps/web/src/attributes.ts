@@ -6,7 +6,7 @@ import {
   type PathNode,
   runsClockwise,
 } from "@kalamo/core";
-import { parseKey, reversedKey } from "./direct.ts";
+import { parseKey } from "./direct.ts";
 import { compoundParts } from "./menu.ts";
 import { editable } from "./selection.ts";
 import { canEdit, type State, send, useStore } from "./store.ts";
@@ -68,9 +68,8 @@ export function directionOf(s: Selected): boolean | "mixed" | null {
 /**
  * Sets the chosen subpaths' direction as one Transaction; sends nothing when none differ. The
  * command names the direction, so a subpath someone else reverses first is left as it is
- * (ADR-0109). The selected Anchors and segments stay on the Anchors they named, renumbered as the
- * reverse renumbers them, so the panel keeps showing the direction it set; a rejection numbers them
- * back (#272).
+ * (ADR-0109). The selected Anchors and segments keep their numbers until the answer renumbers
+ * them, and Direct Selection edits wait for it (ADR-0110).
  */
 export function setDirection(s: Selected, on: boolean) {
   const { doc } = s;
@@ -79,10 +78,5 @@ export function setDirection(s: Selected, on: boolean) {
   const subpaths = flip.map(({ nodeId, subpath }) => ({ nodeId, subpath }));
   const commandId = send({ type: "path_reverse", subpaths, clockwise: on });
   const inputs = directionEdits(doc, subpaths, on);
-  useStore.setState({
-    edit: { inputs, commandIds: inputs.map(() => commandId) },
-    reversing: { commandId, subpaths },
-    anchors: s.anchors.map(reversedKey(doc, subpaths, false)),
-    segments: s.segments.map(reversedKey(doc, subpaths, true)),
-  });
+  useStore.setState({ reversing: { commandId, subpaths, inputs } });
 }

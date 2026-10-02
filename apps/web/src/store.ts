@@ -125,6 +125,23 @@ export function send(command: Command): string {
   return id;
 }
 
+/** Direct Selection edits made while a Reverse Path Direction press is in flight, oldest first. */
+let held: (() => void)[] = [];
+
+/**
+ * Runs a Direct Selection edit now, or once the Reverse Path Direction press in flight is answered,
+ * on the Document and keys as they are then (ADR-0110).
+ */
+export function afterReverse(edit: () => void) {
+  if (useStore.getState().reversing) held.push(edit);
+  else edit();
+}
+
+/** Runs the held edits in order; one that presses Reverse Path Direction again holds the rest. */
+export function runHeld() {
+  while (held.length > 0 && !useStore.getState().reversing) held.shift()?.();
+}
+
 /** Sends a signed-out person to sign in, coming back to this page. */
 export const goSignIn = () =>
   location.replace(`/?return=${encodeURIComponent(location.pathname + location.search)}`);
@@ -162,6 +179,7 @@ async function fetchActors(docId: string): Promise<Pick<State, "actorNames" | "a
  * connected, so switching tabs starts over from the Document sent on connect (ADR-0030).
  */
 export function connect(docId: string): () => void {
+  held = [];
   useStore.setState({
     doc: null,
     live: false,
@@ -229,6 +247,7 @@ export function connect(docId: string): () => void {
       const { state, effects } = receive(useStore.getState(), msg, docId, Date.now());
       effects.forEach(run);
       useStore.setState(state);
+      runHeld();
     };
     ws.onclose = (e) => {
       if (stopped) return;

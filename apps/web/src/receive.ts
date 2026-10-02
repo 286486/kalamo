@@ -11,12 +11,11 @@ import {
   type PathOpInput,
   paintOrder,
   pathOp,
-  runsClockwise,
   transformNodes,
 } from "@kalamo/core";
 import { applyBroadcast, type Role, type ServerMessage } from "@kalamo/sync";
 import type { CurveAnchor } from "./curvature.ts";
-import { inRange, parseKey, reversedKey, segmentInRange } from "./direct.ts";
+import { inRange, parseKey, reversedKey, segmentInRange, turnedOf } from "./direct.ts";
 import type { PaintPreview } from "./gradient.ts";
 import { prune } from "./isolation.ts";
 import { type Areas, areasAfter, type Peers, peersAfter } from "./presence.ts";
@@ -96,14 +95,15 @@ export interface PathDrag {
 }
 
 /**
- * A `path_reverse` in flight and the subpaths it renumbered the selected Anchors and segments on,
- * ahead of its answer; a rejection numbers them back (#272). Another Actor's edit to a path clears
- * its keys, so it takes the path out. Kept apart from `edit`, which the next Direct Selection
+ * A `path_reverse` in flight, the subpaths it names, and its preview, drawn on the Document's
+ * canvas only. The keys stay numbered as `doc` runs until its answer renumbers them, and Direct
+ * Selection edits wait for it (ADR-0110). Kept apart from `edit`, which the next Direct Selection
  * action replaces.
  */
 export interface Reversing {
   commandId: string;
   subpaths: { nodeId: string; subpath: number }[];
+  inputs: PathEditInput[];
 }
 
 /**
@@ -230,14 +230,8 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     return {};
   if (msg.type === "rejected") {
     const gone = msg.error.code === "NODE_GONE";
-    const back = s.reversing?.commandId === msg.id ? s.reversing.subpaths : undefined;
     return {
-      ...(s.doc &&
-        back && {
-          anchors: s.anchors.map(reversedKey(s.doc, back, false)),
-          segments: s.segments.map(reversedKey(s.doc, back, true)),
-          reversing: null,
-        }),
+      ...(s.reversing?.commandId === msg.id && { reversing: null }),
       ...(s.drag?.commandId === msg.id && { drag: null }),
       ...settlePending(s.pending, msg.id),
       ...(s.opPreview?.commandId === msg.id && { opPreview: null }),
@@ -281,22 +275,14 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     const changed = !touched || touched.has(parseKey(key).nodeId);
     return !changed || ((own || !touched) && inRangeOf(doc, key));
   };
-  // A reconnect loses the answer to a press in flight; a subpath that still runs as it did never got
-  // it, so its keys are numbered back.
+  // The press's answer, or the Document sent on reconnect, settles it: keys on a subpath it turned
+  // are renumbered to stay on their points (ADR-0110).
+  const settled =
+    !!s.reversing && (msg.type === "document" || msg.commandId === s.reversing.commandId);
   const prior = s.doc;
-  const unreversed =
-    msg.type === "document" && prior && s.reversing
-      ? s.reversing.subpaths.filter((t) => direction(prior, t) === direction(doc, t))
-      : [];
-  const anchors = s.anchors.map(reversedKey(doc, unreversed, false)).filter(kept(inRange));
-  const segments = s.segments.map(reversedKey(doc, unreversed, true)).filter(kept(segmentInRange));
-  // The press's answer or a reconnect settles its renumbering.
-  const reversing =
-    !s.reversing || msg.type === "document" || msg.commandId === s.reversing.commandId
-      ? null
-      : own
-        ? s.reversing
-        : { ...s.reversing, subpaths: s.reversing.subpaths.filter((t) => !touched?.has(t.nodeId)) };
+  const turned = settled && prior && s.reversing ? turnedOf(prior, doc, s.reversing.subpaths) : [];
+  const anchors = s.anchors.map(reversedKey(doc, turned, false)).filter(kept(inRange));
+  const segments = s.segments.map(reversedKey(doc, turned, true)).filter(kept(segmentInRange));
   const skipped = msg.type === "tx" ? (msg.skippedIds?.length ?? 0) : 0;
   // A selected Node that a browser's command moved into a new Group selects that Group, as Make
   // Clipping Mask does; an Agent's edit leaves the person's Selection alone.
@@ -337,7 +323,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     anchors,
     segments,
     ...(msg.type === "document" ? { edit: null } : settle(s.edit, msg.commandId)),
-    ...(reversing !== s.reversing && { reversing }),
+    ...(settled && { reversing: null }),
     ...(msg.type === "document"
       ? s.pending.length > 0 && { pending: [] }
       : settlePending(s.pending, msg.commandId)),
@@ -397,7 +383,7 @@ export function copyInput(doc: Document, { nodeIds, dx, dy }: Drag): DuplicateIn
  * committed applies again unchanged; one core refuses, such as on a Node deleted meanwhile, is left
  * out here and rejected by the DO.
  */
-export function previewEdit(doc: Document, { inputs }: PathDrag): Document {
+export function previewEdit(doc: Document, { inputs }: Pick<PathDrag, "inputs">): Document {
   const shown = { ...doc, nodes: new Map(doc.nodes) };
   for (const input of inputs) {
     try {
@@ -431,12 +417,6 @@ function settle(edit: PathDrag | null, id: string | undefined): { edit?: PathDra
   const inputs = edit.inputs.filter((_, i) => ids[i] !== id);
   const commandIds = ids.filter((c) => c !== id);
   return { edit: inputs.length > 0 ? { inputs, commandIds } : null };
-}
-
-/** Which way subpath `t` runs in `doc`; undefined when it is gone. */
-function direction(doc: Document, t: { nodeId: string; subpath: number }) {
-  const n = doc.nodes.get(t.nodeId);
-  return n?.type === "path" ? runsClockwise(doc, n, t.subpath) : undefined;
 }
 
 /** The pending creates without the one whose command `id` was answered or rejected. */

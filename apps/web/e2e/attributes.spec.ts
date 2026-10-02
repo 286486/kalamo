@@ -316,3 +316,82 @@ test("a Reverse Path Direction press lost to a reconnect leaves the chosen Ancho
   await expect.poll(() => d(id)).toMatch(/C[^LZ]* 40 60 C/);
   expect(await d(id)).toMatch(/L 60 40 Z$/);
 });
+
+// #274, ADR-0110: while a press is in flight, a click selects the Anchor under the pointer and an
+// edit waits for the answer, so both act on the Anchors the person chose whatever the answer.
+// The hole runs (40, 40), (40, 60), (60, 60), (60, 40); reversed, (40, 40), (60, 40), (60, 60),
+// (40, 60). The chosen (40, 60) and (60, 60) are Anchors 1 and 2, then 3 and 2.
+const outer = ["20 20", "80 20", "80 80", "20 80"];
+const edits = {
+  drag: {
+    run: async (page: Page, at: (x: number, y: number) => readonly [number, number]) => {
+      await page.mouse.move(...at(40, 60));
+      await page.mouse.down();
+      await page.mouse.move(...at(45, 60), { steps: 4 });
+      await page.mouse.up();
+    },
+    accepted: ["40 40", "60 40", "65 60", "45 60"],
+    rejected: ["40 40", "45 60", "65 60", "60 40"],
+  },
+  delete: {
+    run: async (page: Page) => page.keyboard.press("Delete"),
+    // What is left of the hole is one open segment, run as the hole then ran.
+    accepted: ["40 40", "60 40"],
+    rejected: ["60 40", "40 40"],
+  },
+  convert: {
+    run: async (page: Page) =>
+      page
+        .getByRole("toolbar", { name: "Anchors" })
+        .getByRole("button", { name: "Convert selected anchor points to smooth" })
+        .click(),
+    accepted: null,
+    rejected: null,
+  },
+};
+for (const outcome of ["accepted", "rejected"] as const) {
+  for (const [name, edit] of Object.entries(edits)) {
+    test(`a click and a ${name} while a Reverse Path Direction press is in flight act on the chosen Anchors, ${outcome}`, async ({
+      page,
+      request,
+    }) => {
+      const { ids, held, hold, at, d, button } = await rings(page, request, [0]);
+      const [id] = ids as [string];
+      await page.keyboard.press("a");
+      await page.mouse.click(...at(40, 60));
+      await expect(button("Reverse Path Direction Off")).toHaveAttribute("aria-pressed", "true");
+
+      hold();
+      await button("Reverse Path Direction On").click();
+      await expect.poll(() => held.length).toBe(1);
+      await page.keyboard.down("Shift");
+      await page.mouse.click(...at(60, 60));
+      await page.keyboard.up("Shift");
+      await edit.run(page, at);
+      // The edit waits for the answer.
+      await page.waitForTimeout(200);
+      expect(points(await d(id))).toEqual(points(ring(0)));
+      const [press] = held;
+      if (outcome === "accepted") press?.pass();
+      else {
+        press?.answer({
+          type: "rejected",
+          id: press.id,
+          error: { code: "INVALID_PATH", message: "Rejected for the test.", hint: "" },
+        });
+      }
+      const hole = edit[outcome];
+      if (hole) await expect.poll(async () => points(await d(id))).toEqual([...outer, ...hole]);
+      else {
+        // The chosen Anchors turn smooth, so the segments either side of each become curves; the
+        // others stay corners with straight segments between them.
+        await expect.poll(() => d(id)).toMatch(/C[^LZ]* 40 60 C/);
+        expect(await d(id)).toMatch(/C[^LZ]* 60 60 C/);
+        expect(await d(id)).not.toMatch(/C[^LZ]* (40 40|60 40) C/);
+      }
+      if (outcome === "accepted" && name !== "delete") {
+        await expect(button("Reverse Path Direction On")).toHaveAttribute("aria-pressed", "true");
+      }
+    });
+  }
+}
