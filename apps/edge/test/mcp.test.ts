@@ -49,6 +49,7 @@ it("lists the tools over HTTP (their schemas and annotations: packages/mcp serve
   const { body } = await rpc("tools/list");
   const tools = body.result.tools as { name: string }[];
   expect(tools.map((t) => t.name).sort()).toEqual([
+    "kalamo_chart_create_column",
     "kalamo_doc_changes",
     "kalamo_doc_create",
     "kalamo_doc_delete",

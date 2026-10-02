@@ -373,7 +373,7 @@ Kalamo 要填的空位是：**每个人带自己的 AI，人和这些 Agent 共�
 
 目标：Illustrator 9 种 Graph 的能力 + 现代图表工具（Datawrapper / Vega-Lite）的声明式便利，产物是普通矢量节点。
 
-- **F-CHART-01** 图表类型（P0，与 Illustrator 9 种 Graph 一一对应）：column、stacked_column、bar、stacked_bar、line、area、scatter、pie、radar；（P1）：donut、stacked_area、bubble、histogram、box_plot、heatmap、treemap、waterfall、funnel、gauge；（P2）sankey。
+- **F-CHART-01** 图表类型（P0，与 Illustrator 9 种 Graph 一一对应）：column、stacked_column、bar、stacked_bar、line、area、scatter、pie、radar；（P1）：donut、stacked_area、bubble、histogram、box_plot、heatmap、treemap、waterfall、funnel、gauge；（P2）sankey。目前只交付了 column：`kalamo_chart_create_column` 画出的是扩展后的输出，一个名为 `Column Graph` 的普通 Group（坐标轴、每个系列一个 Group、图例），尚无 `chart` 节点与数据绑定（ADR-0106）。
 - **F-CHART-02** 数据输入：内联 JSON 行、CSV 文本、粘贴表格（UI 里有 Graph Data 表格编辑器，支持 Tab / Enter 导航、转置、切换 x/y）、从 URL 加载（P2）。数字解析忽略千分位、支持百分号与货币符号。（P0）
 - **F-CHART-03** 编码（encoding）：x / y / series / size / color 字段映射；数值 / 分类 / 时间轴类型；轴范围、刻度数、格式（d3-format / d3-time-format 语法）、网格线、轴标题；图例位置；数据标签（位置、格式）；排序；空值处理。（P0 主要项）
 - **F-CHART-04** 主题（chartTheme 资源）：调色板（分类 / 顺序 / 发散）、字体、描边宽度、背景、间距；内置 4–6 套；Agent 可传主题对象。默认调色板需满足 WCAG 对比与色盲友好。（P0）
@@ -622,6 +622,8 @@ flowchart LR
 
 参照 Illustrator 的 9 个独立 Graph 工具与 antvis/mcp-server-chart 的实践，**每种图表类型一个具名工具**，共享 `ChartDataSchema` / `EncodingSchema` / `ThemeSchema` / `ChartOptionsSchema` 子 schema；更新与展开对所有类型通用。
 
+目前只有 `kalamo_chart_create_column`，输入 `{docId, parentId, data: {rows} | {csv}, encoding: {x, y}, frame, txId?, ifRev?}`，输出扩展后的 `Column Graph` Group 与其深度 2 的 `outline`；`theme` 与 `options` 尚未提供（ADR-0106）。实测 9 个同 schema 的具名工具约 29 KB，超出 ADR-0088 的工具定义预算，因此第二种图表类型落地时改为单工具 `kalamo_chart_create {chartType, …}`（下表"图表工具粒度"的备选方案），`kalamo_chart_create_column` 随之改名（ADR-0106）。
+
 | 工具 | 输入要点 | 输出 | 注 |
 |---|---|---|---|
 | `chart_create_column` / `chart_create_stacked_column` / `chart_create_bar` / `chart_create_stacked_bar` / `chart_create_line` / `chart_create_area` / `chart_create_scatter` / `chart_create_pie` / `chart_create_radar` | `docId`, `parentId`, `data`（rows 或 csv）, `encoding`, `frame{x,y,w,h}`, `theme?`（id 或内联）, `options`（axes, legend, labels, sort, stacking） | 回执 + 图表节点 id + 子节点大纲 + 警告（如标签被隐藏） | P0；与 Illustrator 9 种 Graph 一一对应 |
@@ -858,7 +860,7 @@ flowchart TD
 | 描摹 | imagetracerjs（Unlicense） | 许可干净 | potrace（GPL，否） |
 | 托管平台 | Cloudflare（Workers + DO + R2 + D1 + KV + Queues） | 用户决策；每文档一个 DO 天然契合"服务端权威 + 广播"模型；R2 无出站费；全球边缘 | AWS / Fly.io（运维更重） |
 | 开源许可 | Apache-2.0（全仓库） | 用户决策开源；Apache-2.0 含专利授权、对商业集成方友好，与 Skia（BSD）/ HarfBuzz（MIT）/ resvg（MPL）兼容 | MIT（无专利条款）；AGPL（保护托管业务但降低采用率） |
-| 图表工具粒度 | 每类型一个工具（`chart_create_column` …） | 参照 Illustrator 9 个 Graph 工具与 antvis 模式；可发现性高 | 单工具 + 枚举（若工具数成问题再合并） |
+| 图表工具粒度 | 每类型一个工具（`chart_create_column` …）；ADR-0106 实测 9 个工具超出工具定义预算，第二种类型落地时合并为单工具 + `chartType` 枚举 | 参照 Illustrator 9 个 Graph 工具与 antvis 模式；可发现性高 | 单工具 + 枚举（若工具数成问题再合并） |
 | 字体来源 | 本地字体（Local Font Access API）+ Google Fonts + 上传；内置 Source Sans 3，中日文逐字回退到内置 Noto Sans SC、韩文回退到内置 Noto Sans KR，随 Worker 静态打包、浏览器按字体族按需加载（ADR-0063、ADR-0066） | 参照 Illustrator 的"系统字体 + Adobe Fonts" | 仅上传 |
 | Headless 渲染（Worker） | resvg-wasm 为主，CanvasKit 补齐效果 | 体积小、启动快 | Browser Rendering（贵、慢，作回退） |
 
@@ -908,7 +910,7 @@ kalamo/
 | 阶段 | 周期（估） | 目标 | 退出标准 |
 |---|---|---|---|
 | **M0 基础骨架（headless-first）** | 4–6 周 | `core` 文档模型 + 命令 + 事务 + 历史；Canvas2D 渲染；**浏览器端只是查看器**：打开文档、缩放平移、选择、移动、删除、图层面板，不含绘图工具；`.kalamo.json` 导入导出；MCP（无状态 HTTP，本地 `wrangler dev`）：`doc_*`、`doc_outline`、`node_get/query`、`node_create/update/delete/transform`、`render`、`export(svg/png)`、`tx_*`；Agent 是 M0 唯一的画图者 | Claude Code 能创建 100 个矩形 / 文字并截图；浏览器能看到并拖动它们；撤销正常；core 测试在 workerd 中通过；3 个 Agent 基准任务用 `pnpm bench` 在本地跑通 |
-| **M1 MVP（Illustrator 第一梯队 + 图表 + 托管）** | 10–12 周 | 钢笔 / 曲率 / 铅笔；路径编辑与 `Object > Path` 主要命令；布尔（live + expand）与 Shape Builder；对齐分布、智能参考线；填充 / 描边 / 线性径向渐变 / 色板；文字（点 / 区域、HarfBuzz、转曲）；剪切蒙版；画板；**Inkscape 往返：可编辑 SVG 导出、SVG 导入（打开 / 置入）、多文档标签页与跨标签页复制粘贴、`pnpm roundtrip`**（ADR-0017）；9 个 `chart_create_*`（Illustrator 同款）+ `chart_update/expand` + `diagram_create`（Mermaid flowchart）；`validate`、`scene_describe`、skills；**Cloudflare 托管上线**：Worker + Document DO + R2 + D1、OAuth、Streamable HTTP MCP、resvg 渲染；Apache-2.0 公开仓库；**多人在场**：其他 User 的光标与选区、Agent 工作区域与意图展示（ADR-0086）；MCP 工具定义瘦身 | 成功指标表 §1.5 中的 Agent 基准任务 ≥ 80% 一次通过；SVG 往返 diff < 1%；托管版可被 Claude Desktop 远程连接；Inkscape 往返检查通过（像素 diff 在按画板分区的预算内，ADR-0017）；两位浏览器用户与两个不同 MCP 客户端的 Agent 同时编辑一份文档的基准任务通过（ADR-0086） |
+| **M1 MVP（Illustrator 第一梯队 + 图表 + 托管）** | 10–12 周 | 钢笔 / 曲率 / 铅笔；路径编辑与 `Object > Path` 主要命令；布尔（live + expand）与 Shape Builder；对齐分布、智能参考线；填充 / 描边 / 线性径向渐变 / 色板；文字（点 / 区域、HarfBuzz、转曲）；剪切蒙版；画板；**Inkscape 往返：可编辑 SVG 导出、SVG 导入（打开 / 置入）、多文档标签页与跨标签页复制粘贴、`pnpm roundtrip`**（ADR-0017）；9 种图表类型（Illustrator 同款，ADR-0106 起由一个 `chart_create` 加 `chartType` 提供）+ `chart_update/expand` + `diagram_create`（Mermaid flowchart）；`validate`、`scene_describe`、skills；**Cloudflare 托管上线**：Worker + Document DO + R2 + D1、OAuth、Streamable HTTP MCP、resvg 渲染；Apache-2.0 公开仓库；**多人在场**：其他 User 的光标与选区、Agent 工作区域与意图展示（ADR-0086）；MCP 工具定义瘦身 | 成功指标表 §1.5 中的 Agent 基准任务 ≥ 80% 一次通过；SVG 往返 diff < 1%；托管版可被 Claude Desktop 远程连接；Inkscape 往返检查通过（像素 diff 在按画板分区的预算内，ADR-0017）；两位浏览器用户与两个不同 MCP 客户端的 Agent 同时编辑一份文档的基准任务通过（ADR-0086） |
 | **M2 手绘 + 插画深度** | 8 周 | 压感手绘管线、Blob Brush、Eraser、Shaper；Calligraphic / Art 画笔；Appearance 多重 fill / stroke + Graphic Styles + 基础 Effects（阴影 / 发光 / 模糊 / 圆角 / 偏移）；不透明度蒙版；Symbols；Repeat；Blend；Recolor；Image Trace；可变宽度描边；路径文字；Asset Export、PDF 导出；连接线绑定；`run_script` 沙箱 | 插画基准任务通过；触控笔设备实测 |
 | **M3 性能与协作** | 6–8 周 | CanvasKit 渲染后端（浏览器与 Worker）；10k 节点性能达标；评论；软锁；版本历史（R2 快照）；Queues 长任务；审计与配额；Docker 自托管镜像 | §7.1 性能表全部达标 |
 | **M4 扩展** | 持续 | Freeform 渐变、Envelope、Live Paint 组、CMYK 文档模式（近似预览）、更多 Effects 与图表类型、Pattern Brush、OpenType 特性、PDF 导入、插件 API、纵排、稳定器 | 按需求排期 |
@@ -948,7 +950,7 @@ kalamo/
 |---|---|---|---|
 | 1 | 产品名与工具前缀 | **Kalamo**（2026-09-29 更名，见决策 51；更早为 Sable，因包名 / 域名冲突弃用）；MCP 工具前缀 `kalamo_`，npm `kalamo` 与 `@kalamo/*`，URI `kalamo://`，CLI `kalamo` | §1.1.1、ADR-0069 |
 | 2 | 托管 vs 本地 | **Cloudflare 官方托管**（Workers / Durable Objects / R2 / D1 / KV / Queues），M1 上线；本地与自托管运行同一 Worker 包（`wrangler dev` / workerd） | §6.2、§8 |
-| 3 | 图表工具粒度 | **每类型一个工具**，首批 9 个与 Illustrator Graph 工具一一对应 | §6.4.5 |
+| 3 | 图表工具粒度 | **每类型一个工具**，首批 9 个与 Illustrator Graph 工具一一对应；ADR-0106 实测超出工具定义预算，第二种类型落地时合并为单工具 + `chartType`（见决策 71） | §6.4.5、ADR-0106 |
 | 4 | 字体策略 | 参照 Illustrator（系统字体 + Adobe Fonts）：本地字体 + Google Fonts + 上传 | F-TEXT-02、§8.2 |
 | 5 | 图表数据来源 | 参照 Illustrator（导入文件 / 粘贴）：P0 支持内联与文件；URL 数据源 P2 且需白名单 | F-CHART-02 |
 | 6 | 插件系统 | 参照 Illustrator（有插件与脚本）：P2 提供插件 API，与 `run_script` 共用沙箱 | §8.4、M4 |
@@ -1016,6 +1018,7 @@ kalamo/
 | 68 | Template Layer 不导出（2026-10-02） | Layer 增加可选 `template`（缺省为 false，仅 Layer 有）：`render` 与画布照常绘制，`export` SVG / PNG 与 Export As SVG 在任何 Render Scope 都不写出它及其内容，只含模板内容的 scope 得到无图稿的有效结果；io 仍是一个写出器，由调用方选择（缺省不写）；复制不变；SVG 不写 `kalamo:template`（Illustrator 不导出模板图层，Inkscape 没有）；`.kalamo.json` 保存，无需迁移；`asTemplate` 设置它；图层面板显示模板图标 | ADR-0099、F-ILL-04、#65 |
 | 69 | Opacity Mask（2026-10-02） | 不设 `mask_group` 节点类型：Opacity Mask 是含一个带 `opacityMask: {clip, invert, link}` 子节点的 `group`，蒙版保留 Appearance、可为任意非 Layer 节点；一个 Group 至多一个蒙版且不同时有 Clipping Path；亮度系数随 resvg 与 Inkscape（实测一致），不取 Illustrator 的灰度转换；Clip / Invert / Link 依 Illustrator；SVG 为 `<g mask>` 加内联 `<mask>` 与 `kalamo:mask` 标记 | ADR-0103、F-MASK-02、#55 |
 | 70 | Shape Modes 固化形式（2026-10-02） | 不设 `path_boolean` 工具：Unite / Minus Front / Intersect / Exclude 为 `path_op` 的四个 op，产出普通 `path`（Illustrator 普通点击），实时 `compound_shape`（Alt 点击）待做；操作数在文档坐标下由后往前合成；Minus Front 取最后面操作数的外观与位置，其余取最上面的；`exclude` 为 evenodd，其余 nonzero（经 Skia FixWinding 使洞反向绕行）；结果无面积则失败且不改动 | ADR-0104、F-BOOL-01、#258 |
+| 71 | 图表追踪弹（2026-10-02） | `kalamo_chart_create_column` 输出扩展后的 `Column Graph` Group（Value Axis、Category Axis、每系列一个 Group、两个及以上系列时的 Legend），尚无 `chart` 节点；数据为 rows（至多 1000 行）或 RFC 4180 CSV，数字忽略千分位、`%` 与货币符号，空单元格为缺口；刻度为 d3 的 1/2/5 × 10ⁿ 并覆盖 0；Cluster Width 80%、Column Width 90%；Okabe–Ito 色盲友好调色板；类别标签放不下时警告 `CHART_LABELS_OVERLAP`；9 个同 schema 具名工具超出工具定义预算，第二种类型落地时合并为 `kalamo_chart_create {chartType}` | ADR-0106、F-CHART-01、#260 |
 
 **剩余开放问题**
 

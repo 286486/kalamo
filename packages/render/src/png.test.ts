@@ -2,6 +2,8 @@ import {
   BUNDLED_FAMILIES,
   BUNDLED_FONT,
   bounds,
+  CHART_PALETTE,
+  columnChart,
   convertToPath,
   createDocument,
   createNodes,
@@ -1287,4 +1289,46 @@ describe("a nested <svg> opens as resvg draws it (#237)", () => {
       if (differs(want.pixels, got.pixels, i)) differ++;
     expect(differ / (want.width * want.height)).toBeLessThanOrEqual(VECTOR_BUDGET);
   });
+});
+
+it("draws a three-series Column Graph's columns in their palette colours where the layout puts them", async () => {
+  const { doc, defaultLayerId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 500, height: 400, background: "#FFFFFF" }],
+  });
+  const { node } = columnChart({
+    parentId: defaultLayerId,
+    data: {
+      csv: "quarter,north,south,west\nQ1,120,80,100\nQ2,150,95,90\nQ3,170,110,130\nQ4,160,125,140\n",
+    },
+    encoding: { x: "quarter", y: ["north", "south", "west"] },
+    frame: { x: 50, y: 40, width: 400, height: 300 },
+  });
+  const [, ...made] = createNodes(doc, [node]).nodes;
+  const scale = 2;
+  const { pixels, width } = await svgToPixels(renderSvg(doc), scale);
+  const at = (x: number, y: number) => {
+    const i = 4 * (Math.floor(y * scale) * width + Math.floor(x * scale));
+    return `#${[0, 1, 2]
+      .map((k) => (pixels[i + k] ?? 0).toString(16).padStart(2, "0"))
+      .join("")
+      .toUpperCase()}`;
+  };
+  const columns = made.filter(
+    (n): n is Extract<Node, { type: "rect" }> =>
+      n.type === "rect" && doc.nodes.get(n.parentId ?? "")?.name !== "Legend",
+  );
+  expect(columns).toHaveLength(12);
+  for (const c of columns) {
+    const colour = (c.appearance.fills[0] as { color: string }).color;
+    expect(at(c.x + c.width / 2, c.y + c.height / 2), c.name).toBe(colour);
+    expect(at(c.x + c.width / 2, c.y + 1), c.name).toBe(colour);
+    // Background above the column and in the gap after it.
+    expect(at(c.x + c.width / 2, c.y - 2), c.name).toBe("#FFFFFF");
+    expect(at(c.x + c.width + c.width / 18, c.y + c.height / 2), c.name).toBe("#FFFFFF");
+  }
+  expect(new Set(columns.map((c) => (c.appearance.fills[0] as { color: string }).color))).toEqual(
+    new Set(CHART_PALETTE.slice(0, 3)),
+  );
 });

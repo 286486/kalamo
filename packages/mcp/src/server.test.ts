@@ -512,6 +512,68 @@ describe("write tools pass the write and its options apart", () => {
     });
   });
 
+  it.each(writeOptions)(
+    "chart_create_column: the Column Graph as one Group through createNodes, then its outline, with %s write options as given",
+    async (_, write) => {
+      const created = { ...receipt, createdIds: ["g", "a"] };
+      const outline = [
+        { id: "a", type: "group", name: "Value Axis", childCount: 3, visible: true, locked: false },
+      ];
+      const { service, call, called } = await harness({
+        createNodes: async () => created,
+        outline: async () => ({ rev: 2, nodes: outline as never }),
+      });
+      const result = await call("kalamo_chart_create_column", {
+        docId: "d",
+        parentId: "p",
+        data: { csv: 'q,sales\nQ1,"1,234"\nQ2,99\n' },
+        encoding: { x: "q", y: "sales" },
+        frame: { x: 0, y: 0, width: 400, height: 300 },
+        ...write,
+      });
+      expect(result.structuredContent).toEqual({ ...created, outline });
+      expect(called()).toEqual(["createNodes", "outline"]);
+      const [docId, nodes, opts] = service.createNodes.mock.calls[0] ?? [];
+      expect([docId, opts]).toStrictEqual(["d", write]);
+      expect(nodes).toMatchObject([{ type: "group", parentId: "p", name: "Column Graph" }]);
+      const txId = "txId" in write ? write.txId : undefined;
+      expect(service.outline).toHaveBeenCalledWith("d", { rootId: "g", depth: 2 }, txId);
+    },
+  );
+
+  it("chart_create_column warns on the Group, and refuses a bad cell or key before any write", async () => {
+    const created = { ...receipt, createdIds: ["g"] };
+    const { call, called } = await harness({
+      createNodes: async () => created,
+      outline: async () => ({ rev: 2, nodes: [] }),
+    });
+    const args = {
+      docId: "d",
+      parentId: "p",
+      data: { rows: [{ q: "A rather long category name", sales: 1 }] },
+      encoding: { x: "q", y: "sales" },
+      frame: { x: 0, y: 0, width: 60, height: 300 },
+    };
+    expect((await call("kalamo_chart_create_column", args)).structuredContent).toMatchObject({
+      warnings: [{ code: "CHART_LABELS_OVERLAP", nodeId: "g" }],
+    });
+    const rows = [1, 2, 3, 4].map((k) => ({ q: `Q${k}`, sales: k === 4 ? "n/a" : k }));
+    expect(
+      errorOf(await call("kalamo_chart_create_column", { ...args, data: { rows } })),
+    ).toMatchObject({ code: "INVALID_INPUT", path: "data.rows[3].sales" });
+    for (const [bad, path] of [
+      [{ ...args, theme: "dark" }, "theme"],
+      [{ ...args, encoding: { x: "q", y: "sales", series: "r" } }, "encoding.series"],
+      [{ ...args, data: { rows: args.data.rows, csv: "q,sales" } }, "data"],
+    ] as const) {
+      expect(errorOf(await call("kalamo_chart_create_column", bad))).toMatchObject({
+        code: "INVALID_INPUT",
+        path,
+      });
+    }
+    expect(called()).toEqual(["createNodes", "outline"]);
+  });
+
   it("mask_release", async () => {
     const { service, call } = await harness({ releaseMask: async () => receipt });
     await call("kalamo_mask_release", { docId: "d", nodeIds: ["g"], ...opts });
@@ -1153,7 +1215,10 @@ it("advertises each tool's real input schema, refusing unknown keys but in meta 
     walk(inputSchema, name);
   }
   // A failing SDK upgrade advertises the catch-all object instead, which fails every tool here.
-  expect(loose.filter((at) => !/\.properties\.(meta(\.anyOf\.\d)?|patch)$/.test(at))).toEqual([]);
+  // A chart row is a record keyed by its own field names.
+  expect(
+    loose.filter((at) => !/\.properties\.(meta(\.anyOf\.\d)?|patch|rows\.items)$/.test(at)),
+  ).toEqual([]);
   expect(loose).toContain("kalamo_node_update.properties.updates.items.properties.patch");
   expect(loose).toContain("kalamo_node_create.$defs.Node.oneOf.0.properties.meta");
 });
@@ -1326,6 +1391,7 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
     outputSchema: object;
   }[];
   expect(tools.map((t) => t.name).sort()).toEqual([
+    "kalamo_chart_create_column",
     "kalamo_doc_changes",
     "kalamo_doc_create",
     "kalamo_doc_delete",
@@ -1387,6 +1453,7 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
     ["asTemplate", "docId", "frame", "ifRev", "intent", "parentId", "src", "txId"].sort(),
   );
   for (const name of [
+    "kalamo_chart_create_column",
     "kalamo_freehand_stroke",
     "kalamo_mask_make",
     "kalamo_mask_release",
@@ -1637,7 +1704,7 @@ it("logs one line per call: Actor, tool, duration, node count, error code and re
 it("names every tool kalamo_ and knows the former name's tools and format as nothing (ADR-0069)", async () => {
   const { client, call } = await harness();
   const names = (await client.listTools()).tools.map((t) => t.name);
-  expect(names).toHaveLength(29);
+  expect(names).toHaveLength(30);
   expect(names.filter((n) => !n.startsWith("kalamo_") || n.includes(LEGACY_NAME))).toEqual([]);
 
   const failure = async (name: string) =>
