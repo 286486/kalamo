@@ -135,7 +135,7 @@ const isFrameable = (n: Node): n is ShapeNode => FRAMEABLE.has(n.type);
 /**
  * The frame, bounds, place and transform of Area Type whose `frameNodeId` names a closed Live Shape
  * or Path, as Illustrator's Area Type tool clicks a path (ADR-0078); refused, with nothing written,
- * for any other Node, a Clipping Path, a locked Node or another parent.
+ * for any other Node, a Clipping Path, a mask (ADR-0103), a locked Node or another parent.
  */
 function consume(
   doc: Document,
@@ -168,10 +168,11 @@ function consume(
       "frameNodeId names a closed Live Shape or Path: a rect, a closed ellipse, a polygon, a star or a closed path.",
     );
   }
-  if (node.clipping) {
+  if (node.clipping || node.opacityMask) {
+    const [what, mask] = node.clipping ? ["Clipping Path", "Clipping"] : ["mask", "Opacity"];
     throw invalid(
-      "A Clipping Path cannot be a frame.",
-      "Release the Clipping Mask first (mask_release), or frame the text in another shape.",
+      `A ${what} cannot be a frame.`,
+      `Release the ${mask} Mask first (mask_release), or frame the text in another shape.`,
     );
   }
   if (lockedIn(doc, node)) {

@@ -232,7 +232,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         'A bitmap (at most 5 MB, else LIMIT_EXCEEDED; a GIF\'s first frame; a WebP is stored as a PNG, an animated one fails INVALID_IMAGE) opens as one Artboard "Artboard 1" at 0, 0 of its upright pixel size, one pt per pixel, and Layer "Layer 1" holding one unnamed embedded Image filling it.',
         "name is the file's name: the Document is named by it without .svg, .kalamo.json, .png, .jpg, .jpeg, .gif or .webp; an SVG without it falls back to its sodipodi:docname or <title>, a .kalamo.json keeps its own name, and the rest are Untitled.",
         "The new Document gets its own docId and starts at rev 1. Ids from .kalamo.json, and z-<id> ids from SVG, are kept; SVG layers and pages become Layers and Artboards, units become pt (px counts as pt). nodes is its Layer list, as kalamo_doc_outline returns it at depth 1.",
-        "Embedded PNG, JPEG, GIF and WebP images come back as Images, a WebP stored as a PNG. A linked image (an href that is not a data: URL) comes back as a linked Image with file set to the href and no pixels, a missing link, and warnings says IMAGE_LINK_MISSING; nothing is fetched. One without width or height is dropped with INVALID_IMAGE, since nothing gives its size. SVG content Kalamo cannot hold yet (patterns, mesh gradients, filters, masks) imports as close as it can, or is dropped, and warnings lists each kind once. A Kalamo gradient whose inserted stops (kalamo:simulated) were edited, as in Inkscape, keeps the stops as drawn and warns SIMULATED_STOP_KEPT. A file that is not valid fails with a path into it and creates nothing.",
+        "Embedded PNG, JPEG, GIF and WebP images come back as Images, a WebP stored as a PNG. A linked image (an href that is not a data: URL) comes back as a linked Image with file set to the href and no pixels, a missing link, and warnings says IMAGE_LINK_MISSING; nothing is fetched. One without width or height is dropped with INVALID_IMAGE, since nothing gives its size. A mask imports as an Opacity Mask. SVG content Kalamo cannot hold yet (patterns, mesh gradients, filters, alpha or objectBoundingBox masks) imports as close as it can, or is dropped, and warnings lists each kind once. A Kalamo gradient whose inserted stops (kalamo:simulated) were edited, as in Inkscape, keeps the stops as drawn and warns SIMULATED_STOP_KEPT. A file that is not valid fails with a path into it and creates nothing.",
       ].join(" "),
       inputSchema: {
         content: z
@@ -382,6 +382,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         "Every Node writes name, visible, locked, opacity (0-1), blendMode, tags and meta. A Live Shape or path writes its parameters as kalamo_node_create takes them, and appearance. A layer or group writes appearance with contents, which must stay within its fills and strokes after the merge, and appearance: null removes it.",
         "A text writes content, fontFamily, fontStyle, fontSize, leading (null for Auto), tracking, alignment (null for left), ranges (writing content without them clears them), x, y and appearance; an Area Type also width and height, or frame, closed path data, and frame: null makes it the rectangle of its bounds. autoSize: true fits a rectangle's height to the lines and refits it on every edit; writing height or frame, or autoSize: false, turns it off. A shaped Area Type refuses x, y, width and height, its frame's bounds. kind converts Point Type and Area Type, keeping the id and every shown line; a patch with kind carries only name, visible, locked, opacity, blendMode, appearance, tags and meta.",
         "An image writes x, y, width, height, preserveAspectRatio, src (Relink, keeping the frame unless the patch sets it; an EXIF-oriented JPEG keeps the box shown) and file; file: null Embeds a linked image, failing INVALID_IMAGE without src, and src: null is refused.",
+        "An Opacity Mask's mask writes opacityMask's clip, invert and link; adding or deleting opacityMask is kalamo_mask_make's and kalamo_mask_release's.",
         `How kind converts and src Relinks: ${CONVENTIONS}.`,
         "transform, type, parentId, index and bounds are read-only: use kalamo_node_transform, kalamo_node_reparent and kalamo_node_reorder.",
         coordinates,
@@ -539,11 +540,12 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
   tool(
     "kalamo_mask_make",
     {
-      title: "Make Clipping Mask",
+      title: "Make Clipping or Opacity Mask",
       description: [
         "Clip Nodes by a shape, as Illustrator's Object > Clipping Mask > Make: a new Group, the Clipping Mask, takes the place of the topmost of them and holds clipNodeId and contentIds in their stacking order; the content draws only inside the clip Node, which becomes the Group's Clipping Path and loses its Fills and Strokes. An appearance given to it later with kalamo_node_update draws its Fills behind the content and its Strokes over it, unclipped.",
         "The clip Node is a Live Shape, a path or a text, which clips by its glyphs, and every Node listed shares its parent. The Group's geometricBounds are the Clipping Path's. Move the clip or the content with kalamo_node_transform; kalamo_mask_release undoes the clip.",
         "Or give layerId alone, as Illustrator's Layers panel button: the Layer's topmost child becomes its Clipping Path, losing its Fills and Strokes, and clips everything else in the Layer, sublayers and Nodes created in it later included. Nothing moves and no Group is made. INVALID_MASK when the Layer is already clipped, is empty, or its topmost child is hidden or is a Group, Layer or image.",
+        "kind \"opacity\", as Illustrator's Transparency panel Make Mask: the same Group, with the clip Node, any Node but a Layer, as its mask, keeping its appearance. Its luminance is the content's opacity: white shows, black hides, and its alpha multiplies in. clip (default true) hides content outside the mask, invert (default false) reverses its luminance, and the mask moves with the Group (opacityMask.link, set with kalamo_node_update). The Group's geometricBounds are the content's. No layerId.",
         "One Transaction. createdIds is the Group, none for a Layer; updatedIds the Nodes moved into it, or the Layer's new Clipping Path.",
       ].join(" "),
       inputSchema: { docId, ...MaskFields.shape, ...txWrite },
@@ -572,9 +574,9 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
   tool(
     "kalamo_mask_release",
     {
-      title: "Release Clipping Mask",
+      title: "Release Clipping or Opacity Mask",
       description:
-        "Stop Clipping Masks clipping, as Illustrator's Object > Clipping Mask > Release. List each by its Group's or Layer's id or its Clipping Path's id. The Group or Layer and its Nodes stay; the former Clipping Path keeps its appearance, which is empty unless one was given to it with kalamo_node_update.",
+        "Stop Clipping Masks clipping and Opacity Masks masking, as Illustrator's Object > Clipping Mask > Release and Transparency panel Release. List each by its Group's or Layer's id or its Clipping Path's or mask's id. The Group or Layer and its Nodes stay; the former Clipping Path keeps its appearance, which is empty unless one was given to it with kalamo_node_update, and the former mask paints again.",
       inputSchema: { docId, nodeIds: z.array(z.string()).min(1).max(1000), ...txWrite },
       outputSchema: WriteReceipt.shape,
       annotations: {

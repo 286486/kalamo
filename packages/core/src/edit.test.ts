@@ -2150,7 +2150,7 @@ describe("Area Type in a closed path (ADR-0078)", () => {
     expect(doc.nodes).toEqual(before);
   });
 
-  it("refuses a Clipping Path, a locked frame, another parent and a frame used twice", () => {
+  it("refuses a Clipping Path, a mask, a locked frame, another parent and a frame used twice", () => {
     const { doc, parentId, id } = scene();
     const refuses = (inputs: object[], path: string, hint: RegExp) => {
       const before = new Map(doc.nodes);
@@ -2176,6 +2176,14 @@ describe("Area Type in a closed path (ADR-0078)", () => {
       [text(clip.parentId as string, { frameNodeId: id("ellipse") })],
       "nodes[0].frameNodeId",
       /mask_release/,
+    );
+    // A mask is refused the same way (ADR-0103).
+    makeMask(doc, { clipNodeId: id("star"), contentIds: [id("path")], kind: "opacity" });
+    const mask = doc.nodes.get(id("star")) as Node;
+    refuses(
+      [text(mask.parentId as string, { frameNodeId: id("star") })],
+      "nodes[0].frameNodeId",
+      /Opacity Mask first \(mask_release\)/,
     );
   });
 

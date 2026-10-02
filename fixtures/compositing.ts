@@ -575,10 +575,7 @@ COMPOSITING.push(
   {
     name: "an Opacity Mask inside a Clipping Mask is clipped",
     nodes: [...masking("#808080").nodes, rect("frame", 0, 0, 100, 100, WHITE)],
-    masks: [
-      ...masking("#808080").masks,
-      { name: "outer", clip: "frame", content: ["masked"] },
-    ],
+    masks: [...masking("#808080").masks, { name: "outer", clip: "frame", content: ["masked"] }],
     patches: {},
     probes: [
       { x: 50, y: 50, rgb: redAt(128 / 255) },

@@ -129,6 +129,99 @@ it("makes a Clipping Mask from a circle over a Group, renders it clipped and rel
   expect(nodes[1]).toMatchObject({ parentId: maskId });
 });
 
+it("makes an Opacity Mask from a grey circle over a Group, renders it masked, flips Invert and releases it (ADR-0103)", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const { keyMap } = (
+    await call("kalamo_node_create", {
+      docId,
+      nodes: [
+        {
+          type: "rect",
+          parentId: defaultLayerId,
+          clientKey: "art",
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100,
+          appearance: { fills: [{ color: "#FF0000" }], strokes: [] },
+        },
+        {
+          type: "ellipse",
+          parentId: defaultLayerId,
+          clientKey: "circle",
+          x: 20,
+          y: 30,
+          width: 40,
+          height: 40,
+          appearance: { fills: [{ color: "#808080" }], strokes: [] },
+        },
+      ],
+    })
+  ).structuredContent;
+  const made = (
+    await call("kalamo_mask_make", {
+      docId,
+      clipNodeId: keyMap.circle,
+      contentIds: [keyMap.art],
+      kind: "opacity",
+      clip: false,
+    })
+  ).structuredContent;
+  const [groupId] = made.createdIds;
+  expect(made.createdIds).toHaveLength(1);
+  expect(made.updatedIds.sort()).toEqual([keyMap.art, keyMap.circle].sort());
+  // The content's bounds, not the circle's.
+  expect(made.bounds).toMatchObject({ x: 0, y: 0, width: 100, height: 100 });
+  const svg = (await call("kalamo_export", { docId, format: "svg" })).content[0].text;
+  expect(svg).toContain(`mask="url(#mask-z-${groupId})"`);
+  expect(svg).toContain('kalamo:mask="background"');
+
+  const flipped = await call("kalamo_node_update", {
+    docId,
+    updates: [{ nodeId: keyMap.circle, patch: { opacityMask: { invert: true } } }],
+  });
+  expect(flipped.structuredContent.updatedIds).toEqual([keyMap.circle]);
+  const added = await call("kalamo_node_update", {
+    docId,
+    updates: [{ nodeId: keyMap.art, patch: { opacityMask: { clip: true } } }],
+  });
+  expect(errorOf(added)).toMatchObject({
+    code: "INVALID_PATCH",
+    hint: expect.stringContaining("mask_make"),
+  });
+
+  const released = (await call("kalamo_mask_release", { docId, nodeIds: [groupId] }))
+    .structuredContent;
+  expect(released.updatedIds).toEqual([keyMap.circle]);
+  const { nodes } = (
+    await call("kalamo_node_get", { docId, nodeIds: [keyMap.circle], detail: "full" })
+  ).structuredContent;
+  expect(nodes[0]).toMatchObject({
+    parentId: groupId,
+    appearance: { fills: [{ color: "#808080" }] },
+  });
+  expect(nodes[0].opacityMask).toBeUndefined();
+});
+
+it("refuses an Opacity Mask of a Layer and clip on a Clipping Mask with INVALID_MASK", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const [id] = (
+    await call("kalamo_node_create", {
+      docId,
+      nodes: [{ type: "rect", parentId: defaultLayerId, x: 0, y: 0, width: 9, height: 9 }],
+    })
+  ).structuredContent.createdIds;
+  for (const [args, path] of [
+    [{ layerId: defaultLayerId, kind: "opacity" }, "layerId"],
+    [{ clipNodeId: id, contentIds: [id], invert: true }, "invert"],
+  ] as const) {
+    expect(errorOf(await call("kalamo_mask_make", { docId, ...args }))).toMatchObject({
+      code: "INVALID_MASK",
+      path,
+    });
+  }
+});
+
 it("edits a path's Anchors with path_edit, returning its d and Anchors", async () => {
   const { docId, defaultLayerId } = await newDoc();
   const [id] = (
