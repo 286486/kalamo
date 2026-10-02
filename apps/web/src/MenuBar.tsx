@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from "react";
+import { listStep } from "./listStep.ts";
 import { findByKeys, type Item, keysOf, type Menu, type MenuItem, shortcut } from "./menu.ts";
 import { type State, useStore } from "./store.ts";
 
 const MAC = /Mac|iPhone|iPad/.test(navigator.platform);
+/** Inside a menu, Left and Right go to another title or a submenu, not through the list. */
+const MENU_STEP = { ArrowDown: 1, ArrowUp: -1 } as const;
 const ITEMS = ":scope > [role^=menuitem], :scope > [role=none] > [role^=menuitem]";
 /** What inline styles cannot say: the focused item, a greyed-out one, the open menu's title. */
 const CSS = `
@@ -132,6 +135,7 @@ export function MenuBar({ menus }: { menus: Menu[] }) {
       !inBar && parentOf(parent.previousElementSibling as HTMLElement) !== bar.current;
     const anyOpen = titles.some((t) => isOpen(popupOf(t) as HTMLElement));
     const key = e.key;
+    const to = listStep(key, i, siblings.length, MENU_STEP);
     if (inBar && (key === "ArrowRight" || key === "ArrowLeft"))
       toTitle(key === "ArrowRight" ? 1 : -1, anyOpen ? "first" : null);
     else if (inBar && (key === "ArrowDown" || key === "Enter" || key === " "))
@@ -142,10 +146,7 @@ export function MenuBar({ menus }: { menus: Menu[] }) {
       if (popup && isOpen(popup)) popup.hidePopover();
       else item.blur();
     } else if (inBar) return;
-    else if (key === "ArrowDown" || key === "ArrowUp")
-      siblings[(i + (key === "ArrowDown" ? 1 : -1) + siblings.length) % siblings.length]?.focus();
-    else if (key === "Home" || key === "End")
-      (key === "Home" ? siblings[0] : siblings.at(-1))?.focus();
+    else if (to !== null) siblings[to]?.focus();
     else if (key === "ArrowRight" && popupOf(item)) openPopup(item, "first");
     else if (key === "ArrowRight") toTitle(1, "first");
     else if (key === "ArrowLeft" && inSubmenu) {

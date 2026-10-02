@@ -1,4 +1,5 @@
 import { memo, useEffect, useRef, useState } from "react";
+import { listStep } from "./listStep.ts";
 import { VIEWER_TOOLS } from "./receive.ts";
 import { canEdit, useStore } from "./store.ts";
 import { TOOLS, type Tool, type ToolSlot, toolSlots } from "./toolbox.ts";
@@ -88,6 +89,8 @@ const labelOf = (t: Tool) => {
 };
 /** How long a press on a group's button holds before its flyout opens, in ms. */
 const HOLD_MS = 300;
+/** A flyout is a column beside its button, so all four arrows move through it. */
+const FLYOUT_STEP = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 } as const;
 
 /**
  * A Tools panel button. A group's shows the tool last chosen from it, with a corner triangle;
@@ -129,10 +132,8 @@ function ToolButton({ slot, tool }: { slot: ToolSlot; tool: Tool }) {
   const onMenuKey = (e: React.KeyboardEvent) => {
     const items = [...(wrap.current?.querySelectorAll<HTMLElement>("[role=menuitemradio]") ?? [])];
     const at = items.indexOf(document.activeElement as HTMLElement);
-    const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
-    if (step) items[(at + step + items.length) % items.length]?.focus();
-    else if (e.key === "Home") items[0]?.focus();
-    else if (e.key === "End") items.at(-1)?.focus();
+    const to = listStep(e.key, at, items.length, FLYOUT_STEP);
+    if (to !== null) items[to]?.focus();
     else if (e.key === "Escape") close(open === "key");
     // Pressed here: the Viewer takes Space's keyup to pan, which would cancel the native press.
     else if (e.key === "Enter" || e.key === " ") items[at]?.click();
