@@ -228,12 +228,18 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
     {
       title: "Open Document",
       description: [
-        "Make a new Document from a file's text: .kalamo.json as kalamo_export returns it with format kalamo_json, or SVG (Inkscape, Kalamo's own export or plain SVG 1.1, at most 5 MB outside its embedded images, each image at most 5 MB), told apart by content. Pass the file's content, not a path.",
+        "Make a new Document from a file, as Illustrator's File > Open: .kalamo.json as kalamo_export returns it with format kalamo_json, SVG (Inkscape, Kalamo's own export or plain SVG 1.1, at most 5 MB outside its embedded images, each image at most 5 MB), or a data: URL of a PNG, JPEG or GIF, told apart by content. Pass the file's content, not a path or an http(s) URL.",
+        'A bitmap (at most 5 MB, else LIMIT_EXCEEDED; a GIF\'s first frame; WebP fails INVALID_IMAGE, convert it to PNG) opens as one Artboard "Artboard 1" at 0, 0 of its pixel size, one pt per pixel, and Layer "Layer 1" holding one unnamed embedded Image filling it.',
+        "name is the file's name: the Document is named by it without .svg, .kalamo.json, .png, .jpg, .jpeg or .gif; an SVG without it falls back to its sodipodi:docname or <title>, a .kalamo.json keeps its own name, and the rest are Untitled.",
         "The new Document gets its own docId and starts at rev 1. Ids from .kalamo.json, and z-<id> ids from SVG, are kept; SVG layers and pages become Layers and Artboards, units become pt (px counts as pt). nodes is its Layer list, as kalamo_doc_outline returns it at depth 1.",
         "Embedded PNG, JPEG and GIF images come back as Images. A linked image (an href that is not a data: URL) comes back as a linked Image with file set to the href and no pixels, a missing link, and warnings says IMAGE_LINK_MISSING; nothing is fetched. One without width or height is dropped with INVALID_IMAGE, since nothing gives its size. SVG content Kalamo cannot hold yet (patterns, mesh gradients, filters, masks, WebP) imports as close as it can, or is dropped, and warnings lists each kind once. A Kalamo gradient whose inserted stops (kalamo:simulated) were edited, as in Inkscape, keeps the stops as drawn and warns SIMULATED_STOP_KEPT. A file that is not valid fails with a path into it and creates nothing.",
       ].join(" "),
       inputSchema: {
-        content: z.string().min(1).describe("The whole .kalamo.json or .svg text."),
+        content: z
+          .string()
+          .min(1)
+          .describe("The whole .kalamo.json or .svg text, or a PNG, JPEG or GIF as a data: URL."),
+        name: z.string().optional().describe("The file's name, such as photo.png."),
         intent,
       },
       outputSchema: OpenedDocumentOutput.shape,

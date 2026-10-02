@@ -1,9 +1,17 @@
 import { evictAllDurableObjects } from "cloudflare:test";
 import { exports } from "cloudflare:workers";
-import { type ErrorCode, formatPath, type ShapeNode, shapeSegments } from "@kalamo/core";
+import {
+  type ErrorCode,
+  formatPath,
+  imageId,
+  readImage,
+  type ShapeNode,
+  shapeSegments,
+} from "@kalamo/core";
 import { describe, expect, it } from "vitest";
 import exported from "../../../fixtures/documents/inkscape.svg?raw";
-import { BLUE_1x1_PNG, RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
+import { BLUE_1x1_PNG, RED_2x2_PNG, RGB_3x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
+import { decodePng } from "../../../fixtures/png.ts";
 import { counted, fullKalamoFile, MiB } from "./bodies.ts";
 import { call, errorOf, rpc } from "./rpc.ts";
 
@@ -816,6 +824,76 @@ describe("kalamo_json", () => {
       code: "INVALID_DOCUMENT",
       path: "content",
       hint: expect.stringMatching(/\S/),
+    });
+    expect(await count()).toBe(before);
+  });
+});
+
+describe("a bitmap", () => {
+  it("opens a PNG data URL as an Artboard of its pixel size and Layer 1 holding the Image", async () => {
+    const opened = (await call("kalamo_doc_open", { content: RGB_3x2_PNG, name: "red dot.PNG" }))
+      .structuredContent;
+    const frame = { x: 0, y: 0, width: 3, height: 2 };
+    expect(opened).toMatchObject({
+      name: "red dot",
+      rev: 1,
+      artboards: [{ name: "Artboard 1", frame }],
+      nodes: [{ type: "layer", name: "Layer 1" }],
+      warnings: [],
+    });
+    expect(opened.nodes).toHaveLength(1);
+    const { changes } = (await call("kalamo_doc_changes", { docId: opened.docId, sinceRev: 0 }))
+      .structuredContent;
+    expect(changes).toMatchObject([{ rev: 1, summary: 'Open Document "red dot"' }]);
+
+    const render = await call("kalamo_render", { docId: opened.docId, scale: 1 });
+    expect(render.structuredContent.viewport.pixelSize).toEqual({ width: 3, height: 2 });
+    const png = render.content.find((c: { type: string }) => c.type === "image");
+    const { data } = await decodePng(Uint8Array.fromBase64(png.data));
+    const rgb = (i: number) => [...data.subarray(4 * i, 4 * i + 3)];
+    expect([0, 1, 2, 3, 4, 5].map(rgb)).toEqual([
+      [255, 0, 0],
+      [0, 255, 0],
+      [0, 0, 255],
+      [255, 255, 255],
+      [0, 0, 0],
+      [255, 255, 0],
+    ]);
+
+    const id = await imageId(readImage(RGB_3x2_PNG, "src").bytes);
+    const file = JSON.parse(
+      (await call("kalamo_export", { docId: opened.docId, format: "kalamo_json" })).content[0].text,
+    );
+    expect(file.images).toEqual({ [id]: expect.stringMatching(/^data:image\/png;base64,/) });
+    expect(file.nodes).toContainEqual(
+      expect.objectContaining({ type: "image", src: id, ...frame, name: "" }),
+    );
+  });
+
+  it("names an SVG after the name it is opened with", async () => {
+    const svg =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><title>T</title></svg>';
+    expect(
+      (await call("kalamo_doc_open", { content: svg, name: "x.svg" })).structuredContent,
+    ).toMatchObject({ name: "x" });
+  });
+
+  it.each([
+    [WEBP_HEADER, "INVALID_IMAGE", expect.stringContaining("Convert the image to PNG")],
+    ["data:text/plain,hello", "INVALID_IMAGE", expect.any(String)],
+    [
+      `data:image/png;base64,${new Uint8Array(5 * 1024 * 1024 + 1).toBase64()}`,
+      "LIMIT_EXCEEDED",
+      expect.any(String),
+    ],
+  ])("refuses a data URL Place refuses, creating no Document: %#", async (content, code, hint) => {
+    const count = async () =>
+      (await call("kalamo_doc_list", {})).structuredContent.documents.length;
+    const before = await count();
+    expect(errorOf(await call("kalamo_doc_open", { content }))).toMatchObject({
+      code,
+      hint,
+      path: "content",
     });
     expect(await count()).toBe(before);
   });

@@ -4,7 +4,13 @@ import { imageId, LEGACY_NAME, MIGRATIONS, readImage } from "@kalamo/core";
 import type { ServerMessage } from "@kalamo/sync";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import fixture from "../../../fixtures/documents/inkscape.kalamo.json?raw";
-import { BLUE_1x1_PNG, RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
+import {
+  BLUE_1x1_PNG,
+  GREY_5x4_GIF,
+  RED_2x2_PNG,
+  RGB_3x2_PNG,
+  WEBP_HEADER,
+} from "../../../fixtures/images.ts";
 import { counted, fullKalamoFile, MiB } from "./bodies.ts";
 import { call, errorOf } from "./rpc.ts";
 
@@ -855,6 +861,82 @@ it("opens a file POSTed to /api/docs as the user, named after the file", async (
   });
   expect(bad.status).toBe(400);
   expect(await bad.json()).toMatchObject({ code: "INVALID_DOCUMENT", hint: expect.any(String) });
+});
+
+describe("Open of a bitmap POSTed to /api/docs as its bytes", () => {
+  const post = (name: string, body: BodyInit) =>
+    exports.default.fetch(`http://kalamo/api/docs?name=${encodeURIComponent(name)}`, {
+      method: "POST",
+      body,
+    });
+  const bytesOf = (url: string) => Uint8Array.fromBase64(url.split(",")[1] ?? "");
+
+  it.each([
+    ["photo.png", RGB_3x2_PNG, "photo", 3, 2],
+    ["anim.GIF", GREY_5x4_GIF, "anim", 5, 4],
+  ])("opens %s as a Document of its pixel size", async (name, url, docName, width, height) => {
+    const res = await post(name, bytesOf(url));
+    expect(res.status).toBe(200);
+    const { docId, warnings } = (await res.json()) as { docId: string; warnings: unknown[] };
+    expect(warnings).toEqual([]);
+    const file = JSON.parse(
+      (await call("kalamo_export", { docId, format: "kalamo_json" })).content[0].text,
+    );
+    const frame = { x: 0, y: 0, width, height };
+    expect(file).toMatchObject({ name: docName, artboards: [{ name: "Artboard 1", frame }] });
+    type Stored = { id: string; type: string };
+    expect(file.nodes).toHaveLength(2);
+    const layer = file.nodes.find((n: Stored) => n.type === "layer");
+    const image = file.nodes.find((n: Stored) => n.type === "image");
+    expect(layer).toMatchObject({ type: "layer", name: "Layer 1", parentId: null });
+    expect(image).toMatchObject({
+      type: "image",
+      parentId: layer.id,
+      name: "",
+      src: await imageId(bytesOf(url)),
+      ...frame,
+      preserveAspectRatio: "none",
+    });
+    const { changes } = (await call("kalamo_doc_changes", { docId, sinceRev: 0 }))
+      .structuredContent;
+    expect(changes).toMatchObject([{ rev: 1, actor: "user" }]);
+  });
+
+  it("refuses a WebP and a body over 5 MB as Place does, creating no Document", async () => {
+    const listed = async () =>
+      (
+        (await (await exports.default.fetch("http://kalamo/api/docs")).json()) as {
+          documents: unknown[];
+        }
+      ).documents.length;
+    const before = await listed();
+    const webp = await post("a.webp", bytesOf(WEBP_HEADER));
+    expect(webp.status).toBe(400);
+    expect(await webp.json()).toMatchObject({
+      code: "INVALID_IMAGE",
+      hint: expect.stringContaining("Convert the image to PNG"),
+      path: "content",
+    });
+    const big = new Uint8Array(5 * MiB + 1);
+    big.set(bytesOf(RED_2x2_PNG));
+    const large = await post("big.png", big);
+    expect(large.status).toBe(400);
+    expect(await large.json()).toMatchObject({
+      code: "LIMIT_EXCEEDED",
+      message: expect.stringContaining("5 MB"),
+      path: "content",
+    });
+    expect(await listed()).toBe(before);
+  });
+
+  it("still reads an SVG that is not UTF-8 as text", async () => {
+    const latin1 = Uint8Array.from(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><title>Caf\xe9</title></svg>',
+      (c) => c.charCodeAt(0),
+    );
+    const res = await post("cafe.svg", latin1);
+    expect(res.status).toBe(200);
+  });
 });
 
 it("opens a saved file by content, named .kalamo.json or as the former name saved it (ADR-0069)", async () => {

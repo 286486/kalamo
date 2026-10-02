@@ -327,7 +327,7 @@ Document 导出为 SVG、在 Inkscape 中编辑、再在 Kalamo 中打开为一�
 _Avoid_: Sync、Roundtrip conversion
 
 **Open（打开）**：
-把一个文件（`.kalamo.json` 或 SVG）变成一个新 Document，在浏览器中新开一个 Document Tab 显示，对应 Illustrator 的 File > Open。导入一个编辑过的文件就是 Open；Kalamo 不把文件合并回已有 Document（ADR-0030 删除了 Replace）。
+把一个文件（`.kalamo.json`、SVG，或 PNG / JPEG / GIF 位图）变成一个新 Document，在浏览器中新开一个 Document Tab 显示，对应 Illustrator 的 File > Open。位图打开为一个位于 (0, 0)、与图像像素同尺寸的 Artboard，加 `Layer 1` 中铺满它的一个嵌入 Image，Document 以文件名去掉扩展名命名（ADR-0098）。导入一个编辑过的文件就是 Open；Kalamo 不把文件合并回已有 Document（ADR-0030 删除了 Replace）。
 _Avoid_: Load、Import（泛指时）、Replace、Update from file
 
 **Document Tab（文档标签页）**：

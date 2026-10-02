@@ -5,6 +5,7 @@ import {
   createNodes,
   type Fill,
   type ImageNode,
+  imageId,
   KalamoError,
   LEGACY_NAME,
   LEGACY_SVG_NS,
@@ -15,6 +16,7 @@ import {
   parseDocument,
   parseNode,
   readImage,
+  resolveImages,
   type ShapeNode,
   serializeDocument,
   shapeSegments,
@@ -22,7 +24,13 @@ import {
 } from "@kalamo/core";
 import { describe, expect, it } from "vitest";
 import kalamoExport from "../../../fixtures/documents/inkscape.svg?raw";
-import { RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
+import {
+  GREY_4x3_JPEG,
+  GREY_5x4_GIF,
+  RED_2x2_PNG,
+  RGB_3x2_PNG,
+  WEBP_HEADER,
+} from "../../../fixtures/images.ts";
 import { MIDPOINT_STOPS } from "../../../fixtures/midpoint-edits.ts";
 import { exportedMidpointEdits } from "../../../fixtures/midpoint-export.ts";
 import reference from "../../core/src/spiral.inkscape.json" with { type: "json" };
@@ -91,6 +99,70 @@ it.each([
     code: "INVALID_DOCUMENT",
     path: "content",
     message: expect.stringContaining(message),
+  });
+});
+
+it.each([
+  ["PNG", RGB_3x2_PNG, 3, 2],
+  ["JPEG", GREY_4x3_JPEG, 4, 3],
+  ["GIF", GREY_5x4_GIF, 5, 4],
+])("opens a %s data URL as one Artboard and one Layer holding the Image", async (_, url, w, h) => {
+  const file = await resolveImages(parseFile(url));
+  const id = await imageId(readImage(url, "src").bytes);
+  const frame = { x: 0, y: 0, width: w, height: h };
+  expect(file).toMatchObject({ name: "Untitled", warnings: [] });
+  expect(file.artboards).toEqual([{ id: expect.any(String), name: "Artboard 1", frame }]);
+  const [layer, image, ...rest] = file.nodes;
+  expect(rest).toEqual([]);
+  expect(layer).toMatchObject({ type: "layer", name: "Layer 1", parentId: null });
+  expect(image).toMatchObject({
+    type: "image",
+    parentId: layer?.id,
+    name: "",
+    src: id,
+    ...frame,
+    preserveAspectRatio: "none",
+    transform: [1, 0, 0, 1, 0, 0],
+    opacity: 1,
+  });
+  expect([...file.images.keys()]).toEqual([id]);
+});
+
+it.each([
+  ["red dot.PNG", "red dot"],
+  ["a.b.jpeg", "a.b"],
+  ["photo.JPG", "photo"],
+  ["anim.gif", "anim"],
+  ["noext", "noext"],
+  ["x.svg", "x.svg"],
+  [undefined, "Untitled"],
+])("names a bitmap opened as %j %j", (name, expected) => {
+  expect(parseFile(RGB_3x2_PNG, { name }).name).toBe(expected);
+});
+
+it("names an SVG after its file name without .svg", () => {
+  expect(parseFile(svg('width="1" height="1"'), { name: "x.svg" }).name).toBe("x");
+});
+
+it.each([
+  [WEBP_HEADER, "INVALID_IMAGE", "Convert the image to PNG"],
+  ["data:text/plain,hello", "INVALID_IMAGE", expect.any(String)],
+  [
+    `data:image/png;base64,${new Uint8Array(5 * 1024 * 1024 + 1).toBase64()}`,
+    "LIMIT_EXCEEDED",
+    expect.any(String),
+  ],
+])("refuses a bitmap data URL that Place refuses: %#", (url, code, hint) => {
+  expect(errorOf(() => parseFile(url))).toMatchObject({
+    code,
+    path: "content",
+    hint: typeof hint === "string" ? expect.stringContaining(hint) : hint,
+  });
+});
+
+it("hints at a data URL for content it does not recognise", () => {
+  expect(errorOf(() => parseFile("hello"))).toMatchObject({
+    hint: expect.stringContaining("data: URL"),
   });
 });
 

@@ -153,18 +153,34 @@ async function readable(env: Env, principal: Principal, docId: string) {
 }
 
 /**
- * The browser's Open file: the file's text as the body, its name in `?name=`. Over HTTP, not the
+ * The browser's Open file: the file's bytes as the body, its name in `?name=`. Over HTTP, not the
  * WebSocket, since a file does not belong in a gesture message (ADR-0017); by the request's User Actor.
  */
 async function openFile(request: Request, env: Env, principal: Principal): Promise<Response> {
   const name = new URL(request.url).searchParams.get("name") ?? undefined;
   return answer(async () => {
+    const bytes = await readCapped(request, MAX_REQUEST_BYTES, (declared) =>
+      requestTooLarge(declared, "content"),
+    );
     const { docId, warnings } = await documentService(env, principal).open({
-      content: await fileText(request, "content"),
+      content: openedContent(bytes),
       name,
     });
     return { docId, warnings };
   });
+}
+
+/**
+ * Open's body as `kalamo_doc_open`'s `content` (ADR-0098): text that starts as SVG or JSON does, or
+ * any other UTF-8 text, as itself; anything else, a bitmap, as a data URL, which Open then checks
+ * as Place does. A PNG's and a JPEG's first byte is never UTF-8; a GIF and a RIFF (WebP) file
+ * start in ASCII, so they are told by their signature.
+ */
+function openedContent(bytes: Uint8Array<ArrayBuffer>): string {
+  const text = new TextDecoder().decode(bytes);
+  const binary = /^(GIF8|RIFF)/.test(text) || text.includes("\uFFFD");
+  if (/^\uFEFF?\s*[<{]/.test(text) || !binary) return text;
+  return `data:application/octet-stream;base64,${bytes.toBase64()}`;
 }
 
 /**

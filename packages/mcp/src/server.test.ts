@@ -546,6 +546,11 @@ describe("write tools pass the write and its options apart", () => {
     });
     await call("kalamo_doc_open", { content: "{}", intent: "i" });
     expect(service.open).toHaveBeenCalledWith({ content: "{}", intent: "i" });
+    await call("kalamo_doc_open", { content: "data:image/png;base64,", name: "a.png" });
+    expect(service.open).toHaveBeenLastCalledWith({
+      content: "data:image/png;base64,",
+      name: "a.png",
+    });
   });
 
   it("tx_begin, tx_commit and tx_rollback", async () => {
@@ -1407,6 +1412,14 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
     expect(described(tool)).not.toContain("LINKED_IMAGE_DROPPED");
   }
   expect(described("kalamo_doc_open")).not.toMatch(/\(gradients/);
+  for (const word of [
+    "data: URL of a PNG, JPEG or GIF",
+    "WebP",
+    "Layer 1",
+    "name is the file's name",
+  ]) {
+    expect(described("kalamo_doc_open")).toContain(word);
+  }
   for (const t of tools) {
     expect(t.annotations, t.name).toEqual({
       readOnlyHint: expect.any(Boolean),
