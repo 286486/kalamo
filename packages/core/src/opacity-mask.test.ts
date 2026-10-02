@@ -344,6 +344,16 @@ describe("Link (ADR-0103)", () => {
     expect(moved(s, s.a)).toEqual([0, 0]);
   });
 
+  it("moves an unlinked mask once when it is named with its Group", () => {
+    const s = scene();
+    const { group } = opacity(s);
+    updateNodes(s.doc, [{ nodeId: s.mask.id, patch: { opacityMask: { link: false } } }]);
+    const { warnings } = transformNodes(s.doc, { nodeIds: [group.id, s.mask.id], translate });
+    expect(moved(s, s.mask)).toEqual([7, 3]);
+    expect(moved(s, s.a)).toEqual([7, 3]);
+    expect(warnings).toEqual([]);
+  });
+
   it("never moves the mask with a content child", () => {
     const s = scene();
     opacity(s);
@@ -422,6 +432,16 @@ describe("doc_open (ADR-0016)", () => {
     expect(errorPath(f)).toMatchObject({
       code: "INVALID_DOCUMENT",
       path: expect.stringMatching(new RegExp(`^nodes\\[${later}\\]\\.(clipping|opacityMask)$`)),
+    });
+  });
+
+  it("refuses a Node that is both a Clipping Path and a mask", () => {
+    const { s, f } = file();
+    f.nodes[at(f, s.mask.id)].clipping = true;
+    expect(errorPath(f)).toMatchObject({
+      code: "INVALID_DOCUMENT",
+      path: `nodes[${at(f, s.mask.id)}].opacityMask`,
+      message: "A Node is a Clipping Path or a mask, not both.",
     });
   });
 

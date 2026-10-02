@@ -505,6 +505,12 @@ export function checkTree(
         if (parentType !== "group") {
           throw invalid(`${path}.opacityMask`, "A mask's parent is a Group.", hint);
         }
+        if ("clipping" in n && n.clipping)
+          throw invalid(
+            `${path}.opacityMask`,
+            "A Node is a Clipping Path or a mask, not both.",
+            hint,
+          );
         const held = masked.get(parentId);
         if (held) throw invalid(`${path}.opacityMask`, `Its Group already has a ${held}.`, hint);
         if (!n.visible) throw invalid(`${path}.visible`, "A mask cannot be hidden.", hint);
@@ -902,13 +908,13 @@ export function clippingPath(doc: Document, node: Node): LeafNode | undefined {
 }
 
 /** A mask: the child whose luminance masks its Group (ADR-0103). */
-export type MaskNode = Exclude<Node, LayerNode> & { opacityMask: OpacityMask };
+export type Mask = Exclude<Node, LayerNode> & { opacityMask: OpacityMask };
 
 /** Whether the Node is the mask of an Opacity Mask (ADR-0103). */
-export const isOpacityMask = (n: Node): n is MaskNode => "opacityMask" in n && !!n.opacityMask;
+export const isOpacityMask = (n: Node): n is Mask => "opacityMask" in n && !!n.opacityMask;
 
 /** The Group's mask, which makes it an Opacity Mask (ADR-0103). */
-export function opacityMaskOf(doc: Document, node: Node): MaskNode | undefined {
+export function opacityMaskOf(doc: Document, node: Node): Mask | undefined {
   return node.type === "group" ? childrenOf(doc, node.id).find(isOpacityMask) : undefined;
 }
 

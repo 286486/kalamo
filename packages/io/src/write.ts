@@ -31,7 +31,7 @@ import {
   type LeafNode,
   layoutText,
   lookup,
-  type MaskNode,
+  type Mask,
   type Matrix,
   MISSING_LINK_STROKE,
   mapGradient,
@@ -610,12 +610,7 @@ function node(doc: Document, n: Node, walk: Walk): string {
  * Invert wraps the Node in an sRGB filter inverting its colours, and an unlinked mask says so, each
  * marked `kalamo:mask` for import.
  */
-function maskElement(
-  doc: Document,
-  group: GroupNode | LayerNode,
-  mask: MaskNode,
-  walk: Walk,
-): string {
+function maskElement(doc: Document, group: GroupNode | LayerNode, mask: Mask, walk: Walk): string {
   const { clip, invert, link } = mask.opacityMask;
   const b = visibleBounds(doc, group);
   const region =

@@ -143,7 +143,11 @@ function transformOnce(
   const { ok: targets, failed } = collect(input.nodeIds, partial, (id, i) =>
     lookup(doc, id, `nodeIds[${i}]`),
   );
-  const { kept, nested } = outermost(doc, targets);
+  // A target that another target moves is nested; an unlinked mask is not, so it moves on its own.
+  const inside = new Set(targets.flatMap((n) => moving(doc, n).slice(1)).map((n) => n.id));
+  const unique = [...new Set(targets)];
+  const kept = unique.filter((n) => !inside.has(n.id));
+  const nested = unique.filter((n) => inside.has(n.id));
   const warnings = nested.map((n) => ({
     code: "NESTED_TARGET",
     nodeId: n.id,
