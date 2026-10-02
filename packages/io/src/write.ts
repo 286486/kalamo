@@ -23,6 +23,7 @@ import {
   grown,
   IDENTITY,
   type ImageSource,
+  inverseOrientation,
   invert,
   KalamoError,
   type LayerNode,
@@ -33,6 +34,7 @@ import {
   MISSING_LINK_STROKE,
   mapGradient,
   type Node,
+  orientedImage,
   paintedLeaves,
   type Rect,
   type RenderScope,
@@ -535,8 +537,12 @@ function node(doc: Document, n: Node, walk: Walk): string {
   }
   if (!inside) return "";
   if (n.type === "image") {
-    const { x, y, width, height, preserveAspectRatio, src, file } = n;
-    const link = file !== undefined && walk.linked === "link";
+    const link = n.file !== undefined && walk.linked === "link";
+    // The linked file still carries its orientation, which a viewer applies: write the Image in
+    // the file's upright terms, so the photo turns once (ADR-0102).
+    const o = link ? n.fileOrientation : undefined;
+    const image = o === undefined ? n : orientedImage(n, inverseOrientation(o));
+    const { x, y, width, height, preserveAspectRatio, src, file } = image;
     if (file !== undefined && src === undefined && walk.linked === "draw") {
       // A missing link's crossed frame, moved into place so the stroke stays a hairline however
       // the Image is scaled.
@@ -566,7 +572,9 @@ function node(doc: Document, n: Node, walk: Walk): string {
       "xlink:href": href,
       // So a paste into the same Document finds the pixels it holds (ADR-0042).
       [kalamo("src")]: link ? src : undefined,
+      [kalamo("fileOrientation")]: o,
       ...own,
+      transform: transformAttr(image.transform),
       style: style(...looks),
     })}/>`;
   }

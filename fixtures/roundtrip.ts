@@ -8,6 +8,7 @@ import { join, resolve } from "node:path";
 import { crc32, deflateSync } from "node:zlib";
 import { httpCall } from "./agent-benchmarks/mcp.ts";
 import { anchoredBeforeLast, type TextView } from "./anchored.ts";
+import { orientedJpeg } from "./images.ts";
 import { MIDPOINT_DOC, midpointEdits } from "./midpoint-edits.ts";
 import { decodePng, differs, type Image, VECTOR_BUDGET } from "./png.ts";
 import { startServer } from "./wrangler.ts";
@@ -36,6 +37,14 @@ const BUDGET = {
 const MARGIN = 2;
 /** The inkscape fixture's painted Group (ADR-0043), which the edit passes transform in Inkscape. */
 const PAINTED = "01M38T29SXC0NTA1NERSGR0VP0";
+/** The files the fixtures' linked Images name, as the user has them: still EXIF-oriented (ADR-0102). */
+const LINKED_FILES = { "oriented-6.jpg": orientedJpeg(6) };
+/** Writes each linked file into `dirs`, beside the SVGs Inkscape reads there. */
+function writeLinkedFiles(...dirs: string[]) {
+  for (const dir of dirs)
+    for (const [name, url] of Object.entries(LINKED_FILES))
+      writeFileSync(join(dir, name), Buffer.from(url.split(",")[1] ?? "", "base64"));
+}
 /** Nodes that resvg draws hidden against Inkscape's no-edit PNG: each must fail its own region. */
 const PROBES = { star: "01M38T29SRR0VNDNVMBERSTAR0", Bold: "01M38T29SVTYPE0000000000B0" };
 /** Inkscape edits whose matrix, written on the Group's <g>, must import as node_transform (#108). */
@@ -524,6 +533,7 @@ async function main() {
       const json = readFileSync(join(FIXTURES, file), "utf8");
       const dir = join(STATE, fixture);
       mkdirSync(join(dir, "inkscape"), { recursive: true });
+      writeLinkedFiles(dir, join(dir, "inkscape"));
       const probes: string[] = [];
       await printLine(fixture.padEnd(12), async () => {
         const original = await open(json);
@@ -599,6 +609,7 @@ async function main() {
           const { docId } = original;
           const editDir = join(dir, edit);
           mkdirSync(join(editDir, "pixels"), { recursive: true });
+          writeLinkedFiles(editDir, join(editDir, "pixels"));
           // The same edit on the whole export, which Open reads, and on one framed to the whole
           // Document, which Inkscape draws: the whole export's viewBox is one Artboard.
           const docRect = await resvg(editDir, docId);

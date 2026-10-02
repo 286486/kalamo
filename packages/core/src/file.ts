@@ -101,25 +101,34 @@ const container = {
 const StoredNode = z.discriminatedUnion("type", [
   z.strictObject({ ...container, type: z.literal("layer"), template: z.boolean().optional() }),
   z.strictObject({ ...container, type: z.literal("group") }),
-  z.strictObject({
-    ...base,
-    type: z.literal("image"),
-    src: z.string().optional(),
-    file: z
-      .string()
-      .superRefine((f, ctx) => {
-        const message = fileProblem(f);
-        if (message) ctx.addIssue({ code: "custom", message });
-      })
-      .optional(),
-    x: z.number(),
-    y: z.number(),
-    width: z.number().positive(),
-    height: z.number().positive(),
-    preserveAspectRatio: z
-      .string()
-      .refine((v) => preserveAspectRatio(v) === v, "none, or an alignment and meet or slice."),
-  }),
+  z
+    .strictObject({
+      ...base,
+      type: z.literal("image"),
+      src: z.string().optional(),
+      file: z
+        .string()
+        .superRefine((f, ctx) => {
+          const message = fileProblem(f);
+          if (message) ctx.addIssue({ code: "custom", message });
+        })
+        .optional(),
+      x: z.number(),
+      y: z.number(),
+      width: z.number().positive(),
+      height: z.number().positive(),
+      preserveAspectRatio: z
+        .string()
+        .refine((v) => preserveAspectRatio(v) === v, "none, or an alignment and meet or slice."),
+      fileOrientation: z.literal([2, 3, 4, 5, 6, 7, 8]).optional(),
+    })
+    .refine(
+      (n) => n.fileOrientation === undefined || (n.file !== undefined && n.src !== undefined),
+      {
+        path: ["fileOrientation"],
+        message: "Only a linked Image with pixels, both file and src, has a fileOrientation.",
+      },
+    ),
   z
     .strictObject({
       ...base,

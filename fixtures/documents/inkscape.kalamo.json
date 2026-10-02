@@ -3632,6 +3632,28 @@
       "width": 16,
       "x": 526,
       "y": 86
+    },
+    {
+      "blendMode": "normal",
+      "file": "oriented-6.jpg",
+      "fileOrientation": 6,
+      "height": 8,
+      "id": "01M38T29SQ11NKEDEX1F600000",
+      "index": "b0O",
+      "locked": false,
+      "meta": {},
+      "name": "Linked EXIF orientation 6",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "preserveAspectRatio": "none",
+      "src": "0bc90f57648f5cc2aae5c91a8d556a86bb3199c2193b3f5b7f01065613614fcf",
+      "tags": [],
+      "transform": [0, 1, -1, 0, 638, -458],
+      "type": "image",
+      "visible": true,
+      "width": 16,
+      "x": 540,
+      "y": 86
     }
   ],
   "images": {

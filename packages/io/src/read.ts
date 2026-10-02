@@ -32,6 +32,7 @@ import {
   neutraliseOrientation,
   newId,
   normalizePath,
+  type Orientation,
   type OwnAttributes,
   orientedImage,
   parseDocument,
@@ -98,6 +99,8 @@ export interface OpenedFile {
 interface Link {
   src: string;
   size?: { scale: number; width: number | undefined; height: number | undefined };
+  /** `kalamo:fileOrientation`: the box is in the linked file's upright terms (ADR-0102). */
+  fileOrientation?: Exclude<Orientation, 1>;
 }
 
 /**
@@ -1965,7 +1968,17 @@ class Reader {
       // Missing until resolveLinks finds its pixels, so a read that skips it still warns.
       this.warn("IMAGE_LINK_MISSING", "", MISSING);
       if (!offered) return { shape };
-      return { shape, link: { src, ...(!sized && { size: { scale: k, width: w, height: h } }) } };
+      const o = Number(kalamoAttr(e, "fileOrientation"));
+      return {
+        shape,
+        link: {
+          src,
+          ...(!sized && { size: { scale: k, width: w, height: h } }),
+          ...(Number.isInteger(o) &&
+            o >= 2 &&
+            o <= 8 && { fileOrientation: o as Link["fileOrientation"] }),
+        },
+      };
     }
     const converted = this.converted.get(href);
     if (converted instanceof KalamoError) return drop(converted.data.message);
@@ -2241,17 +2254,18 @@ export function resolveLinks(
       if (link.size) dropped.add(n.id);
       return [n];
     }
-    const { size } = link;
-    return [
-      {
-        ...n,
-        src: link.src,
-        ...(size && {
-          width: round3(size.scale * (size.width ?? info.width)),
-          height: round3(size.scale * (size.height ?? info.height)),
-        }),
-      },
-    ];
+    const { size, fileOrientation: o } = link;
+    const upright = uprightSize(info, o ?? 1);
+    const image = {
+      ...n,
+      src: link.src,
+      ...(size && {
+        width: round3(size.scale * (size.width ?? upright.width)),
+        height: round3(size.scale * (size.height ?? upright.height)),
+      }),
+    };
+    // Back from the file's upright terms into the stored pixels' (ADR-0102).
+    return [o === undefined ? image : { ...orientedImage(image, o), fileOrientation: o }];
   });
   const kept = resolved.filter((n) => !dropped.has(n.id));
   // A Group left with only its Clipping Path was the Clipping Mask of a dropped Image. A Layer stays

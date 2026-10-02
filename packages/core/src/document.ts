@@ -554,7 +554,10 @@ function imageOf(doc: Document, input: unknown, path: string, orientation: Orien
     // The schema refused anything this cannot spell.
     preserveAspectRatio: preserveAspectRatio(rest.preserveAspectRatio) ?? "none",
   };
-  return orientation === 1 ? image : orientedImage(image, orientation);
+  if (orientation === 1) return image;
+  // A linked Image remembers its file's orientation, which its SVG export undoes (ADR-0102).
+  const linked = file !== undefined && src !== undefined;
+  return { ...orientedImage(image, orientation), ...(linked && { fileOrientation: orientation }) };
 }
 
 /** Illustrator's basic appearance for a new shape, fresh per Node so no two share arrays. */
