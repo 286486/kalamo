@@ -504,9 +504,9 @@ async function main() {
     };
     /** The Kalamo JSON of two opened Documents. */
     const kalamoJson = (a: { docId: string }, b: { docId: string }): Promise<[Doc, Doc]> => {
-      const json = async (d: { docId: string }) =>
+      const docJson = async (d: { docId: string }) =>
         JSON.parse(await text({ docId: d.docId, format: "kalamo_json" })) as Doc;
-      return Promise.all([json(a), json(b)]);
+      return Promise.all([docJson(a), docJson(b)]);
     };
     /** Prints `label` and the line `check` returns, or its error as a failed line, counting it. */
     const printLine = async (label: string, check: () => Promise<string>) => {

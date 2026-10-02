@@ -13,8 +13,7 @@
     "allowImportingTsExtensions": true,
     "noEmit": true
   },
-  // vitest.config.ts runs on Node; fixtures/tsconfig.json checks it, since its imports
-  // reference Node's types, which collide with workers-types.
+  // vitest.config.ts pulls in Node's types; fixtures/tsconfig.json checks it.
   "include": ["apps/*/src", "apps/*/test", "packages/*/src"],
   // DOM types collide with workers-types; apps/web has its own tsconfig.
   "exclude": ["apps/web"]
