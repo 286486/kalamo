@@ -502,13 +502,13 @@ async function main() {
       return readFileSync(saved, "utf8");
     };
     /** The Kalamo JSON of two opened Documents. */
-    const docs = (a: { docId: string }, b: { docId: string }) =>
+    const kalamoJson = (a: { docId: string }, b: { docId: string }) =>
       Promise.all(
         [a, b].map(
           async (d) => JSON.parse(await text({ docId: d.docId, format: "kalamo_json" })) as Doc,
         ),
       );
-    /** Prints `label` and the line `check` returns, or its error as a failed line. */
+    /** Prints `label` and the line `check` returns, or its error as a failed line, counting it. */
     const printLine = async (label: string, check: () => Promise<string>) => {
       let line: string;
       try {
@@ -534,7 +534,7 @@ async function main() {
         // Saved over its input: Inkscape rewrites a relative link against the folder it saves to.
         const resaved = saveOver(join(dir, "inkscape", `${original.name}.svg`), exported);
         const reopened = await open(resaved);
-        const [want, got] = await docs(original, reopened);
+        const [want, got] = await kalamoJson(original, reopened);
         // A missing link warns on every Open; firstDifference still catches a lost src or file.
         const warnings = reopened.warnings.filter((w) => w.code !== "IMAGE_LINK_MISSING");
         const structure = warnings.length
@@ -625,7 +625,7 @@ async function main() {
             pivot: { x: 0, y: 0 },
             scaleStrokes: true,
           });
-          const [want, got] = (await docs(original, reopened)).map(rounded);
+          const [want, got] = (await kalamoJson(original, reopened)).map(rounded);
           const warnings = reopened.warnings.filter((w) => w.code !== "IMAGE_LINK_MISSING");
           const structure = warnings.length
             ? `warnings: ${JSON.stringify(warnings)}`
@@ -647,7 +647,7 @@ async function main() {
         const saved = join(editDir, "inkscape", `${midpoint.name}.svg`);
         const resaved = saveOver(saved, svg);
         const [edited, reopened] = await Promise.all([open(svg), open(resaved)]);
-        const [want, got] = await docs(edited, reopened);
+        const [want, got] = await kalamoJson(edited, reopened);
         const codes = (d: typeof edited) => JSON.stringify(d.warnings.map((w) => w.code));
         const structure =
           codes(edited) !== codes(reopened)
