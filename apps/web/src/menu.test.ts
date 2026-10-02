@@ -1,6 +1,14 @@
 import { createDocument, createNodes, makeMask, type Node } from "@kalamo/core";
 import { expect, it } from "vitest";
-import { documentMenus, findByKeys, type Item, keysOf, type Menu, shortcut } from "./menu.ts";
+import {
+  documentMenus,
+  findByKeys,
+  type Item,
+  keysOf,
+  type Menu,
+  shapeModeTargets,
+  shortcut,
+} from "./menu.ts";
 import { useStore } from "./store.ts";
 
 const press = (key: string, mods: Partial<KeyboardEvent> = {}, code = "") => ({
@@ -144,6 +152,7 @@ it("disables every entry that changes the Document for a viewer, and Share… fo
     "Actual Size",
     "Layers",
     "Gradient",
+    "Pathfinder",
     "Isolate Selected Path",
   ];
   expect(enabled("viewer").sort()).toEqual(reading.sort());
@@ -229,4 +238,39 @@ it("isolates one selected Live Shape or Path and keeps it selected (ADR-0058)", 
   useStore.setState({ doc, selection: [id("r")], isolated: null });
   item?.run?.();
   expect(useStore.getState()).toMatchObject({ isolated: id("r"), selection: [id("r")] });
+});
+
+it("runs a Shape Mode on two or more editable Nodes, a Group as one, never for a viewer", () => {
+  const { doc, defaultLayerId: parentId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 200, height: 100 }],
+  });
+  const leaf = { type: "rect", x: 0, y: 0, width: 10, height: 10 } as const;
+  const rect = { ...leaf, parentId };
+  const { keyMap } = createNodes(doc, [
+    { ...rect, clientKey: "a" },
+    { ...rect, clientKey: "b" },
+    { ...rect, clientKey: "locked" },
+    { ...rect, clientKey: "hidden" },
+    { type: "group", clientKey: "g", parentId, children: [leaf, leaf] },
+    { type: "group", clientKey: "off", parentId, children: [{ ...leaf, clientKey: "inside" }] },
+  ]);
+  const id = (k: string) => keyMap[k] as string;
+  const locked = doc.nodes.get(id("locked")) as Node;
+  doc.nodes.set(locked.id, { ...locked, locked: true });
+  for (const k of ["hidden", "off"]) {
+    const node = doc.nodes.get(id(k)) as Node;
+    doc.nodes.set(node.id, { ...node, visible: false });
+  }
+  const targets = (keys: string[], role: "editor" | "viewer" = "editor") =>
+    shapeModeTargets({ doc, role, selection: keys.map(id) });
+  expect(targets(["a", "b"])).toEqual([id("a"), id("b")]);
+  expect(targets(["a"])).toEqual([]);
+  expect(targets(["g", "a"])).toEqual([id("g"), id("a")]);
+  expect(targets(["locked", "a"])).toEqual([]);
+  expect(targets(["hidden", "a"])).toEqual([]);
+  expect(targets(["inside", "a"])).toEqual([]);
+  expect(targets(["a", "b"], "viewer")).toEqual([]);
+  expect(findByKeys(menus, "Shift+Ctrl+F9")?.label).toBe("Pathfinder");
 });

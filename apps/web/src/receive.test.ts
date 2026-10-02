@@ -467,3 +467,19 @@ it("selects none of a copied Layer's objects when an ancestor hides or locks it,
     stateAfter(state, tx(doc, { actor: "user", created: [layer, art], commandId: "c1" })),
   ).toMatchObject({ selection: [], layerRows: ["L"] });
 });
+
+it("selects an own Shape Mode's result path; an Agent's same tx leaves the Selection empty", () => {
+  const { doc, a, b } = fixture();
+  const state = viewState({
+    doc,
+    selection: [a.id, b.id],
+    pending: [{ commandId: "c1", nodes: [], select: true }],
+  });
+  const path = { ...a, id: "p", type: "path" } as unknown as Node;
+  const shape = { created: [path], deletedIds: [a.id, b.id] };
+  expect(stateAfter(state, tx(doc, { ...shape, actor: "user", commandId: "c1" }))).toMatchObject({
+    selection: ["p"],
+    pending: [],
+  });
+  expect(stateAfter(state, tx(doc, shape))).toMatchObject({ selection: [] });
+});

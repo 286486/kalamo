@@ -27,6 +27,8 @@ export interface State extends ViewState {
   layersShown: boolean;
   /** Window > Gradient (ADR-0081). */
   gradientShown: boolean;
+  /** Window > Pathfinder. */
+  pathfinderShown: boolean;
   /** The tool each Tools panel group shows: the last chosen from it. */
   front: Partial<Record<ToolGroup, Tool>>;
   /** The Fill and Stroke boxes, kept across Document Tabs as in Illustrator. */
@@ -63,6 +65,7 @@ export const useStore = create<State>(() => ({
   images: null,
   layersShown: true,
   gradientShown: false,
+  pathfinderShown: false,
   tool: "selection",
   front: {},
   fillStroke: DEFAULT_FILL_STROKE,

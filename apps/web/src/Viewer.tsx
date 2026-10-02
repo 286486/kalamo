@@ -12,6 +12,7 @@ import { IsolationBar } from "./IsolationBar.tsx";
 import { imageCache } from "./images.ts";
 import { Layers } from "./Layers.tsx";
 import { keysTaken } from "./MenuBar.tsx";
+import { PathfinderPanel } from "./PathfinderPanel.tsx";
 import { pastedArt, place, placeable } from "./place.ts";
 import { AREA_SHOWN, visibleAreas } from "./presence.ts";
 import { preview, previewEdit, previewOp } from "./receive.ts";
@@ -74,6 +75,7 @@ export function Viewer({ docId }: { docId: string }) {
     size,
     layersShown,
     gradientShown,
+    pathfinderShown,
     paintPreview,
     tool,
     peers,
@@ -515,8 +517,8 @@ export function Viewer({ docId }: { docId: string }) {
       <IsolationBar />
       <AnchorsBar />
       <Tools />
-      {(layersShown || gradientShown) && (
-        // Illustrator's panel dock, on the right: the Gradient panel above Layers.
+      {(layersShown || gradientShown || pathfinderShown) && (
+        // Illustrator's panel dock, on the right: Gradient, Pathfinder, then Layers.
         <div
           style={{
             position: "absolute",
@@ -532,6 +534,7 @@ export function Viewer({ docId }: { docId: string }) {
           }}
         >
           {gradientShown && <GradientPanel />}
+          {pathfinderShown && <PathfinderPanel />}
           {layersShown && <Layers />}
         </div>
       )}
