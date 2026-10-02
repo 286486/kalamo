@@ -582,15 +582,15 @@ export class DocumentObject extends DurableObject<Env> {
     },
     path_reverse: {
       nodeIds: (c) => c.subpaths.map((s) => s.nodeId),
-      // Only what still runs the other way, as it is now (ADR-0109); one path_edit per path.
+      // Only the subpaths that run the other way when this applies (ADR-0109); one path_edit per path.
       run: (c, actor, commandId) =>
         this.write(actor, { commandId }, PATH_OP_TEXT.reverse.summary, (doc) => {
           const inputs = directionEdits(doc, c.subpaths, c.clockwise);
           if (inputs.length === 0) {
             throw new KalamoError({
               code: "NOTHING_TO_CHANGE",
-              message: "Those subpaths already run that way: someone else set them first.",
-              hint: "Nothing was written. The Attributes panel now shows their direction.",
+              message: "Those subpaths already run that way.",
+              hint: "Nothing was written. Someone else may have set them first; the Attributes panel now shows their direction.",
             });
           }
           const edits = inputs.map((input) => editPath(doc, input));

@@ -174,7 +174,7 @@ const CommandMessage = z.object({
     z.object({ type: z.literal("path_edit"), input: PathEditInput }),
     // The Attributes panel (ADR-0108): the fill rule of several paths, and the direction of
     // several subpaths, each in one Transaction. `path_reverse` reverses only the subpaths that do
-    // not already run `clockwise` on screen, or not, when it is applied (ADR-0109).
+    // not already run the way `clockwise` names on screen when it is applied (ADR-0109).
     z.object({
       type: z.literal("fill_rule"),
       nodeIds: z.array(z.string()).min(1),
