@@ -356,6 +356,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     segments,
     ...(msg.type === "document" ? { edit: null } : settle(s.edit, msg.commandId)),
     ...(settled && { reversing: null }),
+    ...(s.pen && turned.length > 0 && { pen: turnedPen(s.pen, turned) }),
     ...(s.held.length > 0 && {
       held: s.held.map(({ chosen, run }) => ({
         chosen: {
@@ -435,6 +436,19 @@ export function previewEdit(doc: Document, { inputs }: Pick<PathDrag, "inputs">)
     }
   }
   return shown;
+}
+
+/** The Pen's Endpoints on a subpath in `turned`, on the same Anchors: now the other end (ADR-0110). */
+function turnedPen(pen: PenPath, turned: Reversing["subpaths"]): PenPath {
+  const same = <E extends Endpoint>(e: E): E =>
+    turned.some((t) => t.nodeId === e.nodeId && t.subpath === e.subpath)
+      ? { ...e, atStart: !e.atStart }
+      : e;
+  return {
+    ...pen,
+    ...(pen.from && { from: same(pen.from) }),
+    ...(pen.to && { to: same(pen.to) }),
+  };
 }
 
 /** The paths `reversing` names whose `d` in `doc` is neither `prior`'s nor what the press makes of it. */

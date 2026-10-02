@@ -11,12 +11,20 @@ import {
   worldTransform,
 } from "@kalamo/core";
 import { addAnchorAt, deleteAnchorAt } from "./anchorTools.ts";
+import { cancelDrag } from "./canvas.ts";
 import { curveThrough } from "./curvature.ts";
-import { anchorsOf, editableShapes, hasAnchors, localAnchors } from "./direct.ts";
+import {
+  anchorKey,
+  anchorsOf,
+  editableShapes,
+  hasAnchors,
+  localAnchors,
+  parseKey,
+} from "./direct.ts";
 import { forNewArt, leaving } from "./isolation.ts";
 import { type Endpoint, type PenPath, type ShapeBox, VIEWER_TOOLS } from "./receive.ts";
 import { editable, placeParent } from "./selection.ts";
-import { canEdit, DEFAULT_FILL_STROKE, type State, send, unheld, useStore } from "./store.ts";
+import { afterReverse, canEdit, DEFAULT_FILL_STROKE, type State, send, useStore } from "./store.ts";
 import type { Tool, ToolEvent } from "./toolbox.ts";
 
 /** The Fill and Stroke boxes (F-DRAW-12): what new art is painted with; null is None. */
@@ -205,53 +213,91 @@ function replaceSubpath(
 /** Join's distance for the Endpoints a connection put on each other, past `d`'s rounding. */
 const COINCIDENT = 0.05;
 
-/** The Pen continues a path at an Endpoint it names by index (ADR-0110). */
-const PEN = "the Pen is not held yet (#278)";
+/** `e`'s Anchor as a Direct Selection key, which a Reverse Path Direction press's answer renumbers. */
+function endKey(doc: Document, e: Endpoint) {
+  const n = doc.nodes.get(e.nodeId);
+  const count = n && hasAnchors(n) ? (localAnchors(n)[e.subpath]?.anchors.length ?? 0) : 0;
+  return anchorKey(e.nodeId, e.subpath, e.atStart ? 0 : count - 1);
+}
+
+/** The Endpoint whose Anchor `key` names. */
+function endOf(key: string): Endpoint {
+  const { nodeId, subpath, index } = parseKey(key);
+  return { nodeId, subpath, atStart: index === 0 };
+}
 
 /**
  * Finishes a path the Pen continued or connected (research 06 §1): one `path_edit` on the path
  * continued, or on the one a new path connected to, which it continues backwards; continuing one
- * onto another is one `path_join`, the Join deleting one of them.
+ * onto another is one `path_join`, the Join deleting one of them. It is sent once a Reverse Path
+ * Direction press in flight is answered, at the Endpoints chosen, as the Document then runs
+ * (ADR-0110); another Actor's edit to their path meanwhile drops it (ADR-0109).
  */
 function finishEdit(doc: Document, pen: PenPath) {
   const { from, to, anchors, closed } = pen;
-  const last = anchors.at(-1);
-  if (!last || (from && !to && !closed && anchors.length <= from.kept)) {
+  const ends = [from, to].filter((e) => e !== undefined);
+  const first =
+    anchors.length > 0 && !(from && !to && !closed && anchors.length <= from.kept)
+      ? penCommand(doc, pen)
+      : null;
+  if (!first) {
     useStore.setState({ pen: null });
     return;
   }
-  let input: PathEditInput;
-  let commandId: string;
+  const keys = ends.map((e) => endKey(doc, e));
+  useStore.setState({
+    pen: null,
+    selection: [...new Set(ends.map((e) => e.nodeId))],
+    edit: { inputs: [first.input], commandIds: null },
+  });
+  afterReverse(
+    ({ doc: now, anchors: held }, w) => {
+      // `held` is `keys` renumbered, `from`'s first; another Actor's edit cleared a missing one.
+      const at = held.map(endOf);
+      const f = from && at.shift();
+      const c =
+        now &&
+        held.length === keys.length &&
+        penCommand(now, { ...pen, from: from && { ...from, ...f }, to: to && at[0] });
+      if (!c) {
+        cancelDrag();
+        return;
+      }
+      useStore.setState({ edit: { inputs: [c.input], commandIds: [send(c.command, w)] } });
+    },
+    { anchors: keys, segments: [] },
+  );
+}
+
+/** The command finishing `pen` on `doc`, and the `path_edit` its preview draws. */
+function penCommand(doc: Document, { from, to, anchors, closed }: PenPath) {
   if (from) {
-    input = replaceSubpath(doc, from, anchors, closed);
-    if (to) {
-      const theirs = endingAt(doc, to);
-      const join = {
-        nodeIds: [...new Set([from.nodeId, to.nodeId])],
-        op: "join" as const,
-        tolerance: COINCIDENT,
-        anchors: [
-          { ...from, index: from.atStart ? 0 : anchors.length - 1 },
-          { ...to, index: to.atStart ? 0 : theirs.length - 1 },
-        ].map(({ nodeId, subpath, index }) => ({ nodeId, subpath, index })),
-      };
-      commandId = send({ type: "path_join", edit: input, join }, unheld(PEN));
-    } else commandId = send({ type: "path_edit", input }, unheld(PEN));
-  } else if (to) {
-    // The new path, from its last Anchor, which is on the Endpoint, continues theirs.
+    const input = replaceSubpath(doc, from, anchors, closed);
+    if (!to) return { input, command: { type: "path_edit" as const, input } };
     const theirs = endingAt(doc, to);
-    const mine = flip(anchors);
-    const end = theirs.at(-1) as BareAnchor;
-    const joined = [
-      ...theirs.slice(0, -1),
-      { ...end, handleOut: mine[0]?.handleOut ?? null },
-      ...mine.slice(1),
-    ];
-    input = replaceSubpath(doc, to, joined, false);
-    commandId = send({ type: "path_edit", input }, unheld(PEN));
-  } else return;
-  const selection = [...new Set([from?.nodeId, to?.nodeId].filter((id) => id !== undefined))];
-  useStore.setState({ pen: null, selection, edit: { inputs: [input], commandIds: [commandId] } });
+    const join = {
+      nodeIds: [...new Set([from.nodeId, to.nodeId])],
+      op: "join" as const,
+      tolerance: COINCIDENT,
+      anchors: [
+        { ...from, index: from.atStart ? 0 : anchors.length - 1 },
+        { ...to, index: to.atStart ? 0 : theirs.length - 1 },
+      ].map(({ nodeId, subpath, index }) => ({ nodeId, subpath, index })),
+    };
+    return { input, command: { type: "path_join" as const, edit: input, join } };
+  }
+  if (!to) return null;
+  // The new path, from its last Anchor, which is on the Endpoint, continues theirs.
+  const theirs = endingAt(doc, to);
+  const mine = flip(anchors);
+  const end = theirs.at(-1) as BareAnchor;
+  const joined = [
+    ...theirs.slice(0, -1),
+    { ...end, handleOut: mine[0]?.handleOut ?? null },
+    ...mine.slice(1),
+  ];
+  const input = replaceSubpath(doc, to, joined, false);
+  return { input, command: { type: "path_edit" as const, input } };
 }
 
 /**

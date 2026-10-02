@@ -11,10 +11,11 @@ import {
   toAnchors,
   worldTransform,
 } from "@kalamo/core";
+import { cancelDrag } from "./canvas.ts";
 import { anchorsOf, hasAnchors, localAnchors, nearestSegment } from "./direct.ts";
 import { editable } from "./selection.ts";
 import { getItem } from "./storage.ts";
-import { send, unheld, useStore } from "./store.ts";
+import { afterReverse, send, useStore } from "./store.ts";
 import { constrain, near, pathD, sendNewArt } from "./tools.ts";
 
 /** The Pencil (research 06 §3): Ink fitted on release, as one `create` or one `path_edit`. */
@@ -326,9 +327,6 @@ export function pencilMove(points: Point[], mods: { shift: boolean; alt: boolean
   }
 }
 
-/** The Pencil redraws a path from an Anchor it names by index (ADR-0110). */
-const PENCIL = "the Pencil is not held yet (#278)";
-
 export function pencilCancel() {
   ink = null;
   straight = null;
@@ -347,8 +345,18 @@ export function pencilUp(scale: number) {
   const r = pencilResult(s.doc, s.selection, done, o, scale);
   if (!r) return;
   if ("edit" in r) {
-    const commandIds = [send({ type: "path_edit", input: r.edit }, unheld(PENCIL))];
-    useStore.setState({ edit: { inputs: [r.edit], commandIds } });
+    useStore.setState({ edit: { inputs: [r.edit], commandIds: null } });
+    // Worked out again from the Ink once a Reverse Path Direction press in flight is answered, on
+    // the Document then, so it redraws the stretch drawn over (ADR-0110).
+    afterReverse(({ doc: now, selection }, w) => {
+      const again = now && pencilResult(now, selection, done, o, scale);
+      if (!again || !("edit" in again)) {
+        cancelDrag();
+        return;
+      }
+      const commandIds = [send({ type: "path_edit", input: again.edit }, w)];
+      useStore.setState({ edit: { inputs: [again.edit], commandIds } });
+    });
     return;
   }
   sendNewArt([{ type: "path", d: pathD(r.path.anchors, r.path.closed) }], {

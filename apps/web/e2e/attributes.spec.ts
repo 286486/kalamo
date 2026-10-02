@@ -152,7 +152,7 @@ const ring = (x: number) =>
 const points = (d: string) =>
   [...d.matchAll(/(-?[\d.]+) (-?[\d.]+)/g)].map((m) => `${m[1]} ${m[2]}`);
 
-async function rings(page: Page, request: APIRequestContext, xs: number[]) {
+async function rings(page: Page, request: APIRequestContext, xs: number[], shape = ring) {
   const { docId, defaultLayerId: parentId } = (
     await call(request, "kalamo_doc_create", {
       name: "Reverse rejected",
@@ -163,7 +163,7 @@ async function rings(page: Page, request: APIRequestContext, xs: number[]) {
   const ids = (
     await call(request, "kalamo_node_create", {
       docId,
-      nodes: xs.map((x) => ({ type: "path", parentId, d: ring(x), appearance: { fills } })),
+      nodes: xs.map((x) => ({ type: "path", parentId, d: shape(x), appearance: { fills } })),
     })
   ).structuredContent.createdIds as string[];
   /**
@@ -547,3 +547,92 @@ test("a Reverse Path Direction press whose answer is lost to a reconnect keeps t
   await expect.poll(() => d(id)).toMatch(/C[^LZ]* 40 60 C/);
   expect(await d(id)).toMatch(/M 40 40 L 60 40 L 60 60 C/);
 });
+
+// #278, ADR-0110: the Pen and the Pencil, used on an open subpath while a press reversing it is in
+// flight, wait for the answer and act on the Endpoint or stretch drawn on. The subpath runs
+// (120, 20), (160, 20), (160, 60), clockwise.
+const hook = (x: number) => `${ring(x)} M${x + 120} 20 L${x + 160} 20 L${x + 160} 60`;
+/** Each subpath's Anchors in `d`, as rounded "x y": each segment's end point is its last two numbers. */
+const anchorsIn = (d: string) =>
+  d
+    .split("M")
+    .filter((s) => s.trim())
+    .map((s) =>
+      s.split(/[LCZ]/).flatMap((seg) => {
+        const n = seg.trim().split(/\s+/).filter(Boolean).map(Number);
+        return n.length >= 2 ? [n.slice(-2).map(Math.round).join(" ")] : [];
+      }),
+    );
+const drawnEdits = {
+  "a Pen continuing from an Endpoint": {
+    run: async (page: Page, at: (x: number, y: number) => readonly [number, number]) => {
+      await page.keyboard.press("p");
+      await page.mouse.click(...at(160, 60));
+      await page.mouse.click(...at(180, 60));
+      await page.keyboard.press("a");
+    },
+    accepted: /^180 60,160 60,160 20,120 20$/,
+    rejected: /^120 20,160 20,160 60,180 60$/,
+  },
+  "a Pen path ending on an Endpoint": {
+    run: async (page: Page, at: (x: number, y: number) => readonly [number, number]) => {
+      await page.keyboard.press("p");
+      await page.mouse.click(...at(180, 90));
+      await page.mouse.click(...at(120, 20));
+    },
+    accepted: /^160 60,160 20,120 20,180 90$/,
+    rejected: /^180 90,120 20,160 20,160 60$/,
+  },
+  "a Pencil redraw": {
+    run: async (page: Page, at: (x: number, y: number) => readonly [number, number]) => {
+      await page.keyboard.press("n");
+      await page.mouse.move(...at(160, 30));
+      await page.mouse.down();
+      for (const [x, y] of [
+        [165, 32],
+        [170, 35],
+        [175, 40],
+        [170, 45],
+        [165, 48],
+        [160, 50],
+      ] as const)
+        await page.mouse.move(...at(x, y));
+      await page.mouse.up();
+    },
+    // The stretch from (160, 30) to (160, 50) is replaced, whichever way the subpath then runs.
+    accepted: /^160 60,160 50,.*,160 30,160 20,120 20$/,
+    rejected: /^120 20,160 20,160 30,.*,160 50,160 60$/,
+  },
+};
+for (const outcome of ["accepted", "rejected"] as const) {
+  for (const [name, edit] of Object.entries(drawnEdits)) {
+    test(`${name} while a Reverse Path Direction press is in flight acts where it was drawn, ${outcome}`, async ({
+      page,
+      request,
+    }) => {
+      const { ids, held, hold, at, d, button } = await rings(page, request, [0], hook);
+      const [id] = ids as [string];
+      await page.keyboard.press("a");
+      await page.mouse.click(...at(120, 20));
+      await expect(button("Reverse Path Direction On")).toHaveAttribute("aria-pressed", "true");
+
+      hold();
+      await button("Reverse Path Direction Off").click();
+      await expect.poll(() => held.length).toBe(1);
+      await edit.run(page, at);
+      // The edit waits for the answer.
+      await page.waitForTimeout(200);
+      expect(anchorsIn(await d(id))[2]).toEqual(["120 20", "160 20", "160 60"]);
+      const [press] = held;
+      if (outcome === "accepted") press?.pass();
+      else {
+        press?.answer({
+          type: "rejected",
+          id: press.id,
+          error: { code: "INVALID_PATH", message: "Rejected for the test.", hint: "" },
+        });
+      }
+      await expect.poll(async () => anchorsIn(await d(id))[2]?.join(",")).toMatch(edit[outcome]);
+    });
+  }
+}
