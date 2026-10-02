@@ -772,8 +772,11 @@ const EMPTY: Record<Combining, string> = {
   minus_back: "The objects behind cover all of the frontmost one.",
 };
 
-/** A Shape Mode operand's paths and Live Shapes, back to front; no Clipping Path or mask. */
-function operandLeaves(doc: Document, n: Node): WithAnchors[] {
+/**
+ * The paths and Live Shapes of `n` that paint, back to front, as a Shape Mode or Make takes a
+ * selected Node: a Group or Layer's leaves, no Clipping Path or mask, nor what a mask holds.
+ */
+export function operandLeaves(doc: Document, n: Node): WithAnchors[] {
   // A mask paints nothing (ADR-0103).
   if (isOpacityMask(n)) return [];
   if (n.type === "layer" || n.type === "group") {
@@ -876,7 +879,7 @@ function shapeMode(
 }
 
 /** Why `node` cannot be part of, or be, a Compound Path that Make or Release writes; else null. */
-export function notCompoundPart(node: Node): string | null {
+function notCompoundPart(node: Node): string | null {
   if (node.type !== "path" && !isLiveShape(node)) return article(node.type);
   if (node.clipping) return "A Clipping Path";
   // A Group holds one mask (ADR-0103).

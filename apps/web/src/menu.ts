@@ -4,7 +4,7 @@ import {
   type Document,
   isCompoundPath,
   type Node,
-  notCompoundPart,
+  operandLeaves,
   PATH_OP_TEXT,
   type PathOpInput,
   type ReorderOp,
@@ -153,25 +153,33 @@ function selectingPathOp(nodeIds: string[], op: PathOpInput["op"]) {
 export const shapeMode = (op: Combining) =>
   selectingPathOp(shapeModeTargets(useStore.getState()), op);
 
-/** Object > Compound Path > Make's operands: the selected paths and Live Shapes, two or more (ADR-0107). */
-const makeTargets = ({ doc, selection }: Pick<State, "doc" | "selection">) => {
+/**
+ * Object > Compound Path > Make's operands: the selected paths and Live Shapes, and those that paint
+ * in a selected Group, editable, two or more (ADR-0107).
+ */
+export const makeTargets = ({ doc, selection }: Pick<State, "doc" | "selection">) => {
   const nodeIds = doc ? compoundParts(doc, selection).map((n) => n.id) : [];
   return nodeIds.length >= 2 ? nodeIds : [];
 };
 
 /** Object > Compound Path > Release's targets: the selected paths of two or more subpaths. */
-const releaseTargets = ({ doc, selection }: Pick<State, "doc" | "selection">) =>
+export const releaseTargets = ({ doc, selection }: Pick<State, "doc" | "selection">) =>
   doc
     ? compoundParts(doc, selection)
         .filter(isCompoundPath)
         .map((n) => n.id)
     : [];
 
-/** The Selection's paths and Live Shapes (pathTargets) that Make takes, as core rules it. */
-const compoundParts = (doc: Document, selection: string[]) =>
-  pathTargets(doc, selection)
-    .map((id) => doc.nodes.get(id) as Node)
-    .filter((n) => notCompoundPart(n) === null);
+/** The Selection's editable leaves that core's operandLeaves takes, each once. */
+const compoundParts = (doc: Document, selection: string[]) => [
+  ...new Set(
+    selection
+      .map((id) => doc.nodes.get(id))
+      .filter((n): n is Node => editable(doc, n))
+      .flatMap((n) => operandLeaves(doc, n))
+      .filter((n) => editable(doc, n)),
+  ),
+];
 
 /** An Object > Arrange item: restacks each selected Node in its own parent (ADR-0074). */
 const arrange = (op: ReorderOp, keys: string): MenuItem => ({

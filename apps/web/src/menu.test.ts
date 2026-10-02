@@ -6,6 +6,8 @@ import {
   type Item,
   keysOf,
   type Menu,
+  makeTargets,
+  releaseTargets,
   shapeModeTargets,
   shortcut,
 } from "./menu.ts";
@@ -283,4 +285,51 @@ it("runs a Shape Mode on two or more editable Nodes, a Group as one, never for a
   expect(targets(["inside", "a"])).toEqual([]);
   expect(targets(["a", "b"], "viewer")).toEqual([]);
   expect(findByKeys(menus, "Shift+Ctrl+F9")?.label).toBe("Pathfinder");
+});
+
+it("makes a Compound Path of the editable paths and Live Shapes, those in Groups too, never a mask's", () => {
+  const { doc, defaultLayerId: parentId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 200, height: 100 }],
+  });
+  const leaf = { type: "rect", x: 0, y: 0, width: 10, height: 10 } as const;
+  const rect = { ...leaf, parentId };
+  const { keyMap } = createNodes(doc, [
+    { ...rect, clientKey: "a" },
+    { ...rect, clientKey: "b" },
+    { ...rect, clientKey: "locked" },
+    { ...rect, clientKey: "hidden" },
+    { type: "text", clientKey: "t", parentId, x: 0, y: 0, content: "Hi" },
+    { type: "path", clientKey: "ring", parentId, d: "M0 0 L9 0 L9 9 Z M1 1 L2 1 L2 2 Z" },
+    {
+      type: "group",
+      clientKey: "g",
+      parentId,
+      children: [
+        { ...leaf, clientKey: "g1" },
+        { type: "group", clientKey: "mask", children: [{ ...leaf, clientKey: "m1" }] },
+      ],
+    },
+  ]);
+  const id = (k: string) => keyMap[k] as string;
+  for (const [k, patch] of [
+    ["locked", { locked: true }],
+    ["hidden", { visible: false }],
+    ["mask", { opacityMask: { clip: true, invert: false, link: true } }],
+  ] as const) {
+    doc.nodes.set(id(k), { ...(doc.nodes.get(id(k)) as Node), ...patch } as Node);
+  }
+  const make = (keys: string[]) => makeTargets({ doc, selection: keys.map(id) });
+  const release = (keys: string[]) => releaseTargets({ doc, selection: keys.map(id) });
+  expect(make(["a", "b"])).toEqual([id("a"), id("b")]);
+  expect(make(["a"])).toEqual([]);
+  expect(make(["a", "t"])).toEqual([]);
+  expect(make(["a", "t", "b"])).toEqual([id("a"), id("b")]);
+  expect(make(["a", "locked"])).toEqual([]);
+  expect(make(["a", "hidden"])).toEqual([]);
+  expect(make(["g", "a"])).toEqual([id("g1"), id("a")]);
+  expect(make(["g"])).toEqual([]);
+  expect(release(["ring", "a", "t"])).toEqual([id("ring")]);
+  expect(release(["a", "g"])).toEqual([]);
 });

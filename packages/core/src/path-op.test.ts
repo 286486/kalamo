@@ -11,6 +11,7 @@ import {
   type Filled,
   type Geometry,
   type OffsetStyle,
+  operandLeaves,
   pathOp,
   type StrokeStyle,
 } from "./path-op.ts";
@@ -1328,6 +1329,27 @@ describe("pathOp Compound Path Make and Release (ADR-0107)", () => {
     const [made] = make(doc, [p.id, r.id]).created as [PathNode];
     expect(made.fillRule).toBe("evenodd");
     expect(made.d).toBe(`${p.type === "path" && p.d} ${formatPath(shapeSegments(r as never))}`);
+  });
+
+  it("takes a Group's painting leaves as operands, never a mask or what a mask holds", () => {
+    const { doc, layer } = scene();
+    const leaf = (clientKey: string) =>
+      ({ type: "rect", clientKey, x: 0, y: 0, width: 10, height: 10 }) as const;
+    const { keyMap } = createNodes(doc, [
+      {
+        type: "group",
+        clientKey: "g",
+        parentId: layer,
+        children: [leaf("a"), { type: "group", clientKey: "mask", children: [leaf("m")] }],
+      },
+    ]);
+    const mask = doc.nodes.get(keyMap.mask as string) as Node;
+    doc.nodes.set(mask.id, {
+      ...mask,
+      opacityMask: { clip: true, invert: false, link: true },
+    } as Node);
+    const group = doc.nodes.get(keyMap.g as string) as Node;
+    expect(operandLeaves(doc, group).map((n) => n.id)).toEqual([keyMap.a]);
   });
 
   it("releases a Make back into paths that draw where the originals drew, back to front", () => {
