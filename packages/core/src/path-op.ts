@@ -876,7 +876,7 @@ function shapeMode(
 }
 
 /** Why `node` cannot be part of, or be, a Compound Path that Make or Release writes; else null. */
-function notCompoundPart(node: Node): string | null {
+export function notCompoundPart(node: Node): string | null {
   if (node.type !== "path" && !isLiveShape(node)) return article(node.type);
   if (node.clipping) return "A Clipping Path";
   // A Group holds one mask (ADR-0103).
@@ -960,10 +960,10 @@ function releaseCompoundPath(doc: Document, nodeIds: string[]): PathOpResult {
   const compounds = [...new Map(nodeIds.map((id, i) => [id, lookup(doc, id, `nodeIds[${i}]`)]))];
   const split = compounds.map(([id, node]) => {
     const what =
-      node.type === "path"
-        ? (notCompoundPart(node) ?? (isCompoundPath(node) ? null : "A path with one subpath"))
-        : article(node.type);
-    if (what || node.type !== "path") {
+      node.type !== "path"
+        ? article(node.type)
+        : (notCompoundPart(node) ?? (isCompoundPath(node) ? null : "A path with one subpath"));
+    if (what !== null || node.type !== "path") {
       throw invalid(
         `nodeIds[${nodeIds.indexOf(id)}]`,
         `${what} is not a Compound Path.`,

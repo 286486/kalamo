@@ -3,8 +3,8 @@ import {
   type Combining,
   type Document,
   isCompoundPath,
-  isOpacityMask,
   type Node,
+  notCompoundPart,
   PATH_OP_TEXT,
   type PathOpInput,
   type ReorderOp,
@@ -167,11 +167,11 @@ const releaseTargets = ({ doc, selection }: Pick<State, "doc" | "selection">) =>
         .map((n) => n.id)
     : [];
 
-/** The Selection's paths and Live Shapes (pathTargets), but Clipping Paths and Opacity Masks. */
+/** The Selection's paths and Live Shapes (pathTargets) that Make takes, as core rules it. */
 const compoundParts = (doc: Document, selection: string[]) =>
   pathTargets(doc, selection)
     .map((id) => doc.nodes.get(id) as Node)
-    .filter((n) => !("clipping" in n && n.clipping) && !isOpacityMask(n));
+    .filter((n) => notCompoundPart(n) === null);
 
 /** An Object > Arrange item: restacks each selected Node in its own parent (ADR-0074). */
 const arrange = (op: ReorderOp, keys: string): MenuItem => ({
