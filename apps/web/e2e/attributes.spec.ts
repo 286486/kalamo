@@ -389,9 +389,15 @@ for (const outcome of ["accepted", "rejected"] as const) {
         expect(await d(id)).toMatch(/C[^LZ]* 60 60 C/);
         expect(await d(id)).not.toMatch(/C[^LZ]* (40 40|60 40) C/);
       }
-      if (outcome === "accepted" && name !== "delete") {
+      if (name === "delete") return;
+      if (outcome === "accepted") {
         await expect(button("Reverse Path Direction On")).toHaveAttribute("aria-pressed", "true");
       }
+      // The keys still name the chosen Anchors after the answer: a Delete now removes those two.
+      await page.keyboard.press("Delete");
+      await expect
+        .poll(async () => points(await d(id)))
+        .toEqual([...outer, ...edits.delete[outcome]]);
     });
   }
 }

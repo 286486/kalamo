@@ -106,6 +106,18 @@ export interface Reversing {
   inputs: PathEditInput[];
 }
 
+/** What a Direct Selection edit acts on, as the person had chosen it when they made the edit. */
+export type Chosen = Pick<ViewState, "anchors" | "segments" | "selection" | "tool">;
+
+/**
+ * A Direct Selection edit made while a Reverse Path Direction press was in flight, run once it is
+ * answered (ADR-0110). Its keys are renumbered and cleared as the Direct Selection's are meanwhile.
+ */
+export interface Held {
+  chosen: Chosen;
+  run: (chosen: Chosen) => void;
+}
+
 /**
  * Object > Path > Simplify or Offset Path while its bar or dialog is open: previewed in the
  * browser, then sent as one `path_op` on OK (ADR-0035); `commandId` is set then, and it is drawn
@@ -138,6 +150,8 @@ export interface ViewState {
   pending: PendingCreate[];
   edit: PathDrag | null;
   reversing: Reversing | null;
+  /** Direct Selection edits waiting for `reversing`'s answer, oldest first. */
+  held: Held[];
   opPreview: PathOpPreview | null;
   /** Direct Selection's selected Anchors (direct.ts's keys): UI state, like the Selection. */
   anchors: string[];
@@ -281,8 +295,11 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     !!s.reversing && (msg.type === "document" || msg.commandId === s.reversing.commandId);
   const prior = s.doc;
   const turned = settled && prior && s.reversing ? turnedOf(prior, doc, s.reversing.subpaths) : [];
-  const anchors = s.anchors.map(reversedKey(doc, turned, false)).filter(kept(inRange));
-  const segments = s.segments.map(reversedKey(doc, turned, true)).filter(kept(segmentInRange));
+  const rekey = (k: Pick<ViewState, "anchors" | "segments">) => ({
+    anchors: k.anchors.map(reversedKey(doc, turned, false)).filter(kept(inRange)),
+    segments: k.segments.map(reversedKey(doc, turned, true)).filter(kept(segmentInRange)),
+  });
+  const { anchors, segments } = rekey(s);
   const skipped = msg.type === "tx" ? (msg.skippedIds?.length ?? 0) : 0;
   // A selected Node that a browser's command moved into a new Group selects that Group, as Make
   // Clipping Mask does; an Agent's edit leaves the person's Selection alone.
@@ -324,6 +341,16 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     segments,
     ...(msg.type === "document" ? { edit: null } : settle(s.edit, msg.commandId)),
     ...(settled && { reversing: null }),
+    ...(s.held.length > 0 && {
+      held: s.held.map(({ chosen, run }) => ({
+        chosen: {
+          ...chosen,
+          ...rekey(chosen),
+          selection: chosen.selection.filter((id) => doc.nodes.has(id)),
+        },
+        run,
+      })),
+    }),
     ...(msg.type === "document"
       ? s.pending.length > 0 && { pending: [] }
       : settlePending(s.pending, msg.commandId)),

@@ -199,10 +199,8 @@ const arrange = (op: ReorderOp, keys: string): MenuItem => ({
 const anchorOp = (op: "join" | "average") => ({
   enabled: ({ doc, selection, anchors }: State) =>
     doc !== null && anchorOpTargets(doc, selection, anchors, op) !== null,
-  targets: () => {
-    const { doc, selection, anchors } = useStore.getState();
-    return doc && anchorOpTargets(doc, selection, anchors, op);
-  },
+  targets: ({ doc, selection, anchors }: State) =>
+    doc && anchorOpTargets(doc, selection, anchors, op),
 });
 const join = anchorOp("join");
 const average = anchorOp("average");
@@ -399,8 +397,7 @@ export function documentMenus(tabs: {
             },
             // A Delete while a Reverse Path Direction press is in flight waits for it (ADR-0110).
             run: () =>
-              afterReverse(() => {
-                const { doc, selection, anchors, segments, tool } = useStore.getState();
+              afterReverse(({ doc, selection, anchors, segments, tool }) => {
                 // The Curvature tool removes an Anchor and keeps the curve connected (research 06 §2).
                 if (tool === "curvature" && removeCurveAnchor()) return;
                 if (!doc) return;
@@ -444,22 +441,27 @@ export function documentMenus(tabs: {
                 label: PATH_OP_TEXT.join.menu,
                 keys: "Ctrl+J",
                 enabled: join.enabled,
-                run: () => {
-                  const input = join.targets();
-                  if (input) send({ type: "path_op", input: { ...input, op: "join" } });
-                },
+                // Join and Average name Anchors by index, so they wait for a press too (ADR-0110).
+                run: () =>
+                  afterReverse((s) => {
+                    const input = join.targets(s);
+                    if (input) send({ type: "path_op", input: { ...input, op: "join" } });
+                  }),
               },
               {
                 label: PATH_OP_TEXT.average.menu,
                 keys: "Alt+Ctrl+J",
                 enabled: average.enabled,
                 run: () => {
-                  if (!average.targets()) return;
-                  averageDialog((axis) => {
+                  if (!average.targets(useStore.getState())) return;
+                  averageDialog((axis) =>
                     // The Selection may have changed while the dialog was open.
-                    const input = average.targets();
-                    if (input) send({ type: "path_op", input: { ...input, op: "average", axis } });
-                  });
+                    afterReverse((s) => {
+                      const input = average.targets(s);
+                      if (input)
+                        send({ type: "path_op", input: { ...input, op: "average", axis } });
+                    }),
+                  );
                 },
               },
               pathOp("outline_stroke"),
@@ -471,8 +473,7 @@ export function documentMenus(tabs: {
                 label: "Remove Anchor Points",
                 enabled: ({ doc, anchors }) => doc !== null && anchors.some((k) => inRange(doc, k)),
                 run: () =>
-                  afterReverse(() => {
-                    const { doc, anchors } = useStore.getState();
+                  afterReverse(({ doc, anchors }) => {
                     if (doc) sendAnchorEdits(removeAnchorInputs(doc, anchors));
                   }),
               },

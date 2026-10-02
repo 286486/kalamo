@@ -426,3 +426,55 @@ it("after a reconnect, renumbers the keys only on a subpath the press reached", 
     anchors: [anchorKey(a.id, 1, 1), anchorKey(b.id, 1, 3)],
   });
 });
+
+it("runs a held edit on the Anchors chosen when it was made, renumbered, not on a later click", () => {
+  for (const outcome of ["accepted", "rejected"] as const) {
+    const { doc, a, b, pressed, answer } = pressOn((a, b) => ({
+      anchors: [anchorKey(a.id, 1, 1), anchorKey(b.id, 1, 1)],
+    }));
+    useStore.setState({ ...pressed, held: [] });
+    const seen: string[][] = [];
+    afterReverse((s) => seen.push(s.anchors));
+    // A click after the edit, on a's hole Anchor 3 at (20, 10), is not the edit's.
+    directTool.down(event(doc, 20, 10));
+    directTool.up?.(event(doc, 20, 10));
+    expect(useStore.getState().anchors).toEqual([anchorKey(a.id, 1, 3)]);
+    const msg = outcome === "accepted" ? answer(doc, a.id, b.id) : rejected;
+    useStore.setState(stateAfter(useStore.getState(), msg));
+    runHeld();
+    const [anchors] = seen as [string[]];
+    expect(anchors).toEqual(
+      outcome === "accepted"
+        ? [anchorKey(a.id, 1, 3), anchorKey(b.id, 1, 3)]
+        : [anchorKey(a.id, 1, 1), anchorKey(b.id, 1, 1)],
+    );
+    expect(at(useStore.getState().doc as Document, anchors[0] as string)).toEqual(
+      at(doc, anchorKey(a.id, 1, 1)),
+    );
+  }
+});
+
+it("clears a held edit's keys on a path another Actor edits before the answer (ADR-0109)", () => {
+  const { doc, a, b, pressed, answer } = pressOn((a, b) => ({
+    anchors: [anchorKey(a.id, 1, 1), anchorKey(b.id, 1, 1)],
+  }));
+  useStore.setState({ ...pressed, held: [] });
+  const seen: string[][] = [];
+  afterReverse((s) => seen.push(s.anchors));
+  // a Handle drag on a's hole, held too: an Agent's edit to a drops it.
+  vi.mocked(send).mockClear();
+  directTool.down(event(doc, 20, 20));
+  directTool.move?.(event(doc, 25, 20));
+  directTool.up?.(event(doc, 25, 20));
+  const theirs = message("tx", {
+    rev: doc.rev + 1,
+    actor: "agent",
+    updated: [reversed(doc, a.id)],
+  });
+  useStore.setState(stateAfter(useStore.getState(), theirs));
+  const shown = useStore.getState().doc as Document;
+  useStore.setState(stateAfter(useStore.getState(), answer(shown, b.id)));
+  runHeld();
+  expect(seen).toEqual([[anchorKey(b.id, 1, 3)]]);
+  expect(commands()).toEqual([]);
+});

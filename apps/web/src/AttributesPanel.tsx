@@ -44,14 +44,14 @@ export const AttributesPanel = memo(function AttributesPanel() {
           text="Direction Off"
           value={on}
           is={false}
-          set={() => afterReverse(() => setDirection(useStore.getState(), false))}
+          set={() => afterReverse((s) => setDirection(s, false))}
         />
         <Choice
           label="Reverse Path Direction On"
           text="Direction On"
           value={on}
           is={true}
-          set={() => afterReverse(() => setDirection(useStore.getState(), true))}
+          set={() => afterReverse((s) => setDirection(s, true))}
         />
       </div>
     </section>

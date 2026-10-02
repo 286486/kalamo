@@ -11,7 +11,14 @@ import { create } from "zustand";
 import { parseKey } from "./direct.ts";
 import type { ImageCache } from "./images.ts";
 import { type ActorKind, type Pointer, peersFrom, presenceSender } from "./presence.ts";
-import { afterProbe, type Effect, type Probe, receive, type ViewState } from "./receive.ts";
+import {
+  afterProbe,
+  type Chosen,
+  type Effect,
+  type Probe,
+  receive,
+  type ViewState,
+} from "./receive.ts";
 import type { Tool, ToolGroup } from "./toolbox.ts";
 import type { FillStroke } from "./tools.ts";
 import type { Viewport } from "./viewport.ts";
@@ -59,6 +66,7 @@ export const useStore = create<State>(() => ({
   pending: [],
   edit: null,
   reversing: null,
+  held: [],
   opPreview: null,
   anchors: [],
   segments: [],
@@ -125,21 +133,31 @@ export function send(command: Command): string {
   return id;
 }
 
-/** Direct Selection edits made while a Reverse Path Direction press is in flight, oldest first. */
-let held: (() => void)[] = [];
-
 /**
  * Runs a Direct Selection edit now, or once the Reverse Path Direction press in flight is answered,
- * on the Document and keys as they are then (ADR-0110).
+ * on the Document as it is then and the keys the person had chosen, renumbered (ADR-0110).
+ * `chosen` overrides the Direct Selection's keys, as a drag's own do.
  */
-export function afterReverse(edit: () => void) {
-  if (useStore.getState().reversing) held.push(edit);
-  else edit();
+export function afterReverse(edit: (s: State) => void, chosen?: Partial<Chosen>) {
+  const s = useStore.getState();
+  const { anchors, segments, selection, tool } = { ...s, ...chosen };
+  const c = { anchors, segments, selection, tool };
+  const run = (k: Chosen) => edit({ ...useStore.getState(), ...k });
+  if (s.reversing) useStore.setState({ held: [...s.held, { chosen: c, run }] });
+  else run(c);
 }
 
 /** Runs the held edits in order; one that presses Reverse Path Direction again holds the rest. */
 export function runHeld() {
-  while (held.length > 0 && !useStore.getState().reversing) held.shift()?.();
+  for (;;) {
+    const {
+      held: [h, ...rest],
+      reversing,
+    } = useStore.getState();
+    if (!h || reversing) return;
+    useStore.setState({ held: rest });
+    h.run(h.chosen);
+  }
 }
 
 /** Sends a signed-out person to sign in, coming back to this page. */
@@ -179,7 +197,6 @@ async function fetchActors(docId: string): Promise<Pick<State, "actorNames" | "a
  * connected, so switching tabs starts over from the Document sent on connect (ADR-0030).
  */
 export function connect(docId: string): () => void {
-  held = [];
   useStore.setState({
     doc: null,
     live: false,
@@ -189,6 +206,7 @@ export function connect(docId: string): () => void {
     pending: [],
     edit: null,
     reversing: null,
+    held: [],
     opPreview: null,
     anchors: [],
     segments: [],

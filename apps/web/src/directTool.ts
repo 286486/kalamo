@@ -26,7 +26,7 @@ import {
   splitWhole,
   turnedOf,
 } from "./direct.ts";
-import type { Reversing } from "./receive.ts";
+import type { Chosen } from "./receive.ts";
 import { combine, hitTest } from "./selection.ts";
 import { afterReverse, useStore } from "./store.ts";
 import type { CanvasTool } from "./toolbox.ts";
@@ -36,11 +36,11 @@ const DIRECT_HIT = 2;
 
 /**
  * A press on the canvas: moving objects or drawing a marquee, as the Selection tool does, or
- * dragging Anchors, one Handle, or a segment grabbed at `t`. `from` is the Document it was pressed
- * on and the subpaths of a Reverse Path Direction press then in flight; `last` its latest move.
+ * dragging Anchors, one Handle, or a segment grabbed at `t`. `from` is the Document what it holds is
+ * numbered on, while a Reverse Path Direction press may turn it; `last` its latest move.
  */
 type Gesture = Press & {
-  from: { doc: Document; subpaths: Reversing["subpaths"] } | null;
+  from: Document | null;
   last?: { dx: number; dy: number; alt: boolean };
 } & (
     | { kind: "move"; nodeIds: string[] }
@@ -52,12 +52,23 @@ type Gesture = Press & {
 let gesture: Gesture | null = null;
 let marqueeRect: Rect | null = null;
 
+/** What `g` holds, as Direct Selection keys. */
+function keysOf(g: Gesture): Pick<Chosen, "anchors" | "segments"> {
+  if (g.kind === "anchors") return { anchors: g.keys, segments: [] };
+  if (g.kind === "handle") return { anchors: [g.key], segments: [] };
+  if (g.kind === "segment") {
+    return { anchors: [], segments: [anchorKey(g.nodeId, g.subpath, g.segment)] };
+  }
+  return { anchors: [], segments: [] };
+}
+
 /**
- * `g` with what it holds renumbered on each subpath turned since it was pressed, so it stays on the
- * same points across a Reverse Path Direction press's answer (ADR-0110).
+ * `g` with what it holds renumbered on each of its subpaths turned since `g.from`, so it stays on
+ * the same points across a Reverse Path Direction press's answer (ADR-0110).
  */
 function onPoints(g: Gesture, doc: Document): Gesture {
-  const turned = g.from ? turnedOf(g.from.doc, doc, g.from.subpaths) : [];
+  const { anchors, segments } = keysOf(g);
+  const turned = g.from ? turnedOf(g.from, doc, [...anchors, ...segments].map(parseKey)) : [];
   const flips = (key: string) => {
     const { nodeId, subpath } = parseKey(key);
     return turned.some((t) => t.nodeId === nodeId && t.subpath === subpath);
@@ -143,7 +154,7 @@ export const directTool: CanvasTool = {
     }
     e.capture();
     const { reversing } = useStore.getState();
-    const g = { start, moved: false, from: reversing && { doc, subpaths: reversing.subpaths } };
+    const g = { start, moved: false, from: reversing ? doc : null };
     if (target?.kind === "handle") {
       gesture = { ...g, kind: "handle", key: target.key, which: target.which };
     } else if (nodeId) {
@@ -192,12 +203,22 @@ export const directTool: CanvasTool = {
       marqueeRect = null;
       e.redraw();
     } else if (g?.moved) {
-      // Sent once a Reverse Path Direction press in flight is answered, from the Document then.
-      afterReverse(() => {
-        const { doc } = useStore.getState();
-        if (doc) previewDrag(g, doc);
+      // Sent once a Reverse Path Direction press in flight is answered, from the Document then. What
+      // it holds is renumbered as the keys are, and another Actor's edit to its path meanwhile
+      // drops it, as it drops the keys (ADR-0109, ADR-0110).
+      const { doc } = useStore.getState();
+      if (!doc) return;
+      const h = { ...onPoints(g, doc), from: doc };
+      const holds = keysOf(h);
+      afterReverse(({ doc: now, anchors, segments }) => {
+        if (!now) return;
+        if (h.kind === "anchors") previewDrag({ ...h, keys: anchors, from: null }, now);
+        else if (anchors.length + segments.length < holds.anchors.length + holds.segments.length) {
+          cancelDrag();
+          return;
+        } else previewDrag(h, now);
         commitDrag();
-      });
+      }, holds);
     }
   },
   cancel(redraw) {
