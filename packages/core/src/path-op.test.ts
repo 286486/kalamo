@@ -1383,6 +1383,25 @@ describe("pathOp Compound Path Make and Release (ADR-0107)", () => {
     ]);
   });
 
+  it("names a refused operand at its first nodeIds index, after every id is found", () => {
+    const { doc, layer, box } = scene();
+    const [a, text] = createNodes(doc, [
+      box(0, 0, 10, 10),
+      { type: "text", parentId: layer, x: 0, y: 0, content: "Hi" },
+    ]).nodes as [Node, Node];
+    for (const op of ["make_compound_path", "release_compound_path"]) {
+      const fails = (ids: string[]) => errorOf(() => pathOp(doc, { nodeIds: ids, op } as never));
+      expect(fails([a.id, text.id, a.id, text.id])).toMatchObject({
+        code: "INVALID_PATH",
+        path: op === "make_compound_path" ? "nodeIds[1]" : "nodeIds[0]",
+      });
+      expect(fails([text.id, "gone"])).toMatchObject({
+        code: "NODE_NOT_FOUND",
+        path: "nodeIds[1]",
+      });
+    }
+  });
+
   it("refuses a text, a Group, a Clipping Path, one operand and a non-compound, changing nothing", () => {
     const { doc, layer, box } = scene();
     const [a, text, group, clip] = createNodes(doc, [

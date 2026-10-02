@@ -878,6 +878,20 @@ function shapeMode(
   return { created: [result], updated: [], deletedIds, warnings };
 }
 
+/**
+ * Each Node `nodeIds` names, once, with `at`, the `nodeIds[i]` that first names it; every id is
+ * looked up before any is checked.
+ */
+function eachNamed(doc: Document, nodeIds: string[]): { node: Node; at: string }[] {
+  const found = new Map<string, { node: Node; at: string }>();
+  for (const [i, id] of nodeIds.entries()) {
+    const at = `nodeIds[${i}]`;
+    const node = lookup(doc, id, at);
+    if (!found.has(id)) found.set(id, { node, at });
+  }
+  return [...found.values()];
+}
+
 /** Why `node` cannot be part of, or be, a Compound Path that Make or Release writes; else null. */
 function notCompoundPart(node: Node): string | null {
   if (node.type !== "path" && !isLiveShape(node)) return article(node.type);
@@ -912,20 +926,17 @@ const reversed = (segments: Segment[]) =>
  * deleted. Under nonzero the backmost is reversed, so where same-way operands overlap it is a hole.
  */
 function makeCompoundPath(doc: Document, nodeIds: string[]): PathOpResult {
-  const nodes = [...new Map(nodeIds.map((id, i) => [id, lookup(doc, id, `nodeIds[${i}]`)]))];
-  for (const [id, node] of nodes) {
-    const what = notCompoundPart(node);
-    if (!what) continue;
-    const at = `nodeIds[${nodeIds.indexOf(id)}]`;
-    const hint =
-      node.type === "text"
-        ? "A text has no outline until Create Outlines, still to come."
-        : "Name paths and Live Shapes; select the ones inside a Group.";
-    throw invalid(at, `${what} cannot be part of a Compound Path.`, hint);
-  }
   const order = paintOrder(doc);
-  const operands = nodes
-    .map(([, n]) => n as WithAnchors)
+  const operands = eachNamed(doc, nodeIds)
+    .map(({ node, at }) => {
+      const what = notCompoundPart(node);
+      if (!what) return node as WithAnchors;
+      const hint =
+        node.type === "text"
+          ? "A text has no outline until Create Outlines, still to come."
+          : "Name paths and Live Shapes; select the ones inside a Group.";
+      throw invalid(at, `${what} cannot be part of a Compound Path.`, hint);
+    })
     .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
   const [backmost] = operands;
   const front = operands.at(-1);
@@ -960,15 +971,14 @@ function makeCompoundPath(doc: Document, nodeIds: string[]): PathOpResult {
  * as Illustrator names each `<Path>`.
  */
 function releaseCompoundPath(doc: Document, nodeIds: string[]): PathOpResult {
-  const compounds = [...new Map(nodeIds.map((id, i) => [id, lookup(doc, id, `nodeIds[${i}]`)]))];
-  const split = compounds.map(([id, node]) => {
+  const split = eachNamed(doc, nodeIds).map(({ node, at }) => {
     const what =
       node.type !== "path"
         ? article(node.type)
         : (notCompoundPart(node) ?? (isCompoundPath(node) ? null : "A path with one subpath"));
     if (what !== null || node.type !== "path") {
       throw invalid(
-        `nodeIds[${nodeIds.indexOf(id)}]`,
+        at,
         `${what} is not a Compound Path.`,
         "Name a path whose d has two or more subpaths.",
       );
