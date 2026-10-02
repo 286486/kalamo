@@ -387,6 +387,27 @@ describe("placeImage", () => {
     expect(sized.created[0]).toMatchObject({ x: 1, y: 2, width: 30, height: 40 });
   });
 
+  it("sizes and centres an oriented file upright, on the Artboard or on position (ADR-0101)", () => {
+    const { doc, defaultLayerId } = setup();
+    doc.images.set(src, { mime: "image/jpeg", width: 8, height: 4 });
+    const file = { src, name: "photo.jpg", orientation: 6 as const };
+    const [centred] = placeImage(doc, file, { parentId: defaultLayerId }).created as [Node];
+    expect(centred).toMatchObject({
+      x: 96,
+      y: 48,
+      width: 8,
+      height: 4,
+      transform: [0, 1, -1, 0, 150, -50],
+    });
+    expect(bounds(doc, centred)).toEqual({ x: 98, y: 46, width: 4, height: 8 });
+    const [at] = placeImage(doc, file, { parentId: defaultLayerId, position: { x: 10, y: 10 } })
+      .created as [Node];
+    expect(bounds(doc, at)).toEqual({ x: 8, y: 6, width: 4, height: 8 });
+    const [framed] = placeImage(doc, file, { parentId: defaultLayerId, frame: { x: 1, y: 2 } })
+      .created as [Node];
+    expect(bounds(doc, framed)).toEqual({ x: 1, y: 2, width: 4, height: 8 });
+  });
+
   it("asTemplate puts it at 50% on a locked Layer beneath the Layer that holds the parent", () => {
     const { doc, defaultLayerId } = withImage();
     const [top, group] = createNodes(doc, [

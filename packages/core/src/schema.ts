@@ -644,7 +644,7 @@ export const ImageShape = z.object({
     .number()
     .positive()
     .optional()
-    .describe("With height; omit both for the file's pixel size, one pt per pixel."),
+    .describe("With height; omit both for the file's upright pixel size, one pt per pixel."),
   height: z.number().positive().optional(),
   preserveAspectRatio: z
     .string()
@@ -850,7 +850,7 @@ parameters.preserveAspectRatio = unwrapDefault(ImageShape.shape.preserveAspectRa
 parameters.src = ImageShape.shape.src
   .unwrap()
   .describe(
-    "An image's new pixels (Relink): a data: URL of a PNG, JPEG, GIF or WebP (stored as PNG), or the id of an image already in the Document. The frame and preserveAspectRatio stay.",
+    "An image's new pixels (Relink): a data: URL of a PNG, JPEG, GIF or WebP (stored as PNG), or the id of an image already in the Document. The frame and preserveAspectRatio stay; a JPEG with EXIF orientation keeps the box they show instead, turned upright into it.",
   );
 parameters.file = ImageShape.shape.file
   .unwrap()

@@ -28,4 +28,4 @@ Illustrator's File > Open takes a PNG, JPEG or GIF as well as vector files: it m
 - **A sibling browser route such as `/api/docs/bitmap`, or choosing by `Content-Type` or extension.** The browser cannot be trusted to type a file, and ADR-0023 types bitmaps by their bytes. One route keeps Open as one entry point.
 - **Treating every body that does not start with `<` or `{` as a bitmap.** A text file with neither, such as a mistyped `.json`, would fail with an image error. With the UTF-8 test, it keeps `INVALID_DOCUMENT`, which names what Open reads.
 - **Strict UTF-8 alone, without the `<` / `{` test.** An SVG saved in Latin-1 is not valid UTF-8. It opened before (decoded with replacement characters), and would have become an `INVALID_IMAGE`.
-- **Sizing by DPI or EXIF orientation.** Out of scope; Place also uses 1 pt per pixel.
+- **Sizing by DPI.** Out of scope; Place also uses 1 pt per pixel. (Sizing by EXIF orientation was here; ADR-0101 does it: the Artboard is the upright size.)

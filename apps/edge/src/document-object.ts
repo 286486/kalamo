@@ -30,8 +30,10 @@ import {
   type Node,
   type NodeInput,
   type NodeQuery,
+  neutraliseOrientation,
   newId,
   nodeView,
+  type Orientation,
   type OutlineNode,
   type OutlineOptions,
   outline,
@@ -682,21 +684,29 @@ export class DocumentObject extends DurableObject<Env> {
     opts: Options = {},
   ): Promise<Result<WriteReceipt>> {
     const files: Files = new Map();
-    const ingested = await this.ingestAll(
-      inputs,
-      "nodes",
-      opts,
-      async (input, path) =>
-        (await mapImageSrc(input, path, async (src, srcPath) =>
-          typeof src === "string" && src.startsWith("data:")
-            ? hashed(readStored(src, srcPath, opts.refusedImages), files)
-            : src,
-        )) as NodeInput,
-    );
+    const ingested = await this.ingestAll(inputs, "nodes", opts, async (input, path) => {
+      // Each file's EXIF orientation, by its Image's path within the item (ADR-0101).
+      const turned: [string, Orientation][] = [];
+      const item = (await mapImageSrc(input, path, async (src, srcPath) => {
+        if (typeof src !== "string" || !src.startsWith("data:")) return src;
+        const { file, orientation } = readStored(src, srcPath, opts.refusedImages);
+        turned.push([srcPath.slice(path.length, -".src".length), orientation]);
+        return hashed(file, files);
+      })) as NodeInput;
+      return { item, turned };
+    });
     if ("error" in ingested) return ingested;
     const { ready, merge } = ingested;
+    // Under the paths core numbers the ready items by.
+    const orientations = new Map(
+      ready.flatMap(({ turned }, i) => turned.map(([at, o]) => [`nodes[${i}]${at}`, o] as const)),
+    );
     return this.writeFiles(files, actor, opts, "Create", (doc) => {
-      const { nodes, keyMap, deletedIds, failed } = createNodes(doc, ready, opts);
+      const { nodes, keyMap, deletedIds, failed } = createNodes(
+        doc,
+        ready.map((r) => r.item),
+        { ...opts, orientations },
+      );
       return {
         created: nodes,
         deletedIds,
@@ -711,15 +721,15 @@ export class DocumentObject extends DurableObject<Env> {
    * Runs `ingest` on each item; with `partial`, an item it refuses fails alone. `merge` adds those
    * to what core, numbering only the ready items, reports, with each item's own index put back.
    */
-  private async ingestAll<T>(
+  private async ingestAll<T, U>(
     items: T[],
     key: "nodes" | "updates",
     opts: WriteOptions,
-    ingest: (item: T, path: string) => Promise<T>,
-  ): Promise<{ ready: T[]; merge: (failed: Failed[]) => Failed[] } | { error: ErrorData }> {
+    ingest: (item: T, path: string) => Promise<U>,
+  ): Promise<{ ready: U[]; merge: (failed: Failed[]) => Failed[] } | { error: ErrorData }> {
     const kept: number[] = [];
     const refused: Failed[] = [];
-    const ready: T[] = [];
+    const ready: U[] = [];
     for (const [i, item] of items.entries()) {
       try {
         ready.push(await ingest(item, `${key}[${i}]`));
@@ -889,14 +899,20 @@ export class DocumentObject extends DurableObject<Env> {
     const files: Files = new Map();
     const ingested = await this.ingestAll(updates, "updates", opts, async (u, path) => {
       const src = (u.patch as { src?: unknown }).src;
-      if (typeof src !== "string" || !src.startsWith("data:")) return u;
-      const file = readStored(src, `${path}.patch.src`, opts.refusedImages);
-      return { ...u, patch: { ...u.patch, src: await hashed(file, files) } };
+      if (typeof src !== "string" || !src.startsWith("data:"))
+        return { u, orientation: 1 as const };
+      const { file, orientation } = readStored(src, `${path}.patch.src`, opts.refusedImages);
+      return { u: { ...u, patch: { ...u.patch, src: await hashed(file, files) } }, orientation };
     });
     if ("error" in ingested) return ingested;
     const { ready, merge } = ingested;
+    const orientations = new Map(ready.map(({ orientation }, i) => [`updates[${i}]`, orientation]));
     return this.writeFiles(files, actor, opts, "Update", (doc) => {
-      const { nodes, warnings, failed } = updateNodes(doc, ready, opts);
+      const { nodes, warnings, failed } = updateNodes(
+        doc,
+        ready.map((r) => r.u),
+        { ...opts, orientations },
+      );
       return {
         updated: nodes,
         warnings: [...warnings, ...textWarnings(nodes)],
@@ -1271,8 +1287,9 @@ export class DocumentObject extends DurableObject<Env> {
   }
 
   /**
-   * Place for a bitmap (ADR-0027): stores the file the Worker fetched and checked, then writes its
-   * Image, on a new Template Layer with `asTemplate`, in one Transaction.
+   * Place for a bitmap (ADR-0027): stores the file the Worker fetched and checked, upright
+   * (ADR-0101), then writes its Image, on a new Template Layer with `asTemplate`, in one
+   * Transaction.
    */
   async placeImage(
     file: ImageFile & { name: string },
@@ -1280,21 +1297,24 @@ export class DocumentObject extends DurableObject<Env> {
     opts: Options & {
       parentId: string;
       frame?: { x: number; y: number; width?: number; height?: number };
+      position?: { x: number; y: number };
       asTemplate?: boolean;
     },
   ): Promise<Result<WriteReceipt>> {
     const { name, ...image } = file;
     const files: Files = new Map();
-    const src = await hashed(image, files);
+    const { file: stored, orientation } = neutraliseOrientation(image);
+    const src = await hashed(stored, files);
     return this.writeFiles(files, actor, opts, "Place", (doc) => ({
-      created: placeImage(doc, { src, name }, opts).created,
+      created: placeImage(doc, { src, name, orientation }, opts).created,
       failed: [],
     }));
   }
 
   /**
    * Object > Relink… (ADR-0042): the file the Worker checked becomes the Image's pixels, its frame
-   * kept; a linked Image is renamed `name`. A hidden Image relinks, as in Illustrator's Links panel.
+   * kept, or for an EXIF-oriented JPEG its upright box (ADR-0101); a linked Image is renamed
+   * `name`. A hidden Image relinks, as in Illustrator's Links panel.
    */
   async relinkImage(
     file: ImageFile & { name?: string },
@@ -1303,7 +1323,9 @@ export class DocumentObject extends DurableObject<Env> {
   ): Promise<Result<WriteReceipt>> {
     const { name, ...image } = file;
     const files: Files = new Map();
-    const src = await hashed(image, files);
+    const { file: stored, orientation } = neutraliseOrientation(image);
+    const src = await hashed(stored, files);
+    const orientations = new Map([["updates[0]", orientation]]);
     return this.writeFiles(files, actor, opts, "Relink", (doc) => {
       const node = doc.nodes.get(opts.nodeId);
       const refuse = (message: string, hint: string) =>
@@ -1315,7 +1337,8 @@ export class DocumentObject extends DurableObject<Env> {
         throw refuse("The Image or its Layer is locked.", "Unlock it first.");
       const linked = node?.type === "image" && node.file !== undefined;
       const patch = { src, ...(linked && name && { file: name }) };
-      return { updated: updateNodes(doc, [{ nodeId: opts.nodeId, patch }]).nodes, failed: [] };
+      const updated = updateNodes(doc, [{ nodeId: opts.nodeId, patch }], { orientations }).nodes;
+      return { updated, failed: [] };
     });
   }
 
@@ -1789,11 +1812,14 @@ export async function mapImageSrc(
   return { ...item, children };
 }
 
-/** A data URL's file, or the Worker's refusal of it, a WebP it could not convert (ADR-0100). */
+/**
+ * A data URL's file as it is stored, upright, and its EXIF orientation (ADR-0101); or the Worker's
+ * refusal of it, a WebP it could not convert (ADR-0100).
+ */
 function readStored(src: string, path: string, refused: Record<string, ErrorData> = {}) {
   const error = refused[path];
   if (error) throw new KalamoError(error);
-  return readImage(src, path);
+  return neutraliseOrientation(readImage(src, path));
 }
 
 /** Puts a checked file in `files` and returns its id. */

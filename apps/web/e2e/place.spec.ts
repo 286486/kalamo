@@ -1,5 +1,12 @@
 import { type APIRequestContext, expect, type Page, test } from "@playwright/test";
-import { RED_2x2_PNG, WEBP_ANIMATED, WEBP_LOSSLESS_4x3 } from "../../../fixtures/images.ts";
+import {
+  orientedJpeg,
+  QUADRANT,
+  RED_2x2_PNG,
+  UPRIGHT_QUADRANTS,
+  WEBP_ANIMATED,
+  WEBP_LOSSLESS_4x3,
+} from "../../../fixtures/images.ts";
 import { call } from "./mcp.ts";
 
 const SVG = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="20" height="10"/></svg>';
@@ -142,6 +149,62 @@ test("dropping a PNG or a WebP places an Image; an animated WebP shows the Worke
   await drop(WEBP_ANIMATED, "anim.webp", "image/webp");
   await expect(page.locator("body")).toContainText("one frame as PNG or GIF");
   expect(await children(request, docId, defaultLayerId)).toHaveLength(2);
+});
+
+// ADR-0101: a portrait phone photo, stored landscape with EXIF orientation 6, lands upright.
+test("dropping a JPEG with EXIF orientation 6 places it upright, on the canvas as render draws it", async ({
+  page,
+  request,
+}) => {
+  const { docId, defaultLayerId } = await open(page, request);
+  await page.getByTestId("overlay").evaluate((canvas, url) => {
+    const bytes = Uint8Array.from(atob(url.split(",")[1] ?? ""), (c) => c.charCodeAt(0));
+    const data = new DataTransfer();
+    data.items.add(new File([bytes], "portrait.jpg", { type: "image/jpeg" }));
+    canvas.dispatchEvent(new DragEvent("drop", { dataTransfer: data, bubbles: true }));
+  }, orientedJpeg(6));
+  await expect.poll(async () => (await children(request, docId, defaultLayerId)).length).toBe(1);
+  const [image] = await children(request, docId, defaultLayerId);
+  expect(image).toMatchObject({ type: "image", bounds: { x: 98, y: 46, width: 4, height: 8 } });
+  const { nodes } = (
+    await call(request, "kalamo_node_get", { docId, nodeIds: [image?.id], detail: "full" })
+  ).structuredContent;
+
+  // The stored file decodes as the image cache decodes it, with no imageOrientation: raw, landscape.
+  const size = await page.evaluate(async (url) => {
+    const bitmap = await createImageBitmap(await (await fetch(url)).blob());
+    return [bitmap.width, bitmap.height];
+  }, `/api/docs/${docId}/images/${nodes[0].src}`);
+  expect(size).toEqual([8, 4]);
+
+  // The fitted view puts the Artboard's centre, (100, 50), at the canvas's centre.
+  const scale =
+    Number((await page.getByTestId("status-bar").innerText()).match(/(\d+)%/)?.[1]) / 100;
+  const names = Object.entries(QUADRANT);
+  /** The canvas's colours at the photo's quadrant centres, as UPRIGHT_QUADRANTS spells them. */
+  const read = () =>
+    page.getByTestId("canvas").evaluate(
+      (el: HTMLCanvasElement, [scale, names]) => {
+        const k = el.width / el.getBoundingClientRect().width;
+        const ctx = el.getContext("2d");
+        return [
+          [99, 48],
+          [101, 48],
+          [99, 52],
+          [101, 52],
+        ]
+          .map(([x = 0, y = 0]) => {
+            const px = el.width / 2 + (x - 100) * scale * k;
+            const py = el.height / 2 + (y - 50) * scale * k;
+            const rgb = [...(ctx?.getImageData(px, py, 1, 1).data ?? [])];
+            const hit = names.find(([, q]) => q.every((v, i) => Math.abs(v - (rgb[i] ?? 0)) < 40));
+            return hit?.[0] ?? "?";
+          })
+          .join("");
+      },
+      [scale, names] as [number, typeof names],
+    );
+  await expect.poll(read).toBe(UPRIGHT_QUADRANTS[6]);
 });
 
 // #136: with a leaf isolated, only a Place the Worker accepts goes up one level (ADR-0058).

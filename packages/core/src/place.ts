@@ -1,6 +1,7 @@
 import { generateKeyBetween, generateNKeysBetween } from "fractional-indexing";
 import { assertParent, bounds, childrenOf, createNodes, newId, union } from "./document.ts";
 import { transformNodes } from "./edit.ts";
+import { type Orientation, uprightSize } from "./image.ts";
 import type { Artboard, Document, Node, Rect, RenderScope, Warning } from "./schema.ts";
 import { FILE_TEXT_WARNING_CODES, fileTextWarnings } from "./text.ts";
 
@@ -135,29 +136,34 @@ export function placeNodes(
 
 /**
  * Place for a bitmap (ADR-0027): an Image of the stored file `src` in `parentId`, framed by `frame`
- * (size default the file's pixels), else its pixel size centred on the parent's Artboard. With
- * `asTemplate`, on a new locked Template Layer beneath the parent's Layer, at 50% opacity. Returns
- * the new Nodes, the Layer first.
+ * (size default the file's pixels), else its pixel size centred on `position`, by default the
+ * parent's Artboard. A file read with an EXIF `orientation` is sized upright and turned into its
+ * frame (ADR-0101). With `asTemplate`, on a new locked Template Layer beneath the parent's Layer, at
+ * 50% opacity. Returns the new Nodes, the Layer first.
  */
 export function placeImage(
   doc: Document,
-  file: { src: string; name: string },
+  file: { src: string; name: string; orientation?: Orientation },
   opts: {
     parentId: string;
     frame?: { x: number; y: number; width?: number; height?: number };
+    position?: { x: number; y: number };
     asTemplate?: boolean;
   },
 ): { created: Node[] } {
   assertParent(doc, { type: "image" }, opts.parentId, "parentId");
   const parent = doc.nodes.get(opts.parentId) as Node;
   const info = doc.images.get(file.src);
-  const width = opts.frame?.width ?? info?.width ?? 0;
-  const height = opts.frame?.height ?? info?.height ?? 0;
+  const orientation = file.orientation ?? 1;
+  const upright = uprightSize(info ?? { width: 0, height: 0 }, orientation);
+  const width = opts.frame?.width ?? upright.width;
+  const height = opts.frame?.height ?? upright.height;
   const frame = artboardOf(doc, parent)?.frame ?? { x: 0, y: 0, width: 0, height: 0 };
-  const { x, y } = opts.frame ?? {
-    x: frame.x + (frame.width - width) / 2,
-    y: frame.y + (frame.height - height) / 2,
+  const centre = opts.position ?? {
+    x: frame.x + frame.width / 2,
+    y: frame.y + frame.height / 2,
   };
+  const { x, y } = opts.frame ?? { x: centre.x - width / 2, y: centre.y - height / 2 };
 
   const created: Node[] = [];
   let parentId = opts.parentId;
@@ -179,8 +185,13 @@ export function placeImage(
     created.push(layer);
     parentId = layer.id;
   }
-  const [made] = createNodes(doc, [{ type: "image", parentId, src: file.src, x, y, width, height }])
-    .nodes as [Node];
+  const [made] = createNodes(
+    doc,
+    [{ type: "image", parentId, src: file.src, x, y, width, height }],
+    {
+      orientations: new Map([["nodes[0]", orientation]]),
+    },
+  ).nodes as [Node];
   const image = opts.asTemplate ? { ...made, opacity: 0.5 } : made;
   doc.nodes.set(image.id, image);
   created.push(image);
