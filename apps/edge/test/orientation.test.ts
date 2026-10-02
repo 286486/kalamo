@@ -284,9 +284,9 @@ describe("Place", () => {
         { method: "POST", body: bytesOf(orientedJpeg(o)) },
       );
       const size = uprightOf(o);
-      expect(await res.json()).toMatchObject({
-        bounds: { x: 50 - size.width / 2, y: 40 - size.height / 2, ...size },
-      });
+      const box = { x: 50 - size.width / 2, y: 40 - size.height / 2, ...size };
+      expect(await res.json()).toMatchObject({ bounds: box });
+      expect(await quadrants(docId, box)).toBe(UPRIGHT_QUADRANTS[o]);
     },
   );
 });

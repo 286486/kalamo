@@ -134,8 +134,9 @@ export interface DocumentService {
   ): Promise<WriteReceipt & { nodes: OutlineNode[] }>;
   /**
    * Place for a bitmap (ADR-0027): `src` is an http(s) URL, fetched by the server, or a data URL.
-   * The Image is framed by `frame`, else centred on the parent's Artboard at its pixel size;
-   * `asTemplate` puts it on a new locked Template Layer beneath the parent's Layer, at 50%.
+   * The Image is framed by `frame`, else centred on the parent's Artboard at its upright pixel size
+   * (ADR-0101); `asTemplate` puts it on a new locked Template Layer beneath the parent's Layer, at
+   * 50%.
    */
   placeImage(
     docId: string,
