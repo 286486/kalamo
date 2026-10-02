@@ -348,15 +348,18 @@ export function pencilUp(scale: number) {
     useStore.setState({ edit: { inputs: [r.edit], commandIds: null } });
     // Worked out again from the Ink once a Reverse Path Direction press in flight is answered, on
     // the Document then, so it redraws the stretch drawn over (ADR-0110).
-    afterReverse(({ doc: now, selection }, w) => {
-      const again = now && pencilResult(now, selection, done, o, scale);
-      if (!again || !("edit" in again)) {
-        cancelDrag();
-        return;
-      }
-      const commandIds = [send({ type: "path_edit", input: again.edit }, w)];
-      useStore.setState({ edit: { inputs: [again.edit], commandIds } });
-    });
+    afterReverse(
+      ({ doc: now, selection }, w) => {
+        const again = now && pencilResult(now, selection, done, o, scale);
+        if (!again || !("edit" in again)) {
+          cancelDrag();
+          return;
+        }
+        const commandIds = [send({ type: "path_edit", input: again.edit }, w)];
+        useStore.setState({ edit: { inputs: [again.edit], commandIds } });
+      },
+      { previewed: true },
+    );
     return;
   }
   sendNewArt([{ type: "path", d: pathD(r.path.anchors, r.path.closed) }], {

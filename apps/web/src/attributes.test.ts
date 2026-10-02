@@ -18,7 +18,7 @@ import { curvatureDown, curvatureDrag, curvatureUp } from "./curvature.ts";
 import { anchorKey, localAnchors, parseKey } from "./direct.ts";
 import { directTool } from "./directTool.ts";
 import { pencilDown, pencilMove, pencilUp } from "./pencil.ts";
-import type { ViewState } from "./receive.ts";
+import { previewAll, previewsOf, type ViewState } from "./receive.ts";
 import { afterReverse, runHeld, send, useStore } from "./store.ts";
 import { message, stateAfter, viewState } from "./testing.ts";
 import type { ToolEvent } from "./toolbox.ts";
@@ -792,4 +792,226 @@ it("drops a held Pen edit when another Actor edits its path before the answer (A
   answer("rejected");
   expect(commands()).toEqual([]);
   expect(useStore.getState().edit).toBeNull();
+});
+
+// #283: a held edit, when it runs or is dropped, touches its own preview only. Each edit is held on
+// a's hole, or on p's open subpath, and another Actor's deletion of that path drops it.
+const heldOnRings: Record<string, (doc: Document) => void> = {
+  ...toolEdits,
+  "a Direct Selection drag": (doc) => {
+    directTool.down(event(doc, 10, 10));
+    directTool.move?.(event(doc, 15, 10));
+    directTool.up?.(event(doc, 15, 10));
+  },
+};
+
+/**
+ * Holds `run` on `path` while a press is in flight, then answers it `outcome`, after another Actor
+ * deletes `path` when `dropped`; `meanwhile` runs between the hold and the answer.
+ */
+function settleHeld(
+  hold: () => { path: string; answer: (outcome: "accepted" | "rejected") => void },
+  run: () => void,
+  meanwhile: () => void,
+  outcome: "accepted" | "rejected",
+  dropped: boolean,
+) {
+  const { path, answer } = hold();
+  run();
+  meanwhile();
+  if (dropped) {
+    const { doc } = useStore.getState() as { doc: Document };
+    const theirs = message("tx", { rev: doc.rev + 1, actor: "agent", deletedIds: [path] });
+    useStore.setState(stateAfter(useStore.getState(), theirs));
+  }
+  answer(outcome);
+}
+
+const onRings = () => {
+  const { doc, a, b, pressed } = pressOn((a) => ({ anchors: [anchorKey(a.id, 1, 0)] }));
+  useStore.setState({ ...pressed, edit: null, drag: null, held: [] });
+  vi.advanceTimersByTime(1000);
+  vi.mocked(send).mockClear();
+  return {
+    doc,
+    b,
+    path: a.id,
+    answer: (outcome: "accepted" | "rejected") => {
+      const { doc: now } = useStore.getState() as { doc: Document };
+      const tx = message("tx", {
+        rev: now.rev + 1,
+        commandId: "c",
+        updated: [a, b].filter((n) => now.nodes.has(n.id)).map((n) => reversed(now, n.id)),
+      });
+      useStore.setState(stateAfter(useStore.getState(), outcome === "accepted" ? tx : rejected));
+      runHeld();
+    },
+  };
+};
+
+const onOpen = () => {
+  const answer = pressOnOpen();
+  const [path] = useStore.getState().selection as [string];
+  return {
+    path,
+    answer: (outcome: "accepted" | "rejected") => {
+      const { doc } = useStore.getState() as { doc: Document };
+      if (doc.nodes.has(path) || outcome === "rejected") return answer(outcome);
+      const tx = message("tx", { rev: doc.rev + 1, commandId: "c", updated: [] });
+      useStore.setState(stateAfter(useStore.getState(), tx));
+      runHeld();
+    },
+  };
+};
+
+const everyHeld = [
+  ...Object.entries(heldOnRings).map(([name, run]) => ({
+    name,
+    hold: onRings,
+    run: () => run(useStore.getState().doc as Document),
+  })),
+  ...Object.entries(drawnEdits).map(([name, run]) => ({ name, hold: onOpen, run })),
+];
+
+it("leaves another gesture's unsent preview when a held edit runs or is dropped, with every tool", () => {
+  vi.useFakeTimers();
+  for (const { name, hold, run } of everyHeld) {
+    for (const outcome of ["accepted", "rejected"] as const) {
+      for (const dropped of [false, true]) {
+        const label = `${name}, ${outcome}${dropped ? ", dropped" : ""}`;
+        // A drag of another path begun after the held edit: a Direct Selection drag's path edit,
+        // and a Selection tool drag's move.
+        const edit = {
+          inputs: [{ nodeId: "other", ops: [] }],
+          commandIds: null,
+        };
+        const drag = { nodeIds: ["other"], dx: 3, dy: 0, commandId: null };
+        settleHeld(hold, run, () => useStore.setState({ edit, drag }), outcome, dropped);
+        expect(useStore.getState().edit, label).toBe(edit);
+        expect(useStore.getState().drag, label).toBe(drag);
+        expect(
+          commands().filter((c) => c.type === "transform"),
+          label,
+        ).toEqual([]);
+        expect(commands().length > 0, label).toBe(!dropped);
+      }
+    }
+  }
+  vi.useRealTimers();
+});
+
+it("keeps a Direct Selection drag in progress, and stores what it dragged, when a held edit is dropped", () => {
+  vi.useFakeTimers();
+  for (const outcome of ["accepted", "rejected"] as const) {
+    let b = "";
+    let shown: unknown;
+    settleHeld(
+      () => {
+        const r = onRings();
+        b = r.b.id;
+        return r;
+      },
+      () => heldOnRings["a Curvature drag"]?.(useStore.getState().doc as Document),
+      () => {
+        // Drags b's top-left corner, (50, 0), to (55, 5).
+        const { doc } = useStore.getState() as { doc: Document };
+        directTool.down(event(doc, 50, 0));
+        directTool.move?.(event(doc, 55, 5));
+        shown = useStore.getState().edit;
+      },
+      outcome,
+      true,
+    );
+    expect(useStore.getState().edit, outcome).toEqual(shown);
+    vi.mocked(send).mockClear();
+    directTool.up?.(event(useStore.getState().doc as Document, 55, 5));
+    expect(commands(), outcome).toEqual([
+      {
+        type: "path_edit",
+        input: { nodeId: b, ops: [{ op: "move_anchor", subpath: 0, index: 0, to: [55, 5] }] },
+      },
+    ]);
+  }
+  vi.useRealTimers();
+});
+
+it("keeps a Pencil drag in progress, and stores what it drew, when a held edit is dropped", () => {
+  for (const outcome of ["accepted", "rejected"] as const) {
+    settleHeld(
+      onOpen,
+      drawnEdits["a Pen continuing from an Endpoint"] as () => void,
+      // Redraws q, the line from (0, 100) to (20, 100), from (4, 100) to (16, 100) through (10, 106).
+      () => {
+        const { doc } = useStore.getState() as { doc: Document };
+        const q = [...doc.nodes.values()].find(
+          (n) => n.type === "path" && n.d === "M 0 100 L 20 100",
+        );
+        useStore.setState({ selection: [q?.id as string] });
+        pencilDown([4, 100]);
+        for (const x of [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
+          pencilMove([[x, 106 - Math.abs(x - 10)]], { shift: false, alt: false });
+      },
+      outcome,
+      true,
+    );
+    expect(commands(), outcome).toEqual([]);
+    pencilMove([[16, 100]], { shift: false, alt: false });
+    pencilUp(1);
+    const [edit] = commands();
+    expect(edit, outcome).toMatchObject({ type: "path_edit" });
+    expect(useStore.getState().edit?.inputs, outcome).toEqual([(edit as { input: unknown }).input]);
+  }
+});
+
+it("keeps each held edit's preview on screen until that edit runs or is dropped", () => {
+  vi.useFakeTimers();
+  for (const outcome of ["accepted", "rejected"] as const) {
+    for (const dropped of [false, true]) {
+      const label = `${outcome}${dropped ? ", dropped" : ""}`;
+      let a = "";
+      let b = "";
+      /** Where the held edits put a's hole Anchor at (10, 10) and b's corner at (80, 0). */
+      const shown = () => {
+        const s = useStore.getState();
+        const d = previewAll(s.doc as Document, previewsOf(s));
+        return [d.nodes.has(a) ? at(d, anchorKey(a, 1, 0)) : null, at(d, anchorKey(b, 0, 1))];
+      };
+      settleHeld(
+        () => {
+          const r = onRings();
+          [a, b] = [r.path, r.b.id];
+          return r;
+        },
+        () => {
+          // A drag of a's hole Anchor, a press on b's hole, then a Curvature drag of b's corner.
+          heldOnRings["a Direct Selection drag"]?.(useStore.getState().doc as Document);
+          afterReverse(
+            (s) =>
+              setDirection(
+                s,
+                !runsClockwise(s.doc as Document, s.doc?.nodes.get(b) as PathNode, 1),
+              ),
+            { anchors: [anchorKey(b, 1, 0)], segments: [] },
+          );
+          curvatureDown([80, 0], 1, false);
+          curvatureDrag([85, 0]);
+          curvatureUp();
+        },
+        () =>
+          expect(shown(), label).toEqual([
+            [15, 10],
+            [85, 0],
+          ]),
+        outcome,
+        dropped,
+      );
+      // The drag ran or was dropped, and the second press holds the Curvature drag.
+      expect(useStore.getState().reversing, label).not.toBeNull();
+      expect(shown(), label).toEqual([dropped ? null : [15, 10], [85, 0]]);
+      // The drag's answer, which the mock gives the press's id too, takes its preview down.
+      useStore.setState(stateAfter(useStore.getState(), rejected));
+      expect(shown()[0], label).toEqual(dropped ? null : [10, 10]);
+    }
+  }
+  vi.useRealTimers();
 });

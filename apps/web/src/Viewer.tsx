@@ -16,7 +16,7 @@ import { keysTaken } from "./MenuBar.tsx";
 import { PathfinderPanel } from "./PathfinderPanel.tsx";
 import { pastedArt, place, placeable } from "./place.ts";
 import { AREA_SHOWN, visibleAreas } from "./presence.ts";
-import { preview, previewEdit, previewOp } from "./receive.ts";
+import { previewAll, previewEdit, previewOp, previewsOf } from "./receive.ts";
 import { editable } from "./selection.ts";
 import { simplifyOpen } from "./simplify.ts";
 import { canEdit, connect, pointerAt, send, useStore } from "./store.ts";
@@ -70,6 +70,8 @@ export function Viewer({ docId }: { docId: string }) {
     drag,
     edit,
     reversing,
+    held,
+    ran,
     opPreview,
     pending,
     notice,
@@ -184,10 +186,9 @@ export function Viewer({ docId }: { docId: string }) {
 
   // Hit tests use `doc`; only the drawing shows the drag.
   const shown = useMemo(() => {
-    const moved = simplified && drag ? preview(simplified, drag) : simplified;
-    const edited = moved && edit ? previewEdit(moved, edit) : moved;
+    const edited = simplified && previewAll(simplified, previewsOf({ ran, held, edit, drag }));
     return edited && paintPreview ? withPaints(edited, paintPreview.updates) : edited;
-  }, [simplified, drag, edit, paintPreview]);
+  }, [simplified, ran, held, drag, edit, paintPreview]);
   // A Reverse Path Direction press in flight shows on the Document only: the overlay's Anchors keep
   // the committed numbering the keys use, at the same places (ADR-0110).
   const drawn = useMemo(

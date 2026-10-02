@@ -494,6 +494,79 @@ for (const outcome of ["accepted", "rejected"] as const) {
   }
 }
 
+// #283, ADR-0110: an Agent's edit to the first ring drops a held Curvature drag on it. A Direct
+// Selection drag of the second ring's corner, still being made when the answer comes, keeps its
+// preview and on release stores what was dragged.
+for (const outcome of ["accepted", "rejected"] as const) {
+  test(`a drag in progress keeps its preview when the answer drops a held edit, ${outcome}`, async ({
+    page,
+    request,
+  }) => {
+    const { docId, ids, held, hold, at, d, button } = await rings(page, request, [0, 100]);
+    const [a, b] = ids as [string, string];
+    await page.keyboard.press("a");
+    await page.mouse.click(...at(40, 60));
+    await expect(button("Reverse Path Direction Off")).toHaveAttribute("aria-pressed", "true");
+
+    hold();
+    await button("Reverse Path Direction On").click();
+    await expect.poll(() => held.length).toBe(1);
+    await toolEdits["a Curvature drag"].run(page, at);
+    await call(request, "kalamo_path_edit", {
+      docId,
+      nodeId: a,
+      ops: [{ op: "move_anchor", subpath: 0, index: 0, to: [10, 10] }],
+    });
+    // The Agent's Transaction clears the chosen Anchor, so the held drag will be dropped.
+    await expect(button("Reverse Path Direction On")).toBeDisabled();
+
+    // The second ring's corner at (180, 20), dragged to (190, 10) and held there.
+    await page.keyboard.press("a");
+    await page.mouse.click(...at(180, 20));
+    await page.mouse.move(...at(180, 20));
+    await page.mouse.down();
+    await page.mouse.move(...at(190, 10), { steps: 4 });
+    const [x, y] = at(183, 18);
+    const red = () =>
+      page.getByTestId("canvas").evaluate(
+        (el: HTMLCanvasElement, [px, py]: [number, number]) => {
+          const r = el.getBoundingClientRect();
+          const k = el.width / r.width;
+          const [red = 0, green = 0] =
+            el.getContext("2d")?.getImageData((px - r.left) * k, (py - r.top) * k, 1, 1).data ?? [];
+          return red > 200 && green < 50;
+        },
+        [x, y] as [number, number],
+      );
+    await expect.poll(red).toBe(true);
+
+    const [press] = held;
+    if (outcome === "accepted") {
+      press?.pass();
+      await expect
+        .poll(async () => points(await d(a)).slice(4))
+        .toEqual(["40 40", "60 40", "60 60", "40 60"]);
+    } else {
+      press?.answer({
+        type: "rejected",
+        id: press.id,
+        error: { code: "INVALID_PATH", message: "Rejected for the test.", hint: "" },
+      });
+      await expect(page.getByRole("alert")).toHaveText("Rejected for the test.");
+    }
+    await page.waitForTimeout(200);
+    expect(await red()).toBe(true);
+    await page.mouse.up();
+    await expect.poll(async () => points(await d(b))[1]).toBe("190 10");
+    // The dropped Curvature drag sent nothing: the hole is as the press left it.
+    expect(points(await d(a)).slice(4)).toEqual(
+      outcome === "accepted"
+        ? ["40 40", "60 40", "60 60", "40 60"]
+        : ["40 40", "40 60", "60 60", "60 40"],
+    );
+  });
+}
+
 for (const outcome of ["accepted", "rejected"] as const) {
   test(`the Attributes panel shows the pressed direction in flight and the answer's after, ${outcome}`, async ({
     page,

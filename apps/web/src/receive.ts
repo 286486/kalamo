@@ -111,13 +111,18 @@ export interface Reversing {
 /** What a Direct Selection edit acts on, as the person had chosen it when they made the edit. */
 export type Chosen = Pick<ViewState, "anchors" | "segments" | "selection" | "tool">;
 
+/** One edit's preview: the paths it reshapes and the Nodes it moves whole. */
+export type Preview = Pick<ViewState, "edit" | "drag">;
+
 /**
  * A Direct Selection edit made while a Reverse Path Direction press was in flight, run once it is
  * answered (ADR-0110). Its keys are renumbered and cleared as the Direct Selection's are meanwhile.
+ * `preview` is its own, drawn until it runs: running or dropping it changes no other preview.
  */
 export interface Held {
   chosen: Chosen;
   run: (chosen: Chosen) => void;
+  preview: Preview;
 }
 
 /**
@@ -154,6 +159,8 @@ export interface ViewState {
   reversing: Reversing | null;
   /** Direct Selection edits waiting for `reversing`'s answer, oldest first. */
   held: Held[];
+  /** The previews of held edits that ran and were sent, each drawn until its answer. */
+  ran: Preview[];
   opPreview: PathOpPreview | null;
   /** Direct Selection's selected Anchors (direct.ts's keys): UI state, like the Selection. */
   anchors: string[];
@@ -253,6 +260,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
       ...(s.opPreview?.commandId === msg.id && { opPreview: null }),
       ...(s.paintPreview?.commandId === msg.id && { paintPreview: null }),
       ...settle(s.edit, msg.id),
+      ...settleRan(s.ran, msg.id),
       notice: gone
         ? "Someone else deleted that object first; it stays deleted."
         : msg.error.message,
@@ -283,7 +291,9 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     msg.type === "tx" ? s.pending.find((p) => p.commandId === msg.commandId) : undefined;
   // Someone else's change to a path renumbers its Anchors, so its selected ones go; after our own
   // command, and on a reconnect, those it still has stay.
-  const ours = [...(s.edit?.commandIds ?? []), s.drag?.commandId, s.reversing?.commandId];
+  const ours = [s, ...s.ran]
+    .flatMap((p) => [...(p.edit?.commandIds ?? []), p.drag?.commandId])
+    .concat(s.reversing?.commandId);
   const own = msg.type === "tx" && !!msg.commandId && ours.includes(msg.commandId);
   const touched =
     msg.type === "tx" ? new Set([...msg.updated.map((n) => n.id), ...msg.deletedIds]) : null;
@@ -355,16 +365,19 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     anchors,
     segments,
     ...(msg.type === "document" ? { edit: null } : settle(s.edit, msg.commandId)),
+    ...(msg.type === "document"
+      ? s.ran.length > 0 && { ran: [] }
+      : settleRan(s.ran, msg.commandId)),
     ...(settled && { reversing: null }),
     ...(s.pen && turned.length > 0 && { pen: turnedPen(s.pen, turned) }),
     ...(s.held.length > 0 && {
-      held: s.held.map(({ chosen, run }) => ({
+      held: s.held.map((h) => ({
+        ...h,
         chosen: {
-          ...chosen,
-          ...rekey(chosen),
-          selection: chosen.selection.filter((id) => doc.nodes.has(id)),
+          ...h.chosen,
+          ...rekey(h.chosen),
+          selection: h.chosen.selection.filter((id) => doc.nodes.has(id)),
         },
-        run,
       })),
     }),
     ...(msg.type === "document"
@@ -438,6 +451,23 @@ export function previewEdit(doc: Document, { inputs }: Pick<PathDrag, "inputs">)
   return shown;
 }
 
+/**
+ * Every edit's preview, in the order the Document DO applies them: held edits sent, held edits
+ * waiting, then the last gesture's (ADR-0110).
+ */
+export const previewsOf = (s: Pick<ViewState, "ran" | "held" | "edit" | "drag">): Preview[] => [
+  ...s.ran,
+  ...s.held.map((h) => h.preview),
+  { edit: s.edit, drag: s.drag },
+];
+
+/** `doc` with each preview applied in order: its Nodes moved whole, then its paths reshaped. */
+export const previewAll = (doc: Document, previews: Preview[]): Document =>
+  previews.reduce((d, { drag, edit }) => {
+    const moved = drag ? preview(d, drag) : d;
+    return edit ? previewEdit(moved, edit) : moved;
+  }, doc);
+
 /** The Pen's Endpoints on a subpath in `turned`, on the same Anchors: now the other end (ADR-0110). */
 function turnedPen(pen: PenPath, turned: Reversing["subpaths"]): PenPath {
   const same = <E extends Endpoint>(e: E): E =>
@@ -485,6 +515,20 @@ function settle(edit: PathDrag | null, id: string | undefined): { edit?: PathDra
   const inputs = edit.inputs.filter((_, i) => ids[i] !== id);
   const commandIds = ids.filter((c) => c !== id);
   return { edit: inputs.length > 0 ? { inputs, commandIds } : null };
+}
+
+/** The held edits' previews without what the answer or rejection to command `id` settled. */
+function settleRan(ran: Preview[], id: string | undefined): { ran?: Preview[] } {
+  if (!id || !ran.some((p) => p.drag?.commandId === id || p.edit?.commandIds?.includes(id))) {
+    return {};
+  }
+  return {
+    ran: ran.flatMap((p) => {
+      const { edit = p.edit } = settle(p.edit, id);
+      const drag = p.drag?.commandId === id ? null : p.drag;
+      return edit || drag ? [{ edit, drag }] : [];
+    }),
+  };
 }
 
 /** The pending creates without the one whose command `id` was answered or rejected. */

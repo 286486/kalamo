@@ -15,6 +15,7 @@ import {
   afterProbe,
   type Chosen,
   type Effect,
+  type Preview,
   type Probe,
   receive,
   type ViewState,
@@ -67,6 +68,7 @@ export const useStore = create<State>(() => ({
   edit: null,
   reversing: null,
   held: [],
+  ran: [],
   opPreview: null,
   anchors: [],
   segments: [],
@@ -167,27 +169,55 @@ export function send<C extends Command>(
  * Runs a Direct Selection edit now, or once the Reverse Path Direction press in flight is answered,
  * on the Document as it is then and the keys the person had chosen, renumbered (ADR-0110). The edit
  * is handed the `Waited` its commands by index are sent with. `chosen` overrides the Direct
- * Selection's keys, as a drag's own do.
+ * Selection's keys, as a drag's own do. With `previewed`, the unsent preview in `edit` and `drag` is
+ * the edit's own: held, it goes with the edit, so the next gesture's preview leaves it on screen.
  */
-export function afterReverse(edit: (s: State, w: Waited) => void, chosen?: Partial<Chosen>) {
+export function afterReverse(
+  edit: (s: State, w: Waited) => void,
+  { previewed, ...chosen }: Partial<Chosen> & { previewed?: true } = {},
+) {
   const s = useStore.getState();
   const { anchors, segments, selection, tool } = { ...s, ...chosen };
   const c = { anchors, segments, selection, tool };
   const run = (k: Chosen) => edit({ ...useStore.getState(), ...k }, WAITED);
-  if (s.reversing) useStore.setState({ held: [...s.held, { chosen: c, run }] });
-  else run(c);
+  if (!s.reversing) return run(c);
+  const preview: Preview = {
+    edit: previewed && s.edit?.commandIds === null ? s.edit : null,
+    drag: previewed && s.drag?.commandId === null ? s.drag : null,
+  };
+  useStore.setState({
+    held: [...s.held, { chosen: c, run, preview }],
+    ...(preview.edit && { edit: null }),
+    ...(preview.drag && { drag: null }),
+  });
 }
 
-/** Runs the held edits in order; one that presses Reverse Path Direction again holds the rest. */
+/**
+ * Runs the held edits in order; one that presses Reverse Path Direction again holds the rest. Each
+ * runs on its own preview, so it replaces or drops that one only: what it sends is drawn in `ran`
+ * until answered, and the gesture's preview it set aside is put back (ADR-0110).
+ */
 export function runHeld() {
   for (;;) {
     const {
       held: [h, ...rest],
       reversing,
+      edit,
+      drag,
     } = useStore.getState();
     if (!h || reversing) return;
-    useStore.setState({ held: rest });
+    useStore.setState({ held: rest, ...h.preview });
     h.run(h.chosen);
+    const after = useStore.getState();
+    const sent = {
+      edit: after.edit?.commandIds ? after.edit : null,
+      drag: after.drag?.commandId ? after.drag : null,
+    };
+    useStore.setState({
+      edit,
+      drag,
+      ...((sent.edit || sent.drag) && { ran: [...after.ran, sent] }),
+    });
   }
 }
 
@@ -238,6 +268,7 @@ export function connect(docId: string): () => void {
     edit: null,
     reversing: null,
     held: [],
+    ran: [],
     opPreview: null,
     anchors: [],
     segments: [],
