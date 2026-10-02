@@ -1,4 +1,11 @@
-import { childrenOf, clippingPath, createNodes } from "./document.ts";
+import {
+  childrenOf,
+  clippingPath,
+  createNodes,
+  isOpacityMask,
+  opacityMaskOf,
+  unmasked,
+} from "./document.ts";
 import { lookup } from "./edit.ts";
 import { collect, KalamoError } from "./errors.ts";
 import type { Document, GroupNode, LeafNode, MaskInput, Node } from "./schema.ts";
@@ -10,8 +17,10 @@ const invalid = (path: string, message: string, hint: string) =>
 /**
  * Illustrator's Object > Clipping Mask > Make (ADR-0021): a new Group at the topmost member's place
  * holds the clip Node and the content, each keeping its stacking order, and the clip Node becomes
- * its Clipping Path with an empty Appearance. With `layerId`, the Layers panel's Make instead
- * (ADR-0053): no Group, see makeLayerMask. Validates everything before changing anything.
+ * its Clipping Path with an empty Appearance. With `kind: "opacity"`, the Transparency panel's Make
+ * Mask (ADR-0103): the same Group, the clip Node its mask, keeping its Appearance. With `layerId`,
+ * the Layers panel's Make instead (ADR-0053): no Group, see makeLayerMask. Validates everything
+ * before changing anything.
  */
 export function makeMask(
   doc: Document,
@@ -25,34 +34,48 @@ export function makeMask(
   doc: Document,
   input: MaskInput,
 ): { group: GroupNode | undefined; updated: Node[] } {
-  if (input.kind === "opacity") {
+  const opacity = input.kind === "opacity";
+  const option = (["clip", "invert"] as const).find((k) => input[k] !== undefined);
+  if (!opacity && option) {
     throw invalid(
-      "kind",
-      "Opacity Masks are not available yet (F-MASK-02).",
-      'Use kind "clip", or omit it.',
+      option,
+      `${option} is an option of an Opacity Mask.`,
+      `Send kind "opacity" with it, or leave ${option} out for a Clipping Mask.`,
     );
   }
-  if ("layerId" in input) return { group: undefined, updated: [makeLayerMask(doc, input.layerId)] };
+  if ("layerId" in input) {
+    if (opacity) {
+      throw invalid(
+        "layerId",
+        "A Layer cannot be an Opacity Mask.",
+        "Give clipNodeId, the mask, and contentIds instead: they go into a new Group.",
+      );
+    }
+    return { group: undefined, updated: [makeLayerMask(doc, input.layerId)] };
+  }
   const { clipNodeId, contentIds } = input;
   const clip = lookup(doc, clipNodeId, "clipNodeId");
-  if (clip.type === "layer" || clip.type === "group" || clip.type === "image") {
+  const role = opacity ? "mask" : "Clipping Path";
+  if (clip.type === "layer" || (!opacity && (clip.type === "group" || clip.type === "image"))) {
     throw invalid(
       "clipNodeId",
-      `A ${clip.type} cannot be a Clipping Path.`,
-      "Clip with a Live Shape, a Path or a text.",
+      `A ${clip.type} cannot be a ${role}.`,
+      opacity
+        ? "Mask with a Live Shape, a Path, a text, an Image or a Group."
+        : "Clip with a Live Shape, a Path or a text.",
     );
   }
-  if (clip.clipping) {
+  if (isMask(clip)) {
     throw invalid(
       "clipNodeId",
-      "The Node is already a Clipping Path.",
-      "Use mask_release on it first, or clip with another Node.",
+      `The Node is already a ${isOpacityMask(clip) ? "mask" : "Clipping Path"}.`,
+      `Use mask_release on it first, or ${opacity ? "mask" : "clip"} with another Node.`,
     );
   }
   if (!clip.visible) {
     throw invalid(
       "clipNodeId",
-      "A Clipping Path cannot be hidden.",
+      `A ${role} cannot be hidden.`,
       "Show the Node with node_update {visible: true} first.",
     );
   }
@@ -75,11 +98,12 @@ export function makeMask(
         "Clip the Layer's Nodes instead.",
       );
     }
-    if ("clipping" in n && n.clipping) {
+    if (isMask(n)) {
+      const [what, mask] = isOpacityMask(n) ? ["mask", "Opacity"] : ["Clipping Path", "Clipping"];
       throw invalid(
         at,
-        "The Node is a Clipping Path: a Group has at most one.",
-        "Release its Clipping Mask with mask_release first.",
+        `The Node is the ${what} of its parent: a Group has at most one.`,
+        `Release its ${mask} Mask with mask_release first.`,
       );
     }
     if (n.parentId !== clip.parentId) {
@@ -95,9 +119,11 @@ export function makeMask(
   const top = members.at(-1) as Node;
   const [made] = createNodes(doc, [{ type: "group", parentId: clip.parentId as string }]).nodes;
   const group = { ...(made as GroupNode), index: top.index };
+  const opacityMask = { clip: input.clip ?? true, invert: input.invert ?? false, link: true };
   const updated = members.map((m): Node => {
     const moved = { ...m, parentId: group.id };
-    return m === clip ? emptied({ ...clip, parentId: group.id }) : moved;
+    if (m !== clip) return moved;
+    return opacity ? { ...moved, opacityMask } : emptied(moved as LeafNode);
   });
   for (const n of [group, ...updated]) doc.nodes.set(n.id, n);
   return { group, updated };
@@ -154,25 +180,27 @@ function emptied(clip: LeafNode): LeafNode {
   return { ...text, ...(kept && { ranges: kept }), clipping: true, appearance };
 }
 
+/** A Clipping Path or the mask of an Opacity Mask. */
+const isMask = (n: Node) => ("clipping" in n && !!n.clipping) || isOpacityMask(n);
+
 /**
- * Illustrator's Object > Clipping Mask > Release: each Clipping Mask, named by its Group or its
- * Clipping Path, stops clipping; the Group and the Path, with whatever Appearance it has, stay.
+ * Illustrator's Object > Clipping Mask > Release and the Transparency panel's Release (ADR-0103):
+ * each Clipping Mask or Opacity Mask, named by its Group or Layer or by its Clipping Path or mask,
+ * stops clipping or masking; the Group and the former Clipping Path or mask, with whatever
+ * Appearance it has, stay.
  */
 export function releaseMask(doc: Document, nodeIds: string[], { partial = false } = {}) {
   const { ok, failed } = collect(nodeIds, partial, (id, i) => {
     const n = lookup(doc, id, `nodeIds[${i}]`);
-    const clip = "clipping" in n && n.clipping ? n : clippingPath(doc, n);
-    if (clip) return clip;
+    const mask = isMask(n) ? n : (clippingPath(doc, n) ?? opacityMaskOf(doc, n));
+    if (mask) return mask;
     throw invalid(
       `nodeIds[${i}]`,
-      `The ${n.type} is not a Clipping Mask or its Clipping Path.`,
-      "List Groups or Layers made Clipping Masks by mask_make, or their Clipping Paths: node_get with detail full shows clipping: true on one.",
+      `The ${n.type} is not a Clipping Mask or an Opacity Mask, nor the Clipping Path or mask of one.`,
+      "List Groups or Layers made Clipping Masks or Opacity Masks by mask_make, or their Clipping Paths or masks: node_get with detail full shows clipping: true or opacityMask on one.",
     );
   });
-  const nodes = [...new Map(ok.map((c) => [c.id, c])).values()].map((c) => {
-    const { clipping: _, ...rest } = c;
-    return rest as LeafNode;
-  });
+  const nodes = [...new Map(ok.map((c) => [c.id, c])).values()].map(unmasked);
   for (const n of nodes) doc.nodes.set(n.id, n);
   return { nodes, failed };
 }

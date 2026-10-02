@@ -6,6 +6,7 @@ import {
   checkFile,
   childrenOf,
   imageInfo,
+  isOpacityMask,
   isTopLayer,
   mapPaint,
   newId,
@@ -13,6 +14,7 @@ import {
   paintContainer,
   paintOrder,
   union,
+  unmasked,
 } from "./document.ts";
 import { collect, type Failed, KalamoError } from "./errors.ts";
 import { type Orientation, orientedImage, preserveAspectRatio } from "./image.ts";
@@ -29,6 +31,7 @@ import {
   LayerTemplate,
   type LeafNode,
   type Node,
+  OpacityMask,
   PIVOTS,
   type Rect,
   type ReorderOp,
@@ -62,6 +65,15 @@ export function lookup(doc: Document, id: string, path: string): Node {
     hint: "Use doc_outline or the ids from a WriteReceipt; deleted Nodes do not come back.",
     path,
   });
+}
+
+/**
+ * The Node and everything beneath it that a transform of it moves, depth first: an unlinked mask
+ * stays where it is (ADR-0103).
+ */
+function moving(doc: Document, node: Node): Node[] {
+  const stays = (c: Node) => isOpacityMask(c) && !c.opacityMask.link;
+  return [node, ...childrenOf(doc, node.id).flatMap((c) => (stays(c) ? [] : moving(doc, c)))];
 }
 
 /** Drops targets that sit inside another target, so nothing is edited twice. */
@@ -131,7 +143,11 @@ function transformOnce(
   const { ok: targets, failed } = collect(input.nodeIds, partial, (id, i) =>
     lookup(doc, id, `nodeIds[${i}]`),
   );
-  const { kept, nested } = outermost(doc, targets);
+  // A target that another target moves is nested; an unlinked mask is not, so it moves on its own.
+  const inside = new Set(targets.flatMap((n) => moving(doc, n).slice(1)).map((n) => n.id));
+  const unique = [...new Set(targets)];
+  const kept = unique.filter((n) => !inside.has(n.id));
+  const nested = unique.filter((n) => inside.has(n.id));
   const warnings = nested.map((n) => ({
     code: "NESTED_TARGET",
     nodeId: n.id,
@@ -145,7 +161,7 @@ function transformOnce(
     const m = compose(input, pivot);
     const k = scaleOf(m);
     const s = input.scaleStrokes ? 1 : k;
-    const all = group.flatMap((n) => subtree(doc, n));
+    const all = group.flatMap((n) => moving(doc, n));
     // A container has no matrix, so its gradients map through the transform and, with
     // scaleStrokes, its Stroke widths scale instead (ADR-0043).
     for (const c of all) {
@@ -226,10 +242,14 @@ export const zodPath = (path: PropertyKey[]) =>
   path.map((k) => (typeof k === "number" ? `[${k}]` : `.${String(k)}`)).join("");
 
 function writableSchema(node: Node) {
+  // A mask's Transparency panel options; making or releasing one goes through mask_make and
+  // mask_release (ADR-0103).
+  const mask = isOpacityMask(node) ? { opacityMask: OpacityMask } : {};
   if (node.type === "layer" || node.type === "group") {
     return Writable.extend({
       appearance: ContainerAppearanceInput.optional(),
       ...(node.type === "layer" && { template: LayerTemplate.optional() }),
+      ...mask,
     });
   }
   if (node.type === "image") {
@@ -242,6 +262,7 @@ function writableSchema(node: Node) {
       width: width.unwrap(),
       height: height.unwrap(),
       preserveAspectRatio,
+      ...mask,
     });
   }
   if (node.type === "text") {
@@ -255,11 +276,11 @@ function writableSchema(node: Node) {
         : {};
     return Writable.extend(text)
       .extend(frame)
-      .extend({ appearance: AppearanceInput })
+      .extend({ appearance: AppearanceInput, ...mask })
       .superRefine(textRanges);
   }
   const { type: _, ...parameters } = SHAPES[node.type].shape;
-  return Writable.extend(parameters).extend({ appearance: AppearanceInput });
+  return Writable.extend(parameters).extend({ appearance: AppearanceInput, ...mask });
 }
 
 /**
@@ -340,6 +361,20 @@ function patched(
           ? "A Live Shape's d is derived from its parameters; change those instead."
           : undefined);
     if (readOnly) throw invalid(`.${key}`, `${key} is read-only.`, readOnly);
+    if (key === "opacityMask" && patch.opacityMask === null) {
+      throw invalid(
+        ".opacityMask",
+        "opacityMask cannot be deleted.",
+        "Use mask_release to release the Opacity Mask (ADR-0103).",
+      );
+    }
+    if (key === "opacityMask" && !isOpacityMask(node)) {
+      throw invalid(
+        ".opacityMask",
+        "The Node is not the mask of an Opacity Mask.",
+        'Use mask_make with kind "opacity" to make one; then clip, invert and link can change here (ADR-0103).',
+      );
+    }
     if (key === "src" && patch.src === null && node.type === "image") {
       throw invalid(
         ".src",
@@ -424,6 +459,14 @@ function patched(
       ".visible",
       "A Clipping Path cannot be hidden.",
       "Use mask_release to show the content unclipped, or hide the Clipping Mask's Group.",
+    );
+  }
+  // SVG hides everything through a hidden mask (ADR-0103).
+  if (isOpacityMask(next) && !next.visible) {
+    throw invalid(
+      ".visible",
+      "A mask cannot be hidden.",
+      "Use mask_release to show the content unmasked, or hide the Opacity Mask's Group.",
     );
   }
   if (next.type === "image") {
@@ -558,11 +601,10 @@ function moved(doc: Document, move: ReparentInput, i: number): Node {
     parentId: move.parentId,
     index: fits ? node.index : generateKeyBetween(below, above),
   };
-  // A Clipping Path leaving its parent loses clipping, as a pasted one does (ADR-0053); restacked
-  // in place it keeps it, since its position does not matter (ADR-0021).
-  if (!("clipping" in next) || move.parentId === node.parentId) return next as Node;
-  const { clipping: _, ...unclipped } = next;
-  return unclipped as Node;
+  // A Clipping Path or mask leaving its parent loses clipping or opacityMask, as a pasted one does
+  // (ADR-0053, ADR-0103); restacked in place it keeps it, since its position does not matter
+  // (ADR-0021).
+  return move.parentId === node.parentId ? (next as Node) : unmasked(next as Node);
 }
 
 /**
@@ -651,9 +693,9 @@ export function reorderNodes(
  * every copy a new id and otherwise unchanged, copy k translated by k × `offset`. Without
  * `targetParentId` each Node's copies stack directly above it in its parent, k = 1 lowest; with it
  * they go there as one block, k by k and the originals in paint order, at `index`, `before` or
- * `after` or else on top. No existing Node's key changes. A copied top-level Node loses `clipping`,
- * so no container gets a second Clipping Path; a copied container keeps its own. With `layerSuffix`
- * every copied Layer with a name gets it appended (#195).
+ * `after` or else on top. No existing Node's key changes. A copied top-level Node loses `clipping`
+ * and `opacityMask`, so no container gets a second Clipping Path or mask; a copied container keeps
+ * its own. With `layerSuffix` every copied Layer with a name gets it appended (#195).
  *
  * Returns the new Nodes, depth first, and each outermost source id's copies in order k.
  */
@@ -713,11 +755,7 @@ export function duplicateNodes(
   for (const { node, keys } of placements) {
     copies[node.id] = keys.map((key, i) => {
       const id = copy(node, target === undefined ? node.parentId : target, key);
-      const top = doc.nodes.get(id) as Node;
-      if ("clipping" in top && top.clipping) {
-        const { clipping: _, ...unclipped } = top;
-        doc.nodes.set(id, unclipped as Node);
-      }
+      doc.nodes.set(id, unmasked(doc.nodes.get(id) as Node));
       if (offset) {
         const k = i + 1;
         transformNodes(doc, { nodeIds: [id], translate: { x: k * offset.x, y: k * offset.y } });

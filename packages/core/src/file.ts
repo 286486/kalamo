@@ -19,6 +19,7 @@ import {
   CharacterRange,
   type Document,
   type Node,
+  OpacityMask,
   Rect,
   SHAPES,
   StoredFill,
@@ -100,7 +101,7 @@ const container = {
 /** A Node exactly as stored; unknown keys are refused so nothing in a file is dropped silently. */
 const StoredNode = z.discriminatedUnion("type", [
   z.strictObject({ ...container, type: z.literal("layer"), template: z.boolean().optional() }),
-  z.strictObject({ ...container, type: z.literal("group") }),
+  z.strictObject({ ...container, type: z.literal("group"), opacityMask: OpacityMask.optional() }),
   z
     .strictObject({
       ...base,
@@ -121,6 +122,7 @@ const StoredNode = z.discriminatedUnion("type", [
         .string()
         .refine((v) => preserveAspectRatio(v) === v, "none, or an alignment and meet or slice."),
       fileOrientation: z.literal([2, 3, 4, 5, 6, 7, 8]).optional(),
+      opacityMask: OpacityMask.optional(),
     })
     .refine(
       (n) => n.fileOrientation === undefined || (n.file !== undefined && n.src !== undefined),
@@ -136,10 +138,17 @@ const StoredNode = z.discriminatedUnion("type", [
       ranges: z.array(CharacterRange.strict()).optional(),
       appearance,
       clipping: z.boolean().optional(),
+      opacityMask: OpacityMask.optional(),
     })
     .superRefine(textFrame),
   ...Object.values(SHAPES).map((s) =>
-    z.strictObject({ ...base, ...s.shape, appearance, clipping: z.boolean().optional() }),
+    z.strictObject({
+      ...base,
+      ...s.shape,
+      appearance,
+      clipping: z.boolean().optional(),
+      opacityMask: OpacityMask.optional(),
+    }),
   ),
 ]);
 const FileSchema = z.strictObject({

@@ -147,6 +147,16 @@
       "frame": { "height": 80, "width": 740, "x": 0, "y": 500 },
       "id": "01M38T29T8BREAKSARTB0ARD00",
       "name": "Latin Breaks"
+    },
+    {
+      "frame": {
+        "height": 80,
+        "width": 240,
+        "x": 760,
+        "y": 500
+      },
+      "id": "01M38T29T9MASKARTB0ARD0000",
+      "name": "Opacity Masks"
     }
   ],
   "nodes": [
@@ -3676,6 +3686,178 @@
       "width": 8,
       "x": 484,
       "y": 86
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#D03030",
+            "type": "solid"
+          }
+        ],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "height": 60,
+      "id": "01M38T29T9MASKS000000000C1",
+      "index": "a0",
+      "locked": false,
+      "meta": {},
+      "name": "Photo",
+      "opacity": 1,
+      "parentId": "01M38T29T9MASKS000000000G1",
+      "radius": 0,
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "rect",
+      "visible": true,
+      "width": 100,
+      "x": 770,
+      "y": 510
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#2050C0",
+            "type": "solid"
+          }
+        ],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "height": 60,
+      "id": "01M38T29T9MASKS000000000C2",
+      "index": "a0",
+      "locked": false,
+      "meta": {},
+      "name": "Panel",
+      "opacity": 1,
+      "parentId": "01M38T29T9MASKS000000000G2",
+      "radius": 0,
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "rect",
+      "visible": true,
+      "width": 100,
+      "x": 890,
+      "y": 510
+    },
+    {
+      "blendMode": "normal",
+      "id": "01M38T29T9MASKS000000000G1",
+      "index": "b0Q",
+      "locked": false,
+      "meta": {},
+      "name": "Gradient mask",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "blendMode": "normal",
+      "id": "01M38T29T9MASKS000000000G2",
+      "index": "b0R",
+      "locked": false,
+      "meta": {},
+      "name": "Hole",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "gradient": {
+              "end": {
+                "x": 865,
+                "y": 540
+              },
+              "start": {
+                "x": 775,
+                "y": 540
+              },
+              "stops": [
+                {
+                  "color": "#FFFFFF",
+                  "offset": 0
+                },
+                {
+                  "color": "#000000",
+                  "offset": 1
+                }
+              ],
+              "type": "linear"
+            },
+            "type": "gradient"
+          }
+        ],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "height": 50,
+      "id": "01M38T29T9MASKS000000000M1",
+      "index": "a1",
+      "locked": false,
+      "meta": {},
+      "name": "Fade",
+      "opacity": 1,
+      "opacityMask": {
+        "clip": true,
+        "invert": false,
+        "link": true
+      },
+      "parentId": "01M38T29T9MASKS000000000G1",
+      "radius": 0,
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "rect",
+      "visible": true,
+      "width": 90,
+      "x": 775,
+      "y": 515
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#FFFFFF",
+            "type": "solid"
+          }
+        ],
+        "strokes": []
+      },
+      "arcType": "slice",
+      "blendMode": "normal",
+      "endAngle": 360,
+      "height": 40,
+      "id": "01M38T29T9MASKS000000000M2",
+      "index": "a1",
+      "locked": false,
+      "meta": {},
+      "name": "Cut",
+      "opacity": 1,
+      "opacityMask": {
+        "clip": false,
+        "invert": true,
+        "link": false
+      },
+      "parentId": "01M38T29T9MASKS000000000G2",
+      "startAngle": 0,
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "ellipse",
+      "visible": true,
+      "width": 60,
+      "x": 910,
+      "y": 520
     }
   ],
   "images": {

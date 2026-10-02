@@ -680,9 +680,10 @@ it("draws the fixture Document with known pixels", async () => {
   // By #222, a twenty-third holding Area Type that wraps after `/` and hyphens; by #236, it widens
   // to hold an Auto Size Area Type, by #225 an Area Type that wraps after `?` and before `—`, and
   // by #227 one that wraps at soft hyphens. By #250, the Images Artboard holds an Image whose
-  // file was converted from a WebP; by #251, one placed from a JPEG with EXIF orientation 6.
+  // file was converted from a WebP; by #251, one placed from a JPEG with EXIF orientation 6. By
+  // #55, a twenty-fourth holding a gradient Opacity Mask and an inverted, unclipped one.
   expect(await hash(toSvg(doc, docRect(doc), { images }))).toBe(
-    "8c775c715e54ef7365cbbd1d49fcf9bf80bdd16145778c574cc57229f11feb24",
+    "d37fa59d28ee6d6dc0596ee26b0bff39f2c713d1b4842124b0c265f2c75b0d4e",
   );
   expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned, images }))).toBe(
     "24c1e7ad8db33f59933a1b355c879cb19bfdfd67d70b11427b196aa646ea4b60",
@@ -706,7 +707,7 @@ it("draws each fixture Artboard by its scope as the whole Document draws it ther
   const { doc, images } = fixtureDoc();
   const all = fit(docRect(doc), 2);
   const whole = await svgToPixels(renderSvg(doc, all.rect, { scale: 2, images }), 2);
-  expect(doc.artboards).toHaveLength(23);
+  expect(doc.artboards).toHaveLength(24);
   for (const a of doc.artboards) {
     const scope = { artboardId: a.id };
     const { rect, pixelSize } = fit(scopeRect(doc, scope), 2);
@@ -1127,6 +1128,7 @@ it.each(COMPOSITING)("composes as one image: $name (ADR-0044)", async (c) => {
     const { group } = makeMask(doc, {
       clipNodeId: named(m.clip).id,
       contentIds: m.content.map((k) => named(k).id),
+      ...(m.opacity && { kind: "opacity", ...m.opacity }),
     });
     doc.nodes.set(group.id, { ...group, name: m.name });
   }

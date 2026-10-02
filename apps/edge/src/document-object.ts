@@ -976,10 +976,11 @@ export class DocumentObject extends DurableObject<Env> {
   }
 
   makeMask(input: MaskInput, actor: string, opts: Options = {}): Result<WriteReceipt> {
-    return this.write(actor, opts, "Make Clipping Mask", (doc) => {
+    const summary = input.kind === "opacity" ? "Make Opacity Mask" : "Make Clipping Mask";
+    return this.write(actor, opts, summary, (doc) => {
       const { group, updated } = makeMask(doc, input);
       // A Layer becomes a Clipping Mask in place: nothing is created (ADR-0053).
-      return { created: group ? [group] : [], updated, failed: [], summary: "Make Clipping Mask" };
+      return { created: group ? [group] : [], updated, failed: [], summary };
     });
   }
 

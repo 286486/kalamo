@@ -977,14 +977,27 @@ const layerId = z
 const kind = z
   .enum(["clip", "opacity"])
   .default("clip")
-  .describe("clip; an Opacity Mask (F-MASK-02) is not available yet.");
+  .describe(
+    "clip: a Clipping Mask. opacity: an Opacity Mask, whose clip Node's luminance is the content's opacity, white showing and black hiding it; the clip Node keeps its Appearance (ADR-0103).",
+  );
+const clip = z
+  .boolean()
+  .optional()
+  .describe(
+    "kind opacity only, default true: content outside the mask is hidden; false shows it at full opacity.",
+  );
+const invert = z
+  .boolean()
+  .optional()
+  .describe("kind opacity only, default false: reverses the mask's luminance.");
 /**
  * Illustrator's Object > Clipping Mask > Make (ADR-0021), or with `layerId` alone the Layers
- * panel's Make Clipping Mask (ADR-0053).
+ * panel's Make Clipping Mask (ADR-0053); with `kind: "opacity"`, the Transparency panel's Make
+ * Mask (ADR-0103). `clip` and `invert` belong to that kind, which makeMask checks.
  */
 export const MaskInput = z.union([
-  z.strictObject({ clipNodeId, contentIds, kind }),
-  z.strictObject({ layerId, kind }),
+  z.strictObject({ clipNodeId, contentIds, kind, clip, invert }),
+  z.strictObject({ layerId, kind, clip, invert }),
 ]);
 export type MaskInput = z.input<typeof MaskInput>;
 /** MaskInput's arguments in one object, as an MCP tool advertises them. */
@@ -993,7 +1006,20 @@ export const MaskFields = z.strictObject({
   contentIds: contentIds.optional(),
   layerId: layerId.optional(),
   kind,
+  clip,
+  invert,
 });
+
+/**
+ * The Transparency panel's options of an Opacity Mask's mask (ADR-0103): Clip, Invert Mask
+ * and the link between the mask and the content.
+ */
+export const OpacityMask = z.strictObject({
+  clip: z.boolean(),
+  invert: z.boolean(),
+  link: z.boolean(),
+});
+export type OpacityMask = z.infer<typeof OpacityMask>;
 
 /** `[a, b, c, d, e, f]` with SVG semantics. */
 export type Matrix = [number, number, number, number, number, number];
@@ -1117,6 +1143,8 @@ export interface GroupNode extends NodeBase {
   type: "group";
   /** Missing means empty (ADR-0043). */
   appearance?: ContainerAppearance;
+  /** The mask of its Group (ADR-0103); missing means none. */
+  opacityMask?: OpacityMask;
 }
 
 /** A Live Shape or Path: its parameters plus an Appearance. */
@@ -1125,6 +1153,8 @@ export type ShapeNode = NodeBase &
     appearance: Appearance;
     /** The Clipping Path of its Group (ADR-0021); missing means false. */
     clipping?: boolean;
+    /** The mask of its Group (ADR-0103); missing means none. */
+    opacityMask?: OpacityMask;
   };
 
 export type TextNode = NodeBase &
@@ -1132,6 +1162,8 @@ export type TextNode = NodeBase &
     appearance: Appearance;
     /** The Clipping Path of its Group (ADR-0052); missing means false. */
     clipping?: boolean;
+    /** The mask of its Group (ADR-0103); missing means none. */
+    opacityMask?: OpacityMask;
   };
 
 /** A Node that paints with an Appearance: a Live Shape, a Path or a text. */
@@ -1157,6 +1189,8 @@ export interface ImageNode extends NodeBase {
   height: number;
   /** `none` or `<align> <meet|slice>`, as `preserveAspectRatio()` spells it. */
   preserveAspectRatio: string;
+  /** The mask of its Group (ADR-0103); missing means none. */
+  opacityMask?: OpacityMask;
 }
 
 export type Node = LayerNode | GroupNode | LeafNode | ImageNode;

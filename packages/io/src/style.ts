@@ -40,6 +40,7 @@ const PROPERTIES = [
   "clip-path",
   "shape-inside",
   "mask",
+  "mask-type",
   "filter",
   "stop-color",
   "stop-opacity",

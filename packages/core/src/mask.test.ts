@@ -165,12 +165,6 @@ describe("makeMask", () => {
       "INVALID_MASK",
       "contentIds[0]",
     ],
-    [
-      "an opacity mask",
-      (s) => ({ clipNodeId: s.clip.id, contentIds: [s.a.id], kind: "opacity" }),
-      "INVALID_MASK",
-      "kind",
-    ],
   ])("refuses %s", (_, input, code, path) => {
     const s = scene();
     const before = [...s.doc.nodes.values()];

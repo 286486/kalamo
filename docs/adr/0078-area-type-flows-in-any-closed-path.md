@@ -16,7 +16,7 @@ ADR-0022 gave Area Type a rectangular frame and left "Area Type in any closed pa
   - a Layer, Group, text or Image;
   - an open outline: a line, a spiral, an ellipse with an open arc (ADR-0025), or a Path with an open subpath;
   - a Path whose `fillRule` is evenodd and where some region winds twice or more, such as a Compound Path whose hole winds the same way as its outline. Evenodd leaves the hole empty, but the frame's inside is nonzero, so the text would flow across it. An evenodd Path whose holes wind against its outline flows, because both rules give the same inside;
-  - a Clipping Path. Kalamo has no Opacity Mask Node yet (F-MASK-02, M2; `CONTEXT.md` names the term only), so there is no mask to refuse. The issue that adds one refuses it here as a Clipping Path is;
+  - a Clipping Path, or the mask of an Opacity Mask (ADR-0103);
   - a Node that is locked, itself or through an ancestor (the Area Type tool cannot click it either);
   - another parent;
   - a Node already consumed in the same call.

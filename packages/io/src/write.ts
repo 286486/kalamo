@@ -25,15 +25,18 @@ import {
   type ImageSource,
   inverseOrientation,
   invert,
+  isOpacityMask,
   KalamoError,
   type LayerNode,
   type LeafNode,
   layoutText,
   lookup,
+  type Mask,
   type Matrix,
   MISSING_LINK_STROKE,
   mapGradient,
   type Node,
+  opacityMaskOf,
   orientedImage,
   paintedLeaves,
   type Rect,
@@ -58,7 +61,10 @@ import {
   areaId,
   clipId,
   gradientId,
+  INVERT_MATRIX,
+  invertId,
   kalamo,
+  maskId,
   paintAttrs,
   SVG_STROKE,
   scopeAttr,
@@ -232,9 +238,11 @@ function layerReach(
   { clipPainted, painted }: { clipPainted: boolean; painted: boolean },
 ): Rect | null {
   const reach = copyReach(doc, n);
+  // A mask draws into a layer of its own (ADR-0103).
+  const content = (c: Node) => c !== clip && !isOpacityMask(c);
   return union([
     ...childrenOf(doc, n.id).map((c) =>
-      c !== clip && kept.has(c.id) ? visibleBounds(doc, c) : null,
+      content(c) && kept.has(c.id) ? visibleBounds(doc, c) : null,
     ),
     clip && clipPainted ? visibleBounds(doc, clip) : null,
     ...(painted
@@ -486,13 +494,14 @@ function node(doc: Document, n: Node, walk: Walk): string {
   ] as const;
   if (n.type === "layer" || n.type === "group") {
     const clip = clippingPath(doc, n);
+    const mask = opacityMaskOf(doc, n);
     const children = childrenOf(doc, n.id);
     const composited = n.opacity !== 1 || n.blendMode !== "normal";
     // resvg composes it as a layer (ADR-0055).
-    const layered = composited || !!clip;
+    const layered = composited || !!clip || !!mask;
     const isolated = walk.isolated || layered;
     const kids = children.map((c) =>
-      c === clip ? "" : node(doc, c, { ...walk, inside, hidden, isolated }),
+      c === clip || c === mask ? "" : node(doc, c, { ...walk, inside, hidden, isolated }),
     );
     // Outside the scope, a container is written only as the way to a listed Node.
     if (!inside && !kids.join("")) return "";
@@ -507,7 +516,13 @@ function node(doc: Document, n: Node, walk: Walk): string {
       kids[children.indexOf(clip)] =
         `${frame}<clipPath${attrs({ id: clipId(n.id), clipPathUnits: "userSpaceOnUse" })}>${leaf}</clipPath>`;
     }
+    // An Opacity Mask's <mask> sits among its children the same way (ADR-0103).
+    if (mask) {
+      const masking = { ...walk, inside: true, hidden, drawn: [], isolated: true };
+      kids[children.indexOf(mask)] = maskElement(doc, n, mask, masking);
+    }
     const clipPath = clip ? `url(#${clipId(n.id)})` : undefined;
+    const masked = mask ? `url(#${maskId(n.id)})` : undefined;
     const paints = inside ? containerPaints(doc, n, resvg, walk.chunked) : [];
     const { contents } = containerAppearance(n);
     const [fills, strokes] =
@@ -526,7 +541,7 @@ function node(doc: Document, n: Node, walk: Walk): string {
     const looked = { ...own, ...layer, style: style(...looks) };
     if (!strokes) {
       const filter = filterFor(!!fills);
-      return `<g${attrs({ ...looked, "clip-path": clipPath, filter })}>${below}${above}</g>`;
+      return `<g${attrs({ ...looked, "clip-path": clipPath, mask: masked, filter })}>${below}${above}</g>`;
     }
     // A Clipping Path's Strokes draw unclipped, so what it clips is wrapped instead (ADR-0051).
     const inner = filterFor(!!fills);
@@ -587,6 +602,46 @@ function node(doc: Document, n: Node, walk: Walk): string {
   }
   const { defs, body } = leaf(n, n.appearance, own, looks, walk.chunked);
   return `${defs}${body}`;
+}
+
+/**
+ * An Opacity Mask's `<mask>` (ADR-0103): its mask over a region of the content's visible
+ * bounds grown by SVG's default 10% each side. Clip off puts a white background below the Node,
+ * Invert wraps the Node in an sRGB filter inverting its colours, and an unlinked mask says so, each
+ * marked `kalamo:mask` for import.
+ */
+function maskElement(doc: Document, group: GroupNode | LayerNode, mask: Mask, walk: Walk): string {
+  const { clip, invert, link } = mask.opacityMask;
+  const b = visibleBounds(doc, group);
+  const region =
+    b &&
+    num({
+      x: b.x - b.width / 10,
+      y: b.y - b.height / 10,
+      width: (b.width * 6) / 5,
+      height: (b.height * 6) / 5,
+    });
+  let body = node(doc, mask, walk);
+  if (invert) {
+    const id = invertId(group.id);
+    const filter = attrs({
+      id,
+      filterUnits: "userSpaceOnUse",
+      ...region,
+      "color-interpolation-filters": "sRGB",
+    });
+    body = `<filter${filter}><feColorMatrix type="matrix" values="${INVERT_MATRIX}"/></filter><g${attrs({ [kalamo("mask")]: "invert", filter: `url(#${id})` })}>${body}</g>`;
+  }
+  const background = clip
+    ? ""
+    : `<rect${attrs({ [kalamo("mask")]: "background", ...region, fill: "#FFFFFF" })}/>`;
+  const own = attrs({
+    id: maskId(group.id),
+    maskUnits: "userSpaceOnUse",
+    ...region,
+    [kalamo("mask")]: link ? undefined : "unlinked",
+  });
+  return `<mask${own}>${background}${body}</mask>`;
 }
 
 /**

@@ -36,6 +36,7 @@ import {
   NodeInput,
   type NodeOutput,
   type NodeQuery,
+  type OpacityMask,
   type Point,
   type Rect,
   Shape,
@@ -135,7 +136,7 @@ const isFrameable = (n: Node): n is ShapeNode => FRAMEABLE.has(n.type);
 /**
  * The frame, bounds, place and transform of Area Type whose `frameNodeId` names a closed Live Shape
  * or Path, as Illustrator's Area Type tool clicks a path (ADR-0078); refused, with nothing written,
- * for any other Node, a Clipping Path, a locked Node or another parent.
+ * for any other Node, a Clipping Path, a mask (ADR-0103), a locked Node or another parent.
  */
 function consume(
   doc: Document,
@@ -168,10 +169,11 @@ function consume(
       "frameNodeId names a closed Live Shape or Path: a rect, a closed ellipse, a polygon, a star or a closed path.",
     );
   }
-  if (node.clipping) {
+  if (node.clipping || node.opacityMask) {
+    const [what, mask] = node.clipping ? ["Clipping Path", "Clipping"] : ["mask", "Opacity"];
     throw invalid(
-      "A Clipping Path cannot be a frame.",
-      "Release the Clipping Mask first (mask_release), or frame the text in another shape.",
+      `A ${what} cannot be a frame.`,
+      `Release the ${mask} Mask first (mask_release), or frame the text in another shape.`,
     );
   }
   if (lockedIn(doc, node)) {
@@ -433,7 +435,7 @@ export function assertParent(
  * Checks `nodes`, in order, against the rules every committed Document keeps (ADR-0016, ADR-0072):
  * a parent that exists and may hold the Node (`assertParent`, cycles included), a valid
  * fractional-index key no earlier sibling in `nodes` holds, and at most one Clipping Path per Layer
- * or Group, visible. The first rule each Node breaks goes to `report` with the Node's position in
+ * or Group, or one mask per Group, visible. The first rule each Node breaks goes to `report` with the Node's position in
  * `nodes`; its `path` starts with `nodes[i]`. File validation throws the first; a commit reports
  * the Nodes it touched.
  */
@@ -445,7 +447,8 @@ export function checkTree(
   const invalid = (path: string, message: string, hint: string) =>
     new KalamoError({ code: "INVALID_DOCUMENT", message, hint, path });
   const siblings = new Set<string>();
-  const clipped = new Set<string | null>();
+  // Each container holding a Clipping Path or a mask: it holds one of either (ADR-0103).
+  const masked = new Map<string | null, "Clipping Path" | "mask">();
   nodes.forEach((n, i) => {
     const path = `nodes[${i}]`;
     try {
@@ -482,22 +485,36 @@ export function checkTree(
         );
       }
       siblings.add(key);
+      const parentType = doc.nodes.get(parentId ?? "")?.type;
+      const container = parentType === "layer" ? "Layer" : "Group";
       if ("clipping" in n && n.clipping) {
         const hint =
-          "A Clipping Path is the one clipping child of a Layer or Group, and visible (ADR-0021, ADR-0053).";
-        const parentType = doc.nodes.get(parentId ?? "")?.type;
+          "A Clipping Path is the one clipping child of a Layer or Group, and visible (ADR-0021, ADR-0053, ADR-0103).";
         if (parentType !== "group" && parentType !== "layer") {
           throw invalid(`${path}.clipping`, "A Clipping Path's parent is a Layer or Group.", hint);
         }
-        if (clipped.has(parentId)) {
+        const held = masked.get(parentId);
+        if (held)
+          throw invalid(`${path}.clipping`, `Its ${container} already has a ${held}.`, hint);
+        if (!n.visible) throw invalid(`${path}.visible`, "A Clipping Path cannot be hidden.", hint);
+        masked.set(parentId, "Clipping Path");
+      }
+      if (isOpacityMask(n)) {
+        const hint =
+          "A mask is the one masking child of a Group, which has no Clipping Path, and visible (ADR-0103).";
+        if (parentType !== "group") {
+          throw invalid(`${path}.opacityMask`, "A mask's parent is a Group.", hint);
+        }
+        if ("clipping" in n && n.clipping)
           throw invalid(
-            `${path}.clipping`,
-            `Its ${parentType === "layer" ? "Layer" : "Group"} already has a Clipping Path.`,
+            `${path}.opacityMask`,
+            "A Node is a Clipping Path or a mask, not both.",
             hint,
           );
-        }
-        if (!n.visible) throw invalid(`${path}.visible`, "A Clipping Path cannot be hidden.", hint);
-        clipped.add(parentId);
+        const held = masked.get(parentId);
+        if (held) throw invalid(`${path}.opacityMask`, `Its Group already has a ${held}.`, hint);
+        if (!n.visible) throw invalid(`${path}.visible`, "A mask cannot be hidden.", hint);
+        masked.set(parentId, "mask");
       }
     } catch (e) {
       if (!(e instanceof KalamoError)) throw e;
@@ -821,7 +838,7 @@ export const leafClip = (doc: Document, maskId: string, clip: LeafNode): LeafCli
 /**
  * The leaves a container's Appearance paints (ADR-0043): its descendant Live Shapes, Paths and
  * texts, depth first in stacking order, each under the clip of every inner Clipping Mask it is in.
- * Hidden Nodes and subtrees, Images and Clipping Paths get none.
+ * Hidden Nodes and subtrees, Images, Clipping Paths and masks get none.
  */
 export function paintedLeaves(
   doc: Document,
@@ -830,6 +847,8 @@ export function paintedLeaves(
 ): PaintedLeaf[] {
   return childrenOf(doc, container.id).flatMap((n): PaintedLeaf[] => {
     if (!n.visible || n.type === "image") return [];
+    // A mask paints nothing (ADR-0103).
+    if (isOpacityMask(n)) return [];
     if (n.type === "layer" || n.type === "group") {
       const clip = clippingPath(doc, n);
       const inner = clip ? [...clips, leafClip(doc, n.id, clip)] : clips;
@@ -888,6 +907,26 @@ export function clippingPath(doc: Document, node: Node): LeafNode | undefined {
     : undefined;
 }
 
+/** A mask: the child whose luminance masks its Group (ADR-0103). */
+export type Mask = Exclude<Node, LayerNode> & { opacityMask: OpacityMask };
+
+/** Whether the Node is the mask of an Opacity Mask (ADR-0103). */
+export const isOpacityMask = (n: Node): n is Mask => "opacityMask" in n && !!n.opacityMask;
+
+/** The Group's mask, which makes it an Opacity Mask (ADR-0103). */
+export function opacityMaskOf(doc: Document, node: Node): Mask | undefined {
+  return node.type === "group" ? childrenOf(doc, node.id).find(isOpacityMask) : undefined;
+}
+
+/**
+ * The Node as an ordinary child: no longer a Clipping Path or a mask, as one that leaves its
+ * parent becomes (ADR-0053, ADR-0071, ADR-0103).
+ */
+export function unmasked<N extends Node>(n: N): N {
+  const { clipping, opacityMask, ...rest } = n as N & { clipping?: boolean; opacityMask?: unknown };
+  return clipping || opacityMask ? (rest as unknown as N) : n;
+}
+
 /** A frame as the rect Live Shape that outlines it: an Image's, or a text's box. */
 export const frameShape = (r: Rect) => ({
   type: "rect" as const,
@@ -898,10 +937,14 @@ export const frameShape = (r: Rect) => ({
   radius: 0,
 });
 
+/** A container's children but its mask, whose bounds are not its Group's (ADR-0103). */
+const contentOf = (doc: Document, node: Node) =>
+  childrenOf(doc, node.id).filter((c) => !isOpacityMask(c));
+
 /** Geometric bounds in document coordinates (no stroke), or null for an empty container. */
 export function bounds(doc: Document, node: Node): Rect | null {
   if (node.type === "layer" || node.type === "group") {
-    const children = childrenOf(doc, node.id);
+    const children = contentOf(doc, node);
     const clip = clipAmong(children);
     return clip ? bounds(doc, clip) : union(children.map((c) => bounds(doc, c)));
   }
@@ -910,11 +953,12 @@ export function bounds(doc: Document, node: Node): Rect | null {
 
 /**
  * Geometric bounds grown by half the widest Stroke, for a leaf; the union of its children's, for a
- * container; its Clipping Path's, as a leaf's, for a Clipping Mask (ADR-0051).
+ * container, but its mask (ADR-0103); its Clipping Path's, as a leaf's, for a Clipping Mask
+ * (ADR-0051).
  */
 export function visibleBounds(doc: Document, node: Node): Rect | null {
   if (node.type === "layer" || node.type === "group") {
-    const children = childrenOf(doc, node.id);
+    const children = contentOf(doc, node);
     // Everything else is clipped, and the Clipping Path's Strokes draw unclipped.
     const clip = clipAmong(children);
     if (clip) return visibleBounds(doc, clip);

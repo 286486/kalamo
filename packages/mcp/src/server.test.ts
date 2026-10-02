@@ -391,6 +391,17 @@ describe("write tools pass the write and its options apart", () => {
     expect(service.makeMask.mock.calls[0]).toStrictEqual(["d", { layerId: "l", kind: "clip" }, {}]);
   });
 
+  it("mask_make: kind opacity reaches the service with clip and invert as given, and the schema lists them", async () => {
+    const { service, call, client } = await harness({ makeMask: async () => receipt });
+    const args = { clipNodeId: "c", contentIds: ["a"], kind: "opacity", invert: true };
+    await call("kalamo_mask_make", { docId: "d", ...args });
+    expect(service.makeMask.mock.calls[0]).toStrictEqual(["d", args, {}]);
+    const { tools } = await client.listTools();
+    const schema = tools.find((t) => t.name === "kalamo_mask_make")?.inputSchema.properties;
+    expect(schema).toHaveProperty("clip.type", "boolean");
+    expect(schema).toHaveProperty("invert.type", "boolean");
+  });
+
   it.each(writeOptions)(
     "path_edit: the ops with their defaults, with %s write options as given",
     async (_, write) => {

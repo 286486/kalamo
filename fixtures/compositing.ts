@@ -121,9 +121,15 @@ export interface CompositingCase {
   nodes: object[];
   /**
    * Made into Clipping Masks in order, each by the names of its Clipping Path and content, and then
-   * named `name`, which a later one's content can list.
+   * named `name`, which a later one's content can list. With `opacity`, an Opacity Mask instead,
+   * `clip` naming its mask, with these options (ADR-0103).
    */
-  masks?: { name: string; clip: string; content: string[] }[];
+  masks?: {
+    name: string;
+    clip: string;
+    content: string[];
+    opacity?: { clip?: boolean; invert?: boolean };
+  }[];
   /** `node_transform` inputs by Node name, applied before the patches. */
   transforms?: Record<string, { matrix: number[]; pivot: { x: number; y: number } }>;
   /** `node_update` patches by Node name, applied last; "Layer" is the default Layer. */
@@ -480,6 +486,121 @@ COMPOSITING.push(
       { x: 10, y: 25, rgb: WHITE },
       { x: 15, y: 34, rgb: WHITE },
       { x: 15, y: 82, rgb: WHITE },
+    ],
+  },
+);
+
+// Opacity Masks (ADR-0103): a red photo over the whole Artboard, masked by a rect over x 20..180,
+// y 20..80, whose luminance 0.2125 R + 0.7154 G + 0.0721 B, times its alpha, is the photo's opacity.
+const photo = rect("photo", 0, 0, 200, 100, RED);
+const masking = (fill: string | object, opacity: { clip?: boolean; invert?: boolean } = {}) => ({
+  nodes: [
+    photo,
+    {
+      ...rect("mask", 20, 20, 160, 60, WHITE),
+      appearance: { fills: [typeof fill === "string" ? { color: fill } : fill], strokes: [] },
+    },
+  ],
+  masks: [{ name: "masked", clip: "mask", content: ["photo"], opacity }],
+  patches: {},
+});
+/** Red at opacity `v` over white. */
+const redAt = (v: number) => over(RED, v, WHITE);
+/** White at x 0 to black at x 200, as the mask's luminance at pixel `x`. */
+const fading = (x: number) => 1 - (x + 0.5) / 200;
+
+COMPOSITING.push(
+  {
+    name: "an Opacity Mask's white-to-black gradient fades the content from shown to hidden",
+    ...masking({
+      type: "gradient",
+      gradient: {
+        type: "linear",
+        stops: [
+          { offset: 0, color: "#FFFFFFFF" },
+          { offset: 1, color: "#000000FF" },
+        ],
+        start: { x: 0, y: 0 },
+        end: { x: 200, y: 0 },
+      },
+    }),
+    probes: [
+      { x: 30, y: 50, rgb: redAt(fading(30)) },
+      { x: 100, y: 50, rgb: redAt(fading(100)) },
+      { x: 170, y: 50, rgb: redAt(fading(170)) },
+      { x: 100, y: 10, rgb: WHITE },
+      { x: 10, y: 50, rgb: WHITE },
+    ],
+  },
+  {
+    name: "an Opacity Mask's 50% grey shows the content at 50% and, with Clip, nothing outside it",
+    ...masking("#808080"),
+    probes: [
+      { x: 100, y: 50, rgb: redAt(128 / 255) },
+      { x: 100, y: 10, rgb: WHITE },
+      { x: 190, y: 90, rgb: WHITE },
+    ],
+  },
+  {
+    name: "an Opacity Mask's alpha multiplies its luminance in",
+    ...masking("#00FF0080"),
+    probes: [{ x: 100, y: 50, rgb: redAt(0.7154 * (128 / 255)) }],
+  },
+  {
+    name: "an Opacity Mask with Clip off shows the content outside the mask at full opacity",
+    ...masking("#808080", { clip: false }),
+    probes: [
+      { x: 100, y: 50, rgb: redAt(128 / 255) },
+      { x: 100, y: 10, rgb: RED },
+      { x: 190, y: 90, rgb: RED },
+    ],
+  },
+  {
+    name: "an inverted Opacity Mask reverses the luminance inside the mask and still hides outside it",
+    ...masking("#404040", { invert: true }),
+    probes: [
+      { x: 100, y: 50, rgb: redAt(1 - 64 / 255) },
+      { x: 100, y: 10, rgb: WHITE },
+    ],
+  },
+  {
+    name: "an inverted Opacity Mask with Clip off cuts a hole",
+    ...masking("#FFFFFF", { clip: false, invert: true }),
+    probes: [
+      { x: 100, y: 50, rgb: WHITE },
+      { x: 100, y: 10, rgb: RED },
+      { x: 10, y: 50, rgb: RED },
+    ],
+  },
+  {
+    name: "an Opacity Mask inside a Clipping Mask is clipped",
+    nodes: [...masking("#808080").nodes, rect("frame", 0, 0, 100, 100, WHITE)],
+    masks: [...masking("#808080").masks, { name: "outer", clip: "frame", content: ["masked"] }],
+    patches: {},
+    probes: [
+      { x: 50, y: 50, rgb: redAt(128 / 255) },
+      { x: 150, y: 50, rgb: WHITE },
+      { x: 50, y: 10, rgb: WHITE },
+    ],
+  },
+  {
+    // Its Stroke, 50 wide, reaches 25 into the photo from each edge; the white mask starts at 20.
+    name: "an Opacity Mask Group's own Appearance is masked with its content",
+    ...masking("#FFFFFF"),
+    patches: { masked: { appearance: appearance([], [[BLUE, 50]], 0) } },
+    probes: [
+      { x: 100, y: 50, rgb: RED },
+      { x: 100, y: 22, rgb: BLUE },
+      { x: 100, y: 5, rgb: WHITE },
+    ],
+  },
+  {
+    name: "a 50% Opacity Mask Group fades its masked content once",
+    ...masking("#FFFFFF"),
+    patches: { masked: { opacity: 0.5 } },
+    probes: [
+      { x: 100, y: 50, rgb: half },
+      { x: 100, y: 10, rgb: WHITE },
     ],
   },
 );

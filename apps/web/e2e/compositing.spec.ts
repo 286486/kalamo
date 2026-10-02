@@ -40,6 +40,7 @@ for (const c of COMPOSITING) {
           docId,
           clipNodeId: ids.get(m.clip),
           contentIds: m.content.map((k) => ids.get(k)),
+          ...(m.opacity && { kind: "opacity", ...m.opacity }),
         })
       ).structuredContent;
       ids.set(m.name, createdIds[0]);

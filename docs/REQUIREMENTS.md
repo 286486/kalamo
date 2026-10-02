@@ -217,14 +217,13 @@ Kalamo 要填的空位是：**每个人带自己的 AI，人和这些 Agent 共�
 | type | 说明 | 对应 Illustrator |
 |---|---|---|
 | `layer` | 图层容器；有 `color`（选中高亮色）、`template`（Template Layer，ADR-0099）。**父级只能是文档根或另一个 `layer`**；`doc_outline` 顶层永远是 Layer 列表。换父级与重排用 `node_reparent`（ADR-0071），在父级内置顶 / 置底用 `node_reorder`（ADR-0074） | Layer / Sublayer |
-| `group` | 编组；可出现在 `layer` 或 `group` 内，**不能包含 `layer`**。含一个 `clipping: true` 子节点（Clipping Path）即 Clipping Mask，不另设 `clip_group` 类型（ADR-0021） | GroupItem（`clipped`） |
+| `group` | 编组；可出现在 `layer` 或 `group` 内，**不能包含 `layer`**。含一个 `clipping: true` 子节点（Clipping Path）即 Clipping Mask，不另设 `clip_group` 类型（ADR-0021）；含一个带 `opacityMask` 的子节点（蒙版）即 Opacity Mask，不另设 `mask_group` 类型（ADR-0103） | GroupItem（`clipped`） |
 | `path` | 贝塞尔路径，`d`（SVG 语法）、`closed`、`fillRule`（nonzero / evenodd）。`d` 含多个子路径即 Compound Path（挖洞），不另设 `compound_path` 类型（ADR-0018） | PathItem / CompoundPathItem |
 | `rect` / `ellipse` / `polygon` / `star` / `line` / `arc` / `spiral` | **Live Shape**：保留参数（圆角半径、边数、内外半径、起止角等），随时可"转为路径" | Live Shapes |
 | `text` | 文本框，`kind`：point / area / on_path；`content` 富文本 runs | TextFrameItem |
 | `image` | 置入位图：框 `x/y/width/height`、`preserveAspectRatio`、`src`（文件字节的 SHA-256，字节按 id 在 Document 中只存一份）。裁切即 Clipping Mask，不设 `crop`（ADR-0023）。`file` 可选，是链接文件的路径或 URL；有 `file` 即链接，`embedded` 由它派生、不存储；链接 Image 可无 `src`，即缺失链接，画成带对角线的框（ADR-0042）。`fileOrientation` 可选，只读，仅在同时有 `file` 与 `src` 时存在：像素来源文件的 EXIF 方向 2–8（ADR-0102） | RasterItem / PlacedItem |
 | `symbol_instance` | 指向 `assets.symbols[*]`，含实例覆盖 | SymbolItem |
 | `compound_shape` | 非破坏性布尔容器（Compound Shape）：`op` + 子节点。术语见 `CONTEXT.md`，不叫 boolean | Compound Shape |
-| `mask_group` | 不透明度蒙版组 | Opacity mask |
 | `blend` (P1) | 混合对象：起止子对象 + `steps / spacing / orientation` | Blend |
 | `repeat` (P1) | `mode`: radial / grid / mirror + 参数 | Repeat |
 | `chart` (P0) | 图表对象：`chartType`、`data`、`encoding`、`theme`；子节点是生成的普通矢量节点（只读，展开后可编辑） | GraphItem |
@@ -351,7 +350,7 @@ Kalamo 要填的空位是：**每个人带自己的 AI，人和这些 Agent 共�
 ### 5.10 遮罩
 
 - **F-MASK-01** 剪切蒙版（Ctrl+7 / Alt+Ctrl+7）：任意矢量对象（含文字、compound path）作为 clip path；建立时 clip path 的 fill / stroke 清空（与 Illustrator 一致），但可在 Appearance 中重新赋予；隔离模式编辑内容；Release。（P0）模型与 SVG 映射见 ADR-0021；重新赋予的外观按 Illustrator 绘制：Fill 在内容之下、Stroke 在内容之上且不被自身裁切（ADR-0051）；文字作 clip path 按字形裁切并保持可编辑（ADR-0052）；图层剪切蒙版：Layers 面板底部按钮以 Layer 最上层对象裁切整个 Layer，含子 Layer（ADR-0053）；Illustrator SVG 的 `<clipPath><use>` 按复制规则读作可编辑的剪切路径，子元素共用一个 clip 时合成一个 Clip Group，填充与描边 `<use>` 读作剪切路径的外观（ADR-0056）；隔离模式：双击 Group（含 Clip Group）进入，其中的内容与剪切路径可直接点选，是每个标签页的浏览器状态（ADR-0057、#53）；隔离子 Layer 即可在画布上点选图层剪切蒙版的剪切路径（ADR-0058、#130）。
-- **F-MASK-02** 不透明度蒙版：蒙版对象亮度决定透明度（白显黑隐）；Clip / Invert / Link 开关；Transparency 面板缩略图切换编辑目标。（P1）
+- **F-MASK-02** 不透明度蒙版：蒙版对象亮度决定透明度（白显黑隐）；Clip / Invert / Link 开关；Transparency 面板缩略图切换编辑目标。（P1）模型、语义与 SVG 映射见 ADR-0103：Opacity Mask 是含一个 `opacityMask: {clip, invert, link}` 子节点（蒙版，任意非 Layer 节点，保留其 Appearance）的 Group；亮度取 resvg 与 Inkscape 的 `0.2125 R + 0.7154 G + 0.0721 B` 乘蒙版 alpha；Clip 关闭时蒙版之外照常显示，Invert 只反转蒙版自身、不翻转 Clip 的黑底；Link 时变换 Group 或其祖先带着蒙版，取消链接则蒙版不动；`mask_make` 的 `kind: "opacity"`、`clip?`、`invert?`，`node_update` 改三个开关，`mask_release` 释放；边界取内容的；SVG 为 `<g mask>` 加内联 `<mask>`，`kalamo:mask` 标记 Clip 关闭的白底、Invert 滤镜与取消链接；画布以 `getImageData` 把蒙版层转为 alpha。Transparency 面板、画布上编辑蒙版与点选另做。
 - **F-MASK-03** Draw Inside 模式自动生成剪切组。（P1）
 
 ### 5.11 符号、重复、混合等实时对象
@@ -412,7 +411,7 @@ Kalamo 要填的空位是：**每个人带自己的 AI，人和这些 Agent 共�
 ### 5.16 导入与导出
 
 **导入**
-- **F-IO-01** SVG 1.1 导入（P0）：`path / rect / circle / ellipse / line / polyline / polygon / text / tspan / textPath / g / use / symbol / defs / linearGradient / radialGradient / pattern / clipPath / mask / image`，`transform`、`style` 与 presentation attributes、`viewBox`；嵌套 `<svg>`：视口（`x / y / width / height / viewBox / preserveAspectRatio`）合入子元素、成为 Group，内容超出视口且 `overflow` 裁剪时成为以视口矩形为 Clipping Path 的 Clipping Mask（ADR-0097）；Inkscape 约定：`inkscape:groupmode="layer"` → Layer、`inkscape:label` → 名称、`sodipodi:insensitive` → 锁定、`display:none` → 隐藏、`<inkscape:page>` → Artboard、`sodipodi:type="star"/"arc"` → Live Shape、`z-<ULID>` id 对回原 Node。祖先 `transform` 合入叶子（ADR-0007），路径归一化为绝对 `M L C Q Z`，单位换算为 pt（px 按 1 pt 计，与 Illustrator 一致）。Kalamo 路线图内但尚未实现的内容先降级并提示，实现后原样映射；Kalamo 不建模的（Inkscape 路径效果、`flowRoot`、3D box、Effects 之前的 filter）取可见几何并提示；不保留原始 XML 片段（ADR-0017）。SVG `<text>` 映射到文本对象，字体名原样保存（F-TEXT-11）。两种入口：打开（`doc_open`，新 Document，浏览器中新开一个标签页）、置入（`svg_import`，一个 Group）。编辑过的文件经打开回到 Kalamo，需要的图稿再复制粘贴回原 Document；三方合并的替换已删除（ADR-0030）。
+- **F-IO-01** SVG 1.1 导入（P0）：`path / rect / circle / ellipse / line / polyline / polygon / text / tspan / textPath / g / use / symbol / defs / linearGradient / radialGradient / pattern / clipPath / mask / image`，`transform`、`style` 与 presentation attributes、`viewBox`；嵌套 `<svg>`：视口（`x / y / width / height / viewBox / preserveAspectRatio`）合入子元素、成为 Group，内容超出视口且 `overflow` 裁剪时成为以视口矩形为 Clipping Path 的 Clipping Mask（ADR-0097）；Inkscape 约定：`inkscape:groupmode="layer"` → Layer、`inkscape:label` → 名称、`sodipodi:insensitive` → 锁定、`display:none` → 隐藏、`<inkscape:page>` → Artboard、`sodipodi:type="star"/"arc"` → Live Shape、`z-<ULID>` id 对回原 Node；`mask` 读作 Opacity Mask，导出写回 `<g mask>`（ADR-0103）。祖先 `transform` 合入叶子（ADR-0007），路径归一化为绝对 `M L C Q Z`，单位换算为 pt（px 按 1 pt 计，与 Illustrator 一致）。Kalamo 路线图内但尚未实现的内容先降级并提示，实现后原样映射；Kalamo 不建模的（Inkscape 路径效果、`flowRoot`、3D box、Effects 之前的 filter）取可见几何并提示；不保留原始 XML 片段（ADR-0017）。SVG `<text>` 映射到文本对象，字体名原样保存（F-TEXT-11）。两种入口：打开（`doc_open`，新 Document，浏览器中新开一个标签页）、置入（`svg_import`，一个 Group）。编辑过的文件经打开回到 Kalamo，需要的图稿再复制粘贴回原 Document；三方合并的替换已删除（ADR-0030）。
 - **F-IO-02** 位图置入 PNG / JPG / WebP / GIF（首帧）；链接或嵌入；裁切。（P0）现状（ADR-0023）：PNG / JPEG / GIF 嵌入；WebP（有损、无损、带 alpha）在 Worker 中解码并存为同像素的无损 PNG，此后即普通 PNG Image，动画 WebP 拒绝并提示导出单帧，超过 4096 × 2048 像素为 `LIMIT_EXCEEDED`（ADR-0100）；带 EXIF 方向的 JPEG 按 Illustrator 正立置入：每个入口把 IFD0 的 Orientation 值改写为 1（不重新编码像素），方向并入 Image 的 `transform`，缺省尺寸、给出的框与 `preserveAspectRatio` 都按正立的照片计，Relink 到带方向的 JPEG 保持 Image 显示的框（ADR-0101）；链接 Image 记住来源文件的方向 `fileOrientation`，`export` SVG 按该文件的正立框写 `<image>` 并带 `kalamo:fileOrientation`，Inkscape 只转一次，导入到持有像素的 Document 时还原（ADR-0102）；裁切用 Clipping Mask；`image_place` 可从 http(s) URL 置入（ADR-0027）；链接（ADR-0042）：Image 可带 `file`，`node_create` 可建链接 Image 与缺失链接，`export` SVG 写 `xlink:href="<file>"`，`render` 画存下的像素或带对角线的框；`doc_open` 与 `svg_import` 把链接的 `<image>` 读成链接 Image，`kalamo:src` 仅当目标 Document 有该图像时保留为 `src`，其余为缺失链接并警告 `IMAGE_LINK_MISSING`，不拉取任何文件（#99）；`node_update` 写 `src` 即 Relink，写 `file` 链接或重新链接，`file: null` 即 Embed（#101）；浏览器 Object > Relink… 从磁盘选文件、Object > Embed 嵌入所选链接 Image（#102）。
 - **F-IO-03** PDF 导入（第一页或指定页；矢量路径与文字尽力提取，不保证图层）；`.ai`（PDF 兼容模式保存的文件）按 PDF 处理。（P2）在此之前 `.ai` 经 Inkscape 另存 SVG 进入（ADR-0017）。
 - **F-IO-04** 粘贴：剪贴板 SVG 文本、Figma / Illustrator / Inkscape 复制出来的 SVG、位图。SVG 粘贴与拖放 `.svg` 到画布都按置入处理，放在视口中心；粘贴 Kalamo 自己复制出的 SVG（根上 `kalamo:scope="nodes:…"`）时，被复制的 Node 直接进入目标 Layer、分配新 id，不包 Group；Ctrl+Shift+V 原位粘贴，保留文档坐标（ADR-0030）。（P0 SVG 与位图）现状（ADR-0023）：粘贴或拖入 PNG / JPEG / GIF / WebP（存为 PNG，ADR-0100）置入为原像素尺寸的 Image，带 EXIF 方向的 JPEG 按正立尺寸居中（ADR-0101）。
@@ -610,7 +609,7 @@ flowchart LR
 | `path_boolean` | `docId`, `nodeIds[]`, `op`（unite / subtract / intersect / exclude / divide / trim / merge / crop / outline / minus_back）, `live`（默认 true → `compound_shape` 节点；false → 直接固化） | 回执 | D（false 时删除源） |
 | `path_op` | `docId`, `nodeIds[]`, `op` + 参数：`offset{distance, join, miterLimit}`、`simplify{tolerance, cornerAngle, toLines}`、`outline_stroke`、`join{tolerance}`、`average{axis}`（两者可带 `anchors[]` 指定锚点，如 Direct Selection 所选）、`add_anchors`、`smooth{amount}`、`divide_below`、`split_into_grid{rows, cols, gutter}`、`convert_to_path`、`expand`、`expand_appearance` | 回执 | D |
 | `shape_build` | `docId`, `nodeIds[]`, `regions[]`（点或区域选择）, `mode`: merge / erase | 回执 | Shape Builder 的程序化形式 |
-| `mask_make` / `mask_release` | `docId`, `clipNodeId`, `contentIds[]`, `kind`: clip / opacity, `invert?`；release 取 `nodeIds[]` | 回执 | clip 见 ADR-0021；opacity 随 F-MASK-02 |
+| `mask_make` / `mask_release` | `docId`, `clipNodeId`, `contentIds[]`, `kind`: clip / opacity, `clip?`, `invert?`（仅 opacity）；release 取 `nodeIds[]` | 回执 | clip 见 ADR-0021；opacity 见 ADR-0103 |
 | `text_edit` | `docId`, `nodeId`, `content?`（纯文本或 runs）, `range?`, `charStyle?`, `paraStyle?`, `fit?`（auto_width / auto_height / fixed） | 回执 + 溢出信息 | D |
 | `text_to_outlines` | `docId`, `nodeIds[]` | 回执 | D |
 | `asset_create` / `asset_update` / `asset_delete` / `asset_list` | `docId`, `kind`（swatch / gradient / pattern / symbol / graphic_style / char_style / para_style / brush / chart_theme）, 定义 | 回执 / 列表 | 更新会同步引用处 |
@@ -1015,6 +1014,7 @@ kalamo/
 | 66 | 在场与 Agent 工作区域（2026-10-01） | 光标与 Selection 由浏览器经 Document 的 WebSocket 发送，DO 只转发给其他连接、不存储（新连接加入时其余连接重发），不经 MCP；Agent 的工作区域是其最近一次写入的回执 `bounds` 加 `intent`，事务内暂存的写入也广播区域；每个 Actor 一种由 id 哈希决定的颜色；标签取自 D1 Actor 名称；Peer 的拖拽预览随软锁留在 M3 | ADR-0090、F-COLLAB-04/05、#232 |
 | 67 | 打开位图（2026-10-02） | `doc_open` 的 `content` 以 data URL 携带 PNG / JPEG / GIF（不新增工具、不收裸 base64 或 http(s) URL），新增可选 `name`；新 Document 为 (0, 0) 处像素尺寸的 `Artboard 1` 与 `Layer 1` 中铺满它的未命名嵌入 Image；以文件名去掉位图扩展名命名；浏览器原样发送字节，Worker 以开头的 `<` / `{`、UTF-8 有效性与 GIF / RIFF 签名区分文本与位图 | ADR-0098、F-IO-05、#71 |
 | 68 | Template Layer 不导出（2026-10-02） | Layer 增加可选 `template`（缺省为 false，仅 Layer 有）：`render` 与画布照常绘制，`export` SVG / PNG 与 Export As SVG 在任何 Render Scope 都不写出它及其内容，只含模板内容的 scope 得到无图稿的有效结果；io 仍是一个写出器，由调用方选择（缺省不写）；复制不变；SVG 不写 `kalamo:template`（Illustrator 不导出模板图层，Inkscape 没有）；`.kalamo.json` 保存，无需迁移；`asTemplate` 设置它；图层面板显示模板图标 | ADR-0099、F-ILL-04、#65 |
+| 69 | Opacity Mask（2026-10-02） | 不设 `mask_group` 节点类型：Opacity Mask 是含一个带 `opacityMask: {clip, invert, link}` 子节点的 `group`，蒙版保留 Appearance、可为任意非 Layer 节点；一个 Group 至多一个蒙版且不同时有 Clipping Path；亮度系数随 resvg 与 Inkscape（实测一致），不取 Illustrator 的灰度转换；Clip / Invert / Link 依 Illustrator；SVG 为 `<g mask>` 加内联 `<mask>` 与 `kalamo:mask` 标记 | ADR-0103、F-MASK-02、#55 |
 
 **剩余开放问题**
 
