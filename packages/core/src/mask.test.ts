@@ -428,7 +428,7 @@ describe("maskRole", () => {
     expect([isClippingPath(clip), isOpacityMask(clip)]).toEqual([true, false]);
     expect([isClippingPath(mask), isOpacityMask(mask)]).toEqual([false, true]);
     expect(isClippingPath(s.a) || isOpacityMask(s.a)).toBe(false);
-    if (!isClippingPath(clip) || !isOpacityMask(mask)) throw new Error("unreachable");
+    if (!isClippingPath(clip) || !isOpacityMask(mask)) expect.unreachable();
     expect(maskRole(clip)).toEqual({ what: "Clipping Path", kind: "Clipping" });
     expect(maskRole(mask)).toEqual({ what: "mask", kind: "Opacity" });
   });

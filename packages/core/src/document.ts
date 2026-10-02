@@ -916,7 +916,7 @@ export type ClippingPath = LeafNode & { clipping: true };
 /** Whether the Node is the Clipping Path of a Clipping Mask (ADR-0021). */
 export const isClippingPath = (n: Node): n is ClippingPath => "clipping" in n && !!n.clipping;
 
-/** What refusals call a Clipping Path or mask, and the kind of Mask it makes (ADR-0103). */
+/** What refusals call a Clipping Path or mask, and the kind of Mask it makes (ADR-0021, ADR-0103). */
 export const maskRole = (n: ClippingPath | Mask) =>
   isClippingPath(n)
     ? ({ what: "Clipping Path", kind: "Clipping" } as const)
