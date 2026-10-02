@@ -244,14 +244,62 @@ it("after a rejected press, names the Anchors and segments named before it, on b
   };
   const state = viewState({ doc, selection: [a.id, b.id], role: "owner", ...before });
   setDirection(state, true);
-  const { edit, anchors, segments } = useStore.getState();
-  const pressed = { ...state, edit, anchors, segments };
+  const { edit, reversing, anchors, segments } = useStore.getState();
+  const pressed = { ...state, edit, reversing, anchors, segments };
   expect(pressed.anchors).not.toEqual(before.anchors);
   const rejected = message("rejected", {
     id: "c",
     error: { code: "INVALID_PATH", message: "No.", hint: "" },
   });
-  expect(stateAfter(pressed, rejected)).toMatchObject({ edit: null, notice: "No.", ...before });
+  expect(stateAfter(pressed, rejected)).toMatchObject({
+    edit: null,
+    reversing: null,
+    notice: "No.",
+    ...before,
+  });
+});
+
+it("after a rejected press, names the Anchors named before it, whatever this tab did meanwhile", () => {
+  vi.mocked(send).mockClear();
+  const { doc, defaultLayerId: parentId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 200, height: 200 }],
+  });
+  const ring = (x: number) =>
+    `M${x} 0 L${x + 30} 0 L${x + 30} 30 L${x} 30 Z M${x + 10} 10 L${x + 10} 20 L${x + 20} 20 L${x + 20} 10 Z`;
+  const [a] = createNodes(doc, [{ type: "path", parentId, d: ring(0) }]).nodes as [Node];
+  const chosen = [anchorKey(a.id, 1, 1)];
+  const state = viewState({ doc, selection: [a.id], anchors: chosen, role: "owner" });
+  setDirection(state, true);
+  const { reversing, anchors, segments } = useStore.getState();
+  // A whole-path drag replaces the press's preview; its answer moves the path.
+  const pressed = {
+    ...state,
+    edit: null,
+    reversing,
+    anchors,
+    segments,
+    drag: { nodeIds: [a.id], dx: 5, dy: 0, commandId: "c3" },
+  };
+  const moved: PathNode = { ...(doc.nodes.get(a.id) as PathNode), transform: [1, 0, 0, 1, 5, 0] };
+  const dragged = message("tx", { rev: doc.rev + 1, commandId: "c3", updated: [moved] });
+  const afterDrag = { ...pressed, ...stateAfter(pressed, dragged) };
+  expect(afterDrag).toMatchObject({ edit: null, reversing, anchors });
+  // Another of this tab's commands is refused; the press is still in flight.
+  const other = message("rejected", { id: "c2" });
+  expect(stateAfter(afterDrag, other)).toMatchObject({ notice: "no" });
+  expect(stateAfter(afterDrag, other)).not.toHaveProperty("anchors");
+  const rejected = message("rejected", { id: "c" });
+  expect(stateAfter(afterDrag, rejected)).toMatchObject({ reversing: null, anchors: chosen });
+  // Accepted instead, the press keeps the renumbered Anchor though its preview went.
+  const shown = afterDrag.doc as Document;
+  const flipped = editPath(
+    { ...shown, nodes: new Map(shown.nodes) },
+    { nodeId: a.id, ops: [{ op: "reverse", subpath: 1 }] },
+  ).node;
+  const answer = message("tx", { rev: shown.rev + 1, commandId: "c", updated: [flipped] });
+  expect(stateAfter(afterDrag, answer)).toMatchObject({ reversing: null, anchors });
 });
 
 it("after a rejected press another Actor raced, leaves the raced path's Anchors cleared (ADR-0109)", () => {
@@ -274,8 +322,8 @@ it("after a rejected press another Actor raced, leaves the raced path's Anchors 
     role: "owner",
   });
   setDirection(state, true);
-  const { edit, anchors, segments } = useStore.getState();
-  const pressed = { ...state, edit, anchors, segments };
+  const { edit, reversing, anchors, segments } = useStore.getState();
+  const pressed = { ...state, edit, reversing, anchors, segments };
   const reversed = editPath(
     { ...doc, nodes: new Map(doc.nodes) },
     { nodeId: a.id, ops: [{ op: "reverse", subpath: 1 }] },

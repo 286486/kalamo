@@ -11,6 +11,7 @@ export const viewState = (over: Partial<ViewState> = {}): ViewState => ({
   pen: null,
   pending: [],
   edit: null,
+  reversing: null,
   opPreview: null,
   anchors: [],
   segments: [],

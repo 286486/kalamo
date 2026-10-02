@@ -80,7 +80,8 @@ export function setDirection(s: Selected, on: boolean) {
   const commandId = send({ type: "path_reverse", subpaths, clockwise: on });
   const inputs = directionEdits(doc, subpaths, on);
   useStore.setState({
-    edit: { inputs, commandIds: inputs.map(() => commandId), reversed: subpaths },
+    edit: { inputs, commandIds: inputs.map(() => commandId) },
+    reversing: { commandId, subpaths },
     anchors: s.anchors.map(reversedKey(doc, subpaths, false)),
     segments: s.segments.map(reversedKey(doc, subpaths, true)),
   });

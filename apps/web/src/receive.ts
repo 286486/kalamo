@@ -92,12 +92,17 @@ export interface PendingCreate {
 export interface PathDrag {
   inputs: PathEditInput[];
   commandIds: string[] | null;
-  /**
-   * The subpaths a `path_reverse` renumbered the selected Anchors and segments on, ahead of its
-   * answer; a rejection numbers them back. Another Actor's edit to a path clears its keys, so it
-   * takes the path out.
-   */
-  reversed?: { nodeId: string; subpath: number }[];
+}
+
+/**
+ * A `path_reverse` in flight and the subpaths it renumbered the selected Anchors and segments on,
+ * ahead of its answer; a rejection numbers them back (#272). Another Actor's edit to a path clears
+ * its keys, so it takes the path out. Kept apart from `edit`, which the next Direct Selection
+ * action replaces.
+ */
+export interface Reversing {
+  commandId: string;
+  subpaths: { nodeId: string; subpath: number }[];
 }
 
 /**
@@ -131,6 +136,7 @@ export interface ViewState {
   /** Drawn art sent and not yet answered, oldest first. */
   pending: PendingCreate[];
   edit: PathDrag | null;
+  reversing: Reversing | null;
   opPreview: PathOpPreview | null;
   /** Direct Selection's selected Anchors (direct.ts's keys): UI state, like the Selection. */
   anchors: string[];
@@ -223,12 +229,13 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     return {};
   if (msg.type === "rejected") {
     const gone = msg.error.code === "NODE_GONE";
-    const back = s.edit?.commandIds?.includes(msg.id) ? s.edit.reversed : undefined;
+    const back = s.reversing?.commandId === msg.id ? s.reversing.subpaths : undefined;
     return {
       ...(s.doc &&
         back && {
           anchors: s.anchors.map(reversedKey(s.doc, back, false)),
           segments: s.segments.map(reversedKey(s.doc, back, true)),
+          reversing: null,
         }),
       ...(s.drag?.commandId === msg.id && { drag: null }),
       ...settlePending(s.pending, msg.id),
@@ -265,7 +272,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     msg.type === "tx" ? s.pending.find((p) => p.commandId === msg.commandId) : undefined;
   // Someone else's change to a path renumbers its Anchors, so its selected ones go; after our own
   // command, and on a reconnect, those it still has stay.
-  const ours = [...(s.edit?.commandIds ?? []), s.drag?.commandId];
+  const ours = [...(s.edit?.commandIds ?? []), s.drag?.commandId, s.reversing?.commandId];
   const own = msg.type === "tx" && !!msg.commandId && ours.includes(msg.commandId);
   const touched =
     msg.type === "tx" ? new Set([...msg.updated.map((n) => n.id), ...msg.deletedIds]) : null;
@@ -275,7 +282,13 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
   };
   const anchors = s.anchors.filter(kept(inRange));
   const segments = s.segments.filter(kept(segmentInRange));
-  const left = own || !touched ? s.edit : unreversed(s.edit, touched);
+  // The press's answer or a reconnect settles its renumbering.
+  const reversing =
+    !s.reversing || msg.type === "document" || msg.commandId === s.reversing.commandId
+      ? null
+      : own
+        ? s.reversing
+        : { ...s.reversing, subpaths: s.reversing.subpaths.filter((t) => !touched?.has(t.nodeId)) };
   const skipped = msg.type === "tx" ? (msg.skippedIds?.length ?? 0) : 0;
   // A selected Node that a browser's command moved into a new Group selects that Group, as Make
   // Clipping Mask does; an Agent's edit leaves the person's Selection alone.
@@ -315,9 +328,8 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     ...(answered && { drag: null }),
     anchors,
     segments,
-    ...(msg.type === "document"
-      ? { edit: null }
-      : { ...(left !== s.edit && { edit: left }), ...settle(left, msg.commandId) }),
+    ...(msg.type === "document" ? { edit: null } : settle(s.edit, msg.commandId)),
+    ...(reversing !== s.reversing && { reversing }),
     ...(msg.type === "document"
       ? s.pending.length > 0 && { pending: [] }
       : settlePending(s.pending, msg.commandId)),
@@ -410,15 +422,7 @@ function settle(edit: PathDrag | null, id: string | undefined): { edit?: PathDra
   if (!edit || !ids || !id || !ids.includes(id)) return {};
   const inputs = edit.inputs.filter((_, i) => ids[i] !== id);
   const commandIds = ids.filter((c) => c !== id);
-  return { edit: inputs.length > 0 ? { ...edit, inputs, commandIds } : null };
-}
-
-/** The drag without the touched paths among those its `path_reverse` renumbered the keys on. */
-function unreversed(edit: PathDrag | null, touched: Set<string>): PathDrag | null {
-  const reversed = edit?.reversed?.filter((t) => !touched.has(t.nodeId));
-  return edit && reversed && reversed.length < (edit.reversed?.length ?? 0)
-    ? { ...edit, reversed }
-    : edit;
+  return { edit: inputs.length > 0 ? { inputs, commandIds } : null };
 }
 
 /** The pending creates without the one whose command `id` was answered or rejected. */
