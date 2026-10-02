@@ -8,12 +8,14 @@ import { formatPath, parsePath, pathBounds, type Segment, shapeSegments } from "
 import {
   closestEnds,
   convertToPath,
+  directionEdits,
   type Filled,
   GEOMETRY_OPS,
   type Geometry,
   type OffsetStyle,
   operandLeaves,
   pathOp,
+  runsClockwise,
   type StrokeStyle,
 } from "./path-op.ts";
 import type { GroupNode, Node, ShapeNode } from "./schema.ts";
@@ -1481,6 +1483,40 @@ describe("pathOp Compound Path Make and Release (ADR-0107)", () => {
     expect(doc.nodes).toEqual(withSingle);
     doc.nodes.delete(single.id);
     expect(doc.nodes).toEqual(before);
+  });
+});
+
+describe("directionEdits (ADR-0109)", () => {
+  it("reverses only what runs the other way on screen, after a mirror, with no area left out", () => {
+    // A clockwise square, then a straight subpath with no area.
+    const { doc, node, defaultLayerId } = setup("M0 0 L10 0 L10 10 L0 10 Z M20 0 L30 0");
+    const path = node as PathNode;
+    const [rect] = createNodes(doc, [
+      { type: "rect", parentId: defaultLayerId, x: 0, y: 0, width: 10, height: 10 },
+    ]).nodes as [Node];
+    const reverse = (nodeId: string, subpath: number) => ({
+      nodeId,
+      ops: [{ op: "reverse", subpath }],
+    });
+    const square = [{ nodeId: path.id, subpath: 0 }];
+    expect([0, 1, 2].map((k) => runsClockwise(doc, path, k))).toEqual([true, null, undefined]);
+    expect(directionEdits(doc, square, true)).toEqual([]);
+    expect(directionEdits(doc, square, false)).toEqual([reverse(path.id, 0)]);
+    expect(directionEdits(doc, [{ nodeId: path.id, subpath: 1 }], false)).toEqual([]);
+    // Mirrored, the same square runs counter-clockwise on screen.
+    doc.nodes.set(path.id, { ...path, transform: [-1, 0, 0, 1, 50, 0] });
+    expect(directionEdits(doc, square, true)).toEqual([reverse(path.id, 0)]);
+    expect(directionEdits(doc, square, false)).toEqual([]);
+    // A Live Shape runs clockwise, as the path editPath makes of it does.
+    const box = [{ nodeId: rect.id, subpath: 0 }];
+    expect(directionEdits(doc, box, true)).toEqual([]);
+    expect(directionEdits(doc, box, false)).toEqual([reverse(rect.id, 0)]);
+    // What is not there is kept for editPath to refuse.
+    const gone = [
+      { nodeId: path.id, subpath: 2 },
+      { nodeId: "nope", subpath: 0 },
+    ];
+    expect(directionEdits(doc, gone, true)).toEqual([reverse(path.id, 2), reverse("nope", 0)]);
   });
 });
 

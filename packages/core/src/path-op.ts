@@ -344,8 +344,12 @@ export function signedArea(s: Subpath): number {
  * panel's Reverse Path Direction On (ADR-0108). Null when it has no area, so no direction;
  * undefined when the path has no subpath `k`.
  */
-export function runsClockwise(doc: Document, n: PathNode, k: number): boolean | null | undefined {
-  const s = toAnchors(parsePath(n.d, "d"))[k];
+export function runsClockwise(
+  doc: Document,
+  n: PathNode | LiveShape,
+  k: number,
+): boolean | null | undefined {
+  const s = toAnchors(parsePath((isLiveShape(n) ? toPath(n) : n).d, "d"))[k];
   if (!s) return undefined;
   const [a, b, c, d] = worldTransform(doc, n);
   const area = signedArea(s) * (a * d - b * c);
@@ -353,9 +357,11 @@ export function runsClockwise(doc: Document, n: PathNode, k: number): boolean | 
 }
 
 /**
- * The `path_edit` inputs that make each named subpath run `clockwise`, or not, on screen
- * (ADR-0109): one per path, a reverse for each subpath that runs the other way. One that already
- * runs that way, or has no area, is left out; one the path lacks is kept, for `editPath` to refuse.
+ * The `path_edit` inputs that make each named subpath run clockwise on screen when `clockwise` is
+ * true, counter-clockwise when false (ADR-0109): one per path, a reverse for each subpath that
+ * runs the other way. A Live Shape is measured as the path `editPath` makes of it. One that already
+ * runs that way, or has no area, is left out; a subpath, or a Node, that is not there is kept, for
+ * `editPath` to refuse.
  */
 export function directionEdits(
   doc: Document,
@@ -365,7 +371,8 @@ export function directionEdits(
   const byNode = new Map<string, Set<number>>();
   for (const { nodeId, subpath } of subpaths) {
     const n = doc.nodes.get(nodeId);
-    const way = n?.type === "path" ? runsClockwise(doc, n, subpath) : undefined;
+    const way =
+      n && (n.type === "path" || isLiveShape(n)) ? runsClockwise(doc, n, subpath) : undefined;
     if (way === clockwise || way === null) continue;
     byNode.set(nodeId, (byNode.get(nodeId) ?? new Set()).add(subpath));
   }
