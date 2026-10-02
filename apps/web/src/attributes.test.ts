@@ -9,7 +9,10 @@ vi.mock("./store.ts", async (original) => ({
   send: vi.fn(() => "c"),
 }));
 
-/** A Make result from two concentric circles, a plain rect, a text and a Group of one path. */
+/**
+ * A Make result from two concentric circles, a plain rect, a text, a path with a straight subpath
+ * and a Group of one path.
+ */
 function fixture() {
   const { doc, defaultLayerId: parentId } = createDocument({
     id: "d",
@@ -23,6 +26,7 @@ function fixture() {
     { ...circle(20), clientKey: "inner" },
     { type: "rect", clientKey: "r", parentId, x: 0, y: 0, width: 10, height: 10 },
     { type: "text", clientKey: "t", parentId, x: 0, y: 0, content: "Hi" },
+    { type: "path", clientKey: "line", parentId, d: "M0 0 L9 0 L9 9 Z M20 0 L30 0" },
     {
       type: "group",
       clientKey: "g",
@@ -95,6 +99,9 @@ it("reads a Make result as Illustrator's, backmost Off and hole On, and sets a c
   expect(directionOf(s([]))).toBeNull();
   const odd = id("odd");
   expect(directionOf({ ...s([anchorKey(odd, 0, 0)]), selection: [odd] })).toBeNull();
+  // A straight subpath has no direction, so On could never show as set.
+  const line = id("line");
+  expect(directionOf({ ...s([anchorKey(line, 1, 0)]), selection: [line] })).toBeNull();
   setDirection(s([anchorKey(ring, 1, 0)]), true);
   setDirection(s([anchorKey(ring, 1, 0), anchorKey(ring, 1, 1)], [anchorKey(ring, 1, 3)]), false);
   expect(commands()).toEqual([{ type: "path_reverse", subpaths: [{ nodeId: ring, subpath: 1 }] }]);

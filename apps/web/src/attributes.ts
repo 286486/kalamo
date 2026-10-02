@@ -67,15 +67,10 @@ export function signedArea(s: Subpath): number {
 }
 
 /**
- * Reverse Path Direction On is a subpath that runs clockwise on screen, as Kalamo's Live Shapes
- * do; Off runs counter-clockwise. So a Make result reads as Illustrator's: the backmost Off, the
- * holes On (ADR-0108).
- */
-const isOn = (s: Subpath) => signedArea(s) > 0;
-
-/**
  * The subpaths Reverse Path Direction sets: those with a selected Anchor or segment, of an
- * editable Compound Path under nonzero, each once.
+ * editable Compound Path under nonzero, each once. On is a subpath that runs clockwise on screen,
+ * as Kalamo's Live Shapes do; Off runs counter-clockwise. So a Make result reads as Illustrator's:
+ * the backmost Off, the holes On (ADR-0108). A subpath with no area has no direction to set.
  */
 export function directionTargets(s: Selected): { nodeId: string; subpath: number; on: boolean }[] {
   const { doc } = s;
@@ -87,7 +82,8 @@ export function directionTargets(s: Selected): { nodeId: string; subpath: number
     if (seen.has(`${nodeId} ${subpath}`) || !reversible(doc, n)) return [];
     seen.add(`${nodeId} ${subpath}`);
     const sub = anchorsOf(doc, n)[subpath];
-    return sub ? [{ nodeId, subpath, on: isOn(sub) }] : [];
+    const area = sub ? signedArea(sub) : 0;
+    return area !== 0 ? [{ nodeId, subpath, on: area > 0 }] : [];
   });
 }
 
