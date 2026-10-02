@@ -9,6 +9,7 @@ import {
   NodeInput,
   PathEditInput,
   PathOpInput,
+  PathShape,
   type Rect,
   ReorderOp,
   ReparentInput,
@@ -171,6 +172,17 @@ const CommandMessage = z.object({
     z.object({ type: z.literal("mask_release"), nodeIds: z.array(z.string()).min(1) }),
     // Direct Selection and continuing a path with the Pen (ADR-0032).
     z.object({ type: z.literal("path_edit"), input: PathEditInput }),
+    // The Attributes panel (ADR-0108): the fill rule of several paths, and the direction of
+    // several subpaths, each in one Transaction.
+    z.object({
+      type: z.literal("fill_rule"),
+      nodeIds: z.array(z.string()).min(1),
+      fillRule: PathShape.shape.fillRule.unwrap(),
+    }),
+    z.object({
+      type: z.literal("path_reverse"),
+      subpaths: z.array(z.object({ nodeId: z.string(), subpath: z.number().int().min(0) })).min(1),
+    }),
     // Object > Shape > Expand Shape (ADR-0032).
     z.object({ type: z.literal("path_op"), input: PathOpInput }),
     // The Pen continuing a path onto another's Endpoint: the edit, then a Join, as one

@@ -276,6 +276,9 @@ it("keeps a Direct Selection drag's preview until every path_edit is answered", 
   expect(stateAfter(state, message("rejected", { id: "c1" }))).toMatchObject({
     edit: { inputs: [move(b.id)], commandIds: ["c2"] },
   });
+  // One command for both paths, as the Attributes panel's path_reverse, settles both at once.
+  const one = { ...state, edit: { ...edit, commandIds: ["c1", "c1"] } };
+  expect(stateAfter(one, tx(doc, { commandId: "c1" }))).toMatchObject({ edit: null });
   // A reconnect loses the answers, so the preview goes.
   const msg = message("document", { rev: 9, nodes: [a, b] });
   expect(stateAfter(state, msg)).toMatchObject({ edit: null });

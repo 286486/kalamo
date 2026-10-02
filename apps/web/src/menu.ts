@@ -171,7 +171,7 @@ export const releaseTargets = ({ doc, selection }: Pick<State, "doc" | "selectio
     : [];
 
 /** The Selection's editable leaves that core's operandLeaves takes, each once. */
-const compoundParts = (doc: Document, selection: string[]) => [
+export const compoundParts = (doc: Document, selection: string[]) => [
   ...new Set(
     selection
       .map((id) => doc.nodes.get(id))
@@ -660,6 +660,12 @@ export function documentMenus(tabs: {
           keys: "Shift+Ctrl+F9",
           checked: (s) => s.pathfinderShown,
           run: () => useStore.setState((s) => ({ pathfinderShown: !s.pathfinderShown })),
+        },
+        {
+          label: "Attributes",
+          keys: "Ctrl+F11",
+          checked: (s) => s.attributesShown,
+          run: () => useStore.setState((s) => ({ attributesShown: !s.attributesShown })),
         },
       ],
     },
