@@ -1592,12 +1592,13 @@ it("sets the Attributes panel's fill rule and subpath directions, each one Trans
     updatedIds: ids,
   });
   expect((await read()).map((n) => n.fillRule)).toEqual(["evenodd", "evenodd"]);
+  // The squares run clockwise on screen; Off makes these three counter-clockwise.
   const subpaths = [
     { nodeId: a, subpath: 1 },
     { nodeId: b, subpath: 0 },
     { nodeId: b, subpath: 1 },
   ];
-  expect(await edit({ type: "path_reverse", subpaths }, "c2")).toMatchObject({
+  expect(await edit({ type: "path_reverse", subpaths, clockwise: false }, "c2")).toMatchObject({
     rev: 4,
     updatedIds: [a, b],
   });
@@ -1608,11 +1609,45 @@ it("sets the Attributes panel's fill rule and subpath directions, each one Trans
   ]);
   // A missing subpath is refused and nothing changes.
   expect(
-    await edit({ type: "path_reverse", subpaths: [{ nodeId: a, subpath: 2 }] }, "c3"),
+    await edit(
+      { type: "path_reverse", subpaths: [{ nodeId: a, subpath: 2 }], clockwise: true },
+      "c3",
+    ),
   ).toMatchObject({
     error: { code: "INVALID_PATH" },
   });
-  expect(ok(await s.undo("user"))).toMatchObject({ rev: 5 });
+  // The race (ADR-0109): an Agent reverses a's hole back to clockwise after the browser read it
+  // as counter-clockwise, then the browser presses On for it. It is left as the Agent set it, with
+  // no Transaction and no undo step.
+  ok(await s.pathEdit({ nodeId: a, ops: [{ op: "reverse", subpath: 1 }] }, "agent"));
+  const raced = await read();
+  expect(raced[0]?.d).toBe(before[0]?.d);
+  const on = (subpaths: { nodeId: string; subpath: number }[], id: string) =>
+    edit({ type: "path_reverse", subpaths, clockwise: true }, id);
+  expect(await on([{ nodeId: a, subpath: 1 }], "c4")).toMatchObject({
+    error: { code: "NOTHING_TO_CHANGE" },
+  });
+  expect(await read()).toEqual(raced);
+  // A press that mixes them reverses only b's outline, in one Transaction.
+  expect(
+    await on(
+      [
+        { nodeId: a, subpath: 1 },
+        { nodeId: b, subpath: 0 },
+      ],
+      "c5",
+    ),
+  ).toMatchObject({ rev: 6, updatedIds: [b] });
+  expect((await read()).map((n) => n.d)).toEqual([
+    before[0]?.d,
+    "M 50 50 L 80 50 L 80 80 L 50 80 Z M 60 60 L 60 70 L 70 70 L 70 60 Z",
+  ]);
+  // Undo takes the mixed press, then the Agent's reverse: the refused press left no step.
+  expect(ok(await s.undo("user"))).toMatchObject({ rev: 7 });
+  expect(await read()).toEqual(raced);
+  ok(await s.undo("user"));
+  expect(await read()).toEqual(reversed);
+  ok(await s.undo("user"));
   expect((await read()).map((n) => n.d)).toEqual(before.map((n) => n.d));
   ok(await s.undo("user"));
   expect(await read()).toEqual(before);

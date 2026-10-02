@@ -8,6 +8,7 @@ import {
   fromAnchors,
   isLiveShape,
   type LiveShape,
+  type PathEditInput,
   type PathNode,
   type Subpath,
   toAnchors,
@@ -306,6 +307,73 @@ const checkRefs = (refs: Ref[] | undefined, nodeIds: string[]) =>
 
 const flip = (s: Subpath) =>
   editSubpaths([structuredClone(s)], { op: "reverse" }, "")[0] as Subpath;
+
+/**
+ * Twice the signed area of a subpath, y down: positive when it runs clockwise on screen. Each
+ * cubic's term is exact by Green's theorem; a closed subpath's closing segment counts, an open one
+ * closes by a line.
+ */
+export function signedArea(s: Subpath): number {
+  const cross = (p: number[], q: number[]) => (p[0] ?? 0) * (q[1] ?? 0) - (p[1] ?? 0) * (q[0] ?? 0);
+  const n = s.anchors.length;
+  let sum = 0;
+  for (let i = 0; i < n; i++) {
+    const a = s.anchors[i];
+    const b = s.anchors[(i + 1) % n];
+    if (!a || !b) continue;
+    const curved = (s.closed || i < n - 1) && (a.handleOut || b.handleIn);
+    if (!curved) {
+      sum += cross(a.anchor, b.anchor);
+      continue;
+    }
+    const [p0, p1, p2, p3] = [a.anchor, a.handleOut ?? a.anchor, b.handleIn ?? b.anchor, b.anchor];
+    sum +=
+      (6 * cross(p0, p1) +
+        3 * cross(p0, p2) +
+        cross(p0, p3) +
+        3 * cross(p1, p2) +
+        3 * cross(p1, p3) +
+        6 * cross(p2, p3)) /
+      10;
+  }
+  return sum;
+}
+
+/**
+ * Whether subpath `k` of a path runs clockwise on screen, after every transform: the Attributes
+ * panel's Reverse Path Direction On (ADR-0108). Null when it has no area, so no direction;
+ * undefined when the path has no subpath `k`.
+ */
+export function runsClockwise(doc: Document, n: PathNode, k: number): boolean | null | undefined {
+  const s = toAnchors(parsePath(n.d, "d"))[k];
+  if (!s) return undefined;
+  const [a, b, c, d] = worldTransform(doc, n);
+  const area = signedArea(s) * (a * d - b * c);
+  return area === 0 ? null : area > 0;
+}
+
+/**
+ * The `path_edit` inputs that make each named subpath run `clockwise`, or not, on screen
+ * (ADR-0109): one per path, a reverse for each subpath that runs the other way. One that already
+ * runs that way, or has no area, is left out; one the path lacks is kept, for `editPath` to refuse.
+ */
+export function directionEdits(
+  doc: Document,
+  subpaths: { nodeId: string; subpath: number }[],
+  clockwise: boolean,
+): PathEditInput[] {
+  const byNode = new Map<string, Set<number>>();
+  for (const { nodeId, subpath } of subpaths) {
+    const n = doc.nodes.get(nodeId);
+    const way = n?.type === "path" ? runsClockwise(doc, n, subpath) : undefined;
+    if (way === clockwise || way === null) continue;
+    byNode.set(nodeId, (byNode.get(nodeId) ?? new Set()).add(subpath));
+  }
+  return [...byNode].map(([nodeId, subs]) => ({
+    nodeId,
+    ops: [...subs].map((subpath) => ({ op: "reverse" as const, subpath })),
+  }));
+}
 
 const shift = (a: Anchor, [dx, dy]: Point): Anchor => {
   const by = (p: Point | null): Point | null => p && [p[0] + dx, p[1] + dy];

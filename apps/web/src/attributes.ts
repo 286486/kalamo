@@ -3,9 +3,9 @@ import {
   isCompoundPath,
   type Node,
   type PathNode,
-  type Subpath,
+  runsClockwise,
 } from "@kalamo/core";
-import { anchorKey, anchorsOf, localAnchors, parseKey } from "./direct.ts";
+import { anchorKey, localAnchors, parseKey } from "./direct.ts";
 import { compoundParts } from "./menu.ts";
 import { editable } from "./selection.ts";
 import { canEdit, type State, send, useStore } from "./store.ts";
@@ -36,37 +36,6 @@ export function setFillRule(s: Selected, fillRule: FillRule) {
 }
 
 /**
- * Twice the signed area of a subpath as drawn in the document, y down: positive when it runs
- * clockwise on screen. Each cubic's term is exact by Green's theorem; a closed subpath's closing
- * segment counts, an open one closes by a line.
- */
-export function signedArea(s: Subpath): number {
-  const cross = (p: number[], q: number[]) => (p[0] ?? 0) * (q[1] ?? 0) - (p[1] ?? 0) * (q[0] ?? 0);
-  const n = s.anchors.length;
-  let sum = 0;
-  for (let i = 0; i < n; i++) {
-    const a = s.anchors[i];
-    const b = s.anchors[(i + 1) % n];
-    if (!a || !b) continue;
-    const curved = (s.closed || i < n - 1) && (a.handleOut || b.handleIn);
-    if (!curved) {
-      sum += cross(a.anchor, b.anchor);
-      continue;
-    }
-    const [p0, p1, p2, p3] = [a.anchor, a.handleOut ?? a.anchor, b.handleIn ?? b.anchor, b.anchor];
-    sum +=
-      (6 * cross(p0, p1) +
-        3 * cross(p0, p2) +
-        cross(p0, p3) +
-        3 * cross(p1, p2) +
-        3 * cross(p1, p3) +
-        6 * cross(p2, p3)) /
-      10;
-  }
-  return sum;
-}
-
-/**
  * The subpaths Reverse Path Direction sets: those with a selected Anchor or segment, of an
  * editable Compound Path under nonzero, each once. On is a subpath that runs clockwise on screen,
  * as Kalamo's Live Shapes do; Off runs counter-clockwise. So a Make result reads as Illustrator's:
@@ -81,9 +50,8 @@ export function directionTargets(s: Selected): { nodeId: string; subpath: number
     const n = doc.nodes.get(nodeId);
     if (seen.has(`${nodeId} ${subpath}`) || !reversible(doc, n)) return [];
     seen.add(`${nodeId} ${subpath}`);
-    const sub = anchorsOf(doc, n)[subpath];
-    const area = sub ? signedArea(sub) : 0;
-    return area !== 0 ? [{ nodeId, subpath, on: area > 0 }] : [];
+    const on = runsClockwise(doc, n, subpath);
+    return on === true || on === false ? [{ nodeId, subpath, on }] : [];
   });
 }
 
@@ -98,15 +66,16 @@ export function directionOf(s: Selected): boolean | "mixed" | null {
 
 /**
  * Sets the chosen subpaths' direction as one Transaction; sends nothing when none differ. The
- * selected Anchors and segments stay on the Anchors they named, renumbered as the reverse
- * renumbers them, so the panel keeps showing the direction it set.
+ * command names the direction, so a subpath someone else reverses first is left as it is
+ * (ADR-0109). The selected Anchors and segments stay on the Anchors they named, renumbered as the
+ * reverse renumbers them, so the panel keeps showing the direction it set.
  */
 export function setDirection(s: Selected, on: boolean) {
   const { doc } = s;
   const flip = directionTargets(s).filter((t) => t.on !== on);
   if (!doc || flip.length === 0) return;
   const subpaths = flip.map(({ nodeId, subpath }) => ({ nodeId, subpath }));
-  const commandId = send({ type: "path_reverse", subpaths });
+  const commandId = send({ type: "path_reverse", subpaths, clockwise: on });
   const inputs = [...new Set(subpaths.map((t) => t.nodeId))].map((nodeId) => ({
     nodeId,
     ops: subpaths

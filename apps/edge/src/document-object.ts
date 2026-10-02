@@ -12,6 +12,7 @@ import {
   type DuplicateInput,
   dataUrl,
   deleteNodes,
+  directionEdits,
   duplicateNodes,
   type ErrorData,
   editPath,
@@ -581,16 +582,18 @@ export class DocumentObject extends DurableObject<Env> {
     },
     path_reverse: {
       nodeIds: (c) => c.subpaths.map((s) => s.nodeId),
-      // One path_edit per path, its subpaths' reverse ops in order.
+      // Only what still runs the other way, as it is now (ADR-0109); one path_edit per path.
       run: (c, actor, commandId) =>
         this.write(actor, { commandId }, PATH_OP_TEXT.reverse.summary, (doc) => {
-          const byNode = new Map<string, number[]>();
-          for (const { nodeId, subpath } of c.subpaths) {
-            byNode.set(nodeId, [...(byNode.get(nodeId) ?? []), subpath]);
+          const inputs = directionEdits(doc, c.subpaths, c.clockwise);
+          if (inputs.length === 0) {
+            throw new KalamoError({
+              code: "NOTHING_TO_CHANGE",
+              message: "Those subpaths already run that way: someone else set them first.",
+              hint: "Nothing was written. The Attributes panel now shows their direction.",
+            });
           }
-          const edits = [...byNode].map(([nodeId, subpaths]) =>
-            editPath(doc, { nodeId, ops: subpaths.map((subpath) => ({ op: "reverse", subpath })) }),
-          );
+          const edits = inputs.map((input) => editPath(doc, input));
           return {
             updated: edits.map((e) => e.node),
             warnings: edits.flatMap((e) => e.warnings),
