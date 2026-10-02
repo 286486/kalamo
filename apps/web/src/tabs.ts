@@ -47,16 +47,24 @@ export interface Opened {
   warnings: { code: string; message: string }[];
 }
 
-/** What Open file takes, for the file input's `accept` and a drop on the tab bar. */
-export const OPENABLE = ".svg,.json,image/svg+xml,application/json";
+/**
+ * What Open file takes, for the file input's `accept` and a drop on the tab bar: any image, as
+ * Place, so the Worker refuses one it cannot open with Place's reason (ADR-0098).
+ */
+export const OPENABLE = ".svg,.json,image/*,application/json";
 export const openable = (file: File) =>
-  /\.(svg|json)$/i.test(file.name) || /^(image\/svg\+xml|application\/json)$/.test(file.type);
+  /\.(svg|json)$/i.test(file.name) ||
+  file.type === "application/json" ||
+  file.type.startsWith("image/");
 
-/** Open: a new Document from an .svg or .kalamo.json, sent over HTTP and parsed in the Worker, like kalamo_doc_open (ADR-0017). */
+/**
+ * Open: a new Document from an .svg, a .kalamo.json or a PNG, JPEG or GIF, its bytes sent over HTTP
+ * and read in the Worker, like kalamo_doc_open (ADR-0017, ADR-0098).
+ */
 export async function openFile(file: File): Promise<Opened> {
   const res = await fetch(`/api/docs?name=${encodeURIComponent(file.name)}`, {
     method: "POST",
-    body: await file.text(),
+    body: file,
   });
   const body = (await res.json()) as Opened & { message?: string; hint?: string };
   if (!res.ok) throw new Error(`${body.message} ${body.hint ?? ""}`);

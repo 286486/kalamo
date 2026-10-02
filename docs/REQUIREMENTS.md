@@ -416,7 +416,7 @@ Kalamo 要填的空位是：**每个人带自己的 AI，人和这些 Agent 共�
 - **F-IO-02** 位图置入 PNG / JPG / WebP / GIF（首帧）；链接或嵌入；裁切。（P0）现状（ADR-0023）：PNG / JPEG / GIF 嵌入；WebP 在 resvg 与 Inkscape 1.2 能绘制之前拒绝并提示转 PNG；裁切用 Clipping Mask；`image_place` 可从 http(s) URL 置入（ADR-0027）；链接（ADR-0042）：Image 可带 `file`，`node_create` 可建链接 Image 与缺失链接，`export` SVG 写 `xlink:href="<file>"`，`render` 画存下的像素或带对角线的框；`doc_open` 与 `svg_import` 把链接的 `<image>` 读成链接 Image，`kalamo:src` 仅当目标 Document 有该图像时保留为 `src`，其余为缺失链接并警告 `IMAGE_LINK_MISSING`，不拉取任何文件（#99）；`node_update` 写 `src` 即 Relink，写 `file` 链接或重新链接，`file: null` 即 Embed（#101）；浏览器 Object > Relink… 从磁盘选文件、Object > Embed 嵌入所选链接 Image（#102）。
 - **F-IO-03** PDF 导入（第一页或指定页；矢量路径与文字尽力提取，不保证图层）；`.ai`（PDF 兼容模式保存的文件）按 PDF 处理。（P2）在此之前 `.ai` 经 Inkscape 另存 SVG 进入（ADR-0017）。
 - **F-IO-04** 粘贴：剪贴板 SVG 文本、Figma / Illustrator / Inkscape 复制出来的 SVG、位图。SVG 粘贴与拖放 `.svg` 到画布都按置入处理，放在视口中心；粘贴 Kalamo 自己复制出的 SVG（根上 `kalamo:scope="nodes:…"`）时，被复制的 Node 直接进入目标 Layer、分配新 id，不包 Group；Ctrl+Shift+V 原位粘贴，保留文档坐标（ADR-0030）。（P0 SVG 与位图）现状（ADR-0023）：粘贴或拖入 PNG / JPEG / GIF 置入为原像素尺寸的 Image。
-- **F-IO-05** 原生 `.kalamo.json` 与 `.svg` 打开为新 Document，在新标签页中显示（文档列表页与标签栏的"打开文件…"，或把文件拖到标签栏）。（P0）PNG / JPEG / GIF 打开为一个与图像同尺寸的画板加该 Image（Illustrator 的 File > Open，P1，#71）。
+- **F-IO-05** 原生 `.kalamo.json` 与 `.svg` 打开为新 Document，在新标签页中显示（文档列表页与标签栏的"打开文件…"，或把文件拖到标签栏）。（P0）PNG / JPEG / GIF 打开为一个与图像同尺寸的画板加该 Image（Illustrator 的 File > Open，P1）。现状（ADR-0098）：`doc_open` 的 `content` 可为 PNG / JPEG / GIF 的 data URL，浏览器的"打开文件…"与拖到标签栏接受位图并原样发送字节；新 Document 为 (0, 0) 处、每像素 1 pt 的 `Artboard 1`，`Layer 1` 中一个铺满画板、名称为空的嵌入 Image；以文件名去掉 `.png` / `.jpg` / `.jpeg` / `.gif` 命名，无文件名则为 `Untitled`；检查与置入相同（WebP 拒绝并提示转 PNG，超过 5 MB 为 `LIMIT_EXCEEDED`），被拒的文件不创建 Document（#71）。
 
 **导出**
 - **F-IO-06** SVG 导出（P0）：范围（文档 / 画板 / 选中对象）、精度（小数位 1–7）、样式写法（presentation attributes / inline style / `<style>` 类）、文字处理（保留 `<text>` / 转曲 / 嵌入字体子集 P1）、是否包含 `id` 与 `data-*`、是否压缩（SVGO）、是否响应式（去 width/height 留 viewBox）。默认输出 Inkscape 方言、可编辑：`render` 与 `export` 共用一个序列化器；Layer / 锁定 / 隐藏 / 名称 / Artboard（`<inkscape:page>`）/ `tags` / `meta` 都写入；一个 Fill 加一个 Stroke 的叶子写成一个元素；矩形、椭圆、线写原生元素，多边形与星形写 Inkscape 星形对象；文字保留 `<text>` 与原字体名；`viewBox` 是文件的第一个页面，整个 Document 导出时取位于 (0,0) 的 Artboard，没有则取第一个（映射表见 ADR-0017）。其余实时对象展开导出；效果映射到 SVG filter 或栅格化。
@@ -563,7 +563,7 @@ flowchart LR
 | `doc_list` | — | 调用者拥有或被分享的文档摘要列表，各带 `role` | R；ADR-0047 |
 | `doc_delete` | `docId` | `{ docId, deleted: true }` | D；仅 owner；ADR-0047 |
 | `doc_create` | `name`, `artboards[]`（预设名或 w/h）, `template?` | `docId`, 大纲 | |
-| `doc_open` | `content`（`.kalamo.json` 或 SVG 文本，按内容识别；SVG 至多 5 MB） | 新 `docId`、大纲、`warnings`（每类一条） | ADR-0016、ADR-0017 |
+| `doc_open` | `content`（`.kalamo.json` 或 SVG 文本，或 PNG / JPEG / GIF 的 data URL，按内容识别；SVG 至多 5 MB，位图至多 5 MB）、`name?`（文件名，用于命名） | 新 `docId`、大纲、`warnings`（每类一条） | ADR-0016、ADR-0017、ADR-0098 |
 | `doc_save` | `docId`, `path?` | 保存位置 | I |
 | `doc_close` | `docId`, `discardChanges?` | — | D |
 | `doc_get_info` | `docId` | 名称、画板、节点计数、资源计数、当前 `rev`、在线浏览器连接数 | R |
@@ -1013,6 +1013,7 @@ kalamo/
 | 64 | 区域文字在 `/` 和连字符之后换行（2026-10-01） | 拉丁文除空格外，也在 `/`（SY）、`-`（HY）以及 ASCII、Latin-1 与通用标点区块中的 BA 字符（如 `|`、en dash `–`、U+2010）之后换行，按 Pango 1.50.12 的规则抑制：下一字符不能居行首时（`%` 除外）、连字符后接数字、数字中的 `/` 后接数字或符号、紧邻希伯来字母时不断开。于是 URL、路径和连字符词与 Inkscape 1.2.2 在相同位置换行，`2026-09-30`、`1/2` 保持完整；CJK 换行不变。Adobe 文档未写明 Illustrator 的做法，记为未验证。软连字符 U+00AD、EX、IN、B2、emoji、ZWSP 与跨空格规则仍不计入 | ADR-0085、#222 |
 | 65 | 卖点：每个人带自己的 AI（2026-10-01） | 卖点从"Agent 能画图"改为"每个人带自己的 AI，人和各自的 Agent 编辑同一份文档"，产出仍是可交付矢量而非白板草图；Kalamo 不内置 AI；其他 User 的光标与选区、Agent 意图展示从 M3 提前到 M1，评论仍为 P2；MCP 工具定义瘦身进入 M1。依据调研十一：Haiku 4.5 直接写 SVG 与经 MCP 出图质量相当、成本低 4–9 倍，每轮约 10 万 token 花在工具定义上 | ADR-0086、§1.1–1.3、§3、F-COLLAB-04/05、§9 |
 | 66 | 在场与 Agent 工作区域（2026-10-01） | 光标与 Selection 由浏览器经 Document 的 WebSocket 发送，DO 只转发给其他连接、不存储（新连接加入时其余连接重发），不经 MCP；Agent 的工作区域是其最近一次写入的回执 `bounds` 加 `intent`，事务内暂存的写入也广播区域；每个 Actor 一种由 id 哈希决定的颜色；标签取自 D1 Actor 名称；Peer 的拖拽预览随软锁留在 M3 | ADR-0090、F-COLLAB-04/05、#232 |
+| 67 | 打开位图（2026-10-02） | `doc_open` 的 `content` 以 data URL 携带 PNG / JPEG / GIF（不新增工具、不收裸 base64 或 http(s) URL），新增可选 `name`；新 Document 为 (0, 0) 处像素尺寸的 `Artboard 1` 与 `Layer 1` 中铺满它的未命名嵌入 Image；以文件名去掉位图扩展名命名；浏览器原样发送字节，Worker 以开头的 `<` / `{`、UTF-8 有效性与 GIF / RIFF 签名区分文本与位图 | ADR-0098、F-IO-05、#71 |
 
 **剩余开放问题**
 

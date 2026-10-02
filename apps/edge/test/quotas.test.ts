@@ -80,6 +80,10 @@ describe("50 owned Documents", () => {
     expect((await tool(ann, "kalamo_doc_open", { content: svg })).error).toEqual(refused);
     const open = await browser(ann, "/api/docs?name=a.svg", { method: "POST", body: svg });
     expect(await open.json()).toEqual(refused);
+    expect((await tool(ann, "kalamo_doc_open", { content: RED_2x2_PNG })).error).toEqual(refused);
+    const png = readImage(RED_2x2_PNG, "src").bytes;
+    const bitmap = await browser(ann, "/api/docs?name=a.png", { method: "POST", body: png });
+    expect(await bitmap.json()).toEqual(refused);
     const owned = await env.DB.prepare("SELECT COUNT(*) AS n FROM documents WHERE owner_id = ?")
       .bind(await userId(ann))
       .first<number>("n");
@@ -210,6 +214,11 @@ describe("200 MB stored per owner", () => {
       .bind(ok.docId)
       .first<number>("stored_bytes");
     expect(row).toBe(blue);
+    const bitmap = await tool(hal, "kalamo_doc_open", { content: BLUE_1x1_PNG, name: "b.png" });
+    const bitmapRow = await env.DB.prepare("SELECT stored_bytes FROM documents WHERE id = ?")
+      .bind(bitmap.ok.docId)
+      .first<number>("stored_bytes");
+    expect(bitmapRow).toBe(blue);
   });
 });
 

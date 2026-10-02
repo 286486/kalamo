@@ -1,4 +1,11 @@
-import { fileTextWarnings, KalamoError, parseDocument } from "@kalamo/core";
+import {
+  createDocument,
+  createNodes,
+  fileTextWarnings,
+  KalamoError,
+  parseDocument,
+  readImage,
+} from "@kalamo/core";
 import { type OpenedFile, parseSvg } from "./read.ts";
 
 export { MAX_DEPTH, parseSvg, resolveLinks } from "./read.ts";
@@ -88,14 +95,44 @@ function expandEntities(text: string): string {
 }
 
 /**
- * Reads a file for Open or Place (ADR-0017): `.kalamo.json` or SVG, told apart by content. `name` is the
- * file name, used for an SVG that names no Document.
+ * A PNG, JPEG or GIF data URL as a new Document (ADR-0098): one Artboard at the origin at its pixel
+ * size, and `Layer 1` holding the Image that fills it. Named by `name` without its extension.
+ */
+function openImage(src: string, name = ""): OpenedFile {
+  const file = readImage(src, "content");
+  const { width, height } = file;
+  const { doc, defaultLayerId } = createDocument({
+    id: "",
+    name: name.replace(/\.(png|jpe?g|gif)$/i, "") || "Untitled",
+    artboards: [{ width, height }],
+  });
+  // resolveImages renames the key to the file's hash.
+  const key = "content";
+  doc.images.set(key, file);
+  createNodes(doc, [
+    { type: "image", parentId: defaultLayerId, src: key, x: 0, y: 0, width, height },
+  ]);
+  const { artboards, nodes } = doc;
+  return {
+    name: doc.name,
+    artboards,
+    nodes: [...nodes.values()],
+    images: new Map([[key, file]]),
+    warnings: [],
+  };
+}
+
+/**
+ * Reads a file for Open or Place (ADR-0017): `.kalamo.json`, SVG or, for Open, a bitmap's data URL
+ * (ADR-0098), told apart by content. `name` is the file name, used for an SVG that names no
+ * Document and for a bitmap.
  */
 export function parseFile(
   content: string,
   { name }: { name?: string } = {},
-): OpenedFile & { format: "svg" | "kalamo_json" } {
+): OpenedFile & { format: "svg" | "kalamo_json" | "image" } {
   const text = content.replace(/^﻿/, "").trimStart();
+  if (/^data:/i.test(text)) return { ...openImage(text, name), format: "image" };
   let file: OpenedFile;
   if (text.startsWith("{")) file = { ...parseDocument(text), warnings: [] };
   else if (text.startsWith("<")) {
@@ -113,7 +150,7 @@ export function parseFile(
     throw new KalamoError({
       code: "INVALID_DOCUMENT",
       message: "The content is not an SVG or .kalamo.json file.",
-      hint: "Pass the text of an .svg file, or of a .kalamo.json file as kalamo_export returns it.",
+      hint: "Pass the text of an .svg file, of a .kalamo.json file as kalamo_export returns it, or a data: URL of a PNG, JPEG or GIF.",
       path: "content",
     });
   }
