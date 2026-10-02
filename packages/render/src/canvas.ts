@@ -24,6 +24,7 @@ import {
   mapPaint,
   type Node,
   notdefBox,
+  opacityMaskOf,
   type PaintedLeaf,
   paintedLeaves,
   type Segment,
@@ -73,6 +74,8 @@ export interface Canvas2D {
   rect(x: number, y: number, w: number, h: number): void;
   drawImage(image: unknown, x: number, y: number): void;
   drawImage(image: unknown, x: number, y: number, w: number, h: number): void;
+  getImageData(x: number, y: number, w: number, h: number): { data: Uint8ClampedArray };
+  putImageData(image: { data: Uint8ClampedArray }, x: number, y: number): void;
   readonly canvas: { width: number; height: number };
   getTransform(): { a: number; b: number; c: number; d: number; e: number; f: number };
   createLinearGradient(x0: number, y0: number, x1: number, y1: number): CanvasGradient2D;
@@ -226,15 +229,28 @@ function drawNode(ctx: Canvas2D, n: Node, scene: Scene) {
   // Coverage is the isolated Node's shape: nothing in it takes an opacity or mode.
   const opacity = scene.subtree ? 1 : n.opacity;
   const mode = scene.subtree || n.blendMode === "normal" ? "source-over" : n.blendMode;
-  if ((opacity < 1 || mode !== "source-over") && paintsMoreThanOnce(n)) {
-    // An isolated group: its contents compose on their own, then composite once in its opacity and
-    // mode, in device pixels, inside every ancestor's clip.
+  // Above a subtree, a container draws only its child on the way down, unmasked.
+  const mask = scene.subtree?.above.has(n.id) ? undefined : opacityMaskOf(scene.doc, n);
+  if (mask || ((opacity < 1 || mode !== "source-over") && paintsMoreThanOnce(n))) {
+    // An isolated group: its contents compose on their own, then, masked by an Opacity Mask's mask
+    // (ADR-0103), composite once in its opacity and mode, in device pixels, inside every
+    // ancestor's clip.
     // ponytail: a layer covers the whole canvas; crop it to the Node's visible bounds in device space
     // if many translucent containers show up in a profile.
     const { ctx: into, image } = scene.layer();
     const { a, b, c, d, e, f } = ctx.getTransform();
     into.setTransform(a, b, c, d, e, f);
     paint(into, n, scene);
+    if (mask) {
+      const { ctx: luminance, image: alpha } = scene.layer();
+      luminance.setTransform(a, b, c, d, e, f);
+      luminance.transform(...n.transform);
+      drawNode(luminance, mask, { ...scene, without: undefined, until: undefined });
+      toAlpha(luminance, mask.opacityMask ?? { clip: true, invert: false });
+      into.setTransform(1, 0, 0, 1, 0, 0);
+      into.globalCompositeOperation = "destination-in";
+      into.drawImage(alpha, 0, 0);
+    }
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = opacity;
@@ -359,8 +375,11 @@ function paint(ctx: Canvas2D, n: Node, scene: Scene) {
       const appearance = { fills: [], strokes: [], [list]: c.appearance[list] };
       if (c.appearance[list].length > 0) draw(ctx, { ...c, appearance }, scene);
     };
-    const children = childrenOf(doc, n.id).filter(
-      (c) => c !== clip && (!passing || onPath(scene, c)),
+    // An Opacity Mask's mask draws only as its alpha (drawNode).
+    const children = childrenOf(doc, n.id).filter((c) =>
+      passing
+        ? c !== clip && onPath(scene, c)
+        : c !== clip && !("opacityMask" in c && c.opacityMask),
     );
     clipped((ctx) => {
       for (const p of paints.slice(0, contents)) p(ctx);
@@ -420,6 +439,26 @@ function paint(ctx: Canvas2D, n: Node, scene: Scene) {
       else ctx.stroke();
     }
   }
+}
+
+/**
+ * An Opacity Mask's drawn mask, in its layer, as the content's alpha (ADR-0103): the luminance
+ * resvg and Inkscape take, 0.2125 R + 0.7154 G + 0.0721 B, reversed by Invert, times its alpha,
+ * over a white background when Clip is off.
+ */
+function toAlpha(layer: Canvas2D, { clip, invert }: { clip: boolean; invert: boolean }) {
+  // ponytail: reads back the whole layer per masked Group per frame; crop to the Group's device
+  // bounds if Opacity Masks show up in a profile.
+  const { width, height } = layer.canvas;
+  const pixels = layer.getImageData(0, 0, width, height);
+  const { data } = pixels;
+  for (let i = 0; i < data.length; i += 4) {
+    const l =
+      (0.2125 * (data[i] ?? 0) + 0.7154 * (data[i + 1] ?? 0) + 0.0721 * (data[i + 2] ?? 0)) / 255;
+    const a = (data[i + 3] ?? 0) / 255;
+    data[i + 3] = 255 * ((invert ? 1 - l : l) * a + (clip ? 0 : 1 - a));
+  }
+  layer.putImageData(pixels, 0, 0);
 }
 
 /**
