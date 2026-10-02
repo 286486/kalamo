@@ -308,13 +308,21 @@ it("makes a Compound Path of the editable paths and Live Shapes, those in Groups
       parentId,
       children: [
         { ...leaf, clientKey: "g1" },
+        { ...leaf, clientKey: "gLocked" },
         { type: "group", clientKey: "mask", children: [{ ...leaf, clientKey: "m1" }] },
       ],
+    },
+    {
+      type: "group",
+      clientKey: "ringGroup",
+      parentId,
+      children: [{ type: "path", clientKey: "gRing", d: "M0 0 L9 0 L9 9 Z M1 1 L2 1 L2 2 Z" }],
     },
   ]);
   const id = (k: string) => keyMap[k] as string;
   for (const [k, patch] of [
     ["locked", { locked: true }],
+    ["gLocked", { locked: true }],
     ["hidden", { visible: false }],
     ["mask", { opacityMask: { clip: true, invert: false, link: true } }],
   ] as const) {
@@ -332,4 +340,5 @@ it("makes a Compound Path of the editable paths and Live Shapes, those in Groups
   expect(make(["g"])).toEqual([]);
   expect(release(["ring", "a", "t"])).toEqual([id("ring")]);
   expect(release(["a", "g"])).toEqual([]);
+  expect(release(["ringGroup"])).toEqual([id("gRing")]);
 });
