@@ -62,6 +62,22 @@ function fixture() {
 }
 const commands = () => vi.mocked(send).mock.calls.map(([c]) => c);
 
+/** Two Compound Paths, each a clockwise square with a counter-clockwise hole. */
+function rings() {
+  const { doc, defaultLayerId: parentId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 200, height: 200 }],
+  });
+  const ring = (x: number) =>
+    `M${x} 0 L${x + 30} 0 L${x + 30} 30 L${x} 30 Z M${x + 10} 10 L${x + 10} 20 L${x + 20} 20 L${x + 20} 10 Z`;
+  const [a, b] = createNodes(doc, [
+    { type: "path", parentId, d: ring(0) },
+    { type: "path", parentId, d: ring(50) },
+  ]).nodes as [Node, Node];
+  return { doc, a, b };
+}
+
 it("measures a subpath's direction on screen, y down, exactly for curves", () => {
   const [square] = toAnchors(parsePath("M0 0 L10 0 L10 10 L0 10 Z", "d"));
   expect(signedArea(square as never)).toBe(200);
@@ -171,18 +187,7 @@ it("disables both rows for a locked, hidden or locked-Group path and an Image, a
 
 it("after a press another Actor raced, names only the Anchors the Direct Selection named (ADR-0109)", () => {
   vi.mocked(send).mockClear();
-  const { doc, defaultLayerId: parentId } = createDocument({
-    id: "d",
-    name: "Doc",
-    artboards: [{ width: 200, height: 200 }],
-  });
-  // Two Compound Paths, each a clockwise square with a counter-clockwise hole.
-  const ring = (x: number) =>
-    `M${x} 0 L${x + 30} 0 L${x + 30} 30 L${x} 30 Z M${x + 10} 10 L${x + 10} 20 L${x + 20} 20 L${x + 20} 10 Z`;
-  const [a, b] = createNodes(doc, [
-    { type: "path", parentId, d: ring(0) },
-    { type: "path", parentId, d: ring(50) },
-  ]).nodes as [Node, Node];
+  const { doc, a, b } = rings();
   const at = (d: Document, key: string) => {
     const { nodeId, subpath, index } = parseKey(key);
     return localAnchors(d.nodes.get(nodeId) as PathNode)[subpath]?.anchors[index]?.anchor;
@@ -227,17 +232,7 @@ it("after a press another Actor raced, names only the Anchors the Direct Selecti
 
 it("after a rejected press, names the Anchors and segments named before it, on both Compound Paths", () => {
   vi.mocked(send).mockClear();
-  const { doc, defaultLayerId: parentId } = createDocument({
-    id: "d",
-    name: "Doc",
-    artboards: [{ width: 200, height: 200 }],
-  });
-  const ring = (x: number) =>
-    `M${x} 0 L${x + 30} 0 L${x + 30} 30 L${x} 30 Z M${x + 10} 10 L${x + 10} 20 L${x + 20} 20 L${x + 20} 10 Z`;
-  const [a, b] = createNodes(doc, [
-    { type: "path", parentId, d: ring(0) },
-    { type: "path", parentId, d: ring(50) },
-  ]).nodes as [Node, Node];
+  const { doc, a, b } = rings();
   const before = {
     anchors: [anchorKey(a.id, 1, 1), anchorKey(b.id, 1, 2), anchorKey(b.id, 0, 1)],
     segments: [anchorKey(a.id, 1, 3), anchorKey(b.id, 1, 0)],
@@ -261,14 +256,7 @@ it("after a rejected press, names the Anchors and segments named before it, on b
 
 it("after a rejected press, names the Anchors named before it, whatever this tab did meanwhile", () => {
   vi.mocked(send).mockClear();
-  const { doc, defaultLayerId: parentId } = createDocument({
-    id: "d",
-    name: "Doc",
-    artboards: [{ width: 200, height: 200 }],
-  });
-  const ring = (x: number) =>
-    `M${x} 0 L${x + 30} 0 L${x + 30} 30 L${x} 30 Z M${x + 10} 10 L${x + 10} 20 L${x + 20} 20 L${x + 20} 10 Z`;
-  const [a] = createNodes(doc, [{ type: "path", parentId, d: ring(0) }]).nodes as [Node];
+  const { doc, a } = rings();
   const chosen = [anchorKey(a.id, 1, 1)];
   const state = viewState({ doc, selection: [a.id], anchors: chosen, role: "owner" });
   setDirection(state, true);
@@ -304,17 +292,7 @@ it("after a rejected press, names the Anchors named before it, whatever this tab
 
 it("after a rejected press another Actor raced, leaves the raced path's Anchors cleared (ADR-0109)", () => {
   vi.mocked(send).mockClear();
-  const { doc, defaultLayerId: parentId } = createDocument({
-    id: "d",
-    name: "Doc",
-    artboards: [{ width: 200, height: 200 }],
-  });
-  const ring = (x: number) =>
-    `M${x} 0 L${x + 30} 0 L${x + 30} 30 L${x} 30 Z M${x + 10} 10 L${x + 10} 20 L${x + 20} 20 L${x + 20} 10 Z`;
-  const [a, b] = createNodes(doc, [
-    { type: "path", parentId, d: ring(0) },
-    { type: "path", parentId, d: ring(50) },
-  ]).nodes as [Node, Node];
+  const { doc, a, b } = rings();
   const state = viewState({
     doc,
     selection: [a.id, b.id],
@@ -346,17 +324,7 @@ it("after a rejected press another Actor raced, leaves the raced path's Anchors 
 
 it("after a reconnect, numbers the keys back on a subpath the press never reached", () => {
   vi.mocked(send).mockClear();
-  const { doc, defaultLayerId: parentId } = createDocument({
-    id: "d",
-    name: "Doc",
-    artboards: [{ width: 200, height: 200 }],
-  });
-  const ring = (x: number) =>
-    `M${x} 0 L${x + 30} 0 L${x + 30} 30 L${x} 30 Z M${x + 10} 10 L${x + 10} 20 L${x + 20} 20 L${x + 20} 10 Z`;
-  const [a, b] = createNodes(doc, [
-    { type: "path", parentId, d: ring(0) },
-    { type: "path", parentId, d: ring(50) },
-  ]).nodes as [Node, Node];
+  const { doc, a, b } = rings();
   const chosen = [anchorKey(a.id, 1, 1), anchorKey(b.id, 1, 1)];
   const state = viewState({ doc, selection: [a.id, b.id], anchors: chosen, role: "owner" });
   setDirection(state, true);
