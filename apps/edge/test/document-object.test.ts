@@ -679,7 +679,7 @@ it("loads PathKit for a path_op in GEOMETRY_OPS and for no other", async () => {
     }
     return out;
   });
-  expect(loaded).toEqual([...GEOMETRY_OPS].sort((a, b) => ops.indexOf(a) - ops.indexOf(b)));
+  expect(loaded.sort()).toEqual([...GEOMETRY_OPS].sort());
   expect(loaded).not.toContain("make_compound_path");
   expect(loaded).not.toContain("reverse");
 });

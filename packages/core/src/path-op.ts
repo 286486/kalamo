@@ -214,8 +214,8 @@ export const GEOMETRY_OPS = [
   "divide_below",
   ...COMBINING,
 ] as const satisfies readonly PathOpInput["op"][];
-export type GeometryOp = (typeof GEOMETRY_OPS)[number];
-export const needsGeometry = (op: string): op is GeometryOp =>
+type GeometryOp = (typeof GEOMETRY_OPS)[number];
+export const needsGeometry = (op: PathOpInput["op"]): op is GeometryOp =>
   (GEOMETRY_OPS as readonly string[]).includes(op);
 
 /** How a Stroke is drawn along its path, without its paint. */
