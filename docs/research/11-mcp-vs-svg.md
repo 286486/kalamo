@@ -43,7 +43,7 @@ Haiku 4.5 on 2026-10-01, after the tool definitions shrank (#229). A full run, t
 | inkscape | pass, 8 calls, 28 s, $0.08, 331k in | pass, 3 calls, 74 s, $0.08, 54k in |
 | labels | pass, 5 calls, 43 s, $0.09 | pass, 1 call, 28 s, $0.04 |
 | person | pass, 6 calls, 29 s, $0.07, 282k in | pass, 6 calls, 17 s, $0.04, 32k in |
-| place | pass, 5 calls, 15 s, $0.05. Rerun: pass, 16 s, $0.06 | FAIL: the logo pasted as a nested `<svg>`, which Kalamo's Open drops (#237); 11 s, $0.03. Rerun, the prompt asking for its elements: pass, 2 calls, 20 s, $0.03 |
+| place | pass, 5 calls, 15 s, $0.05. Rerun: pass, 16 s, $0.06. Rerun on 2026-10-02: pass, 5 calls, 25 s, $0.13, 278k in | FAIL: the logo pasted as a nested `<svg>`, which Kalamo's Open drops (#237); 11 s, $0.03. Rerun, the prompt asking for its elements: pass, 2 calls, 20 s, $0.03. Rerun on 2026-10-02 after #237, the original prompt back: pass, 2 calls, 15 s, $0.03, 29k in; Haiku copied the logo's layers into a `<g transform>` this time, not a nested `<svg>`. `apps/edge/test/bench.test.ts` checks that the arm passes with the whole logo file pasted as a nested `<svg>` |
 | transaction | pass, 7 calls, 45 s, $0.09 | — |
 
 - With definitions at 39k tokens, not 100k, an MCP task costs about what writing SVG does, $0.05–0.24 against $0.03–0.39, but still reads 3–10 times the input tokens.

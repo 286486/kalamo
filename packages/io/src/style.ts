@@ -44,6 +44,8 @@ const PROPERTIES = [
   "stop-color",
   "stop-opacity",
   "baseline-shift",
+  // A nested <svg>'s only (#237).
+  "overflow",
 ];
 
 export function declarations(text: string | null): Style {

@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
 import { RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
 import {
+  aspectPlacement,
   checkImage,
   dataUrl,
   imageId,
@@ -100,4 +101,16 @@ it.each([
   ["xMidYMid cover", undefined],
 ])("spells preserveAspectRatio %j as %j", (value, stored) => {
   expect(preserveAspectRatio(value)).toBe(stored);
+});
+
+it.each([
+  ["none", { x: 10, y: 10, width: 60, height: 40 }],
+  ["xMidYMid meet", { x: 10, y: 20, width: 60, height: 20 }],
+  ["xMaxYMin meet", { x: 10, y: 10, width: 60, height: 20 }],
+  ["xMinYMax slice", { x: 10, y: 10, width: 120, height: 40 }],
+  ["xMidYMid slice", { x: -20, y: 10, width: 120, height: 40 }],
+])("places a 30 × 10 file in a 60 × 40 frame at (10, 10) under %s", (par, rect) => {
+  expect(
+    aspectPlacement({ x: 10, y: 10, width: 60, height: 40 }, { width: 30, height: 10 }, par),
+  ).toEqual(rect);
 });

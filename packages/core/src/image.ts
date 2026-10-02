@@ -157,3 +157,30 @@ export function preserveAspectRatio(value: string): string | undefined {
   if (!m) return undefined;
   return m[1] === "none" ? "none" : `${m[1]} ${m[2] ?? "meet"}`;
 }
+
+const ALIGN = { Min: 0, Mid: 0.5, Max: 1 } as Record<string, number>;
+
+/**
+ * Where SVG's `preserveAspectRatio`, as `preserveAspectRatio()` spells it, puts a box of `size` in
+ * `frame`: an Image's file in its frame, or a nested `<svg>`'s viewBox in its viewport.
+ */
+export function aspectPlacement(
+  frame: Rect,
+  size: { width: number; height: number },
+  preserveAspectRatio: string,
+): Rect {
+  const { x, y } = frame;
+  if (preserveAspectRatio === "none") return { x, y, width: frame.width, height: frame.height };
+  const [align = "xMidYMid", how] = preserveAspectRatio.split(" ");
+  const k = (how === "slice" ? Math.max : Math.min)(
+    frame.width / size.width,
+    frame.height / size.height,
+  );
+  const [width, height] = [size.width * k, size.height * k];
+  return {
+    x: x + (frame.width - width) * (ALIGN[align.slice(1, 4)] ?? 0.5),
+    y: y + (frame.height - height) * (ALIGN[align.slice(5, 8)] ?? 0.5),
+    width,
+    height,
+  };
+}

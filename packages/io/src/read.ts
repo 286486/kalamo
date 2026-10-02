@@ -3,12 +3,14 @@ import {
   type Appearance,
   type Artboard,
   applyTo,
+  aspectPlacement,
   BlendMode,
   BUNDLED_FONT,
   type CharacterRange,
   type ContainerAppearance,
   canonicalRanges,
   cssColor,
+  type Document,
   type Fill,
   fileProblem,
   fontStyleName,
@@ -48,6 +50,7 @@ import {
   transformSegments,
   unfilledRanges,
   union,
+  visibleBounds,
   type Warning,
   withAlpha,
 } from "@kalamo/core";
@@ -315,6 +318,7 @@ function unfilled(text: Record<string, unknown> | undefined): Record<string, unk
 /** Elements that draw, and those that only define or describe and are skipped without a word. */
 const DRAWN = new Set([
   "g",
+  "svg",
   "a",
   "switch",
   "rect",
@@ -364,6 +368,13 @@ interface Context {
   style: Style;
   /** How many Layers and Groups enclose it. */
   depth: number;
+  /** The nearest viewport's size in its user units, which percentages are of. */
+  viewport: Size;
+}
+
+interface Size {
+  width: number;
+  height: number;
 }
 
 /**
@@ -490,7 +501,6 @@ class Reader {
     private readonly rules: Rule[],
     private readonly byId: Map<string, Element>,
     private readonly artboards: Artboard[],
-    private readonly viewport: { width: number; height: number },
   ) {}
 
   warn(code: string, key: string, message: string, nodeId?: string) {
@@ -601,7 +611,7 @@ class Reader {
     if (e.getAttributeNS(NS.sodipodi, "type") === "inkscape:box3d") {
       this.warn("BOX3D_AS_PATHS", "", "3D boxes import as a Group of their side Paths.");
     }
-    if ((tag === "g" && !stack) || tag === "a" || tag === "switch") {
+    if ((tag === "g" && !stack) || tag === "a" || tag === "switch" || tag === "svg") {
       if (ctx.depth >= MAX_DEPTH) {
         throw new KalamoError({
           code: "LIMIT_EXCEEDED",
@@ -610,9 +620,13 @@ class Reader {
           path: "content",
         });
       }
+      // A nested <svg> is a Group whose children sit in its viewport (ADR-0097).
+      const view = tag === "svg" ? this.nestedViewport(e, ctx.viewport) : undefined;
+      if (view === null) return;
       // A container's mask or filter is lost like a leaf's.
       this.unsupported(e, style);
-      const layer = ctx.layerLevel && e.getAttributeNS(NS.inkscape, "groupmode") === "layer";
+      const layer =
+        !view && ctx.layerLevel && e.getAttributeNS(NS.inkscape, "groupmode") === "layer";
       // A Layer's or Group's <g kalamo:clipped> is not a Node: its children are the container's, and
       // its clip-path the container's Clipping Mask, written so its Clipping Path's Strokes draw
       // unclipped (ADR-0051, ADR-0053).
@@ -642,7 +656,9 @@ class Reader {
       if (clipPaints.length > 0 && !clip) {
         this.warn("UNSUPPORTED_ELEMENT", "kalamo:paint", CLIP_PAINT_ORPHAN);
       }
-      const appearance = this.containerAppearance(kids, matrix, style);
+      const inside = view ? multiply(matrix, view.matrix) : matrix;
+      const appearance = this.containerAppearance(kids, inside, style, view?.size ?? ctx.viewport);
+      const start = this.nodes.length;
       const node = this.add({
         ...this.base(e, parentId, undefined, style),
         type: layer ? "layer" : "group",
@@ -658,13 +674,22 @@ class Reader {
         : [];
       for (const c of kids) {
         if (isPaint(c) || isClipPaint(c) || merged?.skipped.has(c)) continue;
-        if (!merged && c === clip?.el) this.clipping(clip, node.id, matrix, paints);
-        this.walk(c, { parentId: node.id, layerLevel: layer, matrix, style, depth: ctx.depth + 1 });
+        if (!merged && c === clip?.el) this.clipping(clip, node.id, matrix, ctx.viewport, paints);
+        this.walk(c, {
+          parentId: node.id,
+          layerLevel: layer,
+          matrix: inside,
+          style,
+          depth: ctx.depth + 1,
+          viewport: view?.size ?? ctx.viewport,
+        });
       }
       // Inkscape's Set Clip puts the clip in <defs>; Illustrator's Clipping Path is on top.
       if (clip && (merged || !kids.includes(clip.el))) {
-        this.clipping(clip, node.id, matrix, paints);
+        this.clipping(clip, node.id, matrix, ctx.viewport, paints);
       }
+      const hidden = !["visible", "auto"].includes(style.overflow ?? "hidden");
+      if (view && hidden) this.clipToViewport(e, node.id, start, view.rect, matrix, ctx.viewport);
       return;
     }
     // An Artboard's background, or the export's background option: not artwork.
@@ -682,16 +707,16 @@ class Reader {
     if (tag === "image") {
       ({ shape, link } = this.image(e, matrix) ?? { shape: null });
     } else if (stack) {
-      const paints = this.stack(e, style, matrix);
+      const paints = this.stack(e, style, matrix, ctx.viewport);
       shape = paints.find((p) => p.shape)?.shape ?? null;
       appearance = stacked(paints);
     } else if (tag === "text") {
       const text = this.text(e, style, matrix);
       shape = text?.shape ?? null;
-      appearance = this.appearance(text?.style ?? style, e, matrix);
+      appearance = this.appearance(text?.style ?? style, e, matrix, ctx.viewport);
     } else {
       shape = this.shape(e, matrix, style);
-      appearance = this.appearance(style, e, matrix);
+      appearance = this.appearance(style, e, matrix, ctx.viewport);
     }
     if (!shape || !this.holds({ ...shape, ...(appearance && { appearance }) })) return;
     this.unsupported(e, style);
@@ -705,20 +730,114 @@ class Reader {
     if (style.visibility === "hidden" || style.visibility === "collapse") base.visible = false;
     this.add({ ...base, ...shape, ...(appearance && { appearance }) } as Node);
     if (link) this.links.set(base.id, link);
-    if (clip) this.clipping(clip, parentId, matrix);
+    if (clip) this.clipping(clip, parentId, matrix, ctx.viewport);
+  }
+
+  /**
+   * A nested `<svg>`'s viewport (SVG 2 §8.2): its rect in its user space, the size its percentages
+   * are of, and the matrix from its children's user space, `translate(x, y)` then the viewBox fit.
+   * Null, with a warning, for one that draws nothing.
+   */
+  private nestedViewport(e: Element, outer: Size) {
+    const at = (name: string, of: number, initial: string) => {
+      const v = e.getAttribute(name)?.trim() || initial;
+      const percent = v.endsWith("%") ? Number(v.slice(0, -1)) : Number.NaN;
+      return Number.isFinite(percent) ? (percent / 100) * of : length(v);
+    };
+    const rect = {
+      x: at("x", outer.width, "0") ?? 0,
+      y: at("y", outer.height, "0") ?? 0,
+      width: at("width", outer.width, "100%") ?? outer.width,
+      height: at("height", outer.height, "100%") ?? outer.height,
+    };
+    const vb = numbers(e.getAttribute("viewBox"));
+    const [vx = 0, vy = 0, vw = 0, vh = 0] = vb;
+    const readable = vb.length === 4 && vb.every(Number.isFinite);
+    if (rect.width <= 0 || rect.height <= 0 || (readable && (vw === 0 || vh === 0))) {
+      this.warn(
+        "INVALID_ELEMENT",
+        "nested svg",
+        "A nested <svg> was dropped with its content: a width or height of 0 or less, or a viewBox 0 wide or high, draws nothing.",
+      );
+      return null;
+    }
+    if (!(readable && vw > 0 && vh > 0)) {
+      return { rect, size: rect, matrix: [1, 0, 0, 1, rect.x, rect.y] as Matrix };
+    }
+    const fit = preserveAspectRatio(e.getAttribute("preserveAspectRatio") ?? "");
+    const p = aspectPlacement(rect, { width: vw, height: vh }, fit ?? "xMidYMid meet");
+    const [sx, sy] = [p.width / vw, p.height / vh];
+    const matrix: Matrix = [sx, 0, 0, sy, p.x - vx * sx, p.y - vy * sy];
+    return { rect, size: { width: vw, height: vh }, matrix };
+  }
+
+  /**
+   * A nested `<svg>`'s Group, `groupId`, made a Clipping Mask by its viewport `rect`, in `matrix`'s
+   * space, when what was read into it from `start` on draws more than 1e-3 pt outside it
+   * (ADR-0097). A Group already clipped by the element's clip-path gets the content in an inner
+   * Group, which the viewport clips.
+   */
+  private clipToViewport(
+    e: Element,
+    groupId: string,
+    start: number,
+    rect: Rect,
+    matrix: Matrix,
+    viewport: Size,
+  ) {
+    const read = this.nodes.slice(start);
+    const held = read.find((n) => n.parentId === groupId && "clipping" in n && n.clipping);
+    const doc: Document = {
+      id: "",
+      name: "",
+      version: 1,
+      rev: 0,
+      artboards: [],
+      nodes: new Map(read.filter((n) => n !== held).map((n) => [n.id, parseNode(n, "element")])),
+      images: new Map(),
+    };
+    const drawn = visibleBounds(doc, doc.nodes.get(groupId) as Node);
+    // The drawn box in the viewport's own space, which only grows under a rotation or skew: the
+    // test can clip content that stays inside, never miss content that leaves.
+    const local =
+      drawn && pathBounds(transformSegments(shapeSegments(frameShape(drawn)), invert(matrix)));
+    const slack = 1e-3 / scaleOf(matrix);
+    const out =
+      local &&
+      (local.x < rect.x - slack ||
+        local.y < rect.y - slack ||
+        local.x + local.width > rect.x + rect.width + slack ||
+        local.y + local.height > rect.y + rect.height + slack);
+    if (!out) return;
+    let parentId = groupId;
+    if (held) {
+      const content = read.filter((n) => n.parentId === groupId && n !== held);
+      const inner = { ...this.base(null, null), type: "group", parentId: groupId } as Node;
+      inner.index = content[0]?.index ?? inner.index;
+      for (const n of content) n.parentId = inner.id;
+      this.last.set(inner.id, content.at(-1)?.index ?? null);
+      this.nodes.splice(start + 1, 0, inner);
+      parentId = inner.id;
+    }
+    const dom = e.ownerDocument as NonNullable<Element["ownerDocument"]>;
+    const clipPath = dom.createElementNS(NS.svg, "clipPath");
+    const shape = dom.createElementNS(NS.svg, "rect");
+    for (const [k, v] of Object.entries(rect)) shape.setAttribute(k, String(v));
+    clipPath.appendChild(shape);
+    this.clipping({ el: clipPath, shape }, parentId, matrix, viewport);
   }
 
   /**
    * The paints of a `<g kalamo:stack>`, one Node painted several times: its geometry from the first
    * paint, its Fills, then its Strokes, in order (ADR-0017).
    */
-  private stack(e: Element, style: Style, matrix: Matrix) {
+  private stack(e: Element, style: Style, matrix: Matrix, viewport: Size) {
     return elements(e).flatMap((c) => {
       const paint = this.own(c);
       if (!paint) return [];
       const s = computeStyle(c, style, this.rules);
       const m = multiply(matrix, paint);
-      return [{ shape: this.shape(c, m, s), look: this.appearance(s, c, m) }];
+      return [{ shape: this.shape(c, m, s), look: this.appearance(s, c, m, viewport) }];
     });
   }
 
@@ -762,7 +881,7 @@ class Reader {
    * Fill, else one Stroke, resolved like a leaf's paint; Contents is how many come before the first
    * other child. The outline copies inside are derived from the children and ignored.
    */
-  private containerAppearance(kids: Element[], matrix: Matrix, style: Style) {
+  private containerAppearance(kids: Element[], matrix: Matrix, style: Style, viewport: Size) {
     // What walk reads: an element it drops without a Node does not end the paints below Contents.
     // A Clipping Path's paint is not one of the container's, and is not counted in Contents.
     const drawn = kids.filter((c) => drawnSvg(c) && !isClipPaint(c));
@@ -778,7 +897,7 @@ class Reader {
       const m = multiply(matrix, own);
       // A container has no matrix, so its Strokes scale, and its gradients map into document
       // coordinates, as node_transform does them.
-      const look = this.appearance(s, c, m, scaleOf(m));
+      const look = this.appearance(s, c, m, viewport, scaleOf(m));
       const fill = look.fills[0];
       const stroke = look.strokes[0];
       const paint = fill ?? stroke;
@@ -876,6 +995,10 @@ class Reader {
     }
     const clip = this.clipOf(name);
     if (!clip) return undefined;
+    // Kalamo writes a Clipping Mask's <clipPath> inside it: that child is a Clip Group of its own.
+    for (let p = clip.el.parentNode; p; p = p.parentNode) {
+      if (drawn.includes(p as Element)) return undefined;
+    }
     for (const c of drawn) this.unclipped.add(c);
     const first = kids.indexOf(drawn[0] as Element);
     const last = kids.indexOf(drawn.at(-1) as Element);
@@ -906,7 +1029,13 @@ class Reader {
    * Inkscape's Set Clip leaves the clipped object's old style on it. So a text's Range Fills come
    * from its Fill copy, by character index (ADR-0052).
    */
-  private clipping(clip: HeldClip, parentId: string, matrix: Matrix, paints: ClipPaint[] = []) {
+  private clipping(
+    clip: HeldClip,
+    parentId: string,
+    matrix: Matrix,
+    viewport: Size,
+    paints: ClipPaint[] = [],
+  ) {
     const { el, shape: e, use } = clip;
     // A <use>'s shape is read as if copied in its place: it inherits from the <use> (ADR-0056).
     const outer = computeStyle(el, {}, this.rules);
@@ -940,8 +1069,8 @@ class Reader {
     for (const { fill, looks: s, copy, style: cs, matrix: cm, fromUse } of paints) {
       const look =
         kalamoAttr(copy, "stack") === "true"
-          ? stacked(this.stack(copy, cs, cm))
-          : this.appearance(cs, copy, cm);
+          ? stacked(this.stack(copy, cs, cm, viewport))
+          : this.appearance(cs, copy, cm, viewport);
       if (fromUse && (fill ? look.strokes : look.fills).length) {
         this.warn("UNSUPPORTED_ATTRIBUTE", "clip-path paint", CLIP_USE_PAINT);
       }
@@ -1413,14 +1542,28 @@ class Reader {
   /**
    * Fills and Strokes from resolved style, SVG's defaults where it says nothing. Widths scale, and
    * gradients move, with `m` when the leaf bakes it into its parameters; a given `scale` scales
-   * widths instead, and gradients always move, as a container's do.
+   * widths instead, and gradients always move, as a container's do. `viewport` is the size
+   * userSpaceOnUse gradient percentages are of.
    */
-  private appearance(style: Style, e: Element, m: Matrix, scale?: number): Appearance {
+  private appearance(
+    style: Style,
+    e: Element,
+    m: Matrix,
+    viewport: Size,
+    scale?: number,
+  ): Appearance {
     const bake = this.bake(e, m);
     const own = bake || scale !== undefined ? m : IDENTITY;
     const k = scale ?? bake?.k ?? 1;
-    const fill = this.paint(style.fill ?? "black", style, style["fill-opacity"], e, own);
-    const stroke = this.paint(style.stroke ?? "none", style, style["stroke-opacity"], e, own);
+    const fill = this.paint(style.fill ?? "black", style, style["fill-opacity"], e, own, viewport);
+    const stroke = this.paint(
+      style.stroke ?? "none",
+      style,
+      style["stroke-opacity"],
+      e,
+      own,
+      viewport,
+    );
     const width = round3((length(style["stroke-width"]) ?? 1) * k);
     const join = JOINS.includes(style["stroke-linejoin"] ?? "")
       ? style["stroke-linejoin"]
@@ -1477,6 +1620,7 @@ class Reader {
     opacity: string | undefined,
     e: Element,
     own: Matrix,
+    viewport: Size,
   ): Fill | null {
     const url = /^url\(\s*['"]?#([^'")\s]+)['"]?\s*\)\s*(.*)$/.exec(value.trim());
     if (!url) {
@@ -1489,7 +1633,9 @@ class Reader {
       return hex ? { type: "solid", color: hex } : null;
     };
     const chain = this.chain(url[1] ?? "");
-    if (chain.length > 0) return this.gradient(chain, alpha(opacity), e, style, own, fallback);
+    if (chain.length > 0) {
+      return this.gradient(chain, alpha(opacity), e, style, own, viewport, fallback);
+    }
     const paint = fallback();
     if (!paint)
       this.warn("UNSUPPORTED_PAINT", "", "Patterns and unknown paint servers are dropped.");
@@ -1518,6 +1664,7 @@ class Reader {
     e: Element,
     style: Style,
     own: Matrix,
+    viewport: Size,
     fallback: () => Fill | null,
   ): Fill | null {
     const attr = (name: string) =>
@@ -1561,7 +1708,7 @@ class Reader {
     // SVG ignores a bounding-box gradient on a box without area.
     if (bbox && !(box && box.width > 0 && box.height > 0)) return fallback();
     // A percentage is of the box, or of the viewport for userSpaceOnUse; r's of its diagonal / √2.
-    const { width: vw, height: vh } = bbox ? { width: 1, height: 1 } : this.viewport;
+    const { width: vw, height: vh } = bbox ? { width: 1, height: 1 } : viewport;
     const coordinate = (name: string, initial: string, axis: "x" | "y" | "r") => {
       const v = attr(name) ?? initial;
       if (!v.endsWith("%")) return (bbox ? Number(v) : length(v)) || 0;
@@ -2019,9 +2166,9 @@ export function parseSvg(text: string, nameHint?: string): OpenedFile {
   const viewport = hasViewBox
     ? { width: vw, height: vh }
     : { width: width ?? 300, height: height ?? 150 };
-  const reader = new Reader(rules, byId, artboards, viewport);
+  const reader = new Reader(rules, byId, artboards);
   const matrix: Matrix = [scale, 0, 0, scale, 0, 0];
-  const ctx = { parentId: null, layerLevel: true, matrix, style: {}, depth: 0 };
+  const ctx = { parentId: null, layerLevel: true, matrix, style: {}, depth: 0, viewport };
   for (const e of elements(root)) reader.walk(e, ctx);
   // parseDocument wants a Layer at the root, even for a file with nothing in it.
   if (!reader.nodes.some((n) => n.type === "layer" && n.parentId === null)) reader.parent(ctx);

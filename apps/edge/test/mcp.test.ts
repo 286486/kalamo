@@ -905,6 +905,23 @@ it("places an SVG as one Group under the parent, and refuses a .kalamo.json", as
   expect(after.at(-1)?.id).toBe(staged.structuredContent.createdIds[0]);
 });
 
+it("opens and places a nested <svg> as a Group of its shapes, without a warning (#237)", async () => {
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600"><g transform="translate(440, 90)"><svg width="240" height="120" viewBox="0 0 240 120"><circle cx="60" cy="60" r="50" fill="#e4572e"/></svg></g></svg>';
+  const ellipses = async (docId: string) =>
+    JSON.parse(
+      (await call("kalamo_export", { docId, format: "kalamo_json" })).content[0].text,
+    ).nodes.filter((n: { type: string }) => n.type === "ellipse");
+  const circle = { type: "ellipse", x: 450, y: 100, width: 100, height: 100 };
+  const opened = (await call("kalamo_doc_open", { content: svg })).structuredContent;
+  expect(opened.warnings).toEqual([]);
+  expect(await ellipses(opened.docId)).toMatchObject([circle]);
+  const { docId, defaultLayerId } = await newDoc();
+  const placed = await call("kalamo_svg_import", { docId, svg, parentId: defaultLayerId });
+  expect(placed.structuredContent.warnings).toEqual([]);
+  expect(await ellipses(docId)).toMatchObject([{ type: "ellipse", width: 100, height: 100 }]);
+});
+
 describe("request body capped before the SDK reads it (ADR-0049)", () => {
   const post = (body: ReadableStream, length?: number, token: string | null = "dev-token-a") =>
     exports.default.fetch("http://kalamo/mcp", {
