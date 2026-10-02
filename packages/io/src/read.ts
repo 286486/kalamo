@@ -33,6 +33,7 @@ import {
   neutraliseOrientation,
   newId,
   normalizePath,
+  type OpacityMask,
   type OwnAttributes,
   orientedImage,
   parseDocument,
@@ -406,6 +407,19 @@ interface HeldClip {
 }
 
 /**
+ * A held mask: its `<mask>`, the elements that draw the mask Node, and the options its
+ * `kalamo:mask` markers give (ADR-0103).
+ */
+interface HeldMask {
+  el: Element;
+  kids: Element[];
+  opacityMask: OpacityMask;
+}
+
+const MASK_DROPPED =
+  "A mask Kalamo cannot hold (a missing reference, maskContentUnits objectBoundingBox, mask-type alpha, a <mask> that draws nothing, or a mask on a Layer or beside a clip-path) was dropped; the artwork imports unmasked.";
+
+/**
  * One paint of a Clipping Path, from a `<g kalamo:paint>` copy (ADR-0051) or an Illustrator paint
  * `<use>` (ADR-0056): the copy read as a leaf, in `style` and `matrix`, and the style its opacity
  * and blend mode come from.
@@ -665,6 +679,8 @@ class Reader {
         .filter((c) => tag !== "switch" || !c.hasAttribute("requiredExtensions"));
       const merged = tag === "g" && !layer && !clips.length ? this.merged(kids, style) : undefined;
       const clip = merged?.clip ?? this.clipOf(clips[0]);
+      // A Group holds a mask or a Clipping Path, and a Layer neither (ADR-0103).
+      const mask = layer || clip ? this.noMask(style) : this.maskOf(style.mask);
       const clipPaints = kids.filter(isClipPaint);
       if (clipPaints.length > 0 && !clip) {
         this.warn("UNSUPPORTED_ELEMENT", "kalamo:paint", CLIP_PAINT_ORPHAN);
@@ -688,6 +704,7 @@ class Reader {
       for (const c of kids) {
         if (isPaint(c) || isClipPaint(c) || merged?.skipped.has(c)) continue;
         if (!merged && c === clip?.el) this.clipping(clip, node.id, matrix, ctx.viewport, paints);
+        if (c === mask?.el) this.masking(mask, node.id, matrix, ctx);
         this.walk(c, {
           parentId: node.id,
           layerLevel: layer,
@@ -701,6 +718,8 @@ class Reader {
       if (clip && (merged || !kids.includes(clip.el))) {
         this.clipping(clip, node.id, matrix, ctx.viewport, paints);
       }
+      // Inkscape's Set Mask puts the mask in <defs>, and Illustrator's mask is on top.
+      if (mask && !kids.includes(mask.el)) this.masking(mask, node.id, matrix, ctx);
       const hidden = !["visible", "auto"].includes(style.overflow ?? "hidden");
       if (view && hidden) this.clipToViewport(e, node.id, start, view.rect, matrix, ctx.viewport);
       return;
@@ -733,17 +752,21 @@ class Reader {
     }
     if (!shape || !this.holds({ ...shape, ...(appearance && { appearance }) })) return;
     this.unsupported(e, style);
-    // A clipped leaf, as Inkscape's Set Clip writes one, becomes a Clipping Mask of its own.
+    // A clipped or masked leaf, as Inkscape's Set Clip and Set Mask write one, becomes a Clipping
+    // Mask or Opacity Mask of its own.
     const clip = this.clipOf(style["clip-path"]);
-    const parentId = clip
-      ? this.add({ ...this.base(null, this.parent(ctx)), type: "group" }).id
-      : this.parent(ctx);
+    const mask = clip ? this.noMask(style) : this.maskOf(style.mask);
+    const parentId =
+      clip || mask
+        ? this.add({ ...this.base(null, this.parent(ctx)), type: "group" }).id
+        : this.parent(ctx);
     const base = this.base(e, parentId, undefined, style);
     // visibility inherits, unlike display, so it hides a leaf rather than its Group.
     if (style.visibility === "hidden" || style.visibility === "collapse") base.visible = false;
     this.add({ ...base, ...shape, ...(appearance && { appearance }) } as Node);
     if (link) this.links.set(base.id, link);
     if (clip) this.clipping(clip, parentId, matrix, ctx.viewport);
+    if (mask) this.masking(mask, parentId, matrix, ctx);
   }
 
   /**
@@ -976,6 +999,83 @@ class Reader {
     return undefined;
   }
 
+  /**
+   * The mask a `mask` names when Kalamo can hold it as an Opacity Mask (ADR-0103): a luminance
+   * `<mask>` of user-space content that draws something. Kalamo's background rect and invert
+   * wrapper are its options, not Nodes. Otherwise the content imports unmasked, with a warning.
+   */
+  private maskOf(value: string | undefined): HeldMask | undefined {
+    if (!value || value === "none") return undefined;
+    const id = urlId(value);
+    const el = id === undefined ? undefined : this.byId.get(id);
+    if (
+      el?.localName === "mask" &&
+      el.getAttribute("maskContentUnits") !== "objectBoundingBox" &&
+      computeStyle(el, {}, this.rules)["mask-type"] !== "alpha"
+    ) {
+      const opacityMask = {
+        clip: true,
+        invert: false,
+        link: kalamoAttr(el, "mask") !== "unlinked",
+      };
+      const kids = elements(el)
+        .flatMap((c) => {
+          const marker = kalamoAttr(c, "mask");
+          if (marker === "background") opacityMask.clip = false;
+          else if (marker === "invert" && c.localName === "g") {
+            opacityMask.invert = true;
+            return elements(c);
+          } else return [c];
+          return [];
+        })
+        .filter((c) => !SILENT.has(c.localName ?? ""));
+      if (kids.length > 0) return { el, kids, opacityMask };
+    }
+    this.warn("UNSUPPORTED_ATTRIBUTE", "mask", MASK_DROPPED);
+    return undefined;
+  }
+
+  /** Warns of a `mask` Kalamo does not hold where it is: on a Layer or beside a clip-path. */
+  private noMask(style: Style): undefined {
+    if (style.mask && style.mask !== "none")
+      this.warn("UNSUPPORTED_ATTRIBUTE", "mask", MASK_DROPPED);
+    return undefined;
+  }
+
+  /**
+   * The mask of `groupId` from `mask`'s elements, read in `matrix`'s space: one element is the mask
+   * Node, several a Group that is. It is never hidden, since SVG hides everything through a hidden
+   * mask (ADR-0103). Nothing read leaves the content unmasked, with a warning.
+   */
+  private masking(mask: HeldMask, groupId: string, matrix: Matrix, ctx: Context) {
+    const start = this.nodes.length;
+    const several = mask.kids.length > 1;
+    const target = several ? this.add({ ...this.base(null, groupId), type: "group" }).id : groupId;
+    const inner = {
+      parentId: target,
+      layerLevel: false,
+      matrix,
+      style: computeStyle(mask.el, {}, this.rules),
+      depth: ctx.depth + 1,
+      viewport: ctx.viewport,
+    };
+    for (const c of mask.kids) this.walk(c, inner);
+    const read = this.nodes.slice(start);
+    const made = several
+      ? read.some((n) => n.parentId === target) && read[0]
+      : read.find((n) => n.parentId === groupId);
+    if (!made || made.type === "layer") {
+      this.nodes.splice(start);
+      this.warn("UNSUPPORTED_ATTRIBUTE", "mask", MASK_DROPPED);
+      return;
+    }
+    this.nodes[this.nodes.indexOf(made)] = {
+      ...made,
+      visible: true,
+      opacityMask: mask.opacityMask,
+    };
+  }
+
   /** The `<clipPath>` id `c`'s own clip-path names, if any. */
   private clipName(c: Element, parent: Style = {}) {
     return urlId(computeStyle(c, parent, this.rules)["clip-path"] ?? "");
@@ -1166,7 +1266,8 @@ class Reader {
 
   /** What a leaf's style asks for that Kalamo draws without: warned, then left out. */
   private unsupported(e: Element, style: Style) {
-    for (const p of ["mask", "filter", "marker-start", "marker-mid", "marker-end"]) {
+    // A mask is read where it can be held, and warned of where it cannot (maskOf).
+    for (const p of ["filter", "marker-start", "marker-mid", "marker-end"]) {
       if (style[p] && style[p] !== "none") {
         this.warn(
           "UNSUPPORTED_ATTRIBUTE",

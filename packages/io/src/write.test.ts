@@ -1789,3 +1789,83 @@ it("writes Template Layers, sub-Layers and all, only when asked, as render asks 
   expect(created.every((n) => n.type === "group")).toBe(true);
   expect(doc.nodes.size).toBe(before + created.length);
 });
+
+describe("an Opacity Mask (ADR-0103)", () => {
+  /** A rect under a grey ellipse mask and a rect above, x 0..15, y 0..15; `options` patched on. */
+  function masked(options: { clip?: boolean; invert?: boolean; link?: boolean } = {}) {
+    const { doc, defaultLayerId } = newDoc();
+    const [below, mask, above] = createNodes(doc, [
+      { type: "rect", parentId: defaultLayerId, x: 0, y: 0, width: 10, height: 10 },
+      {
+        type: "ellipse",
+        parentId: defaultLayerId,
+        x: 2,
+        y: 2,
+        width: 4,
+        height: 4,
+        appearance: { fills: [{ color: "#808080" }], strokes: [] },
+      },
+      { type: "rect", parentId: defaultLayerId, x: 5, y: 5, width: 10, height: 10 },
+    ]).nodes as [ShapeNode, ShapeNode, ShapeNode];
+    const { group } = makeMask(doc, {
+      clipNodeId: mask.id,
+      contentIds: [below.id, above.id],
+      kind: "opacity",
+    });
+    const node = doc.nodes.get(mask.id) as ShapeNode;
+    doc.nodes.set(mask.id, {
+      ...node,
+      opacityMask: { clip: true, invert: false, link: true, ...options },
+    });
+    return { doc, group, below, mask, above };
+  }
+  // The content's visible bounds, -0.5..15.5 with its 1 pt Strokes, grown by 10% each side.
+  const region = 'x="-2.1" y="-2.1" width="19.2" height="19.2"';
+
+  it("writes <g mask> with the mask Node, painted, in an inline <mask> in place", () => {
+    const { doc, group, below, mask, above } = masked();
+    const svg = toSvg(doc);
+    expect(svg).toContain(
+      `<g id="z-${group.id}" mask="url(#mask-z-${group.id})"><rect x="0" y="0" width="10" height="10" id="z-${below.id}"`,
+    );
+    expect(svg).toContain(
+      `<mask id="mask-z-${group.id}" maskUnits="userSpaceOnUse" ${region}><circle cx="4" cy="4" r="2" id="z-${mask.id}" fill="#808080"/></mask><rect x="5" y="5" width="10" height="10" id="z-${above.id}"`,
+    );
+    expect(svg).not.toContain("kalamo:mask");
+  });
+
+  it("writes Clip off as a marked white background below the mask Node", () => {
+    const { doc, mask } = masked({ clip: false });
+    expect(toSvg(doc)).toContain(
+      `maskUnits="userSpaceOnUse" ${region}><rect kalamo:mask="background" ${region} fill="#FFFFFF"/><circle cx="4" cy="4" r="2" id="z-${mask.id}"`,
+    );
+  });
+
+  it("writes Invert as a marked wrapper filtering the mask Node through an sRGB colour inversion", () => {
+    const { doc, group, mask } = masked({ invert: true });
+    expect(toSvg(doc)).toContain(
+      `<filter id="invert-z-${group.id}" filterUnits="userSpaceOnUse" ${region} color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="-1 0 0 0 1 0 -1 0 0 1 0 0 -1 0 1 0 0 0 1 0"/></filter><g kalamo:mask="invert" filter="url(#invert-z-${group.id})"><circle cx="4" cy="4" r="2" id="z-${mask.id}" fill="#808080"/></g></mask>`,
+    );
+  });
+
+  it("marks an unlinked mask on its <mask>", () => {
+    const { doc, group } = masked({ link: false });
+    expect(toSvg(doc)).toContain(
+      `<mask id="mask-z-${group.id}" maskUnits="userSpaceOnUse" ${region} kalamo:mask="unlinked">`,
+    );
+  });
+
+  it("writes the mask for a nodeIds scope that names only content, and draws no mask as a Node", () => {
+    const { doc, group, below } = masked();
+    const drawn: string[] = [];
+    const svg = toSvg(doc, undefined, {
+      scope: { nodeIds: [below.id] },
+      trailer: (nodes) => {
+        drawn.push(...nodes.map((n) => n.id));
+        return "";
+      },
+    });
+    expect(svg).toContain(`<mask id="mask-z-${group.id}"`);
+    expect(drawn).toEqual([below.id]);
+  });
+});

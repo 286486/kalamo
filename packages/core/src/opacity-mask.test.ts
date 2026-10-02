@@ -11,7 +11,7 @@ import { duplicateNodes, reparentNodes, transformNodes, updateNodes } from "./ed
 import { KalamoError } from "./errors.ts";
 import { parseDocument, serializeDocument } from "./file.ts";
 import { makeMask, releaseMask } from "./mask.ts";
-import type { Document, GroupNode, MaskInput, Node, ShapeNode } from "./schema.ts";
+import type { Document, GroupNode, Node, ShapeNode } from "./schema.ts";
 import { type DeltaRow, revert } from "./tx.ts";
 
 // Opacity Masks (ADR-0103): a Group whose one mask child's luminance is the content's opacity.
@@ -72,13 +72,13 @@ function scene() {
 }
 type Scene = ReturnType<typeof scene>;
 
-const opacity = (s: Scene, extra: Partial<MaskInput> = {}) =>
+const opacity = (s: Scene, extra: { clip?: boolean; invert?: boolean } = {}) =>
   makeMask(s.doc, {
     clipNodeId: s.mask.id,
     contentIds: [s.b.id, s.a.id],
     kind: "opacity",
     ...extra,
-  } as MaskInput);
+  });
 
 const get = (s: Scene, n: Node) => s.doc.nodes.get(n.id) as Node;
 

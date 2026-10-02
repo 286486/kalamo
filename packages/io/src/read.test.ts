@@ -4254,3 +4254,187 @@ describe("positioned tspan lines (ADR-0091)", () => {
     expect(warnings).toEqual([]);
   });
 });
+
+describe("Opacity Masks (ADR-0103)", () => {
+  const G = "z-01J00000000000000000000G01";
+  const children = (file: ReturnType<typeof parseFile>, id: string | undefined) =>
+    file.nodes.filter((n) => n.parentId === id).sort((a, b) => (a.index < b.index ? -1 : 1));
+  const dropped = (file: ReturnType<typeof parseFile>) => {
+    expect(file.warnings).toMatchObject([{ code: "UNSUPPORTED_ATTRIBUTE" }]);
+    expect(file.warnings[0]?.message).toMatch(/mask Kalamo cannot hold/);
+    expect(file.nodes.some((n) => "opacityMask" in n)).toBe(false);
+  };
+
+  /** A rect, then a translucent gradient ellipse mask, then a turned rect, in an Opacity Mask. */
+  function scene(opacityMask: { clip: boolean; invert: boolean; link: boolean }) {
+    const { doc, defaultLayerId } = createDocument({
+      id: "d",
+      name: "Doc",
+      artboards: [{ width: 100, height: 100 }],
+    });
+    const [below, mask, above] = createNodes(doc, [
+      { type: "rect", parentId: defaultLayerId, x: 0, y: 0, width: 60, height: 60 },
+      {
+        type: "ellipse",
+        parentId: defaultLayerId,
+        x: 10,
+        y: 10,
+        width: 40,
+        height: 20,
+        appearance: {
+          fills: [
+            {
+              type: "gradient",
+              gradient: {
+                type: "linear",
+                stops: [
+                  { offset: 0, color: "#FFFFFF" },
+                  { offset: 1, color: "#000000" },
+                ],
+              },
+            },
+          ],
+          strokes: [],
+        },
+      },
+      { type: "rect", parentId: defaultLayerId, x: 30, y: 30, width: 40, height: 40 },
+    ]).nodes as [ShapeNode, ShapeNode, ShapeNode];
+    transformNodes(doc, { nodeIds: [above.id], rotate: 30 });
+    const { group } = makeMask(doc, {
+      clipNodeId: mask.id,
+      contentIds: [below.id, above.id],
+      kind: "opacity",
+    });
+    const made = doc.nodes.get(mask.id) as ShapeNode;
+    doc.nodes.set(mask.id, { ...made, opacity: 0.5, opacityMask });
+    // The index an Open numbers it with.
+    doc.nodes.set(group.id, { ...group, index: "a0" });
+    return doc;
+  }
+
+  it.each([
+    { clip: true, invert: false, link: true },
+    { clip: false, invert: false, link: true },
+    { clip: true, invert: true, link: false },
+    { clip: false, invert: true, link: true },
+  ])("reads Kalamo's export of an Opacity Mask back as the Document: %o", (opacityMask) => {
+    const doc = scene(opacityMask);
+    const file = parseSvg(toSvg(doc));
+    expect(file.warnings).toEqual([]);
+    const back = { ...doc, nodes: new Map(file.nodes.map((n) => [n.id, n])) };
+    expect(JSON.parse(serializeDocument(back))).toEqual(JSON.parse(serializeDocument(doc)));
+  });
+
+  it("reads Inkscape's Set Mask on a <g>, the mask in <defs>, as an Opacity Mask with its mask on top", () => {
+    const file = parseFile(
+      svg(
+        'width="200" height="200" viewBox="0 0 200 200"',
+        '<defs><mask maskUnits="userSpaceOnUse" id="mask13"><rect id="rect15" x="10" y="10" width="50" height="50" fill="#808080" opacity="0.5"/></mask></defs>' +
+          `<g id="${G}" mask="url(#mask13)" transform="translate(10 0)"><rect width="100" height="100" fill="#FF0000"/></g>`,
+      ),
+    );
+    expect(file.warnings).toEqual([]);
+    const group = file.nodes.find((n) => `z-${n.id}` === G);
+    const [content, mask] = children(file, group?.id);
+    expect(content).toMatchObject({ type: "rect", x: 10 });
+    // In the Group's user space, keeping its paint and opacity.
+    expect(mask).toMatchObject({
+      type: "rect",
+      x: 20,
+      y: 10,
+      opacity: 0.5,
+      appearance: { fills: [{ color: "#808080" }] },
+      opacityMask: { clip: true, invert: false, link: true },
+    });
+  });
+
+  it("wraps a masked leaf in a new Group, the mask in the leaf's user space", () => {
+    const file = parseFile(
+      svg(
+        "",
+        '<defs><mask id="m"><circle cx="2" cy="2" r="1" fill="#FFFFFF"/></mask></defs>' +
+          '<rect id="z-01J00000000000000000000R01" transform="translate(10 20)" mask="url(#m)" width="5" height="5"/>',
+      ),
+    );
+    expect(file.warnings).toEqual([]);
+    const rect = file.nodes.find((n) => n.id === "01J00000000000000000000R01");
+    const group = file.nodes.find((n) => n.id === rect?.parentId);
+    expect(group).toMatchObject({ type: "group" });
+    const [first, mask] = children(file, group?.id);
+    expect(first).toBe(rect);
+    expect(mask).toMatchObject({
+      type: "ellipse",
+      x: 11,
+      y: 21,
+      opacityMask: { clip: true, invert: false, link: true },
+    });
+  });
+
+  it("makes a mask of several elements a Group, and shows a hidden mask", () => {
+    const file = parseFile(
+      svg(
+        "",
+        '<defs><mask id="m" style="display:none"><rect width="2" height="2" fill="#FFF"/><g style="display:none"><circle r="1" fill="#000"/></g></mask></defs>' +
+          `<g id="${G}" mask="url(#m)"><rect width="5" height="5"/></g>`,
+      ),
+    );
+    expect(file.warnings).toEqual([]);
+    const group = file.nodes.find((n) => `z-${n.id}` === G);
+    const [, mask] = children(file, group?.id);
+    expect(mask).toMatchObject({ type: "group", visible: true, opacityMask: { clip: true } });
+    expect(children(file, mask?.id).map((n) => [n.type, n.visible])).toEqual([
+      ["rect", true],
+      ["group", false],
+    ]);
+  });
+
+  it.each([
+    ["a missing reference", "", 'mask="url(#nope)"'],
+    [
+      "maskContentUnits objectBoundingBox",
+      '<mask id="m" maskContentUnits="objectBoundingBox"><rect width="1" height="1" fill="#FFF"/></mask>',
+      'mask="url(#m)"',
+    ],
+    [
+      "mask-type alpha",
+      '<mask id="m" style="mask-type:alpha"><rect width="1" height="1"/></mask>',
+      'mask="url(#m)"',
+    ],
+    [
+      "a mask-type alpha attribute",
+      '<mask id="m" mask-type="alpha"><rect width="1" height="1"/></mask>',
+      'mask="url(#m)"',
+    ],
+    ["a <mask> with nothing in it", '<mask id="m"><title>t</title></mask>', 'mask="url(#m)"'],
+    [
+      "a <mask> whose content draws nothing Kalamo holds",
+      '<mask id="m"><foreignObject/></mask>',
+      'mask="url(#m)"',
+    ],
+    [
+      "a mask beside a clip-path",
+      '<mask id="m"><rect width="1" height="1" fill="#FFF"/></mask><clipPath id="c"><rect width="3" height="3"/></clipPath>',
+      'mask="url(#m)" clip-path="url(#c)"',
+    ],
+  ])("imports a <g> with %s unmasked, with a warning", (_, defs, ref) => {
+    const file = parseFile(
+      svg("", `<defs>${defs}</defs><g ${ref}><rect width="5" height="5"/></g>`),
+    );
+    expect(file.warnings.filter((w) => w.code === "UNSUPPORTED_ATTRIBUTE")).toHaveLength(1);
+    expect(file.warnings.find((w) => w.code === "UNSUPPORTED_ATTRIBUTE")?.message).toMatch(
+      /mask Kalamo cannot hold/,
+    );
+    expect(file.nodes.some((n) => "opacityMask" in n)).toBe(false);
+  });
+
+  it("imports a masked Layer unmasked, with a warning", () => {
+    const file = parseFile(
+      svg(
+        "",
+        '<defs><mask id="m"><rect width="1" height="1" fill="#FFF"/></mask></defs>' +
+          '<g inkscape:groupmode="layer" mask="url(#m)"><rect width="5" height="5"/></g>',
+      ),
+    );
+    dropped(file);
+  });
+});

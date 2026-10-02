@@ -1127,6 +1127,7 @@ it.each(COMPOSITING)("composes as one image: $name (ADR-0044)", async (c) => {
     const { group } = makeMask(doc, {
       clipNodeId: named(m.clip).id,
       contentIds: m.content.map((k) => named(k).id),
+      ...(m.opacity && { kind: "opacity", ...m.opacity }),
     });
     doc.nodes.set(group.id, { ...group, name: m.name });
   }

@@ -33,6 +33,7 @@ export type KalamoAttr =
   | "stack"
   | "paint"
   | "clipped"
+  | "mask"
   | "artboard"
   | "background"
   | "tags"
@@ -57,6 +58,15 @@ export const xmlId = (id: string) => `z-${id}`;
 
 /** The id of a Clipping Mask's `<clipPath>`: its Group's XML id behind `clip-`. */
 export const clipId = (groupId: string) => `clip-${xmlId(groupId)}`;
+
+/** The id of an Opacity Mask's `<mask>`: its Group's XML id behind `mask-` (ADR-0103). */
+export const maskId = (groupId: string) => `mask-${xmlId(groupId)}`;
+
+/** The id of the filter that inverts an Opacity Mask's mask: its Group's XML id behind `invert-`. */
+export const invertId = (groupId: string) => `invert-${xmlId(groupId)}`;
+
+/** The `feColorMatrix` values that map each colour channel c to 1 − c and keep alpha. */
+export const INVERT_MATRIX = "-1 0 0 0 1 0 -1 0 0 1 0 0 -1 0 1 0 0 0 1 0";
 
 /** The id of an Area Type's frame `<rect>` in `<defs>`: its XML id behind `area-` (ADR-0022). */
 export const areaId = (textId: string) => `area-${xmlId(textId)}`;
