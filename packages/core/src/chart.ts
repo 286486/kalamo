@@ -10,6 +10,8 @@ const field = z.string().min(1);
 
 /** `niceTicks` spans less than 7.91 steps, plus a step of slack at each end: at most 10 ticks. */
 const MAX_TICKS = 10;
+/** The Nodes left for rows and series once the axes are drawn (`maxChartRows`). */
+const ROW_NODES = MAX_NODES_PER_CREATE - 5 - 2 * MAX_TICKS;
 
 /**
  * The most rows a chart of `series` y fields draws whatever its values, so the chart fits one
@@ -19,10 +21,7 @@ const MAX_TICKS = 10;
  */
 // ponytail: one createNodes holds a chart to its Nodes; split the write when charts need more.
 export const maxChartRows = (series: number) =>
-  Math.floor(
-    (MAX_NODES_PER_CREATE - 5 - 2 * MAX_TICKS - series - (series > 1 ? 1 + 2 * series : 0)) /
-      (series + 1),
-  );
+  Math.floor((ROW_NODES - series - (series > 1 ? 1 + 2 * series : 0)) / (series + 1));
 
 /**
  * What every `chart_create_*` tool takes (ADR-0106, REQUIREMENTS §6.4.5): the data as rows or CSV,
@@ -38,7 +37,7 @@ export const ChartInput = z.strictObject({
       }),
     ])
     .describe(
-      `At most ${maxChartRows(1)} rows for 1 series, ${maxChartRows(3)} for 3, ${maxChartRows(50)} for 50; for S series ⌊(${MAX_NODES_PER_CREATE - 5 - 2 * MAX_TICKS} − S − (S > 1 ? 1 + 2S : 0)) ÷ (S + 1)⌋. Numbers may carry thousands separators, % and a leading or trailing currency sign; an empty cell is a gap.`,
+      `At most ${maxChartRows(1)} rows for 1 series, ${maxChartRows(3)} for 3, ${maxChartRows(50)} for 50; for S series ⌊(${ROW_NODES} − S − (S > 1 ? 1 + 2S : 0)) ÷ (S + 1)⌋. Numbers may carry thousands separators, % and a leading or trailing currency sign; an empty cell is a gap.`,
     ),
   encoding: z.strictObject({
     x: field.describe("The category field: one cluster per row, labelled by it."),

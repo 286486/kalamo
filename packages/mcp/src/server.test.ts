@@ -1702,6 +1702,8 @@ it("serves skill://kalamo/drawing-conventions and points at it in the instructio
     "CONVERTED_TO_PATH",
     "TEXT_DISCARDED",
     "2048 characters",
+    // The chart row limit, so the document cannot drift from maxChartRows (#262).
+    `${maxChartRows(1)} rows for 1 series, ${maxChartRows(3)} for 3, ${maxChartRows(50)} for 50`,
   ]) {
     expect(text).toContain(fact);
   }
