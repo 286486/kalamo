@@ -10,6 +10,7 @@ import {
 } from "@kalamo/core";
 import { beforeEach, expect, it, vi } from "vitest";
 import { DEFAULT_FILL_STROKE, send, useStore } from "./store.ts";
+import { message, stateAfter } from "./testing.ts";
 import { TOOL_KEYS } from "./toolbox.ts";
 import {
   fillStrokeKey,
@@ -359,6 +360,63 @@ it("a new path connecting to an Endpoint continues that path backwards, in one p
   expect(sent()).toEqual([
     { type: "path_edit", input: { nodeId: b, ops: [{ op: "set_d", d: "M 30 0 L 40 0 L 20 20" }] } },
   ]);
+});
+
+// #282: another Actor's edit to the path the Pen continues ends the continuation, so the finish
+// never writes the Anchors it started from over their edit (ADR-0110).
+it("ends a continuation when another Actor edits or deletes its path, and only then", () => {
+  const { d, a, b } = paths();
+  // a gets a second subpath, (0, 20) to (10, 20).
+  const doc = { ...d, nodes: new Map(d.nodes) };
+  editPath(doc, { nodeId: a, ops: [{ op: "set_d", d: "M 0 0 L 10 0 M 0 20 L 10 20" }] });
+  const moved = (id: string, subpath: number) =>
+    editPath(structuredClone(doc), {
+      nodeId: id,
+      ops: [{ op: "move_anchor", subpath, index: 0, to: [0, 5] }],
+    }).node;
+  const tx = (over: Partial<Parameters<typeof message<"tx">>[1]>) =>
+    message("tx", { rev: doc.rev + 1, actor: "agent", ...over });
+  const nodes = [...doc.nodes.values()];
+  const ends = {
+    "the continued subpath": tx({ updated: [moved(a, 0)] }),
+    "another subpath": tx({ updated: [moved(a, 1)] }),
+    "a deletion": tx({ deletedIds: [a] }),
+    "a reconnect after their edit": message("document", {
+      rev: doc.rev + 1,
+      nodes: nodes.map((n) => (n.id === a ? moved(a, 0) : n)),
+    }),
+  };
+  const keeps = {
+    "another path": tx({ updated: [moved(b, 0)] }),
+    "a reconnect with the path unchanged": message("document", { rev: doc.rev, nodes }),
+  };
+  for (const [label, msg] of [...Object.entries(ends), ...Object.entries(keeps)]) {
+    useStore.setState({ doc, pen: null, edit: null, notice: null });
+    vi.mocked(send).mockClear();
+    penClick([10, 0], 1);
+    penClick([20, 10], 1);
+    useStore.setState(stateAfter(useStore.getState(), msg));
+    const s = useStore.getState();
+    const stored = s.doc?.nodes.get(a);
+    if (label in keeps) {
+      penClick([30, 10], 1);
+      finishPen();
+      const d = "M 0 0 L 10 0 L 20 10 L 30 10 M 0 20 L 10 20";
+      expect(sent(), label).toEqual([
+        { type: "path_edit", input: { nodeId: a, ops: [{ op: "set_d", d }] } },
+      ]);
+      continue;
+    }
+    // At once: the Pen draws nothing more, its preview of the old path goes, and a notice says why.
+    expect(s.pen, label).toBeNull();
+    expect(s.edit, label).toBeNull();
+    expect(s.notice, label).toMatch(/Pen/);
+    // The next clicks start a new path; the finish sends nothing over their edit.
+    penClick([30, 10], 1);
+    finishPen();
+    expect(sent(), label).toEqual([]);
+    expect(useStore.getState().doc?.nodes.get(a), label).toBe(stored);
+  }
 });
 
 it("over a selected path the Pen deletes the Anchor or adds one, and Shift draws instead", () => {

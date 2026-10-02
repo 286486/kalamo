@@ -185,6 +185,10 @@ export interface ViewState {
   areas: Areas;
 }
 
+/** Why the Pen stopped continuing a path: another Actor changed it (ADR-0110). */
+const PEN_ENDED =
+  "Someone else changed the path the Pen was continuing; the Pen stopped, and what it drew was not applied.";
+
 /** The tools a viewer keeps, which change nothing; Space pans as the Hand for everyone. */
 export const VIEWER_TOOLS: readonly Tool[] = ["selection", "zoom"];
 
@@ -325,6 +329,16 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     segments: k.segments.map(reversedKey(doc, turned, true)).filter(kept(segmentInRange)),
   });
   const { anchors, segments } = rekey(s);
+  // Someone else's change to the path the Pen continues ends the continuation and its preview, so
+  // its finish never writes the Anchors it started from over theirs (ADR-0110). A reconnect does
+  // not say who changed it, so any change does.
+  const continued = s.pen?.from?.nodeId;
+  const reached =
+    !!continued &&
+    !own &&
+    (touched
+      ? touched.has(continued)
+      : JSON.stringify(prior?.nodes.get(continued)) !== JSON.stringify(doc.nodes.get(continued)));
   const skipped = msg.type === "tx" ? (msg.skippedIds?.length ?? 0) : 0;
   // A selected Node that a browser's command moved into a new Group selects that Group, as Make
   // Clipping Mask does; an Agent's edit leaves the person's Selection alone.
@@ -370,6 +384,11 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
       : settleRan(s.ran, msg.commandId)),
     ...(settled && { reversing: null }),
     ...(s.pen && turned.length > 0 && { pen: turnedPen(s.pen, turned) }),
+    ...(reached && {
+      pen: null,
+      ...(s.edit?.commandIds === null && { edit: null }),
+      notice: PEN_ENDED,
+    }),
     ...(s.held.length > 0 && {
       held: s.held.map((h) => ({
         ...h,

@@ -110,3 +110,51 @@ test("Shift+C reshapes a Rectangle's segment and retracts a Handle", async ({ pa
   await page.mouse.click(...at(40, 3.33));
   await expect.poll(async () => (await get())?.d).toMatch(/^M 40 30 C 40 30 160 3\.33\d* 160 30 L/);
 });
+
+// #282: an Agent's edit to the path the Pen is continuing ends the continuation, and the finish
+// leaves the Agent's edit as it made it.
+test("an Agent's edit to the path the Pen continues ends the continuation", async ({
+  page,
+  request,
+}) => {
+  const { docId, defaultLayerId: parentId } = (
+    await call(request, "kalamo_doc_create", {
+      name: "Pen race",
+      artboards: [{ width: 200, height: 100 }],
+    })
+  ).structuredContent;
+  const created = await call(request, "kalamo_node_create", {
+    docId,
+    nodes: [{ type: "path", parentId, d: "M 20 20 L 60 20" }],
+  });
+  const [a] = created.structuredContent.createdIds as [string];
+  const d = async () =>
+    (await call(request, "kalamo_node_get", { docId, nodeIds: [a], detail: "full" }))
+      .structuredContent?.nodes[0]?.d;
+
+  await page.goto(`/docs/${docId}`);
+  await expect(page.getByTestId("status-bar")).toContainText(/\d+%/);
+  await page.keyboard.press("Control+1");
+  await expect(page.getByTestId("status-bar")).toContainText("100%");
+  const box = await page.getByTestId("canvas").boundingBox();
+  if (!box) throw new Error("no canvas");
+  const at = (x: number, y: number) =>
+    [box.x + box.width / 2 + x - 100, box.y + box.height / 2 + y - 50] as const;
+
+  await page.keyboard.press("p");
+  await page.mouse.click(...at(60, 20));
+  await page.mouse.click(...at(80, 40));
+  await call(request, "kalamo_path_edit", {
+    docId,
+    nodeId: a,
+    ops: [{ op: "move_anchor", subpath: 0, index: 0, to: [20, 60] }],
+  });
+  await expect(page.getByRole("alert")).toContainText("the Pen stopped");
+  const theirs = await d();
+  await page.mouse.click(...at(100, 40));
+  await page.keyboard.press("Enter");
+  // The Agent's edit stays, and nothing the Pen drew lands on the path.
+  await page.waitForTimeout(300);
+  expect(theirs).toBe("M 20 60 L 60 20");
+  expect(await d()).toBe(theirs);
+});
