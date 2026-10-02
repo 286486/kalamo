@@ -14,9 +14,9 @@ import { addAnchorAt, deleteAnchorAt } from "./anchorTools.ts";
 import { curveThrough } from "./curvature.ts";
 import { anchorsOf, editableShapes, hasAnchors, localAnchors } from "./direct.ts";
 import { forNewArt, leaving } from "./isolation.ts";
-import type { Endpoint, PenPath, ShapeBox } from "./receive.ts";
+import { type Endpoint, type PenPath, type ShapeBox, VIEWER_TOOLS } from "./receive.ts";
 import { editable, placeParent } from "./selection.ts";
-import { canEdit, DEFAULT_FILL_STROKE, type State, send, useStore, VIEWER_TOOLS } from "./store.ts";
+import { canEdit, DEFAULT_FILL_STROKE, type State, send, useStore } from "./store.ts";
 import type { Tool, ToolEvent } from "./toolbox.ts";
 
 /** The Fill and Stroke boxes (F-DRAW-12): what new art is painted with; null is None. */

@@ -1,6 +1,7 @@
-import { createDocument, createNodes, type NodeInput } from "@kalamo/core";
+import { ACCESS_CHANGED, type ServerMessage } from "@kalamo/sync";
 import { afterEach, expect, it, vi } from "vitest";
 import { connect, useStore } from "./store.ts";
+import { message } from "./testing.ts";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -42,55 +43,71 @@ it("forgets the Layer rows on any Selection change that does not set them, equal
   expect(useStore.getState().layerRows).toEqual([]);
 });
 
-it("fetches the Actor names on each Document and once per unknown Actor, and resends presence in full", async () => {
+/** A stubbed WebSocket per `connect`, the last one made, and every fetch. */
+function stubSockets() {
   vi.stubGlobal("location", { protocol: "http:", host: "localhost" });
   const fetched = vi.fn(async () => ({ ok: true, json: async () => ({ actors: [] }) }));
   vi.stubGlobal("fetch", fetched);
-  let socket: { onmessage?: (e: { data: string }) => void; sent: string[] } | undefined;
-  vi.stubGlobal(
-    "WebSocket",
-    class {
-      static OPEN = 1;
-      readyState = 1;
-      sent: string[] = [];
-      onmessage?: (e: { data: string }) => void;
-      constructor() {
-        socket = this;
-      }
-      send(m: string) {
-        this.sent.push(m);
-      }
-      close() {}
-    },
-  );
-  const { doc, defaultLayerId } = createDocument({ id: "a", name: "A", artboards: [] });
-  const rect = { type: "rect", parentId: defaultLayerId, x: 0, y: 0, width: 1, height: 1 };
-  const [box] = createNodes(doc, [rect as NodeInput]).nodes;
+  const sockets: FakeSocket[] = [];
+  class FakeSocket {
+    static OPEN = 1;
+    readyState = 1;
+    sent: string[] = [];
+    closed = 0;
+    onopen?: () => void;
+    onmessage?: (e: { data: string }) => void;
+    onclose?: (e: { code: number }) => void;
+    constructor() {
+      sockets.push(this);
+    }
+    send(m: string) {
+      this.sent.push(m);
+    }
+    close() {
+      this.closed++;
+    }
+    receive(msg: ServerMessage) {
+      this.onmessage?.({ data: JSON.stringify(msg) });
+    }
+  }
+  vi.stubGlobal("WebSocket", FakeSocket);
+  return { fetched, last: () => sockets.at(-1) as FakeSocket };
+}
+
+it("runs what each message asks: a fetch and a full presence on a Document, a close on a missed rev", async () => {
+  const { fetched, last } = stubSockets();
   const stop = connect("a");
-  useStore.setState({ selection: [box?.id ?? ""] });
-  const receive = (msg: object) => socket?.onmessage?.({ data: JSON.stringify(msg) });
-  const document = {
-    type: "document",
-    rev: 0,
-    name: "A",
-    artboards: [],
-    nodes: [...doc.nodes.values()],
-    role: "owner",
-    peers: [{ peer: "p1", actor: "user_alice" }],
-  };
-  const presence = { type: "presence", peer: "p2", actor: "agent-a", cursor: null };
-  const full = () =>
-    socket?.sent.filter((m) => JSON.parse(m).selection?.[0] === box?.id).length ?? 0;
-  receive(document);
-  await vi.waitFor(() => expect(full()).toBe(1));
-  receive(presence);
-  receive(presence);
-  receive({ ...presence, peer: "p3" });
-  expect(fetched).toHaveBeenCalledTimes(2);
-  // A new socket's Document starts over: one fetch, and the unchanged Selection again.
-  receive(document);
-  receive(presence);
-  expect(fetched).toHaveBeenCalledTimes(4);
-  await vi.waitFor(() => expect(full()).toBe(2));
+  useStore.setState({ selection: ["x"] });
+  last().receive(message("document", { peers: [{ peer: "p1", actor: "user_alice" }] }));
+  expect(fetched).toHaveBeenCalledTimes(1);
+  await vi.waitFor(() => expect(last().sent.map((m) => JSON.parse(m).selection)).toEqual([["x"]]));
+  expect(useStore.getState()).toMatchObject({ live: true, role: "owner" });
+  last().receive(message("tx", { rev: 5 }));
+  expect(last().closed).toBe(1);
+  stop();
+});
+
+it("stops when a socket closed for changed access fails again before a Document", () => {
+  const { last } = stubSockets();
+  vi.useFakeTimers();
+  const stop = connect("a");
+  last().onopen?.();
+  last().receive(message("document"));
+  last().onclose?.({ code: ACCESS_CHANGED });
+  expect(useStore.getState()).toMatchObject({ live: false, peers: new Map() });
+  vi.advanceTimersByTime(1000);
+  // The new socket's Document keeps the tab going after its next close.
+  last().onopen?.();
+  last().receive(message("document"));
+  last().onclose?.({ code: 1006 });
+  vi.advanceTimersByTime(1000);
+  expect(useStore.getState().notice).toBeNull();
+  last().onopen?.();
+  last().onclose?.({ code: ACCESS_CHANGED });
+  vi.advanceTimersByTime(1000);
+  last().onopen?.();
+  last().onclose?.({ code: 1006 });
+  expect(useStore.getState().notice).toBe("This Document is no longer shared with you.");
+  vi.useRealTimers();
   stop();
 });

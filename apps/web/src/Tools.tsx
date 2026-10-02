@@ -1,5 +1,6 @@
 import { memo, useEffect, useRef, useState } from "react";
-import { canEdit, useStore, VIEWER_TOOLS } from "./store.ts";
+import { VIEWER_TOOLS } from "./receive.ts";
+import { canEdit, useStore } from "./store.ts";
 import { TOOLS, type Tool, type ToolSlot, toolSlots } from "./toolbox.ts";
 import { type FillStroke, fillStrokeKey, setTool } from "./tools.ts";
 

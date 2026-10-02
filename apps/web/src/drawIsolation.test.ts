@@ -25,6 +25,7 @@ import {
   starTool,
 } from "./shapeTool.ts";
 import { connect, DEFAULT_FILL_STROKE, send, useStore } from "./store.ts";
+import { message, viewState } from "./testing.ts";
 import type { CanvasTool, ToolEvent } from "./toolbox.ts";
 import { finishPen, penDown, penUp } from "./tools.ts";
 
@@ -50,20 +51,7 @@ function isolateLeaf(scope: "leaf" | "group" = "leaf") {
   ]);
   const id = (key: string) => keyMap[key] as string;
   const view = { isolated: id(scope === "leaf" ? "leaf" : "g"), selection: [id("other")] };
-  useStore.setState({
-    doc,
-    pen: null,
-    pending: [],
-    edit: null,
-    drag: null,
-    opPreview: null,
-    paintPreview: null,
-    anchors: [],
-    segments: [],
-    notice: null,
-    fillStroke: DEFAULT_FILL_STROKE,
-    ...view,
-  });
+  useStore.setState({ ...viewState({ doc, ...view }), fillStroke: DEFAULT_FILL_STROKE });
   return { ...view, id };
 }
 
@@ -72,9 +60,9 @@ const view = () => {
   return { isolated, selection };
 };
 const deliver = (msg: ServerMessage) => {
-  const next = receive(useStore.getState(), msg, "d");
-  if (!next) throw new Error("missed rev");
-  useStore.setState(next);
+  const { state, effects } = receive(useStore.getState(), msg, "d", 0);
+  if (effects.some((e) => e.type === "reconnect")) throw new Error("missed rev");
+  useStore.setState(state);
 };
 /** The command sent as `id`, or the last one sent, and its id. */
 function sent(id?: string) {
@@ -88,38 +76,22 @@ function accept(id?: string): string {
   if (command?.type !== "create") throw new Error("no create");
   const doc = structuredClone(useStore.getState().doc) as Document;
   const { nodes } = createNodes(doc, command.nodes as NodeInput[]);
-  deliver({
-    type: "tx",
-    rev: doc.rev + 1,
-    txId: "t",
-    actor: "user",
-    intent: null,
-    created: nodes,
-    updated: [],
-    bounds: null,
-    deletedIds: [],
-    commandId,
-  });
+  deliver(message("tx", { rev: doc.rev + 1, actor: "user", created: nodes, commandId }));
   return nodes[0]?.id as string;
 }
 const reject = (id?: string) =>
-  deliver({
-    type: "rejected",
-    id: sent(id).commandId,
-    error: { code: "PERMISSION_DENIED", message: "Viewers cannot edit." },
-  } as ServerMessage);
+  deliver(
+    message("rejected", {
+      id: sent(id).commandId,
+      error: { code: "PERMISSION_DENIED", message: "Viewers cannot edit.", hint: "" },
+    }),
+  );
 /** The Document a reconnect sends: a command dropped while the socket was down never arrived. */
 const reconnect = () => {
   const doc = useStore.getState().doc as Document;
-  deliver({
-    type: "document",
-    rev: doc.rev + 1,
-    name: doc.name,
-    artboards: doc.artboards,
-    nodes: [...doc.nodes.values()],
-    role: "editor",
-    peers: [],
-  } as ServerMessage);
+  const { name, artboards } = doc;
+  const nodes = [...doc.nodes.values()];
+  deliver(message("document", { rev: doc.rev + 1, name, artboards, nodes, role: "editor" }));
 };
 
 const drawPen = () => {
@@ -275,17 +247,8 @@ it("a prune by another Actor's tx while the create is in flight wins", () => {
   const doc = useStore.getState().doc as Document;
   const leaf = doc.nodes.get(id("leaf"));
   // Another Actor makes the leaf a Clipping Path: it can no longer be isolated.
-  deliver({
-    type: "tx",
-    rev: doc.rev + 1,
-    txId: "other",
-    actor: "agent",
-    intent: null,
-    bounds: null,
-    created: [],
-    updated: [{ ...leaf, clipping: true } as never],
-    deletedIds: [],
-  });
+  const updated = [{ ...leaf, clipping: true } as never];
+  deliver(message("tx", { rev: doc.rev + 1, txId: "other", actor: "agent", updated }));
   expect(useStore.getState().isolated).toBe(id("g"));
   const path = accept();
   expect(view()).toEqual({ isolated: id("g"), selection: [path] });
@@ -314,15 +277,7 @@ it("a tab switched away while the create is in flight keeps the leaf isolated on
   const nodes = [...doc.nodes.values()];
   const { rev, name, artboards } = doc;
   socket?.onmessage?.({
-    data: JSON.stringify({
-      type: "document",
-      rev,
-      name,
-      artboards,
-      nodes,
-      role: "editor",
-      peers: [],
-    }),
+    data: JSON.stringify(message("document", { rev, name, artboards, nodes, role: "editor" })),
   });
   drawPen();
   // The Viewer's cleanup: the answer to the create is lost with the socket.

@@ -4,30 +4,19 @@ import {
   type ClientMessage,
   type Command,
   DOC_DELETED,
-  type Role,
   type ServerMessage,
   TOO_MANY_CONNECTIONS,
 } from "@kalamo/sync";
 import { create } from "zustand";
 import { parseKey } from "./direct.ts";
 import type { ImageCache } from "./images.ts";
-import {
-  type ActorKind,
-  type Areas,
-  areasAfter,
-  type Pointer,
-  presenceSender,
-} from "./presence.ts";
-import { afterProbe, type Probe, receive, type ViewState } from "./receive.ts";
+import { type ActorKind, type Pointer, peersFrom, presenceSender } from "./presence.ts";
+import { afterProbe, type Effect, type Probe, receive, type ViewState } from "./receive.ts";
 import type { Tool, ToolGroup } from "./toolbox.ts";
 import type { FillStroke } from "./tools.ts";
 import type { Viewport } from "./viewport.ts";
 
 export interface State extends ViewState {
-  /** False while the socket is down; the last Document stays on screen. */
-  live: boolean;
-  /** The shown Document's Role, from the socket (ADR-0047); null until it connects. */
-  role: Role | null;
   /** Null until the first Document arrives and is fitted to the screen. */
   viewport: Viewport | null;
   /** The canvas in CSS px. */
@@ -38,17 +27,12 @@ export interface State extends ViewState {
   layersShown: boolean;
   /** Window > Gradient (ADR-0081). */
   gradientShown: boolean;
-  tool: Tool;
   /** The tool each Tools panel group shows: the last chosen from it. */
   front: Partial<Record<ToolGroup, Tool>>;
   /** The Fill and Stroke boxes, kept across Document Tabs as in Illustrator. */
   fillStroke: FillStroke;
-  /** The shown Document's Actors' names, by Actor id, from its Actor rows (ADR-0090). */
-  actorNames: ReadonlyMap<string, string>;
-  /** Their kinds, by Actor id. */
+  /** The shown Document's Actors' kinds, by Actor id. */
   actorKinds: ReadonlyMap<string, ActorKind>;
-  /** Each Actor's last write, drawn as an Agent's Working Area (ADR-0090). */
-  areas: Areas;
 }
 
 /** Illustrator's default: a white Fill and a 1 pt black Stroke. */
@@ -85,6 +69,7 @@ export const useStore = create<State>(() => ({
   peers: new Map(),
   actorNames: new Map(),
   actorKinds: new Map(),
+  asked: new Set(),
   areas: new Map(),
 }));
 
@@ -108,9 +93,6 @@ useStore.subscribe((s, prev) => {
 
 /** A viewer's tab edits nothing: the menus grey out and the tools shrink (ADR-0047). */
 export const canEdit = (s: Pick<State, "role">) => s.role !== "viewer";
-
-/** The tools a viewer keeps, which change nothing; Space pans as the Hand for everyone. */
-export const VIEWER_TOOLS: readonly Tool[] = ["selection", "zoom"];
 
 let socket: WebSocket | null = null;
 /** The shown Document's presence sender; null between tabs. */
@@ -193,6 +175,7 @@ export function connect(docId: string): () => void {
     peers: new Map(),
     actorNames: new Map(),
     actorKinds: new Map(),
+    asked: new Set(),
     areas: new Map(),
     ...views.get(docId),
   });
@@ -204,17 +187,9 @@ export function connect(docId: string): () => void {
   const unwatch = useStore.subscribe((s, prev) => {
     if (s.selection !== prev.selection) sender.update({ selection: s.selection });
   });
-  /** The Actors this connection fetched the names for, at most once each; a fetch gets them all. */
-  let asked = new Set<string>();
-  const fetchNames = (actors: string[]) => {
-    for (const a of actors) asked.add(a);
-    fetchActors(docId).then((actors) => {
-      if (!stopped) useStore.setState(actors);
-    });
-  };
   let retry: ReturnType<typeof setTimeout>;
   let stopped = false;
-  /** Set by a 4003 close until a Document arrives: failing then means access was removed. */
+  /** Set by a 4003 close: failing again before a Document arrives means access was removed. */
   let accessChanged = false;
   const stop = (notice: string) => {
     stopped = true;
@@ -232,33 +207,19 @@ export function connect(docId: string): () => void {
     ws.onopen = () => {
       opened = true;
     };
+    const run = (effect: Effect) => {
+      if (effect.type === "resend-presence") sender.resend();
+      else if (effect.type === "fetch-names")
+        fetchActors(docId).then((actors) => {
+          if (!stopped) useStore.setState(actors);
+        });
+      else ws.close();
+    };
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data) as ServerMessage;
-      const next = receive(useStore.getState(), msg, docId);
-      // A new socket is a new Peer to the others: it sends its presence in full; and so does every
-      // socket when one joins, which asks for it (ADR-0090).
-      if (msg.type === "document" || msg.type === "joined") sender.resend();
-      if (msg.type === "document") {
-        asked = new Set();
-        fetchNames(msg.peers.map((p) => p.actor));
-      } else if (
-        (msg.type === "presence" ||
-          msg.type === "joined" ||
-          msg.type === "tx" ||
-          msg.type === "staged") &&
-        !asked.has(msg.actor) &&
-        !useStore.getState().actorNames.has(msg.actor)
-      )
-        fetchNames([msg.actor]);
-      if (msg.type === "document") {
-        accessChanged = false;
-        const { tool } = useStore.getState();
-        const viewer = msg.role === "viewer" && !VIEWER_TOOLS.includes(tool);
-        useStore.setState({ live: true, role: msg.role, ...(viewer && { tool: "selection" }) });
-      }
-      const areas = areasAfter(useStore.getState().areas, msg, Date.now());
-      if (next) useStore.setState({ ...next, areas });
-      else ws.close(); // A missed rev: reconnect for the whole Document.
+      const { state, effects } = receive(useStore.getState(), msg, docId, Date.now());
+      effects.forEach(run);
+      useStore.setState(state);
     };
     ws.onclose = (e) => {
       if (stopped) return;
@@ -266,10 +227,12 @@ export function connect(docId: string): () => void {
       if (e.code === TOO_MANY_CONNECTIONS) {
         return stop("Too many open tabs on this Document. Close one, then reload this tab.");
       }
-      if (accessChanged) return stop("This Document is no longer shared with you.");
+      // Only a Document makes a socket live.
+      if (accessChanged && !useStore.getState().live) {
+        return stop("This Document is no longer shared with you.");
+      }
       accessChanged = e.code === ACCESS_CHANGED;
-      // The Peers come again with the next socket's Document.
-      useStore.setState({ live: false, peers: new Map() });
+      useStore.setState({ live: false, peers: peersFrom([]) });
       if (opened) return later();
       // The upgrade's refusal is unreadable (1006); the same check over HTTP says why.
       probe(docId).then((p) => {

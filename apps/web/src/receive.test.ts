@@ -1,8 +1,18 @@
 import { bounds, createDocument, createNodes, type Document, type Node } from "@kalamo/core";
-import type { TxMessage } from "@kalamo/sync";
+import type { ServerMessage, TxMessage } from "@kalamo/sync";
 import { expect, it } from "vitest";
 import { anchorKey } from "./direct.ts";
-import { afterProbe, copyInput, preview, previewEdit, previewOp, receive } from "./receive.ts";
+import {
+  afterProbe,
+  copyInput,
+  type Effect,
+  preview,
+  previewEdit,
+  previewOp,
+  receive,
+  type ViewState,
+} from "./receive.ts";
+import { message, stateAfter, viewState } from "./testing.ts";
 
 function fixture() {
   const { doc, defaultLayerId } = createDocument({
@@ -15,18 +25,8 @@ function fixture() {
   return { doc, a, b };
 }
 
-const tx = (doc: Document, extra: Partial<TxMessage>): TxMessage => ({
-  type: "tx",
-  rev: doc.rev + 1,
-  txId: "t",
-  actor: "agent-a",
-  intent: null,
-  created: [],
-  updated: [],
-  deletedIds: [],
-  bounds: null,
-  ...extra,
-});
+const tx = (doc: Document, extra: Partial<TxMessage>) =>
+  message("tx", { rev: doc.rev + 1, ...extra });
 
 const drag = (nodeIds: string[], commandId: string | null) => ({
   nodeIds,
@@ -37,158 +37,150 @@ const drag = (nodeIds: string[], commandId: string | null) => ({
 
 it("keeps the drag preview until the tx answering its command arrives", () => {
   const { doc, a } = fixture();
-  const state = {
-    doc,
-    selection: [a.id],
-    drag: drag([a.id], "c1"),
-    pen: null,
-    pending: [],
-    opPreview: null,
-    paintPreview: null,
-    notice: null,
-    edit: null,
-    anchors: [],
-    segments: [],
-    layerRows: [],
-    isolated: null,
-    peers: new Map(),
-  };
-  const other = { ...state, ...receive(state, tx(doc, { actor: "agent-a" }), "d") };
+  const state = viewState({ doc, selection: [a.id], drag: drag([a.id], "c1") });
+  const other = { ...state, ...stateAfter(state, tx(doc, { actor: "agent-a" })) };
   expect(other.drag).toBe(state.drag);
-  expect(receive(state, tx(doc, { actor: "user", commandId: "c1" }), "d")).toMatchObject({
+  expect(stateAfter(state, tx(doc, { actor: "user", commandId: "c1" }))).toMatchObject({
     drag: null,
   });
 });
 
 it("snaps back and shows a notice when its command is rejected", () => {
   const { doc, a } = fixture();
-  const state = {
-    doc,
-    selection: [a.id],
-    drag: drag([a.id], "c1"),
-    pen: null,
-    pending: [],
-    opPreview: null,
-    paintPreview: null,
-    notice: null,
-    edit: null,
-    anchors: [],
-    segments: [],
-    layerRows: [],
-    isolated: null,
-    peers: new Map(),
-  };
+  const state = viewState({ doc, selection: [a.id], drag: drag([a.id], "c1") });
   const error = { code: "NODE_GONE" as const, message: "gone", hint: "", nodeIds: [a.id] };
-  const next = receive(state, { type: "rejected", id: "c1", error }, "d");
+  const next = stateAfter(state, message("rejected", { error }));
   expect(next).toMatchObject({ drag: null, notice: expect.stringContaining("deleted") });
 });
 
 it("shows a LAST_LAYER rejection's message and keeps the Selection (ADR-0073)", () => {
   const { doc, a } = fixture();
-  const state = {
-    doc,
-    selection: [a.id, a.parentId as string],
-    drag: null,
-    pen: null,
-    pending: [],
-    opPreview: null,
-    paintPreview: null,
-    notice: null,
-    edit: null,
-    anchors: [],
-    segments: [],
-    layerRows: [],
-    isolated: null,
-    peers: new Map(),
-  };
-  const message = "A Document keeps at least one top-level Layer.";
-  const error = { code: "LAST_LAYER" as const, message, hint: "", nodeIds: [a.parentId as string] };
-  const next = { ...state, ...receive(state, { type: "rejected", id: "c1", error }, "d") };
-  expect(next.notice).toBe(message);
+  const state = viewState({ doc, selection: [a.id, a.parentId as string] });
+  const text = "A Document keeps at least one top-level Layer.";
+  const nodeIds = [a.parentId as string];
+  const error = { code: "LAST_LAYER" as const, message: text, hint: "", nodeIds };
+  const next = { ...state, ...stateAfter(state, message("rejected", { error })) };
+  expect(next.notice).toBe(text);
   expect(next.selection).toEqual(state.selection);
   expect(next.doc).toBe(doc);
 });
 
 it("drops deleted Nodes from the Selection", () => {
   const { doc, a, b } = fixture();
-  const state = {
-    doc,
-    selection: [a.id, b.id],
-    drag: null,
-    pen: null,
-    pending: [],
-    opPreview: null,
-    paintPreview: null,
-    notice: null,
-    edit: null,
-    anchors: [],
-    segments: [],
-    layerRows: [],
-    isolated: null,
-    peers: new Map(),
-  };
-  expect(receive(state, tx(doc, { deletedIds: [a.id] }), "d")).toMatchObject({
+  const state = viewState({ doc, selection: [a.id, b.id] });
+  expect(stateAfter(state, tx(doc, { deletedIds: [a.id] }))).toMatchObject({
     selection: [b.id],
   });
 });
 
 it("asks to reconnect on a missed rev, and drops an unanswered drag on a new Document", () => {
   const { doc, a } = fixture();
-  const state = {
-    doc,
-    selection: [a.id],
-    drag: drag([a.id], "c1"),
-    pen: null,
-    pending: [],
-    opPreview: null,
-    paintPreview: null,
-    notice: null,
-    edit: null,
-    anchors: [],
-    segments: [],
-    layerRows: [],
-    isolated: null,
-    peers: new Map(),
-  };
-  expect(receive(state, tx(doc, { rev: doc.rev + 2 }), "d")).toBeNull();
-  const msg = {
-    type: "document" as const,
-    rev: 9,
-    name: "N",
-    artboards: [],
-    nodes: [a],
-    role: "owner" as const,
-    peers: [],
-  };
-  expect(receive(state, msg, "d")).toMatchObject({ drag: null, selection: [a.id] });
+  const actorNames = new Map([["agent-a", "A"]]);
+  const state = viewState({ doc, selection: [a.id], drag: drag([a.id], "c1"), actorNames });
+  expect(receive(state, tx(doc, { rev: doc.rev + 2 }), "d", 0)).toEqual({
+    state: {},
+    effects: [{ type: "reconnect" }],
+  });
+  const msg = message("document", { rev: 9, nodes: [a] });
+  expect(stateAfter(state, msg)).toMatchObject({ drag: null, selection: [a.id] });
 });
 
-const peer = { peer: "p", actor: "user_bob" };
 it.each([
-  { type: "presence" as const, ...peer, cursor: { x: 1, y: 2 } },
-  { type: "joined" as const, ...peer },
-  { type: "left" as const, peer: "p" },
-  { type: "staged" as const, txId: "t", actor: "agent-a", intent: null, bounds: null },
-])("changes only the Peers on $type, and does not reconnect (ADR-0090)", (msg) => {
+  message("presence", { cursor: { x: 1, y: 2 } }),
+  message("joined"),
+  message("left"),
+  message("staged"),
+])("changes only the Peers on $type, or the Working Areas on staged (ADR-0090)", (msg) => {
   const { doc, a } = fixture();
-  const state = {
-    doc,
-    selection: [a.id],
-    drag: drag([a.id], "c1"),
-    pen: null,
-    pending: [],
-    opPreview: null,
-    paintPreview: null,
-    notice: null,
-    edit: null,
-    anchors: [],
-    segments: [],
-    layerRows: [],
-    isolated: null,
-    peers: new Map(),
-  };
-  const next = receive(state, msg, "d");
-  expect(Object.keys(next ?? {})).toEqual(msg.type === "staged" ? [] : ["peers"]);
+  const actorNames = new Map([
+    ["user_bob", "Bob"],
+    ["agent-a", "A"],
+  ]);
+  const state = viewState({ doc, selection: [a.id], drag: drag([a.id], "c1"), actorNames });
+  const next = stateAfter(state, msg);
+  expect(Object.keys(next)).toEqual(msg.type === "staged" ? ["areas"] : ["peers"]);
+});
+
+it("asks to resend presence only on a document or joined, and to reconnect on none (ADR-0090)", () => {
+  const { doc } = fixture();
+  const state = viewState({ doc });
+  const msgs = [
+    message("document"),
+    message("joined"),
+    message("presence"),
+    message("left"),
+    message("staged"),
+    tx(doc, {}),
+    message("rejected"),
+  ];
+  const asking = (type: Effect["type"]) =>
+    msgs.filter((m) => receive(state, m, "d", 0).effects.some((e) => e.type === type));
+  expect(asking("resend-presence").map((m) => m.type)).toEqual(["document", "joined"]);
+  expect(asking("reconnect")).toEqual([]);
+});
+
+const fetches = (s: ViewState, msg: ServerMessage) =>
+  receive(s, msg, "d", 0).effects.filter((e) => e.type === "fetch-names");
+
+it.each(["presence", "joined", "tx", "staged"] as const)(
+  "fetches the names for a %s from an unseen Actor, once (ADR-0090)",
+  (type) => {
+    const { doc } = fixture();
+    const msg =
+      type === "tx" ? tx(doc, { actor: "user_bob" }) : message(type, { actor: "user_bob" });
+    const state = viewState({ doc });
+    const first = receive(state, msg, "d", 0);
+    expect(first.effects).toContainEqual({ type: "fetch-names", actors: ["user_bob"] });
+    expect(first.state.asked).toEqual(new Set(["user_bob"]));
+    expect(fetches({ ...state, ...first.state }, msg)).toEqual([]);
+    const known = viewState({ doc, actorNames: new Map([["user_bob", "Bob"]]) });
+    expect(fetches(known, msg)).toEqual([]);
+  },
+);
+
+it("fetches every Peer's name on each Document, and starts the asked Actors over", () => {
+  const state = viewState({
+    asked: new Set(["user_old"]),
+    actorNames: new Map([["user_al", "Al"]]),
+  });
+  const msg = message("document", { peers: [{ peer: "p1", actor: "user_al" }] });
+  const { state: next, effects } = receive(state, msg, "d", 0);
+  expect(effects).toEqual([
+    { type: "resend-presence" },
+    { type: "fetch-names", actors: ["user_al"] },
+  ]);
+  expect(next.asked).toEqual(new Set(["user_al"]));
+  expect(next.peers).toEqual(new Map([["p1", { actor: "user_al", cursor: null, selection: [] }]]));
+  // With no Peers too: the Actor rows label the tx and staged that follow.
+  expect(fetches(state, message("document"))).toEqual([{ type: "fetch-names", actors: [] }]);
+  expect(fetches(state, message("left"))).toEqual([]);
+  expect(fetches(state, message("rejected"))).toEqual([]);
+});
+
+it("moves an Actor's Working Area on tx and staged, at the time given (ADR-0090)", () => {
+  const { doc } = fixture();
+  const state = viewState({ doc });
+  const bounds = { x: 1, y: 2, width: 3, height: 4 };
+  const staged = stateAfter(state, message("staged", { bounds, intent: "draw" }), 5);
+  expect(staged.areas).toEqual(new Map([["agent-a", { bounds, intent: "draw", at: 5 }]]));
+  const done = stateAfter({ ...state, ...staged }, tx(doc, {}), 9);
+  expect(done.areas).toEqual(new Map([["agent-a", { bounds, intent: "draw", at: 9 }]]));
+  expect(stateAfter(state, message("presence"))).not.toHaveProperty("areas");
+});
+
+it("goes live with the Document's Role, and takes a viewer off a tool that edits (ADR-0047)", () => {
+  const pen = viewState({ tool: "pen" });
+  expect(stateAfter(pen, message("document", { role: "viewer" }))).toMatchObject({
+    live: true,
+    role: "viewer",
+    tool: "selection",
+  });
+  const zoom = viewState({ tool: "zoom" });
+  expect(stateAfter(zoom, message("document", { role: "viewer" }))).not.toHaveProperty("tool");
+  const editor = stateAfter(pen, message("document", { role: "editor" }));
+  expect(editor).toMatchObject({ live: true, role: "editor" });
+  expect(editor).not.toHaveProperty("tool");
+  expect(stateAfter(pen, message("presence"))).not.toHaveProperty("live");
 });
 
 it("previews a drag as core moves it, skipping Nodes deleted meanwhile", () => {
@@ -201,53 +193,23 @@ it("previews a drag as core moves it, skipping Nodes deleted meanwhile", () => {
 
 it("tells the person when an undo skipped Nodes deleted meanwhile", () => {
   const { doc, a } = fixture();
-  const state = {
-    doc,
-    selection: [],
-    drag: null,
-    pen: null,
-    pending: [],
-    opPreview: null,
-    paintPreview: null,
-    notice: null,
-    edit: null,
-    anchors: [],
-    segments: [],
-    layerRows: [],
-    isolated: null,
-    peers: new Map(),
-  };
-  expect(receive(state, tx(doc, { skippedIds: [a.id] }), "d")).toMatchObject({
+  const state = viewState({ doc });
+  expect(stateAfter(state, tx(doc, { skippedIds: [a.id] }))).toMatchObject({
     notice: expect.stringContaining("Skipped 1"),
   });
-  expect(receive(state, tx(doc, {}), "d")).not.toHaveProperty("notice");
+  expect(stateAfter(state, tx(doc, {}))).not.toHaveProperty("notice");
 });
 
 it("selects the Group a selected Node was just moved into, as Make Clipping Mask leaves it", () => {
   const { doc, a, b } = fixture();
-  const state = {
-    doc,
-    selection: [a.id, b.id],
-    drag: null,
-    pen: null,
-    pending: [],
-    opPreview: null,
-    paintPreview: null,
-    notice: null,
-    edit: null,
-    anchors: [],
-    segments: [],
-    layerRows: [],
-    isolated: null,
-    peers: new Map(),
-  };
+  const state = viewState({ doc, selection: [a.id, b.id] });
   const group = { ...a, id: "g", type: "group" } as unknown as Node;
   const moved = [a, b].map((n) => ({ ...n, parentId: "g" }));
   const made = { created: [group], updated: moved };
-  expect(receive(state, tx(doc, { ...made, commandId: "m1" }), "d")).toMatchObject({
+  expect(stateAfter(state, tx(doc, { ...made, commandId: "m1" }))).toMatchObject({
     selection: ["g"],
   });
-  expect(receive(state, tx(doc, made), "d")).toMatchObject({ selection: [a.id, b.id] });
+  expect(stateAfter(state, tx(doc, made))).toMatchObject({ selection: [a.id, b.id] });
 });
 
 const pen = {
@@ -265,68 +227,34 @@ const pending = (commandId: string, select = true) => ({
 
 it("keeps each drawn create until its own answer, which selects what it made", () => {
   const { doc, a } = fixture();
-  const state = {
+  const state = viewState({
     doc,
     selection: [a.id],
-    drag: null,
     pen,
     pending: [pending("c1"), pending("c2", false)],
-    opPreview: null,
-    paintPreview: null,
-    notice: null,
-    edit: null,
-    anchors: [],
-    segments: [],
-    layerRows: [],
-    isolated: null,
-    peers: new Map(),
-  };
-  const other = receive(state, tx(doc, { actor: "agent-a" }), "d");
+  });
+  const other = stateAfter(state, tx(doc, { actor: "agent-a" }));
   expect(other).not.toHaveProperty("pending");
   expect(other?.selection).toEqual([a.id]);
   const path = { ...a, id: "p" };
   const answer = (commandId: string) =>
-    receive(state, tx(doc, { actor: "user", commandId, created: [path] }), "d");
+    stateAfter(state, tx(doc, { actor: "user", commandId, created: [path] }));
   // The path being drawn is not the one answered.
   expect(answer("c1")).not.toHaveProperty("pen");
   expect(answer("c1")).toMatchObject({ pending: [pending("c2", false)], selection: ["p"] });
   expect(answer("c2")).toMatchObject({ pending: [pending("c1")], selection: [] });
-  const error = { code: "INVALID_PATH" as const, message: "no", hint: "" };
-  const rejected = receive(state, { type: "rejected", id: "c1", error }, "d");
+  const rejected = stateAfter(state, message("rejected"));
   expect(rejected).toEqual({ pending: [pending("c2", false)], notice: "no" });
 });
 
 it("keeps a path the Pen is still drawing across a reconnect, and drops every create in flight", () => {
   const { doc, a } = fixture();
-  const state = {
-    doc,
-    selection: [a.id],
-    drag: null,
-    pen,
-    pending: [],
-    opPreview: null,
-    paintPreview: null,
-    notice: null,
-    edit: null,
-    anchors: [],
-    segments: [],
-    layerRows: [],
-    isolated: null,
-    peers: new Map(),
-  };
-  const msg = {
-    type: "document" as const,
-    rev: 9,
-    name: "N",
-    artboards: [],
-    nodes: [a],
-    role: "owner" as const,
-    peers: [],
-  };
-  expect(receive(state, msg, "d")).not.toHaveProperty("pen");
-  expect(receive(state, msg, "d")).not.toHaveProperty("pending");
+  const state = viewState({ doc, selection: [a.id], pen });
+  const msg = message("document", { rev: 9, nodes: [a] });
+  expect(stateAfter(state, msg)).not.toHaveProperty("pen");
+  expect(stateAfter(state, msg)).not.toHaveProperty("pending");
   const sent = { ...state, pending: [pending("c1"), pending("c2")] };
-  expect(receive(sent, msg, "d")).toMatchObject({ pending: [], selection: [a.id], isolated: null });
+  expect(stateAfter(sent, msg)).toMatchObject({ pending: [], selection: [a.id], isolated: null });
 });
 
 const move = (nodeId: string, index = 0) => ({
@@ -337,44 +265,20 @@ const move = (nodeId: string, index = 0) => ({
 it("keeps a Direct Selection drag's preview until every path_edit is answered", () => {
   const { doc, a, b } = fixture();
   const edit = { inputs: [move(a.id), move(b.id)], commandIds: ["c1", "c2"] };
-  const state = {
-    doc,
-    selection: [a.id],
-    drag: null,
-    pen: null,
-    pending: [],
-    opPreview: null,
-    paintPreview: null,
-    notice: null,
-    edit,
-    anchors: [],
-    segments: [],
-    layerRows: [],
-    isolated: null,
-    peers: new Map(),
-  };
-  expect(receive(state, tx(doc, { actor: "agent-a" }), "d")).not.toHaveProperty("edit");
-  const first = { ...state, ...receive(state, tx(doc, { commandId: "c1" }), "d") };
+  const state = viewState({ doc, selection: [a.id], edit });
+  expect(stateAfter(state, tx(doc, { actor: "agent-a" }))).not.toHaveProperty("edit");
+  const first = { ...state, ...stateAfter(state, tx(doc, { commandId: "c1" })) };
   expect(first.edit).toEqual({ inputs: [move(b.id)], commandIds: ["c2"] });
-  expect(receive(first, tx(first.doc ?? doc, { commandId: "c2" }), "d")).toMatchObject({
+  expect(stateAfter(first, tx(first.doc ?? doc, { commandId: "c2" }))).toMatchObject({
     edit: null,
   });
   // A rejection drops only that path's part of the preview.
-  const error = { code: "INVALID_PATH" as const, message: "no", hint: "" };
-  expect(receive(state, { type: "rejected", id: "c1", error }, "d")).toMatchObject({
+  expect(stateAfter(state, message("rejected"))).toMatchObject({
     edit: { inputs: [move(b.id)], commandIds: ["c2"] },
   });
   // A reconnect loses the answers, so the preview goes.
-  const msg = {
-    type: "document" as const,
-    rev: 9,
-    name: "N",
-    artboards: [],
-    nodes: [a, b],
-    role: "owner" as const,
-    peers: [],
-  };
-  expect(receive(state, msg, "d")).toMatchObject({ edit: null });
+  const msg = message("document", { rev: 9, nodes: [a, b] });
+  expect(stateAfter(state, msg)).toMatchObject({ edit: null });
   // The preview converts the rect as core will, and leaves the Document alone.
   expect(previewEdit(doc, edit).nodes.get(a.id)).toMatchObject({ id: a.id, type: "path" });
   expect(doc.nodes.get(a.id)).toBe(a);
@@ -383,44 +287,28 @@ it("keeps a Direct Selection drag's preview until every path_edit is answered", 
 it("drops selected Anchors of a Node someone else changed, and keeps ours still in range", () => {
   const { doc, a, b } = fixture();
   const anchors = [anchorKey(a.id, 0, 3), anchorKey(b.id, 0, 1)];
-  const state = {
-    doc,
-    selection: [a.id, b.id],
-    drag: null,
-    pen: null,
-    pending: [],
-    opPreview: null,
-    paintPreview: null,
-    notice: null,
-    edit: null,
-    anchors,
-    segments: [],
-    layerRows: [],
-    isolated: null,
-    peers: new Map(),
-  };
-  const other = receive(state, tx(doc, { updated: [a] }), "d");
+  const state = viewState({ doc, selection: [a.id, b.id], anchors });
+  const other = stateAfter(state, tx(doc, { updated: [a] }));
   expect(other?.anchors).toEqual([anchorKey(b.id, 0, 1)]);
   // Our own path_edit left a with three Anchors: its Anchor 3 is gone, b's stays.
   const triangle = { ...a, type: "path", d: "M 0 0 L 10 0 L 0 10 Z", fillRule: "nonzero" } as Node;
   const edit = { inputs: [move(a.id)], commandIds: ["c1"] };
-  const own = receive({ ...state, edit }, tx(doc, { commandId: "c1", updated: [triangle] }), "d");
+  const own = stateAfter({ ...state, edit }, tx(doc, { commandId: "c1", updated: [triangle] }));
   expect(own?.anchors).toEqual([anchorKey(b.id, 0, 1)]);
-  const kept = receive(
+  const kept = stateAfter(
     { ...state, anchors: [anchorKey(a.id, 0, 2)], edit },
     tx(doc, { commandId: "c1", updated: [triangle] }),
-    "d",
   );
   expect(kept?.anchors).toEqual([anchorKey(a.id, 0, 2)]);
-  expect(receive(state, tx(doc, { deletedIds: [b.id] }), "d")?.anchors).toEqual([
+  expect(stateAfter(state, tx(doc, { deletedIds: [b.id] }))?.anchors).toEqual([
     anchorKey(a.id, 0, 3),
   ]);
   // Selected segments follow the same rule: the rect's closing segment 3 is past the triangle's.
   const segments = [anchorKey(a.id, 0, 3), anchorKey(b.id, 0, 3)];
   const cut = { ...state, anchors: [], segments };
-  expect(receive(cut, tx(doc, { updated: [a] }), "d")?.segments).toEqual([anchorKey(b.id, 0, 3)]);
+  expect(stateAfter(cut, tx(doc, { updated: [a] }))?.segments).toEqual([anchorKey(b.id, 0, 3)]);
   const ours = { ...cut, segments: [...segments, anchorKey(a.id, 0, 2)], edit };
-  expect(receive(ours, tx(doc, { commandId: "c1", updated: [triangle] }), "d")?.segments).toEqual([
+  expect(stateAfter(ours, tx(doc, { commandId: "c1", updated: [triangle] }))?.segments).toEqual([
     anchorKey(b.id, 0, 3),
     anchorKey(a.id, 0, 2),
   ]);
@@ -430,53 +318,25 @@ it("keeps a Simplify preview until the answer to its path_op, and previews it wi
   const { doc, a } = fixture();
   const input = { nodeIds: [a.id], op: "simplify" as const };
   const opPreview = { input, showOriginal: false, commandId: null };
-  const base = {
-    doc,
-    selection: [a.id],
-    drag: null,
-    pen: null,
-    pending: [],
-    opPreview: null,
-    paintPreview: null,
-    notice: null,
-    edit: null,
-  };
-  const open = {
-    ...base,
-    opPreview,
-    anchors: [],
-    segments: [],
-    layerRows: [],
-    isolated: null,
-    peers: new Map(),
-  };
+  const open = viewState({ doc, selection: [a.id], opPreview });
   // Not yet sent: nothing answers it, a reconnect included.
-  expect(receive(open, tx(doc, { commandId: "c1" }), "d")).not.toHaveProperty("simplify");
-  const msg = {
-    type: "document" as const,
-    rev: 9,
-    name: "N",
-    artboards: [],
-    nodes: [a],
-    role: "owner" as const,
-    peers: [],
-  };
-  expect(receive(open, msg, "d")).not.toHaveProperty("simplify");
+  expect(stateAfter(open, tx(doc, { commandId: "c1" }))).not.toHaveProperty("simplify");
+  const msg = message("document", { rev: 9, nodes: [a] });
+  expect(stateAfter(open, msg)).not.toHaveProperty("simplify");
   const sent = { ...open, opPreview: { ...opPreview, commandId: "c1" } };
-  expect(receive(sent, tx(doc, { actor: "agent-a" }), "d")).not.toHaveProperty("simplify");
-  expect(receive(sent, tx(doc, { commandId: "c1" }), "d")).toMatchObject({ opPreview: null });
-  const error = { code: "INVALID_PATH" as const, message: "no", hint: "" };
-  expect(receive(sent, { type: "rejected", id: "c1", error }, "d")).toMatchObject({
+  expect(stateAfter(sent, tx(doc, { actor: "agent-a" }))).not.toHaveProperty("simplify");
+  expect(stateAfter(sent, tx(doc, { commandId: "c1" }))).toMatchObject({ opPreview: null });
+  expect(stateAfter(sent, message("rejected"))).toMatchObject({
     opPreview: null,
   });
   // A Gradient panel or tool preview lasts until its own answer too (ADR-0081).
   const painted = { ...open, paintPreview: { updates: [], commandId: "c2" } };
-  expect(receive(painted, tx(doc, { commandId: "c1" }), "d")).not.toHaveProperty("paintPreview");
-  expect(receive(painted, tx(doc, { commandId: "c2" }), "d")).toMatchObject({ paintPreview: null });
-  expect(receive(painted, { type: "rejected", id: "c2", error }, "d")).toMatchObject({
+  expect(stateAfter(painted, tx(doc, { commandId: "c1" }))).not.toHaveProperty("paintPreview");
+  expect(stateAfter(painted, tx(doc, { commandId: "c2" }))).toMatchObject({ paintPreview: null });
+  expect(stateAfter(painted, message("rejected", { id: "c2" }))).toMatchObject({
     paintPreview: null,
   });
-  expect(receive(sent, msg, "d")).toMatchObject({ opPreview: null });
+  expect(stateAfter(sent, msg)).toMatchObject({ opPreview: null });
   // The preview converts the rect as core will, and leaves the Document alone.
   expect(previewOp(doc, { input }).nodes.get(a.id)).toMatchObject({ id: a.id, type: "path" });
   expect(doc.nodes.get(a.id)).toBe(a);
@@ -545,61 +405,36 @@ it("copies the outermost Nodes a plain drag moves, and a Layer above its own ori
 
 it("selects an Alt-drag's copies once its own answer creates them, and only then", () => {
   const { doc, a } = fixture();
-  const state = {
-    doc,
-    selection: [a.id],
-    drag: { ...drag([a.id], "c1"), copy: true },
-    pen: null,
-    pending: [],
-    opPreview: null,
-    paintPreview: null,
-    notice: null,
-    edit: null,
-    anchors: [],
-    segments: [],
-    layerRows: [],
-    isolated: null,
-    peers: new Map(),
-  };
+  const state = viewState({ doc, selection: [a.id], drag: { ...drag([a.id], "c1"), copy: true } });
   const group = { ...a, id: "g", type: "group", index: "b0" } as unknown as Node;
   const inside = { ...a, id: "x", parentId: "g" } as Node;
   const created = [group, inside];
-  const agent = receive(state, tx(doc, { created, commandId: "other" }), "d");
+  const agent = stateAfter(state, tx(doc, { created, commandId: "other" }));
   expect(agent).toMatchObject({ selection: [a.id] });
-  expect(receive(state, tx(doc, { actor: "user", created, commandId: "c1" }), "d")).toMatchObject({
+  expect(stateAfter(state, tx(doc, { actor: "user", created, commandId: "c1" }))).toMatchObject({
     drag: null,
     selection: ["g"],
   });
   const moved = { ...state, drag: drag([a.id], "c1") };
-  expect(receive(moved, tx(doc, { actor: "user", created, commandId: "c1" }), "d")).toMatchObject({
+  expect(stateAfter(moved, tx(doc, { actor: "user", created, commandId: "c1" }))).toMatchObject({
     selection: [a.id],
   });
 });
 
 it("selects a copied Layer as its row's click does: its objects, and its row (ADR-0076)", () => {
   const { doc, a, b } = fixture();
-  const state = {
+  const state = viewState({
     doc,
     selection: [a.id],
-    drag: null,
-    pen: null,
     pending: [{ commandId: "c1", nodes: [], select: true }],
-    opPreview: null,
-    paintPreview: null,
-    notice: null,
-    edit: null,
-    anchors: [],
-    segments: [],
     layerRows: ["old"],
-    isolated: null,
-    peers: new Map(),
-  };
+  });
   const layer = { ...a, id: "L", type: "layer", parentId: null, name: "A copy" } as unknown as Node;
   const art = { ...a, id: "x", parentId: "L" } as Node;
   const locked = { ...a, id: "y", parentId: "L", locked: true } as Node;
   const copy = { ...b, id: "z" } as Node;
   const created = [layer, art, locked, copy];
-  expect(receive(state, tx(doc, { actor: "user", created, commandId: "c1" }), "d")).toMatchObject({
+  expect(stateAfter(state, tx(doc, { actor: "user", created, commandId: "c1" }))).toMatchObject({
     selection: ["x", "z"],
     layerRows: ["L"],
   });
@@ -607,26 +442,11 @@ it("selects a copied Layer as its row's click does: its objects, and its row (AD
 
 it("keeps an unchanged Selection the same array, so the Layer rows stay; a changed one is new", () => {
   const { doc, a, b } = fixture();
-  const state = {
-    doc,
-    selection: [a.id],
-    drag: null,
-    pen: null,
-    pending: [],
-    opPreview: null,
-    paintPreview: null,
-    notice: null,
-    edit: null,
-    anchors: [],
-    segments: [],
-    layerRows: [],
-    isolated: null,
-    peers: new Map(),
-  };
-  const other = receive(state, tx(doc, { updated: [b] }), "d");
+  const state = viewState({ doc, selection: [a.id] });
+  const other = stateAfter(state, tx(doc, { updated: [b] }));
   expect(other?.selection).toBe(state.selection);
   expect(other).not.toHaveProperty("layerRows");
-  const gone = receive(state, tx(doc, { deletedIds: [a.id] }), "d");
+  const gone = stateAfter(state, tx(doc, { deletedIds: [a.id] }));
   expect(gone?.selection).toEqual([]);
 });
 
@@ -635,26 +455,15 @@ it("selects none of a copied Layer's objects when an ancestor hides or locks it,
   const [made] = createNodes(doc, [{ type: "layer" }]).nodes as [Node];
   const hidden = { ...made, visible: false } as Node;
   doc.nodes.set(hidden.id, hidden);
-  const state = {
+  const state = viewState({
     doc,
     selection: [a.id],
-    drag: null,
-    pen: null,
     pending: [{ commandId: "c1", nodes: [], select: true }],
-    opPreview: null,
-    paintPreview: null,
-    notice: null,
-    edit: null,
-    anchors: [],
-    segments: [],
-    layerRows: [],
-    isolated: null,
-    peers: new Map(),
-  };
+  });
   // A nested Layer's copy in the hidden Layer, as Duplicate or an Alt-drag onto it makes.
   const layer = { ...a, id: "L", type: "layer", parentId: hidden.id } as unknown as Node;
   const art = { ...a, id: "x", parentId: "L" } as Node;
   expect(
-    receive(state, tx(doc, { actor: "user", created: [layer, art], commandId: "c1" }), "d"),
+    stateAfter(state, tx(doc, { actor: "user", created: [layer, art], commandId: "c1" })),
   ).toMatchObject({ selection: [], layerRows: ["L"] });
 });
