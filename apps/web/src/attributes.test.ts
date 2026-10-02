@@ -736,6 +736,18 @@ function pressOnOpen() {
   };
 }
 
+/** Another Actor's Transaction moving the first Anchor of `subpath` of `nodeId` to (50, 5). */
+function theirEdit(nodeId: string, subpath: number) {
+  const { doc } = useStore.getState() as { doc: Document };
+  const moved = editPath(structuredClone(doc), {
+    nodeId,
+    ops: [{ op: "move_anchor", subpath, index: 0, to: [50, 5] }],
+  }).node;
+  const theirs = message("tx", { rev: doc.rev + 1, actor: "agent", updated: [moved] });
+  useStore.setState(stateAfter(useStore.getState(), theirs));
+  return moved;
+}
+
 it("holds the Pen's and the Pencil's edits for the press and puts them on the Endpoint or stretch drawn on", () => {
   const results = Object.entries(drawnEdits).map(([name, run]) =>
     (["accepted", "rejected"] as const).map((outcome) => {
@@ -786,14 +798,7 @@ it("keeps the Pen on the Endpoint it continues when the answer comes while it dr
 it("drops a held Pen edit when another Actor edits its path before the answer (ADR-0109)", () => {
   const answer = pressOnOpen();
   drawnEdits["a Pen continuing from an Endpoint"]?.();
-  const { doc } = useStore.getState() as { doc: Document };
-  const [p] = useStore.getState().selection;
-  const moved = editPath(structuredClone(doc), {
-    nodeId: p as string,
-    ops: [{ op: "move_anchor", subpath: 1, index: 0, to: [50, 5] }],
-  }).node;
-  const theirs = message("tx", { rev: doc.rev + 1, actor: "agent", updated: [moved] });
-  useStore.setState(stateAfter(useStore.getState(), theirs));
+  theirEdit(useStore.getState().selection[0] as string, 1);
   answer("rejected");
   expect(commands()).toEqual([]);
   expect(useStore.getState().edit).toBeNull();
@@ -807,25 +812,25 @@ it("drops a held Pencil redraw when another Actor edits its path before the answ
       const label = `${outcome}, their edit on ${theirsOn}`;
       const answer = pressOnOpen();
       drawnEdits["a Pencil redraw"]?.();
-      const { doc, selection } = useStore.getState() as { doc: Document; selection: string[] };
-      const [p, q] = selection as [string, string];
-      const moved = editPath(structuredClone(doc), {
-        nodeId: theirsOn === "p" ? p : q,
-        ops: [{ op: "move_anchor", subpath: theirsOn === "p" ? 1 : 0, index: 0, to: [50, 5] }],
-      }).node;
-      const theirs = message("tx", { rev: doc.rev + 1, actor: "agent", updated: [moved] });
-      useStore.setState(stateAfter(useStore.getState(), theirs));
+      const [p, q] = useStore.getState().selection as [string, string];
+      const moved = theirsOn === "p" ? theirEdit(p, 1) : theirEdit(q, 0);
       const after = useStore.getState().doc as Document;
       answer(outcome);
-      const stored = (id: string) =>
-        ((useStore.getState().doc as Document).nodes.get(id) as PathNode).d;
+      const s = useStore.getState();
+      const stored = (id: string) => ((s.doc as Document).nodes.get(id) as PathNode).d;
+      const shown = (id: string) =>
+        (previewAll(s.doc as Document, previewsOf(s)).nodes.get(id) as PathNode).d;
       if (theirsOn === "p") {
         // Nothing is sent over their edit, which stays as they made it, and the preview goes.
         expect(commands(), label).toEqual([]);
-        expect(useStore.getState().edit, label).toBeNull();
         expect(stored(p), label).toBe(outcome === "accepted" ? reversed(after, p).d : moved.d);
+        expect(shown(p), label).toBe(stored(p));
       } else {
-        expect(commands(), label).toMatchObject([{ type: "path_edit", input: { nodeId: p } }]);
+        // The redraw replaces the stretch from (80, 10) to (80, 25) on p as it then runs.
+        const [r] = openAfterSent();
+        const run = outcome === "accepted" ? r?.toReversed() : r;
+        expect(run?.slice(0, 3), label).toEqual(["50 0", "80 0", "80 10"]);
+        expect(run?.slice(-2), label).toEqual(["80 25", "80 30"]);
         expect(stored(q), label).toBe(moved.d);
       }
     }

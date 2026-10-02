@@ -347,8 +347,9 @@ export function pencilUp(scale: number) {
   if ("edit" in r) {
     useStore.setState({ edit: { inputs: [r.edit], commandIds: null } });
     // Worked out again from the Ink once a Reverse Path Direction press in flight is answered, on
-    // the Document then, so it redraws the stretch drawn over (ADR-0110). It holds a key on the
-    // path, which another Actor's edit to it clears, dropping the redraw (ADR-0109).
+    // the Document then, so it redraws the stretch drawn over (ADR-0110). It holds the key of the
+    // path's first Anchor only so that another Actor's edit to the path, which clears it, drops the
+    // redraw (ADR-0109); which Anchor does not matter.
     afterReverse(
       ({ doc: now, selection, anchors }, w) => {
         const again = now && anchors.length > 0 && pencilResult(now, selection, done, o, scale);
