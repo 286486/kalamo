@@ -12,6 +12,7 @@ import {
   type PathEditInput,
   type PathOp,
   type Rect,
+  runsClockwise,
   type ShapeNode,
   type Subpath,
   shapeSegments,
@@ -400,8 +401,7 @@ export function inRange(doc: Document, key: string): boolean {
  * if `subpaths` names it. Reversing twice is no change, so this also numbers a key back.
  */
 export const reversedKey =
-  (doc: Document, subpaths: { nodeId: string; subpath: number }[], segment: boolean) =>
-  (key: string) => {
+  (doc: Document, subpaths: SubpathRef[], segment: boolean) => (key: string) => {
     const { nodeId, subpath, index } = parseKey(key);
     const n = doc.nodes.get(nodeId);
     const sub = n?.type === "path" ? localAnchors(n)[subpath] : undefined;
@@ -413,6 +413,18 @@ export const reversedKey =
       : count - 1 - index - (segment ? 1 : 0);
     return anchorKey(nodeId, subpath, at);
   };
+
+type SubpathRef = { nodeId: string; subpath: number };
+
+/** Which way subpath `t` runs in `doc`; undefined when it is gone. */
+function direction(doc: Document, t: SubpathRef) {
+  const n = doc.nodes.get(t.nodeId);
+  return n?.type === "path" ? runsClockwise(doc, n, t.subpath) : undefined;
+}
+
+/** Those of `subpaths` that run the other way in `doc` than in `prior`: a reverse reached them. */
+export const turnedOf = (prior: Document, doc: Document, subpaths: SubpathRef[]) =>
+  subpaths.filter((t) => direction(prior, t) !== direction(doc, t));
 
 /** Whether `key` names a segment its Node has now. */
 export const segmentInRange = (doc: Document, key: string) => segmentHandles(doc, key).length > 0;

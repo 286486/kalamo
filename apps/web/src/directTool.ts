@@ -1,4 +1,4 @@
-import { type Anchor, formatPath, fromAnchors, type Rect } from "@kalamo/core";
+import { type Anchor, type Document, formatPath, fromAnchors, type Rect } from "@kalamo/core";
 import {
   ARROW,
   cancelDrag,
@@ -21,11 +21,14 @@ import {
   moveSegment,
   parseKey,
   pick,
+  reversedKey,
   segmentHandles,
   splitWhole,
+  turnedOf,
 } from "./direct.ts";
+import type { Chosen } from "./receive.ts";
 import { combine, hitTest } from "./selection.ts";
-import { useStore } from "./store.ts";
+import { afterReverse, useStore } from "./store.ts";
 import type { CanvasTool } from "./toolbox.ts";
 
 /** Direct Selection hits an Anchor, Handle or segment within 2 screen px (research §4). */
@@ -33,19 +36,83 @@ const DIRECT_HIT = 2;
 
 /**
  * A press on the canvas: moving objects or drawing a marquee, as the Selection tool does, or
- * dragging Anchors, one Handle, or a segment grabbed at `t`.
+ * dragging Anchors, one Handle, or a segment grabbed at `t`. `from` is the Document what it holds is
+ * numbered on, while a Reverse Path Direction press may turn it; `last` its latest move.
  */
-let gesture:
-  | (Press &
-      (
-        | { kind: "move"; nodeIds: string[] }
-        | { kind: "marquee"; mods: Mods }
-        | { kind: "anchors"; keys: string[] }
-        | { kind: "handle"; key: string; which: "handleIn" | "handleOut" }
-        | { kind: "segment"; nodeId: string; subpath: number; segment: number; t: number }
-      ))
-  | null = null;
+type Gesture = Press & {
+  from: Document | null;
+  last?: { dx: number; dy: number; alt: boolean };
+} & (
+    | { kind: "move"; nodeIds: string[] }
+    | { kind: "marquee"; mods: Mods }
+    | { kind: "anchors"; keys: string[] }
+    | { kind: "handle"; key: string; which: "handleIn" | "handleOut" }
+    | { kind: "segment"; nodeId: string; subpath: number; segment: number; t: number }
+  );
+let gesture: Gesture | null = null;
 let marqueeRect: Rect | null = null;
+
+/** What `g` holds, as Direct Selection keys. */
+function keysOf(g: Gesture): Pick<Chosen, "anchors" | "segments"> {
+  if (g.kind === "anchors") return { anchors: g.keys, segments: [] };
+  if (g.kind === "handle") return { anchors: [g.key], segments: [] };
+  if (g.kind === "segment") {
+    return { anchors: [], segments: [anchorKey(g.nodeId, g.subpath, g.segment)] };
+  }
+  return { anchors: [], segments: [] };
+}
+
+/**
+ * `g` with what it holds renumbered on each of its subpaths turned since `g.from`, so it stays on
+ * the same points across a Reverse Path Direction press's answer (ADR-0110).
+ */
+function onPoints(g: Gesture, doc: Document): Gesture {
+  const { anchors, segments } = keysOf(g);
+  const turned = g.from ? turnedOf(g.from, doc, [...anchors, ...segments].map(parseKey)) : [];
+  const flips = (key: string) => {
+    const { nodeId, subpath } = parseKey(key);
+    return turned.some((t) => t.nodeId === nodeId && t.subpath === subpath);
+  };
+  if (g.kind === "anchors") return { ...g, keys: g.keys.map(reversedKey(doc, turned, false)) };
+  if (g.kind === "handle" && flips(g.key)) {
+    const which = g.which === "handleIn" ? "handleOut" : "handleIn";
+    return { ...g, key: reversedKey(doc, turned, false)(g.key), which };
+  }
+  const segment = g.kind === "segment" && anchorKey(g.nodeId, g.subpath, g.segment);
+  if (g.kind === "segment" && segment && flips(segment)) {
+    const { index } = parseKey(reversedKey(doc, turned, true)(segment));
+    return { ...g, segment: index, t: 1 - g.t };
+  }
+  return g;
+}
+
+/** Previews `g`'s latest move on `doc`, as `commitDrag` sends it. */
+function previewDrag(g: Gesture, doc: Document) {
+  if (!g.last || g.kind === "marquee") return;
+  const { dx, dy, alt } = g.last;
+  if (g.kind === "move") {
+    useStore.setState({ drag: { nodeIds: g.nodeIds, dx, dy, commandId: null } });
+    return;
+  }
+  const h = onPoints(g, doc);
+  // Paths with every Anchor selected move whole, so a Live Shape stays live; the rest by their
+  // Anchors.
+  const { whole, partial } = splitWhole(doc, h.kind === "anchors" ? h.keys : []);
+  const inputs =
+    h.kind === "anchors"
+      ? moveAnchors(doc, partial, dx, dy)
+      : [
+          h.kind === "handle"
+            ? moveHandle(doc, h.key, h.which, dx, dy, alt)
+            : h.kind === "segment"
+              ? moveSegment(doc, h.nodeId, h.subpath, h.segment, h.t, dx, dy)
+              : null,
+        ].filter((input) => input !== null);
+  useStore.setState({
+    drag: whole.length > 0 ? { nodeIds: whole, dx, dy, commandId: null } : null,
+    edit: inputs.length > 0 ? { inputs, commandIds: null } : null,
+  });
+}
 
 /** Illustrator's white arrow: Anchors, Handles and segments (research §4). */
 export const directTool: CanvasTool = {
@@ -86,7 +153,8 @@ export const directTool: CanvasTool = {
       return;
     }
     e.capture();
-    const g = { start, moved: false };
+    const { reversing } = useStore.getState();
+    const g = { start, moved: false, from: reversing ? doc : null };
     if (target?.kind === "handle") {
       gesture = { ...g, kind: "handle", key: target.key, which: target.which };
     } else if (nodeId) {
@@ -109,31 +177,13 @@ export const directTool: CanvasTool = {
     const d = g && dragged(g, e);
     if (!g || !d) return;
     const [dx, dy] = d;
-    const { doc } = e;
-    if (g.kind === "move") {
-      useStore.setState({ drag: { nodeIds: g.nodeIds, dx, dy, commandId: null } });
-      return;
-    }
     if (g.kind === "marquee") {
       marqueeRect = rectOf(g.start, e);
       e.redraw();
       return;
     }
-    // Paths with every Anchor selected move whole, so a Live Shape stays live; the rest by their
-    // Anchors.
-    const { whole, partial } = splitWhole(doc, g.kind === "anchors" ? g.keys : []);
-    const inputs =
-      g.kind === "anchors"
-        ? moveAnchors(doc, partial, dx, dy)
-        : [
-            g.kind === "handle"
-              ? moveHandle(doc, g.key, g.which, dx, dy, e.alt)
-              : moveSegment(doc, g.nodeId, g.subpath, g.segment, g.t, dx, dy),
-          ].filter((input) => input !== null);
-    useStore.setState({
-      drag: whole.length > 0 ? { nodeIds: whole, dx, dy, commandId: null } : null,
-      edit: inputs.length > 0 ? { inputs, commandIds: null } : null,
-    });
+    g.last = { dx, dy, alt: e.alt };
+    previewDrag(g, e.doc);
   },
   up(e) {
     const g = gesture;
@@ -152,7 +202,24 @@ export const directTool: CanvasTool = {
       });
       marqueeRect = null;
       e.redraw();
-    } else if (g?.moved) commitDrag();
+    } else if (g?.moved) {
+      // Sent once a Reverse Path Direction press in flight is answered, from the Document then. What
+      // it holds is renumbered as the keys are, and another Actor's edit to its path meanwhile
+      // drops it, as it drops the keys (ADR-0109, ADR-0110).
+      const { doc } = useStore.getState();
+      if (!doc) return;
+      const h = { ...onPoints(g, doc), from: doc };
+      const holds = keysOf(h);
+      afterReverse(({ doc: now, anchors, segments }) => {
+        if (!now) return;
+        if (h.kind === "anchors") previewDrag({ ...h, keys: anchors, from: null }, now);
+        else if (anchors.length + segments.length < holds.anchors.length + holds.segments.length) {
+          cancelDrag();
+          return;
+        } else previewDrag(h, now);
+        commitDrag();
+      }, holds);
+    }
   },
   cancel(redraw) {
     gesture = null;

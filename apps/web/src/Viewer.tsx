@@ -69,6 +69,7 @@ export function Viewer({ docId }: { docId: string }) {
     selection,
     drag,
     edit,
+    reversing,
     opPreview,
     pending,
     notice,
@@ -187,12 +188,18 @@ export function Viewer({ docId }: { docId: string }) {
     const edited = moved && edit ? previewEdit(moved, edit) : moved;
     return edited && paintPreview ? withPaints(edited, paintPreview.updates) : edited;
   }, [simplified, drag, edit, paintPreview]);
+  // A Reverse Path Direction press in flight shows on the Document only: the overlay's Anchors keep
+  // the committed numbering the keys use, at the same places (ADR-0110).
+  const drawn = useMemo(
+    () => (shown && reversing ? previewEdit(shown, reversing) : shown),
+    [shown, reversing],
+  );
 
   // ponytail: redraws every Node on every Document change; add viewport culling and dirty rects for 5k+ Nodes (F-VIEW-08).
   // biome-ignore lint/correctness/useExhaustiveDependencies: fontReady, lazyReady and imagesLoaded redraw text and Images once their fonts or files are in
   useEffect(() => {
     // On a tab switch the store holds the last tab's Document until connect clears it.
-    if (!doc || !shown || doc.id !== docId || !viewport) return;
+    if (!doc || !drawn || doc.id !== docId || !viewport) return;
     const ctx = sized(canvas.current, size, viewport);
     if (!ctx) return;
     const { scale } = viewport;
@@ -204,7 +211,7 @@ export function Viewer({ docId }: { docId: string }) {
       ctx.strokeStyle = "#000000";
       ctx.strokeRect(frame.x, frame.y, frame.width, frame.height);
     }
-    images.want(shown);
+    images.want(drawn);
     // Fonts load for the document, so layers are DOM canvases too.
     const layer = () => {
       const el = document.createElement("canvas");
@@ -212,8 +219,8 @@ export function Viewer({ docId }: { docId: string }) {
       return { ctx: el.getContext("2d") as CanvasRenderingContext2D, image: el };
     };
     // Isolation Mode (ADR-0057): the isolated Node draws over the rest, faded halfway to white.
-    drawDocument(ctx, shown, layer, images.get, isolated);
-  }, [doc, shown, isolated, docId, viewport, size, fontReady, lazyReady, images, imagesLoaded]);
+    drawDocument(ctx, drawn, layer, images.get, isolated);
+  }, [doc, drawn, isolated, docId, viewport, size, fontReady, lazyReady, images, imagesLoaded]);
 
   // The overlay redraws on its own canvas after every render, without repainting the Document's Nodes.
   // The Viewer renders on every store change, so no tool can read a slice this misses.
