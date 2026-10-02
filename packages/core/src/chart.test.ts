@@ -89,7 +89,16 @@ describe("parseNumber", () => {
     ["1,2", undefined],
     ["$", undefined],
     ["1e999", undefined],
+    ["$5€", undefined],
+    [",123", undefined],
   ])("%j", (cell, n) => expect(parseNumber(cell)).toBe(n));
+});
+
+it("drops the byte-order mark Excel writes before the header", () => {
+  expect(parseCsv("\uFEFFq,v\na,1\n")).toEqual([
+    ["q", "v"],
+    ["a", "1"],
+  ]);
 });
 
 it("parses RFC 4180: quoted commas, doubled quotes, CRLF and a line break in quotes", () => {
@@ -166,11 +175,12 @@ describe("columnChart", () => {
     expect(legend[0]?.x as number).toBeGreaterThan((base?.x2 ?? 0) as number);
   });
 
-  it("leaves a gap for an empty cell and draws a negative value below the baseline", () => {
+  it("leaves a gap for an empty cell or a 0 and draws a negative value below the baseline", () => {
     const rows = [
       { c: "a", v: 10 },
       { c: "b", v: "" },
       { c: "c", v: -5 },
+      { c: "d", v: 0 },
     ];
     const { part } = chart({ data: { rows }, encoding: { x: "c", y: "v" } });
     const columns = part("v").children as { name: string; y: number; height: number }[];
@@ -242,6 +252,10 @@ describe("columnChart", () => {
     expect(errorOf(() => chart({ frame: { x: 0, y: 0, width: 20, height: 20 } }))).toMatchObject({
       path: "frame",
     });
+    const thousand = Array.from({ length: 1000 }, (_, i) => ({ c: `c${i}`, v: 1 }));
+    expect(
+      errorOf(() => chart({ data: { rows: thousand }, encoding: { x: "c", y: "v" } })),
+    ).toMatchObject({ code: "LIMIT_EXCEEDED", path: "data" });
     const many = Array.from({ length: 20 }, (_, i) => `s${i}`);
     expect(
       errorOf(() =>

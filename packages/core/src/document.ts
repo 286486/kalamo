@@ -105,7 +105,7 @@ export function createDocument(input: { id: string; name: string; artboards: Art
 /** Most Nodes one `node_create` may add, counting inline Group children (REQUIREMENTS §6.5). */
 export const MAX_NODES_PER_CREATE = 2000;
 
-const countNodes = (items: { children?: unknown[] }[]): number =>
+export const countNodes = (items: { children?: unknown[] }[]): number =>
   items.reduce(
     (n, item) => n + 1 + countNodes((item.children ?? []) as { children?: unknown[] }[]),
     0,

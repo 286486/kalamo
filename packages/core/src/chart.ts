@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { countNodes, MAX_NODES_PER_CREATE } from "./document.ts";
 import { KalamoError } from "./errors.ts";
 import type { NodeInput, Warning } from "./schema.ts";
 import { textBox } from "./text.ts";
@@ -63,7 +64,9 @@ const invalid = (path: string, message: string, hint: string) =>
   new KalamoError({ code: "INVALID_INPUT", message, hint, path });
 
 /** RFC 4180 records: quoted fields may hold commas, doubled quotes and line breaks. */
-export function parseCsv(csv: string): string[][] {
+export function parseCsv(text: string): string[][] {
+  // Excel writes UTF-8 CSV with a byte-order mark, which is not part of the first field's name.
+  const csv = text.replace(/^\uFEFF/, "");
   const records: string[][] = [];
   let record: string[] = [];
   let cell = "";
@@ -95,10 +98,11 @@ export function parseNumber(cell: string | number | null | undefined): number | 
   if (typeof cell === "number") return Number.isFinite(cell) ? cell : undefined;
   const t = (cell ?? "").trim();
   if (t === "") return null;
+  if ((t.match(/\p{Sc}/gu) ?? []).length > 1) return undefined;
   const s = t
     .replace(/^([-+]?)\p{Sc}\s*/u, "$1")
     .replace(/\s*(%|\p{Sc})$/u, "")
-    .replace(/,(?=\d{3}(?!\d))/g, "");
+    .replace(/(?<=\d),(?=\d{3}(?!\d))/g, "");
   const n = /^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i.test(s) ? Number(s) : Number.NaN;
   return Number.isFinite(n) ? n : undefined;
 }
@@ -193,8 +197,6 @@ const line = (x1: number, y1: number, x2: number, y2: number) => ({
  * out inside `frame` (ADR-0106). `warnings` say what does not fit.
  */
 export function columnChart(raw: ChartInput): { node: NodeInput; warnings: Warning[] } {
-  // ponytail: one createNodes, so a chart is held to its 2000 Nodes (1000 rows of one series
-  // fail); raise it or split the write when charts need more.
   const { parentId, data, encoding, frame } = ChartInput.parse(raw);
   const series = typeof encoding.y === "string" ? [encoding.y] : encoding.y;
   const rows = rowsOf(data);
@@ -304,7 +306,8 @@ export function columnChart(raw: ChartInput): { node: NodeInput; warnings: Warni
     name,
     children: categories.flatMap((c, i) => {
       const v = values[i]?.[j];
-      if (v === null || v === undefined) return [];
+      // A 0 draws no column, as a gap does, rather than a rect with no area.
+      if (!v) return [];
       const x =
         left + i * slot + ((1 - CLUSTER_WIDTH) / 2) * slot + (j + (1 - COLUMN_WIDTH) / 2) * share;
       return [
@@ -354,15 +357,23 @@ export function columnChart(raw: ChartInput): { node: NodeInput; warnings: Warni
           },
         ]
       : [];
-  return {
-    node: {
-      type: "group",
-      parentId,
-      name: "Column Graph",
-      children: [valueAxis, categoryAxis, ...columns, ...(legend ? [legendGroup] : [])],
-    },
-    warnings,
+  const node = {
+    type: "group" as const,
+    parentId,
+    name: "Column Graph",
+    children: [valueAxis, categoryAxis, ...columns, ...(legend ? [legendGroup] : [])],
   };
+  // ponytail: one createNodes holds a chart to its Nodes; split the write when charts need more.
+  const count = countNodes([node]);
+  if (count > MAX_NODES_PER_CREATE) {
+    throw new KalamoError({
+      code: "LIMIT_EXCEEDED",
+      message: `This chart would be ${count} Nodes, a rect per value and a label per category among them; one chart holds at most ${MAX_NODES_PER_CREATE}.`,
+      hint: "Chart fewer rows or series, or split the data over several charts.",
+      path: "data",
+    });
+  }
+  return { node, warnings };
 }
 
 const round = (n: number) => Math.round(n * 10) / 10;
