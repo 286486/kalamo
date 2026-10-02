@@ -4411,11 +4411,6 @@ describe("Opacity Masks (ADR-0103)", () => {
       '<mask id="m"><foreignObject/></mask>',
       'mask="url(#m)"',
     ],
-    [
-      "a mask beside a clip-path",
-      '<mask id="m"><rect width="1" height="1" fill="#FFF"/></mask><clipPath id="c"><rect width="3" height="3"/></clipPath>',
-      'mask="url(#m)" clip-path="url(#c)"',
-    ],
   ])("imports a <g> with %s unmasked, with a warning", (_, defs, ref) => {
     const file = parseFile(
       svg("", `<defs>${defs}</defs><g ${ref}><rect width="5" height="5"/></g>`),
@@ -4426,6 +4421,38 @@ describe("Opacity Masks (ADR-0103)", () => {
     );
     expect(file.nodes.some((n) => "opacityMask" in n)).toBe(false);
   });
+
+  it.each([
+    [
+      "<g>",
+      '<g id="z-01J00000000000000000000R01" mask="url(#m)" clip-path="url(#c)"><rect width="5" height="5"/></g>',
+    ],
+    [
+      "leaf",
+      '<rect id="z-01J00000000000000000000R01" mask="url(#m)" clip-path="url(#c)" width="5" height="5"/>',
+    ],
+  ])(
+    "nests a %s both clipped and masked: its Clipping Mask inside a new Opacity Mask",
+    (_, body) => {
+      const file = parseFile(
+        svg(
+          "",
+          '<defs><mask id="m"><circle cx="2" cy="2" r="2" fill="#FFF"/></mask><clipPath id="c"><rect width="3" height="3"/></clipPath></defs>' +
+            body,
+        ),
+      );
+      expect(file.warnings).toEqual([]);
+      const own = file.nodes.find((n) => n.id === "01J00000000000000000000R01");
+      const clipped = own?.type === "group" ? own : file.nodes.find((n) => n.id === own?.parentId);
+      const masked = file.nodes.find((n) => n.id === clipped?.parentId);
+      expect(masked).toMatchObject({ type: "group" });
+      expect(children(file, clipped?.id).filter((n) => "clipping" in n)).toHaveLength(1);
+      expect(children(file, masked?.id)).toMatchObject([
+        { id: clipped?.id },
+        { type: "ellipse", opacityMask: { clip: true } },
+      ]);
+    },
+  );
 
   it("imports a masked Layer unmasked, with a warning", () => {
     const file = parseFile(

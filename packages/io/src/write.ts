@@ -25,11 +25,13 @@ import {
   type ImageSource,
   inverseOrientation,
   invert,
+  isOpacityMask,
   KalamoError,
   type LayerNode,
   type LeafNode,
   layoutText,
   lookup,
+  type MaskNode,
   type Matrix,
   MISSING_LINK_STROKE,
   mapGradient,
@@ -237,7 +239,7 @@ function layerReach(
 ): Rect | null {
   const reach = copyReach(doc, n);
   // A mask draws into a layer of its own (ADR-0103).
-  const content = (c: Node) => c !== clip && !("opacityMask" in c && c.opacityMask);
+  const content = (c: Node) => c !== clip && !isOpacityMask(c);
   return union([
     ...childrenOf(doc, n.id).map((c) =>
       content(c) && kept.has(c.id) ? visibleBounds(doc, c) : null,
@@ -603,7 +605,7 @@ function node(doc: Document, n: Node, walk: Walk): string {
 }
 
 /**
- * An Opacity Mask's `<mask>` (ADR-0103): its mask Node over a region of the content's visible
+ * An Opacity Mask's `<mask>` (ADR-0103): its mask over a region of the content's visible
  * bounds grown by SVG's default 10% each side. Clip off puts a white background below the Node,
  * Invert wraps the Node in an sRGB filter inverting its colours, and an unlinked mask says so, each
  * marked `kalamo:mask` for import.
@@ -611,10 +613,10 @@ function node(doc: Document, n: Node, walk: Walk): string {
 function maskElement(
   doc: Document,
   group: GroupNode | LayerNode,
-  mask: Exclude<Node, LayerNode>,
+  mask: MaskNode,
   walk: Walk,
 ): string {
-  const { clip, invert, link } = mask.opacityMask ?? {};
+  const { clip, invert, link } = mask.opacityMask;
   const b = visibleBounds(doc, group);
   const region =
     b &&

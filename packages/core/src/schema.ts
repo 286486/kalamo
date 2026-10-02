@@ -984,12 +984,12 @@ const clip = z
   .boolean()
   .optional()
   .describe(
-    "kind opacity only, default true: content outside the mask Node is hidden; false shows it at full opacity.",
+    "kind opacity only, default true: content outside the mask is hidden; false shows it at full opacity.",
   );
 const invert = z
   .boolean()
   .optional()
-  .describe("kind opacity only, default false: reverses the mask Node's luminance.");
+  .describe("kind opacity only, default false: reverses the mask's luminance.");
 /**
  * Illustrator's Object > Clipping Mask > Make (ADR-0021), or with `layerId` alone the Layers
  * panel's Make Clipping Mask (ADR-0053); with `kind: "opacity"`, the Transparency panel's Make
@@ -1011,7 +1011,7 @@ export const MaskFields = z.strictObject({
 });
 
 /**
- * The Transparency panel's options of an Opacity Mask's mask Node (ADR-0103): Clip, Invert Mask
+ * The Transparency panel's options of an Opacity Mask's mask (ADR-0103): Clip, Invert Mask
  * and the link between the mask and the content.
  */
 export const OpacityMask = z.strictObject({

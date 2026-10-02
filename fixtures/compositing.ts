@@ -584,6 +584,17 @@ COMPOSITING.push(
     ],
   },
   {
+    // Its Stroke, 50 wide, reaches 25 into the photo from each edge; the white mask starts at 20.
+    name: "an Opacity Mask Group's own Appearance is masked with its content",
+    ...masking("#FFFFFF"),
+    patches: { masked: { appearance: appearance([], [[BLUE, 50]], 0) } },
+    probes: [
+      { x: 100, y: 50, rgb: RED },
+      { x: 100, y: 22, rgb: BLUE },
+      { x: 100, y: 5, rgb: WHITE },
+    ],
+  },
+  {
     name: "a 50% Opacity Mask Group fades its masked content once",
     ...masking("#FFFFFF"),
     patches: { masked: { opacity: 0.5 } },

@@ -17,6 +17,7 @@ import {
   glyphs,
   hasGlyph,
   invert,
+  isOpacityMask,
   type LeafNode,
   layoutText,
   type Matrix,
@@ -246,7 +247,7 @@ function drawNode(ctx: Canvas2D, n: Node, scene: Scene) {
       luminance.setTransform(a, b, c, d, e, f);
       luminance.transform(...n.transform);
       drawNode(luminance, mask, { ...scene, without: undefined, until: undefined });
-      toAlpha(luminance, mask.opacityMask ?? { clip: true, invert: false });
+      toAlpha(luminance, mask.opacityMask);
       into.setTransform(1, 0, 0, 1, 0, 0);
       into.globalCompositeOperation = "destination-in";
       into.drawImage(alpha, 0, 0);
@@ -377,9 +378,7 @@ function paint(ctx: Canvas2D, n: Node, scene: Scene) {
     };
     // An Opacity Mask's mask draws only as its alpha (drawNode).
     const children = childrenOf(doc, n.id).filter((c) =>
-      passing
-        ? c !== clip && onPath(scene, c)
-        : c !== clip && !("opacityMask" in c && c.opacityMask),
+      passing ? c !== clip && onPath(scene, c) : c !== clip && !isOpacityMask(c),
     );
     clipped((ctx) => {
       for (const p of paints.slice(0, contents)) p(ctx);

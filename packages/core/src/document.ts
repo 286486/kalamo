@@ -36,6 +36,7 @@ import {
   NodeInput,
   type NodeOutput,
   type NodeQuery,
+  type OpacityMask,
   type Point,
   type Rect,
   Shape,
@@ -434,7 +435,7 @@ export function assertParent(
  * Checks `nodes`, in order, against the rules every committed Document keeps (ADR-0016, ADR-0072):
  * a parent that exists and may hold the Node (`assertParent`, cycles included), a valid
  * fractional-index key no earlier sibling in `nodes` holds, and at most one Clipping Path per Layer
- * or Group, or one mask child per Group, visible. The first rule each Node breaks goes to `report` with the Node's position in
+ * or Group, or one mask per Group, visible. The first rule each Node breaks goes to `report` with the Node's position in
  * `nodes`; its `path` starts with `nodes[i]`. File validation throws the first; a commit reports
  * the Nodes it touched.
  */
@@ -446,8 +447,8 @@ export function checkTree(
   const invalid = (path: string, message: string, hint: string) =>
     new KalamoError({ code: "INVALID_DOCUMENT", message, hint, path });
   const siblings = new Set<string>();
-  // Each container holding a Clipping Path or a mask child: it holds one of either (ADR-0103).
-  const masked = new Map<string | null, "Clipping Path" | "mask child">();
+  // Each container holding a Clipping Path or a mask: it holds one of either (ADR-0103).
+  const masked = new Map<string | null, "Clipping Path" | "mask">();
   nodes.forEach((n, i) => {
     const path = `nodes[${i}]`;
     try {
@@ -498,16 +499,16 @@ export function checkTree(
         if (!n.visible) throw invalid(`${path}.visible`, "A Clipping Path cannot be hidden.", hint);
         masked.set(parentId, "Clipping Path");
       }
-      if ("opacityMask" in n && n.opacityMask) {
+      if (isOpacityMask(n)) {
         const hint =
-          "A mask child is the one masking child of a Group, which has no Clipping Path, and visible (ADR-0103).";
+          "A mask is the one masking child of a Group, which has no Clipping Path, and visible (ADR-0103).";
         if (parentType !== "group") {
-          throw invalid(`${path}.opacityMask`, "A mask child's parent is a Group.", hint);
+          throw invalid(`${path}.opacityMask`, "A mask's parent is a Group.", hint);
         }
         const held = masked.get(parentId);
         if (held) throw invalid(`${path}.opacityMask`, `Its Group already has a ${held}.`, hint);
-        if (!n.visible) throw invalid(`${path}.visible`, "A mask child cannot be hidden.", hint);
-        masked.set(parentId, "mask child");
+        if (!n.visible) throw invalid(`${path}.visible`, "A mask cannot be hidden.", hint);
+        masked.set(parentId, "mask");
       }
     } catch (e) {
       if (!(e instanceof KalamoError)) throw e;
@@ -841,7 +842,7 @@ export function paintedLeaves(
   return childrenOf(doc, container.id).flatMap((n): PaintedLeaf[] => {
     if (!n.visible || n.type === "image") return [];
     // A mask paints nothing (ADR-0103).
-    if ("opacityMask" in n && n.opacityMask) return [];
+    if (isOpacityMask(n)) return [];
     if (n.type === "layer" || n.type === "group") {
       const clip = clippingPath(doc, n);
       const inner = clip ? [...clips, leafClip(doc, n.id, clip)] : clips;
@@ -900,13 +901,15 @@ export function clippingPath(doc: Document, node: Node): LeafNode | undefined {
     : undefined;
 }
 
-/** The Group's mask child, which makes it an Opacity Mask (ADR-0103). */
-export function opacityMaskOf(doc: Document, node: Node): Exclude<Node, LayerNode> | undefined {
-  return node.type === "group"
-    ? (childrenOf(doc, node.id).find((c) => "opacityMask" in c && c.opacityMask) as
-        | Exclude<Node, LayerNode>
-        | undefined)
-    : undefined;
+/** A mask: the child whose luminance masks its Group (ADR-0103). */
+export type MaskNode = Exclude<Node, LayerNode> & { opacityMask: OpacityMask };
+
+/** Whether the Node is the mask of an Opacity Mask (ADR-0103). */
+export const isOpacityMask = (n: Node): n is MaskNode => "opacityMask" in n && !!n.opacityMask;
+
+/** The Group's mask, which makes it an Opacity Mask (ADR-0103). */
+export function opacityMaskOf(doc: Document, node: Node): MaskNode | undefined {
+  return node.type === "group" ? childrenOf(doc, node.id).find(isOpacityMask) : undefined;
 }
 
 /**
@@ -930,7 +933,7 @@ export const frameShape = (r: Rect) => ({
 
 /** A container's children but its mask, whose bounds are not its Group's (ADR-0103). */
 const contentOf = (doc: Document, node: Node) =>
-  childrenOf(doc, node.id).filter((c) => !("opacityMask" in c && c.opacityMask));
+  childrenOf(doc, node.id).filter((c) => !isOpacityMask(c));
 
 /** Geometric bounds in document coordinates (no stroke), or null for an empty container. */
 export function bounds(doc: Document, node: Node): Rect | null {

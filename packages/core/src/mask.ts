@@ -1,4 +1,11 @@
-import { childrenOf, clippingPath, createNodes, opacityMaskOf, unmasked } from "./document.ts";
+import {
+  childrenOf,
+  clippingPath,
+  createNodes,
+  isOpacityMask,
+  opacityMaskOf,
+  unmasked,
+} from "./document.ts";
 import { lookup } from "./edit.ts";
 import { collect, KalamoError } from "./errors.ts";
 import type { Document, GroupNode, LeafNode, MaskInput, Node } from "./schema.ts";
@@ -61,7 +68,7 @@ export function makeMask(
   if (isMask(clip)) {
     throw invalid(
       "clipNodeId",
-      `The Node is already a ${"clipping" in clip && clip.clipping ? "Clipping Path" : "mask"}.`,
+      `The Node is already a ${isOpacityMask(clip) ? "mask" : "Clipping Path"}.`,
       `Use mask_release on it first, or ${opacity ? "mask" : "clip"} with another Node.`,
     );
   }
@@ -92,11 +99,11 @@ export function makeMask(
       );
     }
     if (isMask(n)) {
-      const what = "clipping" in n && n.clipping ? "Clipping" : "Opacity";
+      const [what, mask] = isOpacityMask(n) ? ["mask", "Opacity"] : ["Clipping Path", "Clipping"];
       throw invalid(
         at,
-        `The Node is the ${what === "Clipping" ? "Clipping Path" : "mask"} of its parent: a Group has at most one.`,
-        `Release its ${what} Mask with mask_release first.`,
+        `The Node is the ${what} of its parent: a Group has at most one.`,
+        `Release its ${mask} Mask with mask_release first.`,
       );
     }
     if (n.parentId !== clip.parentId) {
@@ -174,8 +181,7 @@ function emptied(clip: LeafNode): LeafNode {
 }
 
 /** A Clipping Path or the mask of an Opacity Mask. */
-const isMask = (n: Node) =>
-  ("clipping" in n && !!n.clipping) || ("opacityMask" in n && !!n.opacityMask);
+const isMask = (n: Node) => ("clipping" in n && !!n.clipping) || isOpacityMask(n);
 
 /**
  * Illustrator's Object > Clipping Mask > Release and the Transparency panel's Release (ADR-0103):

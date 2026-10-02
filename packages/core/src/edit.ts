@@ -6,6 +6,7 @@ import {
   checkFile,
   childrenOf,
   imageInfo,
+  isOpacityMask,
   isTopLayer,
   mapPaint,
   newId,
@@ -71,7 +72,7 @@ export function lookup(doc: Document, id: string, path: string): Node {
  * stays where it is (ADR-0103).
  */
 function moving(doc: Document, node: Node): Node[] {
-  const stays = (c: Node) => "opacityMask" in c && c.opacityMask?.link === false;
+  const stays = (c: Node) => isOpacityMask(c) && !c.opacityMask.link;
   return [node, ...childrenOf(doc, node.id).flatMap((c) => (stays(c) ? [] : moving(doc, c)))];
 }
 
@@ -239,7 +240,7 @@ export const zodPath = (path: PropertyKey[]) =>
 function writableSchema(node: Node) {
   // A mask's Transparency panel options; making or releasing one goes through mask_make and
   // mask_release (ADR-0103).
-  const mask = "opacityMask" in node && node.opacityMask ? { opacityMask: OpacityMask } : {};
+  const mask = isOpacityMask(node) ? { opacityMask: OpacityMask } : {};
   if (node.type === "layer" || node.type === "group") {
     return Writable.extend({
       appearance: ContainerAppearanceInput.optional(),
@@ -363,7 +364,7 @@ function patched(
         "Use mask_release to release the Opacity Mask (ADR-0103).",
       );
     }
-    if (key === "opacityMask" && !("opacityMask" in node && node.opacityMask)) {
+    if (key === "opacityMask" && !isOpacityMask(node)) {
       throw invalid(
         ".opacityMask",
         "The Node is not the mask of an Opacity Mask.",
@@ -457,7 +458,7 @@ function patched(
     );
   }
   // SVG hides everything through a hidden mask (ADR-0103).
-  if ("opacityMask" in next && next.opacityMask && !next.visible) {
+  if (isOpacityMask(next) && !next.visible) {
     throw invalid(
       ".visible",
       "A mask cannot be hidden.",
@@ -690,8 +691,7 @@ export function reorderNodes(
  * they go there as one block, k by k and the originals in paint order, at `index`, `before` or
  * `after` or else on top. No existing Node's key changes. A copied top-level Node loses `clipping`
  * and `opacityMask`, so no container gets a second Clipping Path or mask; a copied container keeps
- * its own. With `layerSuffix`
- * every copied Layer with a name gets it appended (#195).
+ * its own. With `layerSuffix` every copied Layer with a name gets it appended (#195).
  *
  * Returns the new Nodes, depth first, and each outermost source id's copies in order k.
  */

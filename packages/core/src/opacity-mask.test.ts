@@ -14,7 +14,7 @@ import { makeMask, releaseMask } from "./mask.ts";
 import type { Document, GroupNode, Node, ShapeNode } from "./schema.ts";
 import { type DeltaRow, revert } from "./tx.ts";
 
-// Opacity Masks (ADR-0103): a Group whose one mask child's luminance is the content's opacity.
+// Opacity Masks (ADR-0103): a Group whose one mask's luminance is the content's opacity.
 
 const errorOf = (fn: () => unknown) => {
   try {
@@ -405,17 +405,17 @@ describe("doc_open (ADR-0016)", () => {
     });
   });
 
-  it("refuses a Group with two mask children", () => {
+  it("refuses a Group with two masks", () => {
     const { s, f } = file();
     f.nodes[at(f, s.a.id)].opacityMask = { clip: true, invert: false, link: true };
     expect(errorPath(f)).toMatchObject({
       code: "INVALID_DOCUMENT",
       path: `nodes[${Math.max(at(f, s.a.id), at(f, s.mask.id))}].opacityMask`,
-      message: expect.stringContaining("already has a mask child"),
+      message: expect.stringContaining("already has a mask"),
     });
   });
 
-  it("refuses a Group with a Clipping Path and a mask child", () => {
+  it("refuses a Group with a Clipping Path and a mask", () => {
     const { s, f } = file();
     f.nodes[at(f, s.a.id)].clipping = true;
     const later = Math.max(at(f, s.a.id), at(f, s.mask.id));
@@ -425,7 +425,7 @@ describe("doc_open (ADR-0016)", () => {
     });
   });
 
-  it("refuses a mask child of a Layer, and a hidden mask", () => {
+  it("refuses a mask of a Layer, and a hidden mask", () => {
     const { s, f } = file();
     const mask = { clip: true, invert: false, link: true };
     f.nodes[at(f, s.above.id)].opacityMask = mask;

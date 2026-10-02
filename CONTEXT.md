@@ -224,6 +224,10 @@ _Avoid_: Mask path、Clip shape
 用一个 Node 的亮度控制一组 Node 透明度的容器：白显、黑隐、灰半透明，蒙版自身的 alpha 相乘。在模型中它是含一个带 `opacityMask` 的子节点（蒙版）的 `group`，没有单独的 `mask_group` 类型（ADR-0103）。蒙版可以是 Layer 之外的任意 Node（Live Shape、Path、文字、Image、Group），保留其 Appearance，自身不绘制；每个 Group 至多一个，且不与 Clipping Path 同在一个 Group。`opacityMask` 有三个开关，依 Illustrator 的 Transparency 面板：Clip（缺省开，蒙版之外隐藏）、Invert（缺省关，反转蒙版自身的亮度）、Link（缺省开，变换 Group 或其祖先时蒙版随之移动）。边界取内容的，不含蒙版。移到别的父级、单独复制或粘贴的蒙版不再遮罩。
 _Avoid_: Alpha mask、Luminosity mask
 
+**Mask（蒙版）**：
+Opacity Mask 中以亮度做遮罩的那个子 Node：一个带 `opacityMask` 的 Live Shape、Path、文字、Image 或 Group。保留其 Appearance，自身不绘制；其位置不影响绘制结果（ADR-0103）。
+_Avoid_: Mask child、Mask Node、Mask object
+
 ## 手绘
 
 **Ink（笔迹）**：
