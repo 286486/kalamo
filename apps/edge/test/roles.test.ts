@@ -79,12 +79,21 @@ const FAMILIES: Record<
     const s = await socket(who, docId);
     if (!s.ws) return s.res.status === 404 ? "DOC_NOT_FOUND" : "PERMISSION_DENIED";
     await s.next();
+    // The previous Role's socket can still announce it left, so wait for the command's own answer.
+    const reply = async (id: string) => {
+      for (;;) {
+        const m = await s.next();
+        if ((m.type === "tx" && m.commandId === id) || (m.type === "rejected" && m.id === id)) {
+          return m;
+        }
+      }
+    };
     // Each Role toggles it the other way, so no update is a no-op.
     s.send("c1", { type: "update", nodeId: imageId, patch: { visible: who.login === "olive" } });
-    const answer = await s.next();
+    const answer = await reply("c1");
     // An Alt-drag copy (ADR-0076) is refused the same way.
     s.send("c2", { type: "duplicate", input: { nodeIds: [imageId] } });
-    const copy = await s.next();
+    const copy = await reply("c2");
     s.ws.close();
     expect(copy.type).toBe(answer.type);
     return answer.type === "rejected" ? (answer.error.code as Outcome) : "ok";
