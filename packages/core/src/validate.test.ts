@@ -95,6 +95,35 @@ describe("validate", () => {
     ]);
   });
 
+  it("zero_area: a closed shape whose outline cancels itself, though its bounds have area", () => {
+    const square = "M 0 0 L 10 0 L 10 10 L 0 10 Z";
+    const { issues } = scene([
+      // Out and back along the same lines, then along the same curve.
+      { type: "path", d: "M 0 0 L 10 0 L 10 10 L 10 0 Z" },
+      { type: "path", d: "M 0 0 C 0 20 20 20 20 0 C 20 20 0 20 0 0 Z" },
+      // A square and the same square wound the other way.
+      { type: "path", d: `${square} M 0 0 L 0 10 L 10 10 L 10 0 Z` },
+      // Traced twice: evenodd fills nothing, nonzero fills it.
+      { type: "path", d: `${square} ${square}`, fillRule: "evenodd" },
+      { type: "path", d: `${square} ${square}` },
+      // Its open subpath is closed as a fill closes it, back along itself.
+      { type: "path", d: "M 0 0 L 10 0 L 10 10 L 10 0 Z M 20 20 L 30 20" },
+      // A bowtie's signed area is zero, but both lobes fill.
+      { type: "path", d: "M 0 0 L 10 10 L 10 0 L 0 10 Z" },
+      // Out along one curve and back along another.
+      { type: "path", d: "M 0 0 C 0 20 20 20 20 0 C 20 10 0 10 0 0 Z" },
+      // Tiny, but it fills.
+      rect(10, 10, 0.5, 0.5),
+    ]);
+    expect(issues()).toEqual([
+      ["zero_area", 0],
+      ["zero_area", 1],
+      ["zero_area", 2],
+      ["zero_area", 3],
+      ["zero_area", 5],
+    ]);
+  });
+
   it("missing_link: a linked Image with no pixels", () => {
     const { issues } = scene([
       { type: "image", file: "gone.png", x: 0, y: 0, width: 10, height: 10 },

@@ -1,8 +1,15 @@
 import { z } from "zod";
-import { childrenOf, isOpacityMask, touches, visibleBounds, worldSegments } from "./document.ts";
+import { childrenOf, isOpacityMask, touches, visibleBounds, worldOutline } from "./document.ts";
 import { artboardOf, lookup } from "./edit.ts";
 import type { Segment } from "./path.ts";
-import { ArtboardScope, type Document, type Node, NodesScope, type Rect } from "./schema.ts";
+import {
+  ArtboardScope,
+  type Document,
+  type Node,
+  NodesScope,
+  type Point,
+  type Rect,
+} from "./schema.ts";
 import { textWarnings } from "./text.ts";
 
 /** `validate`'s rules (ADR-0105), in the order a Node's issues are listed. */
@@ -119,7 +126,7 @@ function check(doc: Document, n: Node): ValidateIssue[] {
             },
           ];
     default:
-      return zeroArea(worldSegments(doc, n))
+      return zeroArea(worldOutline(doc, n))
         ? [
             {
               rule: "zero_area",
@@ -133,12 +140,12 @@ function check(doc: Document, n: Node): ValidateIssue[] {
 }
 
 /**
- * A shape whose points all sit on one point, or a closed one whose points all sit on one line. An
- * open shape with length, such as a Line, has no area to lose.
+ * A shape whose points all sit on one point, or a closed one that fills nothing: winding is zero
+ * everywhere off its outline, or even under evenodd. Winding steps by an edge's net count as it is
+ * crossed, so that holds when every piece of every line its edges lie on is crossed a net zero (or
+ * even) times. An open shape with length, such as a Line, has no area to lose.
  */
-// ponytail: tests the control points, so a closed path that doubles back on itself with curves off
-// its line is not zero area; measure the filled area when that matters.
-function zeroArea(segments: Segment[]): boolean {
+function zeroArea({ segments, fillRule }: ReturnType<typeof worldOutline>): boolean {
   const points = segments.flatMap((s) =>
     Array.from({ length: s.args.length / 2 }, (_, i) => ({
       x: s.args[2 * i] as number,
@@ -147,14 +154,86 @@ function zeroArea(segments: Segment[]): boolean {
   );
   const [p0] = points;
   if (!p0) return false;
-  const far = points.reduce((a, p) =>
-    Math.hypot(p.x - p0.x, p.y - p0.y) > Math.hypot(a.x - p0.x, a.y - p0.y) ? p : a,
-  );
-  const length = Math.hypot(far.x - p0.x, far.y - p0.y);
-  if (length <= EPSILON) return true;
+  if (points.every((p) => Math.hypot(p.x - p0.x, p.y - p0.y) <= EPSILON)) return true;
   if (!segments.some((s) => s.cmd === "Z")) return false;
-  return points.every(
-    (p) =>
-      Math.abs((far.x - p0.x) * (p.y - p0.y) - (far.y - p0.y) * (p.x - p0.x)) / length <= EPSILON,
-  );
+  // Longest first: each line is set by the edge that fixes its direction best, and a shape with
+  // area is usually told by its first line.
+  // ponytail: each line scans the edges left, O(edges × lines) for a shape that does cancel; bucket
+  // lines by angle if such paths with thousands of curves get slow.
+  let edges = outlineEdges(segments)
+    .filter((e) => length(e) > EPSILON)
+    .sort((e, f) => length(f) - length(e));
+  while (edges[0]) {
+    const [from, to] = edges[0];
+    const len = length(edges[0]);
+    const u = { x: (to.x - from.x) / len, y: (to.y - from.y) / len };
+    const on = (p: Point) => Math.abs(u.x * (p.y - from.y) - u.y * (p.x - from.x)) <= EPSILON;
+    const at = (p: Point) => (p.x - from.x) * u.x + (p.y - from.y) * u.y;
+    // Each edge on the line is crossed +1 forward or -1 backward between its ends; up the line,
+    // either way that is +1 at its start and -1 at its end.
+    const steps = edges
+      .filter(([a, b]) => on(a) && on(b))
+      .flatMap(([a, b]): [number, number][] => [
+        [at(a), 1],
+        [at(b), -1],
+      ])
+      .sort((p, q) => p[0] - q[0]);
+    let count = 0;
+    const fills = steps.some(([t, step], i) => {
+      count += step;
+      const next = steps[i + 1];
+      return !!next && next[0] - t > EPSILON && (fillRule === "evenodd" ? count % 2 : count) !== 0;
+    });
+    if (fills) return false;
+    edges = edges.filter(([a, b]) => !(on(a) && on(b)));
+  }
+  return true;
+}
+
+const length = ([a, b]: [Point, Point]) => Math.hypot(b.x - a.x, b.y - a.y);
+
+/** Curves are cut into this many straight edges, evenly in t, so a curve traced back cancels. */
+const CURVE_STEPS = 16;
+
+/** An outline's edges, each subpath closed as its fill closes it, curves cut into straight edges. */
+// ponytail: a curve cancels only one traced back along the same control points; another curve of
+// the same shape but other control points is not flattened to the same edges.
+function outlineEdges(segments: Segment[]): [Point, Point][] {
+  const edges: [Point, Point][] = [];
+  let start: Point = { x: 0, y: 0 };
+  let at = start;
+  const close = () => {
+    if (at.x !== start.x || at.y !== start.y) edges.push([at, start]);
+    at = start;
+  };
+  for (const { cmd, args: a } of segments) {
+    const p = (i: number): Point => ({ x: a[2 * i] as number, y: a[2 * i + 1] as number });
+    if (cmd === "M") {
+      close();
+      start = at = p(0);
+    } else if (cmd === "Z") close();
+    else {
+      const ctrl = [at, ...Array.from({ length: a.length / 2 }, (_, i) => p(i))];
+      const steps = cmd === "L" ? 1 : CURVE_STEPS;
+      for (let i = 1; i <= steps; i++) {
+        const next = i === steps ? (ctrl.at(-1) as Point) : bezier(ctrl, i / steps);
+        edges.push([at, next]);
+        at = next;
+      }
+    }
+  }
+  close();
+  return edges;
+}
+
+/** The point at `t` on the Bézier curve with these control points (de Casteljau). */
+function bezier(ctrl: Point[], t: number): Point {
+  let pts = ctrl;
+  while (pts.length > 1) {
+    pts = pts.slice(1).map((q, i) => {
+      const p = pts[i] as Point;
+      return { x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t };
+    });
+  }
+  return pts[0] as Point;
 }
