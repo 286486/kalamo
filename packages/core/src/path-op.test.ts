@@ -849,6 +849,53 @@ describe("pathOp Shape Modes, on real PathKit (ADR-0104)", () => {
     expect(childrenOf(doc, layer).map((n) => n.id)).toEqual([under.id, made.id, over.id]);
   });
 
+  it("minus_back keeps the topmost's paint, name and place, minus every operand behind it", async () => {
+    const { doc, layer, box } = scene();
+    const [under, a, b, front, over] = createNodes(doc, [
+      box(0, 0, 5, 5),
+      box(0, 0, 10, 20),
+      box(30, 0, 10, 20),
+      { ...box(0, 0, 40, 20, "#00FF00"), name: "front" },
+      box(0, 0, 5, 5),
+    ]).nodes as [Node, Node, Node, Node, Node];
+    doc.nodes.set(front.id, { ...front, opacity: 0.5, blendMode: "multiply", tags: ["t"] });
+    const out = await run(doc, [b.id, front.id, a.id], "minus_back");
+    const [made] = out.created as [PathNode];
+    expect(made).toMatchObject({
+      name: "front",
+      opacity: 0.5,
+      blendMode: "multiply",
+      tags: ["t"],
+      parentId: layer,
+      index: front.index,
+      fillRule: "nonzero",
+      appearance: { fills: [{ color: "#00FF00" }] },
+    });
+    expect(total(made.d)).toBe(400);
+    expect(out.deletedIds.sort()).toEqual([front.id, a.id, b.id].sort());
+    expect(childrenOf(doc, layer).map((n) => n.id)).toEqual([under.id, made.id, over.id]);
+  });
+
+  it("minus_back subtracts a Group behind as one operand, and leaves a disjoint front as it was", async () => {
+    const { doc, layer, box, child } = scene();
+    const { nodes } = createNodes(doc, [
+      { type: "group", parentId: layer, children: [child(0, 0, 20, 20), child(10, 0, 20, 20)] },
+      box(0, 0, 40, 20, "#0000FF"),
+    ]);
+    const [group, front] = [nodes[0], nodes.at(-1)] as [GroupNode, Node];
+    const [ring] = (await run(doc, [front.id, group.id], "minus_back")).created as [PathNode];
+    expect(total(ring.d)).toBe(200);
+    expect(ring.appearance.fills).toMatchObject([{ color: "#0000FF" }]);
+    const { doc: d2, box: b2 } = scene();
+    const [back, top] = createNodes(d2, [b2(100, 0, 10, 10), b2(0, 0, 40, 20)]).nodes as [
+      Node,
+      Node,
+    ];
+    const [same] = (await run(d2, [back.id, top.id], "minus_back")).created as [PathNode];
+    expect(pathBounds(parsePath(same.d, "d"))).toEqual({ x: 0, y: 0, width: 40, height: 20 });
+    expect(total(same.d)).toBe(800);
+  });
+
   it("unite takes the topmost's paint and place, in a Group, in its coordinates", async () => {
     const { doc, layer, child } = scene();
     const [group] = createNodes(doc, [
@@ -960,12 +1007,13 @@ describe("pathOp Shape Modes, on real PathKit (ADR-0104)", () => {
 
   it("refuses a text, one operand and an empty result, changing nothing", async () => {
     const { doc, layer, box } = scene();
-    const [a, text, far, cover] = createNodes(doc, [
+    const [a, text, far, cover, inner] = createNodes(doc, [
       box(0, 0, 10, 10),
       { type: "text", parentId: layer, x: 0, y: 0, content: "Hi" },
       box(50, 50, 10, 10),
       box(-5, -5, 20, 20),
-    ]).nodes as [Node, Node, Node, Node];
+      box(0, 0, 5, 5),
+    ]).nodes as [Node, Node, Node, Node, Node];
     const before = structuredClone(doc.nodes);
     const fails = async (ids: string[], op = "unite") => {
       const geometry = await loadGeometry();
@@ -985,6 +1033,11 @@ describe("pathOp Shape Modes, on real PathKit (ADR-0104)", () => {
     expect(await fails([cover.id, a.id], "minus_front")).toMatchObject({
       message: "The objects in front cover all of the backmost one.",
     });
+    expect(await fails([inner.id, cover.id], "minus_back")).toMatchObject({
+      code: "INVALID_PATH",
+      message: "The objects behind cover all of the frontmost one.",
+    });
+    expect(await fails([a.id, text.id], "minus_back")).toMatchObject({ path: "nodeIds[1]" });
     expect(await fails([layer, a.id])).toMatchObject({ path: "nodeIds[0]" });
     expect(await fails([a.id, "nope"])).toMatchObject({
       code: "NODE_NOT_FOUND",

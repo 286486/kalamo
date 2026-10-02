@@ -39,6 +39,7 @@ import {
   outline,
   overlay,
   PATH_OP_TEXT,
+  PATHFINDERS,
   type PathEditInput,
   type PathOpInput,
   pathOp,
@@ -1015,7 +1016,13 @@ export class DocumentObject extends DurableObject<Env> {
     actor: string,
     opts: Options = {},
   ): Promise<Result<WriteReceipt>> {
-    const geometry = ["outline_stroke", "offset", "divide_below", ...SHAPE_MODES].includes(input.op)
+    const geometry = [
+      "outline_stroke",
+      "offset",
+      "divide_below",
+      ...SHAPE_MODES,
+      ...PATHFINDERS,
+    ].includes(input.op)
       ? await this.geometry()
       : undefined;
     const { summary } = PATH_OP_TEXT[input.op];

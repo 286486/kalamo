@@ -49,12 +49,15 @@ type Point = [number, number];
 /** Illustrator's Pathfinder Shape Modes, expanded (ADR-0104). */
 export const SHAPE_MODES = ["unite", "minus_front", "intersect", "exclude"] as const;
 
+/** Illustrator's Pathfinders built so far, which combine as the Shape Modes do (ADR-0104). */
+export const PATHFINDERS = ["minus_back"] as const;
+
 /**
  * `path_op` (REQUIREMENTS §6.4) so far: convert_to_path (Object > Shape > Expand Shape), reverse
  * (Reverse Path Direction), add_anchors (Add Anchor Points), join (Join), average (Average),
  * simplify (Simplify), outline_stroke (Outline Stroke), offset (Offset Path), divide_below (Divide
  * Objects Below), split_into_grid (Split Into Grid), clean_up (Clean Up) and the Pathfinder Shape
- * Modes unite, minus_front, intersect and exclude (ADR-0104).
+ * Modes unite, minus_front, intersect and exclude and the Pathfinder minus_back (ADR-0104).
  */
 export const PathOpInput = z.strictObject({
   nodeIds: z
@@ -75,6 +78,7 @@ export const PathOpInput = z.strictObject({
     "split_into_grid",
     "clean_up",
     ...SHAPE_MODES,
+    ...PATHFINDERS,
   ]),
   tolerance: z
     .number()
@@ -184,11 +188,14 @@ export const PATH_OP_TEXT: Record<PathOpInput["op"], { menu: string; summary: st
   minus_front: { menu: "Minus Front", summary: "Minus Front" },
   intersect: { menu: "Intersect", summary: "Intersect" },
   exclude: { menu: "Exclude", summary: "Exclude" },
+  minus_back: { menu: "Minus Back", summary: "Minus Back" },
 };
 
 export type ShapeMode = (typeof SHAPE_MODES)[number];
-const isShapeMode = (op: string): op is ShapeMode =>
-  (SHAPE_MODES as readonly string[]).includes(op);
+/** A Shape Mode or a Pathfinder that combines like one. */
+export type Combining = ShapeMode | (typeof PATHFINDERS)[number];
+const isCombining = (op: string): op is Combining =>
+  ([...SHAPE_MODES, ...PATHFINDERS] as readonly string[]).includes(op);
 
 /** How a Stroke is drawn along its path, without its paint. */
 export type StrokeStyle = Pick<Stroke, "width" | "cap" | "join" | "miterLimit" | "dash">;
@@ -749,11 +756,12 @@ function bake(appearance: Appearance, m: Matrix): Appearance {
   };
 }
 
-const EMPTY: Record<ShapeMode, string> = {
+const EMPTY: Record<Combining, string> = {
   unite: "The objects have no area to unite.",
   minus_front: "The objects in front cover all of the backmost one.",
   intersect: "The objects have no area in common.",
   exclude: "The objects' overlaps cancel all of their area.",
+  minus_back: "The objects behind cover all of the frontmost one.",
 };
 
 /** A Shape Mode operand's paths and Live Shapes, back to front; no Clipping Path or mask. */
@@ -770,12 +778,12 @@ function operandLeaves(doc: Document, n: Node): WithAnchors[] {
  * Pathfinder Shape Modes (ADR-0104): each Node in `nodeIds`, its path and Live Shape leaves for a
  * Group or Layer, is one operand in document coordinates. They combine into one new path in the
  * place, and with the paint, of the topmost operand, or the backmost for minus_front, and are
- * deleted.
+ * deleted. minus_back is minus_front taken front to back: the topmost minus all behind it.
  */
 function shapeMode(
   doc: Document,
   nodeIds: string[],
-  op: ShapeMode,
+  op: Combining,
   geometry: Geometry,
 ): PathOpResult {
   const order = paintOrder(doc);
@@ -819,7 +827,10 @@ function shapeMode(
     if (only && each.length === 1) return only;
     return { segments: geometry.combine("unite", each), fillRule: "nonzero" };
   });
-  const segments = geometry.combine(op, filled);
+  const segments =
+    op === "minus_back"
+      ? geometry.combine("minus_front", filled.toReversed())
+      : geometry.combine(op, filled);
   if (segments.length === 0) {
     throw invalid("nodeIds", EMPTY[op], "Overlap the objects so the result has area.");
   }
@@ -916,7 +927,7 @@ export function pathOp(doc: Document, raw: PathOpInput, geometry?: Geometry): Pa
     if (!geometry) throw new Error("divide_below needs the path geometry (ADR-0034).");
     return divideBelow(doc, nodeIds, geometry);
   }
-  if (isShapeMode(op)) {
+  if (isCombining(op)) {
     if (!geometry) throw new Error(`${op} needs the path geometry (ADR-0034).`);
     return shapeMode(doc, nodeIds, op, geometry);
   }

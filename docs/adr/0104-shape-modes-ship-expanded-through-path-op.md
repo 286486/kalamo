@@ -17,6 +17,7 @@ M1 lists "booleans (live + expand)", and F-BOOL-01 asks for Illustrator's four S
 - **Paint and place.** Unite, Intersect and Exclude take the topmost operand's paint. Minus Front takes the backmost operand's paint, as in Illustrator. The result takes that operand's name, visibility, lock, opacity, blend mode, tags and meta, and its stacking place in its parent. Its Appearance is that operand's topmost leaf's, mapped through the leaf's transform: gradients move with it, and Stroke widths and dashes scale by it, so the paint looks as before.
 - **One write.** The operands are deleted with their subtrees. A Group operand goes whole, including any text or Image in it. The result is created. This happens in one Transaction with one WriteReceipt (`createdIds` the result, `deletedIds` the operands) and is one undo step.
 - **Empty result.** When the result has no area, for example an Intersect of disjoint objects or a Minus Front whose front covers the back, the op fails `INVALID_PATH` and changes nothing (F-BOOL-06). A Skia failure is `BOOLEAN_FAILED`.
+- **Minus Back (#265).** The Pathfinder Minus Back is the `path_op` op `minus_back`, under every rule above. Illustrator's Pathfinder panel describes it as subtracting the objects in back from the frontmost object, the reverse of Minus Front. So the operands are taken front to back: the topmost operand is combined with each operand behind it by `DIFFERENCE`. The result takes the topmost operand's paint, attributes and place, and fills `nonzero`. When the objects behind cover the frontmost one, it fails `INVALID_PATH`. When none of them overlaps it, the result has the frontmost object's shape. Window > Pathfinder shows it last in the Pathfinders row, after Divide, Trim, Merge, Crop and Outline, which are not built yet.
 
 ## Considered Options
 
@@ -28,4 +29,4 @@ M1 lists "booleans (live + expand)", and F-BOOL-01 asks for Illustrator's four S
 
 - FixWinding can misjudge contours that touch at a single point. Such a hole may fill under nonzero. The code marks this limit with a `ponytail:` comment.
 - Hidden and locked operands are combined like any other. Illustrator cannot select them, and the browser selects only what it can edit.
-- The browser's Pathfinder panel can send these ops through the generic `path_op` command (`apps/web/src/menu.ts`) as a small follow-up.
+- The browser's Pathfinder panel sends these ops through the generic `path_op` command (`apps/web/src/menu.ts`, #261, #265).
