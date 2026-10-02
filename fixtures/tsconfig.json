@@ -1,0 +1,6 @@
+{
+  "extends": "../tsconfig.json",
+  // Fixture scripts, repo tests and the Vitest config run on Node; Node and Workers types collide.
+  "compilerOptions": { "types": ["node"] },
+  "include": ["**/*.ts", "../vitest.config.ts"]
+}
