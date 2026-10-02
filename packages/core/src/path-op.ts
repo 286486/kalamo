@@ -18,14 +18,15 @@ import {
   bounds,
   childrenOf,
   createNodes,
+  isOpacityMask,
   MAX_NODES_PER_CREATE,
   mapPaint,
   newId,
   paintOrder,
-  worldSegments,
+  worldOutline,
   worldTransform,
 } from "./document.ts";
-import { deleteNodes, lookup, outermost, subtree } from "./edit.ts";
+import { deleteNodes, lookup, outermost } from "./edit.ts";
 import { KalamoError } from "./errors.ts";
 import { simplifySubpath } from "./fit.ts";
 import { applyTo, IDENTITY, invert, multiply, scaleOf, transformSegments } from "./matrix.ts";
@@ -44,6 +45,9 @@ import type {
 } from "./schema.ts";
 
 type Point = [number, number];
+
+/** Illustrator's Pathfinder Shape Modes, expanded (ADR-0104). */
+export const SHAPE_MODES = ["unite", "minus_front", "intersect", "exclude"] as const;
 
 /**
  * `path_op` (REQUIREMENTS §6.4) so far: convert_to_path (Object > Shape > Expand Shape), reverse
@@ -70,10 +74,7 @@ export const PathOpInput = z.strictObject({
     "divide_below",
     "split_into_grid",
     "clean_up",
-    "unite",
-    "minus_front",
-    "intersect",
-    "exclude",
+    ...SHAPE_MODES,
   ]),
   tolerance: z
     .number()
@@ -185,8 +186,6 @@ export const PATH_OP_TEXT: Record<PathOpInput["op"], { menu: string; summary: st
   exclude: { menu: "Exclude", summary: "Exclude" },
 };
 
-/** Illustrator's Pathfinder Shape Modes, expanded (ADR-0104). */
-export const SHAPE_MODES = ["unite", "minus_front", "intersect", "exclude"] as const;
 export type ShapeMode = (typeof SHAPE_MODES)[number];
 const isShapeMode = (op: string): op is ShapeMode =>
   (SHAPE_MODES as readonly string[]).includes(op);
@@ -757,13 +756,28 @@ const EMPTY: Record<ShapeMode, string> = {
   exclude: "The objects' overlaps cancel all of their area.",
 };
 
+/** A Shape Mode operand's paths and Live Shapes, back to front; no Clipping Path or mask. */
+function operandLeaves(doc: Document, n: Node): WithAnchors[] {
+  // A mask paints nothing (ADR-0103).
+  if (isOpacityMask(n)) return [];
+  if (n.type === "layer" || n.type === "group") {
+    return childrenOf(doc, n.id).flatMap((c) => operandLeaves(doc, c));
+  }
+  return (n.type === "path" || isLiveShape(n)) && !n.clipping ? [n] : [];
+}
+
 /**
  * Pathfinder Shape Modes (ADR-0104): each Node in `nodeIds`, its path and Live Shape leaves for a
  * Group or Layer, is one operand in document coordinates. They combine into one new path in the
  * place, and with the paint, of the topmost operand, or the backmost for minus_front, and are
  * deleted.
  */
-function shapeMode(doc: Document, nodeIds: string[], op: ShapeMode, geometry: Geometry) {
+function shapeMode(
+  doc: Document,
+  nodeIds: string[],
+  op: ShapeMode,
+  geometry: Geometry,
+): PathOpResult {
   const order = paintOrder(doc);
   // A Node inside another operand is already part of it, as when Illustrator selects a Group.
   const { kept, nested } = outermost(
@@ -772,9 +786,7 @@ function shapeMode(doc: Document, nodeIds: string[], op: ShapeMode, geometry: Ge
   );
   const named = kept.map((node) => {
     const i = nodeIds.indexOf(node.id);
-    const leaves = subtree(doc, node).filter(
-      (n): n is WithAnchors => (n.type === "path" || isLiveShape(n)) && !n.clipping,
-    );
+    const leaves = operandLeaves(doc, node);
     if (leaves.length === 0) {
       const what =
         node.type === "group" || node.type === "layer"
@@ -797,17 +809,12 @@ function shapeMode(doc: Document, nodeIds: string[], op: ShapeMode, geometry: Ge
     }
     return { node, leaves };
   });
-  const operands = named.sort(
-    (a, b) => (order.get(a.node.id) ?? 0) - (order.get(b.node.id) ?? 0),
-  );
+  const operands = named.sort((a, b) => (order.get(a.node.id) ?? 0) - (order.get(b.node.id) ?? 0));
   if (operands.length < 2) {
     throw invalid("nodeIds", "A Shape Mode combines two or more objects.", "List them in nodeIds.");
   }
   const filled = operands.map(({ leaves }): Filled => {
-    const each = leaves.map((n) => ({
-      segments: worldSegments(doc, n),
-      fillRule: n.type === "path" ? n.fillRule : "nonzero",
-    }));
+    const each = leaves.map((n) => worldOutline(doc, n));
     const [only] = each;
     if (only && each.length === 1) return only;
     return { segments: geometry.combine("unite", each), fillRule: "nonzero" };

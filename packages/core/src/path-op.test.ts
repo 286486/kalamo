@@ -900,6 +900,29 @@ describe("pathOp Shape Modes, on real PathKit (ADR-0104)", () => {
     expect(out.deletedIds.sort()).toEqual([back.id, group.id, ...inside].sort());
   });
 
+  it("leaves a Group's Opacity Mask out of its operand, area and paint", async () => {
+    const result = async (op: string) => {
+      const { doc, layer, box, child } = scene();
+      const [back, group] = createNodes(doc, [
+        box(0, 0, 40, 20),
+        {
+          type: "group",
+          parentId: layer,
+          children: [child(0, 0, 10, 20, "#0000FF"), child(0, 0, 40, 20, "#000000")],
+        },
+      ]).nodes as [Node, GroupNode];
+      const [, mask] = childrenOf(doc, group.id) as [Node, Node];
+      doc.nodes.set(mask.id, {
+        ...mask,
+        opacityMask: { clip: true, invert: false, link: true },
+      } as Node);
+      const [made] = (await run(doc, [back.id, group.id], op)).created as [PathNode];
+      return { area: total(made.d), fills: made.appearance.fills };
+    };
+    expect(await result("minus_front")).toMatchObject({ area: 600 });
+    expect(await result("unite")).toMatchObject({ fills: [{ color: "#0000FF" }] });
+  });
+
   it("counts a Node inside a Group operand once, as part of the Group", async () => {
     const { doc, layer, box, child } = scene();
     const [back, group] = createNodes(doc, [
@@ -914,7 +937,9 @@ describe("pathOp Shape Modes, on real PathKit (ADR-0104)", () => {
     expect(childrenOf(doc, layer).map((n) => n.id)).toEqual([made.id]);
     // The overlap of back and Group, -5..15 minus 0..5; as a third operand, inner would toggle 0..10.
     expect(total(made.d)).toBe(150);
-    expect(out.warnings).toEqual([expect.objectContaining({ code: "NESTED_TARGET", nodeId: inner.id })]);
+    expect(out.warnings).toEqual([
+      expect.objectContaining({ code: "NESTED_TARGET", nodeId: inner.id }),
+    ]);
   });
 
   it("refuses a text, one operand and an empty result, changing nothing", async () => {
