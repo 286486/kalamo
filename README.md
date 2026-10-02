@@ -73,6 +73,8 @@ pnpm run deploy
 
 `pnpm run deploy` (plain `pnpm deploy` is pnpm's own command) builds the web app, applies remote D1 migrations, uploads `apps/edge/.deploy.vars` as encrypted Worker secrets, and deploys the Worker, Durable Object, and static assets. It never reads `.dev.vars`, so a deployed Worker runs in GitHub mode unless the deploy sets `--var AUTH_MODE:dev` on purpose. The resulting `workers.dev` URL needs no domain configuration; add a custom domain later in Cloudflare if wanted, and update `APP_ORIGIN` and the OAuth App's callback URL to match.
 
+The built app serves its third-party notices at `/NOTICE.txt` and `/third-party-licenses.txt`. Keep them when you serve `apps/web/dist` from elsewhere. If you redistribute a built Worker, ship `NOTICE` and the licence texts it points to with it.
+
 ### No hosted deployment
 
 Nothing hosts the editor now. Its Worker `kalamo`, D1 database `kalamo`, R2 bucket `kalamo-images` and KV namespace `kalamo-oauth` were deleted from Cloudflare on 2026-09-30, and `https://kalamo.woodywang2013.workers.dev` answers 404. Only the landing page is deployed (below).
