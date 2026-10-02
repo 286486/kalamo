@@ -174,8 +174,8 @@ function areaLines(svg: string): Map<string, string[][]> {
     Number(new RegExp(`\\s${name}="([^"]*)"`).exec(tag)?.[1]);
   const entities: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"' };
   const decode = (t: string) =>
-    t.replace(/&(?:#(\d+)|(\w+));/g, (_, n, e) =>
-      n ? String.fromCodePoint(Number(n)) : entities[e],
+    t.replace(/&(?:#(\d+)|(\w+));/g, (m, n, e) =>
+      n ? String.fromCodePoint(Number(n)) : (entities[e] ?? m),
     );
   const out = new Map<string, string[][]>();
   const texts = /<text\b[^>]*shape-inside:url\(#area-z-([^)]+)\)[^>]*>([\s\S]*?)<\/text>/g;
@@ -443,7 +443,8 @@ async function main() {
             }
           }
           of[py * docRect.width + px] = i;
-          if (regions[i]) regions[i].area++;
+          const region = regions[i];
+          if (region) region.area++;
         }
       return { regions, of, docRect };
     };
@@ -502,12 +503,11 @@ async function main() {
       return readFileSync(saved, "utf8");
     };
     /** The Kalamo JSON of two opened Documents. */
-    const kalamoJson = (a: { docId: string }, b: { docId: string }) =>
-      Promise.all(
-        [a, b].map(
-          async (d) => JSON.parse(await text({ docId: d.docId, format: "kalamo_json" })) as Doc,
-        ),
-      );
+    const kalamoJson = (a: { docId: string }, b: { docId: string }): Promise<[Doc, Doc]> => {
+      const docJson = async (d: { docId: string }) =>
+        JSON.parse(await text({ docId: d.docId, format: "kalamo_json" })) as Doc;
+      return Promise.all([docJson(a), docJson(b)]);
+    };
     /** Prints `label` and the line `check` returns, or its error as a failed line, counting it. */
     const printLine = async (label: string, check: () => Promise<string>) => {
       let line: string;
@@ -625,7 +625,8 @@ async function main() {
             pivot: { x: 0, y: 0 },
             scaleStrokes: true,
           });
-          const [want, got] = (await kalamoJson(original, reopened)).map(rounded);
+          const [rawWant, rawGot] = await kalamoJson(original, reopened);
+          const [want, got] = [rounded(rawWant), rounded(rawGot)];
           const warnings = reopened.warnings.filter((w) => w.code !== "IMAGE_LINK_MISSING");
           const structure = warnings.length
             ? `warnings: ${JSON.stringify(warnings)}`

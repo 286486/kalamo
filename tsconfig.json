@@ -13,7 +13,8 @@
     "allowImportingTsExtensions": true,
     "noEmit": true
   },
-  "include": ["apps/*/src", "apps/*/test", "packages/*/src", "vitest.config.ts"],
+  // vitest.config.ts pulls in Node's types; fixtures/tsconfig.json checks it (ADR-0096).
+  "include": ["apps/*/src", "apps/*/test", "packages/*/src"],
   // DOM types collide with workers-types; apps/web has its own tsconfig.
   "exclude": ["apps/web"]
 }

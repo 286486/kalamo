@@ -3,7 +3,7 @@ export interface ToolResult {
   isError?: boolean;
   // biome-ignore lint/suspicious/noExplicitAny: assertions read arbitrary structured results
   structuredContent?: any;
-  content: { type: string; text?: string }[];
+  content: { type: string; text?: string; data?: string }[];
 }
 
 /** Calls one Kalamo tool; the runner's is `httpCall`, the unit test's goes through the Worker. */
