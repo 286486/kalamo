@@ -1207,3 +1207,208 @@ describe("pathOp split_into_grid", () => {
     });
   });
 });
+
+describe("pathOp Compound Path Make and Release (ADR-0107)", () => {
+  const scene = () => {
+    const { doc, defaultLayerId: layer } = createDocument({
+      id: "d",
+      name: "Doc",
+      artboards: [{ width: 200, height: 100 }],
+    });
+    const box = (x: number, y: number, w: number, h: number, color = "#FF0000") => ({
+      type: "rect" as const,
+      parentId: layer,
+      ...{ x, y, width: w, height: h, appearance: { fills: [{ color }] } },
+    });
+    return { doc, layer, box };
+  };
+  const make = (doc: ReturnType<typeof scene>["doc"], nodeIds: string[]) =>
+    pathOp(doc, { nodeIds, op: "make_compound_path" });
+  const release = (doc: ReturnType<typeof scene>["doc"], nodeIds: string[]) =>
+    pathOp(doc, { nodeIds, op: "release_compound_path" });
+  /** The area `d` fills under nonzero, as Skia unites it, so a hole counts as none. */
+  const filled = async (d: string) => {
+    const united = (await loadGeometry()).combine("unite", [
+      { segments: parsePath(d, "d"), fillRule: "nonzero" },
+    ]);
+    const parts = toAnchors(united).map(({ anchors }) =>
+      anchors.reduce((sum, { anchor: [x, y] }, i) => {
+        const [nx, ny] = (anchors[(i + 1) % anchors.length] as (typeof anchors)[0]).anchor;
+        return sum + (x * ny - nx * y) / 2;
+      }, 0),
+    );
+    return { contours: parts.length, area: Math.abs(parts.reduce((a, b) => a + b, 0)) };
+  };
+
+  it("makes a ring with a hole from two concentric shapes drawn the same way", async () => {
+    const { doc, layer, box } = scene();
+    const [outer, inner] = createNodes(doc, [box(0, 0, 30, 30), box(10, 10, 10, 10)]).nodes as [
+      Node,
+      Node,
+    ];
+    const out = make(doc, [inner.id, outer.id]);
+    const [ring] = out.created as [PathNode];
+    expect(ring).toMatchObject({ type: "path", fillRule: "nonzero", transform: IDENTITY_T });
+    expect(await filled(ring.d)).toEqual({ contours: 2, area: 800 });
+    expect(out.deletedIds.sort()).toEqual([outer.id, inner.id].sort());
+    expect(childrenOf(doc, layer).map((n) => n.id)).toEqual([ring.id]);
+
+    // An inner square already drawn the other way keeps its direction.
+    const { doc: d3, layer: l3, box: box3 } = scene();
+    const [o3, i3] = createNodes(d3, [
+      box3(0, 0, 30, 30),
+      { type: "path", parentId: l3, d: "M10 10 L10 20 L20 20 L20 10 Z" },
+    ]).nodes as [Node, Node];
+    const [ring3] = make(d3, [o3.id, i3.id]).created as [PathNode];
+    expect(splitD(ring3.d)[1]).toBe("M 10 10 L 10 20 L 20 20 L 20 10 Z");
+    expect(await filled(ring3.d)).toEqual({ contours: 2, area: 800 });
+
+    // Concentric circles: Skia keeps the hole as a second contour.
+    const { doc: d2, layer: l2 } = scene();
+    const circles = createNodes(d2, [
+      { type: "ellipse", parentId: l2, x: 30, y: 30, width: 40, height: 40 },
+      { type: "ellipse", parentId: l2, x: 40, y: 40, width: 20, height: 20 },
+    ]).nodes.map((n) => n.id);
+    const [donut] = make(d2, circles).created as [PathNode];
+    expect((await filled(donut.d)).contours).toBe(2);
+  });
+
+  it("composes each operand's transform and its parent's into d, in the frontmost's place", async () => {
+    const { doc, layer, box } = scene();
+    const [under, back, group, over] = createNodes(doc, [
+      box(0, 0, 5, 5),
+      { ...box(0, 0, 10, 10, "#00FF00"), name: "back" },
+      { type: "group", parentId: layer },
+      box(0, 0, 5, 5),
+    ]).nodes as [Node, Node, Node, Node];
+    const [front] = createNodes(doc, [{ ...box(0, 0, 10, 10, "#0000FF"), parentId: group.id }])
+      .nodes as [Node];
+    // back scaled 2× at (100, 0); front moved by (50, 20).
+    doc.nodes.set(back.id, { ...back, opacity: 0.5, transform: [2, 0, 0, 2, 100, 0] } as Node);
+    doc.nodes.set(front.id, { ...front, transform: [1, 0, 0, 1, 50, 20] } as Node);
+    const [made] = make(doc, [front.id, back.id]).created as [PathNode];
+    expect(made).toMatchObject({
+      parentId: group.id,
+      index: front.index,
+      opacity: 0.5,
+      appearance: { fills: [{ color: "#00FF00" }] },
+    });
+    expect(made.name).toBe("");
+    const [a, b] = splitD(made.d);
+    expect(pathBounds(parsePath(a as string, "d"))).toEqual({
+      x: 100,
+      y: 0,
+      width: 20,
+      height: 20,
+    });
+    expect(pathBounds(parsePath(b as string, "d"))).toEqual({
+      x: 50,
+      y: 20,
+      width: 10,
+      height: 10,
+    });
+    expect(childrenOf(doc, layer).map((n) => n.id)).toEqual([under.id, group.id, over.id]);
+    expect(childrenOf(doc, group.id).map((n) => n.id)).toEqual([made.id]);
+  });
+
+  it("keeps an evenodd backmost's rule and leaves the directions as drawn", () => {
+    const { doc, layer, box } = scene();
+    const [p, r] = createNodes(doc, [
+      { type: "path", parentId: layer, d: "M0 0 L30 0 L30 30 L0 30 Z", fillRule: "evenodd" },
+      box(10, 10, 10, 10),
+    ]).nodes as [Node, Node];
+    const [made] = make(doc, [p.id, r.id]).created as [PathNode];
+    expect(made.fillRule).toBe("evenodd");
+    expect(made.d).toBe(`${p.type === "path" && p.d} ${formatPath(shapeSegments(r as never))}`);
+  });
+
+  it("releases a Make back into paths that draw where the originals drew, back to front", () => {
+    const { doc, layer, box } = scene();
+    const [under, a, b, over] = createNodes(doc, [
+      box(0, 0, 5, 5),
+      box(0, 0, 30, 30, "#00FF00"),
+      box(40, 0, 10, 10),
+      box(0, 0, 5, 5),
+    ]).nodes as [Node, Node, Node, Node];
+    const [made] = make(doc, [a.id, b.id]).created as [PathNode];
+    const out = release(doc, [made.id]);
+    const parts = out.created as [PathNode, PathNode];
+    expect(out.deletedIds).toEqual([made.id]);
+    expect(parts.map((p) => pathBounds(parsePath(p.d, "d")))).toEqual([
+      { x: 0, y: 0, width: 30, height: 30 },
+      { x: 40, y: 0, width: 10, height: 10 },
+    ]);
+    for (const p of parts) {
+      expect(p).toMatchObject({ type: "path", appearance: { fills: [{ color: "#00FF00" }] } });
+    }
+    expect(childrenOf(doc, layer).map((n) => n.id)).toEqual([
+      under.id,
+      ...parts.map((p) => p.id),
+      over.id,
+    ]);
+  });
+
+  it("refuses a text, a Group, a Clipping Path, one operand and a non-compound, changing nothing", () => {
+    const { doc, layer, box } = scene();
+    const [a, text, group, clip] = createNodes(doc, [
+      box(0, 0, 10, 10),
+      { type: "text", parentId: layer, x: 0, y: 0, content: "Hi" },
+      { type: "group", parentId: layer },
+      box(0, 0, 10, 10),
+    ]).nodes as [Node, Node, Node, Node];
+    doc.nodes.set(clip.id, { ...clip, clipping: true } as Node);
+    // Only its type matters here.
+    const image = { ...a, id: "image", type: "image", index: "a9" } as unknown as Node;
+    doc.nodes.set(image.id, image);
+    const before = structuredClone(doc.nodes);
+    const fails = (ids: string[], op = "make_compound_path") =>
+      errorOf(() => pathOp(doc, { nodeIds: ids, op } as never));
+    expect(fails([a.id, text.id])).toMatchObject({
+      code: "INVALID_PATH",
+      path: "nodeIds[1]",
+      hint: expect.stringContaining("Create Outlines"),
+    });
+    expect(fails([a.id, group.id])).toMatchObject({
+      path: "nodeIds[1]",
+      message: "A group cannot be part of a Compound Path.",
+    });
+    expect(fails([clip.id, a.id])).toMatchObject({
+      path: "nodeIds[0]",
+      message: "A Clipping Path cannot be part of a Compound Path.",
+    });
+    expect(fails([a.id, image.id])).toMatchObject({
+      path: "nodeIds[1]",
+      message: "An image cannot be part of a Compound Path.",
+    });
+    expect(fails([a.id, a.id])).toMatchObject({ code: "INVALID_PATH", path: "nodeIds" });
+    expect(fails([a.id], "release_compound_path")).toMatchObject({
+      code: "INVALID_PATH",
+      path: "nodeIds[0]",
+      message: "A rect is not a Compound Path.",
+    });
+    const [single] = createNodes(doc, [{ type: "path", parentId: layer, d: "M0 0 L1 1" }])
+      .nodes as [Node];
+    const withSingle = structuredClone(doc.nodes);
+    expect(fails([single.id], "release_compound_path")).toMatchObject({
+      path: "nodeIds[0]",
+      message: "A path with one subpath is not a Compound Path.",
+    });
+    const [ring] = createNodes(doc, [
+      { type: "path", parentId: layer, d: "M0 0 L9 0 L9 9 Z M1 1 L2 1 L2 2 Z" },
+    ]).nodes as [Node];
+    doc.nodes.set(ring.id, { ...ring, clipping: true } as Node);
+    const withRing = structuredClone(doc.nodes);
+    expect(fails([ring.id], "release_compound_path")).toMatchObject({
+      path: "nodeIds[0]",
+      message: "A Clipping Path is not a Compound Path.",
+    });
+    expect(doc.nodes).toEqual(withRing);
+    doc.nodes.delete(ring.id);
+    expect(doc.nodes).toEqual(withSingle);
+    doc.nodes.delete(single.id);
+    expect(doc.nodes).toEqual(before);
+  });
+});
+
+const IDENTITY_T = [1, 0, 0, 1, 0, 0];
+const splitD = (d: string) => d.split(/(?=M)/).map((s) => s.trim());

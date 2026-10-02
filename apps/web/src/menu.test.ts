@@ -36,6 +36,8 @@ it("names a key press in Illustrator's Windows notation, Cmd as Ctrl", () => {
     "Shift+Ctrl+]",
   );
   expect(keysOf(press("{", { metaKey: true, shiftKey: true }, "BracketLeft"))).toBe("Shift+Ctrl+[");
+  const shifted8 = { altKey: true, shiftKey: true, ctrlKey: true };
+  expect(keysOf(press("*", shifted8, "Digit8"))).toBe("Alt+Shift+Ctrl+8");
 });
 
 it("shows a shortcut as the platform's menus do", () => {
@@ -68,6 +70,11 @@ it("finds the Menu Item a shortcut runs", () => {
   expect(findByKeys(menus, "Shift+Ctrl+A")?.label).toBe("Deselect");
   expect(findByKeys(menus, "Ctrl+7")?.label).toBe("Make");
   expect(findByKeys(menus, "Alt+Ctrl+7")?.label).toBe("Release");
+  expect(findByKeys(menus, "Ctrl+8")?.run).toBeDefined();
+  const compound = (menus[2] as Menu).items.find(
+    (i): i is Menu => i !== "-" && i.label === "Compound Path",
+  );
+  expect(leaves(compound?.items ?? []).map((i) => i.keys)).toEqual(["Ctrl+8", "Alt+Shift+Ctrl+8"]);
   expect(findByKeys(menus, "Shift+Ctrl+]")?.label).toBe("Bring to Front");
   expect(findByKeys(menus, "Ctrl+]")?.label).toBe("Bring Forward");
   expect(findByKeys(menus, "Ctrl+[")?.label).toBe("Send Backward");

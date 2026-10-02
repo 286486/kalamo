@@ -82,7 +82,10 @@ it("auto-names each type of unnamed Node", () => {
   const types = ["rect", "ellipse", "line", "polygon", "star", "path", "group", "layer"] as const;
   expect(
     types.map((type) =>
-      autoName(createDocument({ id: "d", name: "D", artboards: [] }).doc, { type } as Node),
+      autoName(createDocument({ id: "d", name: "D", artboards: [] }).doc, {
+        type,
+        d: "M0 0 L1 1",
+      } as Node),
     ),
   ).toEqual([
     "<Rectangle>",
@@ -94,6 +97,8 @@ it("auto-names each type of unnamed Node", () => {
     "<Group>",
     "<Layer>",
   ]);
+  const { doc } = createDocument({ id: "d", name: "D", artboards: [] });
+  expect(autoName(doc, { type: "path", d: "M0 0 L1 1 M2 2 L3 3" } as Node)).toBe("<Compound Path>");
 });
 
 it("offers no disclosure for an empty container", () => {

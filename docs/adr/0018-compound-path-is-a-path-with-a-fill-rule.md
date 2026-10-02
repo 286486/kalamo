@@ -21,5 +21,5 @@ Kalamo has no `compound_path` type. A `path` Node gains `fillRule`, `"nonzero"` 
 ## Consequences
 
 - REQUIREMENTS F-DOC-03 drops the `compound_path` row, and F-TEXT-06's Create Outlines makes one Path per glyph. ADR-0017's `UNSUPPORTED_ATTRIBUTE` list loses `fill-rule: evenodd`.
-- Make and Release (F-BOOL-04) become operations on `path` Nodes: Make joins the selected Paths' `d`, each with its `transform` composed in (ADR-0007), into one Path; Release splits one into a Path per subpath. They are not built yet.
+- Make and Release (F-BOOL-04) become operations on `path` Nodes: Make joins the selected Paths' `d`, each with its `transform` composed in (ADR-0007), into one Path; Release splits one into a Path per subpath. They are the `path_op` ops `make_compound_path` and `release_compound_path` and Object > Compound Path (ADR-0107, #266).
 - A Path stored in a Durable Object before this change has no `fillRule`, and every reader takes a missing one as nonzero. A `.kalamo.json` file without it reads as nonzero through the schema default, so it needs no migration.
