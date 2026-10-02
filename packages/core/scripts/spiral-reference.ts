@@ -79,6 +79,28 @@ const ENDS: Params[] = [0.05, 3, 1024].flatMap((revolution) =>
   ),
 );
 
+/** The spirals whose piece next to the centre differed from Inkscape's before #256. */
+const CENTRE: Params[] = (
+  [
+    [-406.206, -268.001, 1326.874, 250.9563, 0.0657, -156.1244],
+    [-341.126, -250.657, 1032.717, 0.2761, 5.3781, -244.5373],
+    [59.775, -418.972, 40.776, 0.1546, 0.0012, -188.9218],
+    [-208.3, -89.702, 1033.083, 225.5618, 0.1489, -53.389],
+    [162.033, 486.129, 1888.025, 0.6895, 16.9255, -167.8902],
+    [61.517, -58.111, 769.542, 816.3934, 0.146, 349.4883],
+    [-128.715, -248.023, 441.762, 0.3422, 9.135, 115.9292],
+    [15.926, -13.589, 1259.339, 0.613, 4.067, -232.5551],
+  ] as [number, number, number, number, number, number][]
+).map(([cx, cy, radius, revolution, expansion, argument]) => ({
+  cx,
+  cy,
+  radius,
+  revolution,
+  expansion,
+  argument,
+  t0: 0,
+}));
+
 /** Each spiral's d as Inkscape's object-to-path writes it. */
 function inkscape(spirals: Params[]): string[] {
   const dir = mkdtempSync(join(tmpdir(), "spiral-"));
@@ -212,8 +234,9 @@ for (const [name, rs] of [
 }
 if (special.some((r) => !r.ok)) throw new Error("A special spiral differs");
 if (ends.some((r) => !r.ok && !r.out)) throw new Error("A range end differs");
-// The special ones, the range ends short enough to keep, and the first 30 matching samples of the
-// second seed and the first 10 of the full-range one short enough to keep.
+// The special ones, the range ends short enough to keep, the first 30 matching samples of the
+// second seed and the first 10 of the full-range one short enough to keep, and the centre ones
+// short enough to keep.
 const short = (r: (typeof results)[number], n: number) => r.ok && r.d.length < n;
 const kept = [
   ...special,
@@ -223,6 +246,9 @@ const kept = [
     .filter((r) => short(r, 2500))
     .slice(0, 30),
   ...full.filter((r) => short(r, 20000)).slice(0, 10),
+  ...[...first, ...full].filter(
+    (r) => CENTRE.some((c) => JSON.stringify(c) === JSON.stringify(r.p)) && short(r, 20000),
+  ),
 ];
 writeFileSync(
   new URL("../src/spiral.inkscape.json", import.meta.url),
