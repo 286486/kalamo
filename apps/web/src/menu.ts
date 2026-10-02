@@ -6,6 +6,7 @@ import {
   type PathOpInput,
   type ReorderOp,
   reorderNodes,
+  type ShapeMode,
   serializeDocument,
 } from "@kalamo/core";
 import { toSvg } from "@kalamo/io/write";
@@ -126,6 +127,26 @@ const pathOp = (
 /** The Selection's Nodes Object > Arrange restacks: those not hidden or locked. */
 const arrangeable = ({ doc, selection }: Pick<State, "doc" | "selection">) =>
   doc ? selection.filter((id) => editable(doc, doc.nodes.get(id))) : [];
+
+/**
+ * The Pathfinder panel's Shape Mode operands: the arrangeable Nodes, a Group as one (ADR-0104), or
+ * none for a viewer or fewer than two. The server rejects what ADR-0104 cannot combine.
+ */
+export const shapeModeTargets = (s: Pick<State, "doc" | "selection" | "role">) => {
+  const nodeIds = canEdit(s) ? arrangeable(s) : [];
+  return nodeIds.length >= 2 ? nodeIds : [];
+};
+
+/** Runs a Shape Mode on the Selection; its result becomes the Selection, as in Illustrator. */
+export function shapeMode(op: ShapeMode) {
+  const nodeIds = shapeModeTargets(useStore.getState());
+  if (nodeIds.length === 0) return;
+  const commandId = send({ type: "path_op", input: { nodeIds, op } });
+  useStore.setState((s) => ({
+    notice: null,
+    pending: [...s.pending, { commandId, nodes: [], select: true }],
+  }));
+}
 
 /** An Object > Arrange item: restacks each selected Node in its own parent (ADR-0074). */
 const arrange = (op: ReorderOp, keys: string): MenuItem => ({
@@ -582,6 +603,12 @@ export function documentMenus(tabs: {
           keys: "Ctrl+F9",
           checked: (s) => s.gradientShown,
           run: () => useStore.setState((s) => ({ gradientShown: !s.gradientShown })),
+        },
+        {
+          label: "Pathfinder",
+          keys: "Shift+Ctrl+F9",
+          checked: (s) => s.pathfinderShown,
+          run: () => useStore.setState((s) => ({ pathfinderShown: !s.pathfinderShown })),
         },
       ],
     },

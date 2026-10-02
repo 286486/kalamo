@@ -55,7 +55,7 @@ const OWN_KEYS = new Set([
   " ",
   "Enter",
 ]);
-const guard = (e: React.KeyboardEvent) => {
+export const guard = (e: React.KeyboardEvent) => {
   if (!e.ctrlKey && !e.metaKey && OWN_KEYS.has(e.key)) e.stopPropagation();
 };
 
