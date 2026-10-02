@@ -7,6 +7,7 @@ import {
   type PathEditInput,
   type PathOp,
 } from "@kalamo/core";
+import { cancelDrag, commitDrag } from "./canvas.ts";
 import {
   anchorKey,
   anchorsOf,
@@ -16,9 +17,10 @@ import {
   localDelta,
   parseKey,
   plus,
+  sameTarget,
 } from "./direct.ts";
 import { editable } from "./selection.ts";
-import { send, unheld, useStore } from "./store.ts";
+import { afterReverse, send, useStore } from "./store.ts";
 import { drawing, finishPen, near } from "./tools.ts";
 
 /** The Curvature tool (research 06 §2): clicks place Anchors and the curve runs through them. */
@@ -81,13 +83,18 @@ function setCurve(curve: CurveAnchor[]) {
 
 /**
  * The press: on an Anchor of the path being drawn (`index`), or on an Anchor of a selected path
- * (`key`), which a drag moves; `from` is where it started. Pressing the first Anchor closes the
- * path on release unless it was dragged.
+ * (`key`, as `doc` numbers it), which a drag moves by `d`; `from` is where it started. Pressing the
+ * first Anchor closes the path on release unless it was dragged.
  */
 let press:
   | { kind: "drawn"; index: number; from: Point; close: boolean; moved: boolean }
-  | { kind: "anchor"; key: string; from: Point }
+  | { kind: "anchor"; key: string; from: Point; doc: Document; d?: Point }
   | null = null;
+
+/** `press`'s Anchor as `now` numbers it, across a Reverse Path Direction press's answer (ADR-0110). */
+const pressedKey = (p: { key: string; doc: Document }, now: Document) =>
+  sameTarget({ kind: "anchor", key: p.key }, p.doc, now).key;
+
 /** The Anchor pressed last, which Delete removes while drawing. */
 let current: number | null = null;
 let lastDown: { at: Point; time: number } | null = null;
@@ -131,16 +138,21 @@ export function curvatureDown(p: Point, tolerance: number, alt: boolean) {
     if (key) {
       press = null;
       if (double) {
-        const input = toggleInput(s.doc, key);
-        if (input)
-          send({ type: "path_edit", input }, unheld("the Curvature tool is not held yet (#276)"));
+        // Sent once a Reverse Path Direction press in flight is answered, on the Anchor chosen.
+        afterReverse(
+          ({ doc: now, anchors: [held] }, w) => {
+            const input = now && held && toggleInput(now, held);
+            if (input) send({ type: "path_edit", input }, w);
+          },
+          { anchors: [key], segments: [] },
+        );
         return;
       }
       useStore.setState({ anchors: [key] });
       const { index, subpath, nodeId } = parseKey(key);
       const n = s.doc.nodes.get(nodeId);
       const at = hasAnchors(n) && anchorsOf(s.doc, n)[subpath]?.anchors[index]?.anchor;
-      if (at) press = { kind: "anchor", key, from: at };
+      if (at) press = { kind: "anchor", key, from: at, doc: s.doc };
       return;
     }
   }
@@ -162,16 +174,35 @@ export function curvatureDrag(p: Point) {
     const n = s.doc.nodes.get(parseKey(press.key).nodeId);
     if (!n) return;
     const d = localDelta(s.doc, n, p[0] - press.from[0], p[1] - press.from[1]);
-    const input = moveInput(s.doc, press.key, d);
+    press.d = d;
+    const input = moveInput(s.doc, pressedKey(press, s.doc), d);
     useStore.setState({ edit: input ? { inputs: [input], commandIds: null } : null });
   }
 }
 
-/** Releasing: a click on the first Anchor closes the path. */
+/**
+ * Releasing: a click on the first Anchor closes the path, and a drag of a selected path's Anchor
+ * is sent once a Reverse Path Direction press in flight is answered, on the Anchor chosen, from the
+ * Document then (ADR-0110); another Actor's edit to the path meanwhile drops it (ADR-0109).
+ */
 export function curvatureUp() {
-  const closing = press?.kind === "drawn" && press.close && !press.moved;
+  const p = press;
   press = null;
-  if (closing) finishPen(true);
+  if (p?.kind === "drawn" && p.close && !p.moved) finishPen(true);
+  if (p?.kind !== "anchor" || !p.d) return;
+  const d = p.d;
+  afterReverse(
+    ({ doc: now, anchors }, w) => {
+      const input = now && anchors.length > 0 && moveInput(now, pressedKey(p, now), d);
+      if (!input) {
+        cancelDrag();
+        return;
+      }
+      useStore.setState({ edit: { inputs: [input], commandIds: null } });
+      commitDrag(w);
+    },
+    { anchors: [p.key], segments: [] },
+  );
 }
 
 export const curvatureCancel = () => {

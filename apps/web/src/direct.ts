@@ -426,6 +426,23 @@ function direction(doc: Document, t: SubpathRef) {
 export const turnedOf = (prior: Document, doc: Document, subpaths: SubpathRef[]) =>
   subpaths.filter((t) => direction(prior, t) !== direction(doc, t));
 
+/**
+ * `t`, chosen in `from`, as `doc` numbers it: on a subpath turned since, an Anchor is renumbered,
+ * a Handle is its Anchor's other one, and a segment runs back from its old end (ADR-0110).
+ */
+export function sameTarget<T extends Target>(t: T, from: Document, doc: Document): T {
+  const at = t.kind === "segment" ? anchorKey(t.nodeId, t.subpath, t.segment) : t.key;
+  const turned = turnedOf(from, doc, [parseKey(at)]);
+  if (turned.length === 0) return t;
+  if (t.kind === "segment") {
+    const { index } = parseKey(reversedKey(doc, turned, true)(at));
+    return { ...t, segment: index, t: 1 - t.t };
+  }
+  const key = reversedKey(doc, turned, false)(at);
+  if (t.kind === "anchor") return { ...t, key };
+  return { ...t, key, which: t.which === "handleIn" ? "handleOut" : "handleIn" };
+}
+
 /** Whether `key` names a segment its Node has now. */
 export const segmentInRange = (doc: Document, key: string) => segmentHandles(doc, key).length > 0;
 

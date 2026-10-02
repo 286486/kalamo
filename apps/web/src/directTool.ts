@@ -22,6 +22,7 @@ import {
   parseKey,
   pick,
   reversedKey,
+  sameTarget,
   segmentHandles,
   splitWhole,
   turnedOf,
@@ -67,23 +68,11 @@ function keysOf(g: Gesture): Pick<Chosen, "anchors" | "segments"> {
  * the same points across a Reverse Path Direction press's answer (ADR-0110).
  */
 function onPoints(g: Gesture, doc: Document): Gesture {
-  const { anchors, segments } = keysOf(g);
-  const turned = g.from ? turnedOf(g.from, doc, [...anchors, ...segments].map(parseKey)) : [];
-  const flips = (key: string) => {
-    const { nodeId, subpath } = parseKey(key);
-    return turned.some((t) => t.nodeId === nodeId && t.subpath === subpath);
-  };
-  if (g.kind === "anchors") return { ...g, keys: g.keys.map(reversedKey(doc, turned, false)) };
-  if (g.kind === "handle" && flips(g.key)) {
-    const which = g.which === "handleIn" ? "handleOut" : "handleIn";
-    return { ...g, key: reversedKey(doc, turned, false)(g.key), which };
-  }
-  const segment = g.kind === "segment" && anchorKey(g.nodeId, g.subpath, g.segment);
-  if (g.kind === "segment" && segment && flips(segment)) {
-    const { index } = parseKey(reversedKey(doc, turned, true)(segment));
-    return { ...g, segment: index, t: 1 - g.t };
-  }
-  return g;
+  if (!g.from) return g;
+  if (g.kind === "handle" || g.kind === "segment") return sameTarget(g, g.from, doc);
+  if (g.kind !== "anchors") return g;
+  const turned = turnedOf(g.from, doc, g.keys.map(parseKey));
+  return { ...g, keys: g.keys.map(reversedKey(doc, turned, false)) };
 }
 
 /** Previews `g`'s latest move on `doc`, as `commitDrag` sends it. */

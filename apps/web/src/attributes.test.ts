@@ -11,7 +11,9 @@ import {
   toAnchors,
 } from "@kalamo/core";
 import { expect, it, vi } from "vitest";
+import { addAnchorTool, anchorPointTool, deleteAnchorTool } from "./anchorTools.ts";
 import { directionOf, fillRuleOf, setDirection, setFillRule } from "./attributes.ts";
+import { curvatureDown, curvatureDrag, curvatureUp } from "./curvature.ts";
 import { anchorKey, localAnchors, parseKey } from "./direct.ts";
 import { directTool } from "./directTool.ts";
 import type { ViewState } from "./receive.ts";
@@ -135,6 +137,7 @@ it("reads a Make result as Illustrator's, backmost Off and hole On, and sets a c
     selection: [ring],
     anchors,
     segments,
+    reversing: null,
   });
   expect(directionOf(s([anchorKey(ring, 0, 0)]))).toBe(false);
   expect(directionOf(s([anchorKey(ring, 1, 0), anchorKey(ring, 1, 2)]))).toBe(true);
@@ -153,11 +156,21 @@ it("reads a Make result as Illustrator's, backmost Off and hole On, and sets a c
   expect(commands()).toEqual([
     { type: "path_reverse", subpaths: [{ nodeId: ring, subpath: 1 }], clockwise: false },
   ]);
-  expect(useStore.getState().reversing).toEqual({
+  const reversing = useStore.getState().reversing;
+  expect(reversing).toEqual({
     commandId: "c",
     subpaths: [{ nodeId: ring, subpath: 1 }],
+    clockwise: false,
     inputs: [{ nodeId: ring, ops: [{ op: "reverse", subpath: 1 }] }],
   });
+  // In flight, the pressed subpath shows the direction pressed; the other its own (#276).
+  expect(directionOf({ ...s([anchorKey(ring, 1, 0)]), reversing })).toBe(false);
+  expect(directionOf({ ...s([anchorKey(ring, 0, 0), anchorKey(ring, 1, 0)]), reversing })).toBe(
+    false,
+  );
+  if (!reversing) throw new Error("no press");
+  const other = { ...reversing, subpaths: [{ nodeId: ring, subpath: 0 }] };
+  expect(directionOf({ ...s([anchorKey(ring, 1, 0)]), reversing: other })).toBe(true);
 });
 
 it("disables both rows for a locked, hidden or locked-Group path and an Image, and Reverse for a plain path", () => {
@@ -191,6 +204,7 @@ it("disables both rows for a locked, hidden or locked-Group path and an Image, a
       selection: [leaf],
       anchors: [anchorKey(leaf, 0, 0)],
       segments: [],
+      reversing: null,
     };
   };
   for (const key of ["locked", "hidden", "g", "i"]) {
@@ -368,7 +382,7 @@ it("keeps a Handle drag on its Handle when the answer comes mid-drag", () => {
 
 it("holds Direct Selection edits while a press is in flight and runs them in order after it", () => {
   const ran: number[] = [];
-  const inFlight = { commandId: "c", subpaths: [], inputs: [] };
+  const inFlight = { commandId: "c", subpaths: [], clockwise: true, inputs: [] };
   useStore.setState({ reversing: inFlight });
   afterReverse(() => ran.push(1));
   // A second press holds what comes after it.
@@ -427,6 +441,25 @@ it("after a reconnect, renumbers the keys only on a subpath the press reached", 
   });
 });
 
+// #276: on a reconnect, a winding flipped by someone else's reshape is not the press's reverse.
+it("after a reconnect, drops the keys on a path someone else reshaped instead of renumbering them", () => {
+  const { doc, a, b, pressed } = pressOn((a, b) => ({
+    anchors: [anchorKey(a.id, 1, 1), anchorKey(b.id, 1, 1), anchorKey(b.id, 0, 1)],
+    segments: [anchorKey(b.id, 1, 0)],
+  }));
+  // The press reversed a's hole; an Agent redrew b's hole running the other way, as no reverse would.
+  const theirs = { ...b, d: "M50 0 L80 0 L80 30 L50 30 Z M60 10 L70 10 L70 25 L60 20 Z" } as Node;
+  const nodes = [...doc.nodes.values()].map((n) =>
+    n.id === a.id ? reversed(doc, a.id) : n.id === b.id ? theirs : n,
+  );
+  const snapshot = message("document", { rev: doc.rev + 2, nodes });
+  expect(stateAfter(pressed, snapshot)).toMatchObject({
+    reversing: null,
+    anchors: [anchorKey(a.id, 1, 3)],
+    segments: [],
+  });
+});
+
 it("runs a held edit on the Anchors chosen when it was made, renumbered, not on a later click", () => {
   for (const outcome of ["accepted", "rejected"] as const) {
     const { doc, a, b, pressed, answer } = pressOn((a, b) => ({
@@ -477,4 +510,133 @@ it("clears a held edit's keys on a path another Actor edits before the answer (A
   runHeld();
   expect(seen).toEqual([[anchorKey(b.id, 1, 3)]]);
   expect(commands()).toEqual([]);
+});
+
+// #276: the Anchor Point tools and the Curvature tool, used while a press is in flight, wait for its
+// answer and act on what was under the pointer. a's hole runs (10, 10), (10, 20), (20, 20),
+// (20, 10); reversed, (10, 10), (20, 10), (20, 20), (10, 20).
+const toolEdits: Record<string, (doc: Document) => void> = {
+  "Add Anchor Point": (doc) => addAnchorTool.down?.(event(doc, 10, 14)),
+  "Delete Anchor Point": (doc) => deleteAnchorTool.down?.(event(doc, 20, 10)),
+  "an Anchor Point segment drag": (doc) => {
+    anchorPointTool.down?.(event(doc, 10, 14));
+    anchorPointTool.move?.(event(doc, 5, 14));
+    anchorPointTool.up?.(event(doc, 5, 14));
+  },
+  "a Curvature drag": () => {
+    curvatureDown([20, 10], 1, false);
+    curvatureDrag([25, 10]);
+    curvatureUp();
+  },
+  "a Curvature double-click": () => {
+    curvatureDown([20, 10], 1, false);
+    curvatureUp();
+    curvatureDown([20, 10], 1, false);
+    curvatureUp();
+  },
+  "an Anchor Point drag out of an Anchor": (doc) => {
+    anchorPointTool.down?.(event(doc, 20, 10));
+    anchorPointTool.move?.(event(doc, 25, 10));
+    anchorPointTool.up?.(event(doc, 25, 10));
+  },
+};
+
+/** a's hole after the commands sent, as "x y" with each Anchor's Handles, rounded. */
+function holeAfterSent(a: string, reverseBack: boolean) {
+  const doc = structuredClone(useStore.getState().doc as Document);
+  for (const c of commands()) if (c.type === "path_edit") editPath(doc, c.input);
+  if (reverseBack) editPath(doc, { nodeId: a, ops: [{ op: "reverse", subpath: 1 }] });
+  const r = (p: [number, number] | null) =>
+    p ? p.map((v) => Math.round(v * 1000) / 1000).join(" ") : null;
+  return localAnchors(doc.nodes.get(a) as PathNode)[1]?.anchors.map((x) => ({
+    at: r(x.anchor),
+    in: r(x.handleIn),
+    out: r(x.handleOut),
+  }));
+}
+
+/**
+ * a's hole after `run` while a press is in flight with a's hole Anchor `index` chosen, then the
+ * press accepted and rejected; `prep` edits the committed Document first. The accepted hole is
+ * reversed back to compare.
+ */
+function heldEdit(
+  run: (doc: Document) => void,
+  name: string,
+  { index = 0, prep }: { index?: number; prep?: (doc: Document, a: string) => void } = {},
+) {
+  return (["accepted", "rejected"] as const).map((outcome) => {
+    const { doc, a, pressed, answer } = pressOn((a) => ({ anchors: [anchorKey(a.id, 1, index)] }));
+    prep?.(doc, a.id);
+    useStore.setState({ ...pressed, edit: null, drag: null, held: [] });
+    vi.advanceTimersByTime(1000);
+    vi.mocked(send).mockClear();
+    run(doc);
+    expect(commands(), name).toEqual([]);
+    useStore.setState(
+      stateAfter(useStore.getState(), outcome === "accepted" ? answer(doc, a.id) : rejected),
+    );
+    runHeld();
+    expect(commands().length, name).toBeGreaterThan(0);
+    return holeAfterSent(a.id, outcome === "accepted");
+  });
+}
+
+it("holds the Anchor Point and Curvature tools' edits for the press and puts them on the point chosen", () => {
+  vi.useFakeTimers();
+  for (const [name, run] of Object.entries(toolEdits)) {
+    const [accepted, rejected_] = heldEdit(run, name);
+    const corners = ["10 10", "10 20", "20 20", "20 10"].map((at) => ({ at, in: null, out: null }));
+    expect(rejected_, name).not.toEqual(corners);
+    if (name === "an Anchor Point drag out of an Anchor") {
+      // The Handle at the pointer leads the way the path then runs, as if dragged after the press.
+      expect(rejected_?.[3], name).toEqual({ at: "20 10", in: "15 10", out: "25 10" });
+      expect(accepted?.[3], name).toEqual({ at: "20 10", in: "25 10", out: "15 10" });
+    } else expect(accepted, name).toEqual(rejected_);
+  }
+  vi.useRealTimers();
+});
+
+// With Handles on (20, 10), its In toward (20, 20) and its Out toward (10, 10), which the reverse
+// swaps: with (20, 10) chosen, the Anchor Point tool acts on the Handle under the pointer, and a
+// click on the Anchor retracts both.
+/** Each edit, and what it leaves of (20, 10) whatever the answer. */
+const handleEdits: Record<string, [(doc: Document) => void, object]> = {
+  "an Anchor Point Handle drag": [
+    (doc) => {
+      anchorPointTool.down?.(event(doc, 15, 6));
+      anchorPointTool.move?.(event(doc, 15, 2));
+      anchorPointTool.up?.(event(doc, 15, 2));
+    },
+    { at: "20 10", in: "24 15", out: expect.not.stringMatching(/^15 6$/) },
+  ],
+  "an Anchor Point Handle click": [
+    (doc) => {
+      anchorPointTool.down?.(event(doc, 24, 15));
+      anchorPointTool.up?.(event(doc, 24, 15));
+    },
+    { at: "20 10", in: null, out: "15 6" },
+  ],
+  "an Anchor Point click on an Anchor": [
+    (doc) => {
+      anchorPointTool.down?.(event(doc, 20, 10));
+      anchorPointTool.up?.(event(doc, 20, 10));
+    },
+    { at: "20 10", in: null, out: null },
+  ],
+};
+
+it("holds the Anchor Point tool's Handle edits for the press and keeps them on the Handle chosen", () => {
+  vi.useFakeTimers();
+  const handles = (doc: Document, a: string) =>
+    editPath(doc, {
+      nodeId: a,
+      ops: [{ op: "set_handles", subpath: 1, index: 3, handleIn: [24, 15], handleOut: [15, 6] }],
+    });
+  for (const [name, [run, last]] of Object.entries(handleEdits)) {
+    const [accepted, rejected_] = heldEdit(run, name, { index: 3, prep: handles });
+    expect(rejected_?.[3], name).toEqual(last);
+    expect(accepted, name).toEqual(rejected_);
+  }
+  vi.useRealTimers();
 });

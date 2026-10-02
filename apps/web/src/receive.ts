@@ -103,6 +103,8 @@ export interface PathDrag {
 export interface Reversing {
   commandId: string;
   subpaths: { nodeId: string; subpath: number }[];
+  /** The direction pressed, which the Attributes panel shows until the answer. */
+  clockwise: boolean;
   inputs: PathEditInput[];
 }
 
@@ -285,16 +287,29 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
   const own = msg.type === "tx" && !!msg.commandId && ours.includes(msg.commandId);
   const touched =
     msg.type === "tx" ? new Set([...msg.updated.map((n) => n.id), ...msg.deletedIds]) : null;
-  const kept = (inRangeOf: typeof inRange) => (key: string) => {
-    const changed = !touched || touched.has(parseKey(key).nodeId);
-    return !changed || ((own || !touched) && inRangeOf(doc, key));
-  };
   // The press's answer, or the Document sent on reconnect, settles it: keys on a subpath it turned
-  // are renumbered to stay on their points (ADR-0110).
+  // are renumbered to stay on their points (ADR-0110). On a reconnect, a path it named that is
+  // neither as it was nor as the press leaves it was reshaped by someone else, so its keys go, as
+  // for another Actor's edit (ADR-0109).
   const settled =
     !!s.reversing && (msg.type === "document" || msg.commandId === s.reversing.commandId);
   const prior = s.doc;
-  const turned = settled && prior && s.reversing ? turnedOf(prior, doc, s.reversing.subpaths) : [];
+  const reshaped = new Set(
+    msg.type === "document" && prior && s.reversing ? reshapedOf(prior, doc, s.reversing) : [],
+  );
+  const kept = (inRangeOf: typeof inRange) => (key: string) => {
+    const { nodeId } = parseKey(key);
+    const changed = !touched || touched.has(nodeId);
+    return !reshaped.has(nodeId) && (!changed || ((own || !touched) && inRangeOf(doc, key)));
+  };
+  const turned =
+    settled && prior && s.reversing
+      ? turnedOf(
+          prior,
+          doc,
+          s.reversing.subpaths.filter((t) => !reshaped.has(t.nodeId)),
+        )
+      : [];
   const rekey = (k: Pick<ViewState, "anchors" | "segments">) => ({
     anchors: k.anchors.map(reversedKey(doc, turned, false)).filter(kept(inRange)),
     segments: k.segments.map(reversedKey(doc, turned, true)).filter(kept(segmentInRange)),
@@ -420,6 +435,18 @@ export function previewEdit(doc: Document, { inputs }: Pick<PathDrag, "inputs">)
     }
   }
   return shown;
+}
+
+/** The paths `reversing` names whose `d` in `doc` is neither `prior`'s nor what the press makes of it. */
+function reshapedOf(prior: Document, doc: Document, reversing: Reversing): string[] {
+  const pressed = previewEdit(prior, reversing);
+  const d = (x: Document, id: string) => {
+    const n = x.nodes.get(id);
+    return n?.type === "path" ? n.d : undefined;
+  };
+  return [...new Set(reversing.subpaths.map((t) => t.nodeId))].filter(
+    (id) => d(doc, id) !== d(prior, id) && d(doc, id) !== d(pressed, id),
+  );
 }
 
 /** `doc` with a `path_op` applied by core, or as it is when core refuses it. */

@@ -13,19 +13,17 @@ import {
   pick,
   plus,
   removeAnchorInputs,
+  sameTarget,
   type Target,
 } from "./direct.ts";
 import { directTool } from "./directTool.ts";
 import { editable } from "./selection.ts";
-import { send, unheld, useStore, type Waited } from "./store.ts";
+import { afterReverse, send, useStore, type Waited } from "./store.ts";
 import type { CanvasTool, ToolEvent } from "./toolbox.ts";
 
 /** The Add, Delete and Anchor Point tools (research 06 §1), and the Pen's Auto Add/Delete. */
 
 type Point = [number, number];
-
-/** The Anchor Point tools do not wait for a Reverse Path Direction press yet (ADR-0110, #276). */
-const ANCHOR_TOOLS = "the Anchor Point tools are not held yet (#276)";
 
 /** One `path_edit` per path and one `delete`, for edits on Anchors, which drop the selected Anchors and segments. */
 export function sendAnchorEdits(
@@ -71,12 +69,17 @@ export function addAnchorAt(doc: Document, p: Point, tolerance: number, only?: s
   const line = !a?.handleOut && !b?.handleIn;
   const t = line ? 3 * hit.t ** 2 - 2 * hit.t ** 3 : hit.t;
   if (t <= 0 || t >= 1) return false;
-  sendAnchorEdits(
-    {
-      edits: [{ nodeId, ops: [{ op: "add_anchor", subpath, segment, t }] }],
-      deleteIds: [],
+  // Sent once a Reverse Path Direction press in flight is answered, on the segment chosen
+  // (ADR-0110); another Actor's edit to the path meanwhile drops it (ADR-0109).
+  const key = anchorKey(nodeId, subpath, segment);
+  afterReverse(
+    ({ doc: now, segments }, w) => {
+      if (!now || segments.length === 0) return;
+      const at = sameTarget({ ...hit, t }, doc, now);
+      const ops = [{ op: "add_anchor" as const, subpath, segment: at.segment, t: at.t }];
+      sendAnchorEdits({ edits: [{ nodeId, ops }], deleteIds: [] }, w);
     },
-    unheld(ANCHOR_TOOLS),
+    { anchors: [], segments: [key] },
   );
   return true;
 }
@@ -100,7 +103,14 @@ export function deleteAnchorAt(
     scope: useStore.getState().isolated,
   });
   if (hit?.kind !== "anchor" || (only && !only.includes(parseKey(hit.key).nodeId))) return false;
-  sendAnchorEdits(removeAnchorInputs(doc, [hit.key]), unheld(ANCHOR_TOOLS));
+  // Sent once a Reverse Path Direction press in flight is answered, on the Anchor chosen, which the
+  // answer renumbers (ADR-0110); another Actor's edit to the path meanwhile drops it (ADR-0109).
+  afterReverse(
+    ({ doc: now, anchors }, w) => {
+      if (now && anchors.length > 0) sendAnchorEdits(removeAnchorInputs(now, anchors), w);
+    },
+    { anchors: [hit.key], segments: [] },
+  );
   return true;
 }
 
@@ -134,8 +144,42 @@ export const deleteAnchorTool: CanvasTool = {
   drawSelected,
 };
 
-/** An Anchor Point tool press: on an Anchor, a Handle it shows, or a segment. */
-let gesture: (Press & Target) | null = null;
+/**
+ * An Anchor Point tool press: on an Anchor, a Handle it shows, or a segment, as `from` numbers it;
+ * `last` is its latest move.
+ */
+let gesture: (Press & Target & { from: Document; last?: { d: Point; shift: boolean } }) | null =
+  null;
+
+/** What `t` holds, as Direct Selection keys, which a press's answer renumbers (ADR-0110). */
+const keysOf = (t: Target) =>
+  t.kind === "segment"
+    ? { anchors: [], segments: [anchorKey(t.nodeId, t.subpath, t.segment)] }
+    : { anchors: [t.key], segments: [] };
+
+/** The edit dragging `t` by `d` in document coordinates makes on `doc`. */
+function dragInput(doc: Document, t: Target, [dx, dy]: Point, shift: boolean) {
+  if (t.kind === "anchor") return pullHandles(doc, t.key, dx, dy);
+  if (t.kind === "handle") return moveHandle(doc, t.key, t.which, dx, dy, true);
+  return bendSegment(doc, t.nodeId, t.subpath, t.segment, t.t, dx, dy, shift);
+}
+
+/** The edit a click on `t` makes on `doc`: an Anchor's Handles or a Handle retracted. */
+function clickInput(doc: Document, t: Target): PathEditInput | null {
+  if (t.kind === "segment") return null;
+  const { nodeId, subpath, index } = parseKey(t.key);
+  const n = doc.nodes.get(nodeId);
+  const a = hasAnchors(n) ? localAnchors(n)[subpath]?.anchors[index] : undefined;
+  if (t.kind === "anchor" ? !a?.handleIn && !a?.handleOut : !a?.[t.which]) return null;
+  return {
+    nodeId,
+    ops: [
+      t.kind === "anchor"
+        ? { op: "set_point_type", subpath, index, type: "corner" }
+        : { op: "set_handles", subpath, index, [t.which]: null },
+    ],
+  };
+}
 
 /**
  * Dragging out of the Anchor `key` by (dx, dy) in document coordinates: Smooth, its outgoing
@@ -189,7 +233,7 @@ export const anchorPointTool: CanvasTool = {
     });
     if (!target) return;
     e.capture();
-    const g = { start: { x: e.x, y: e.y }, moved: false };
+    const g = { start: { x: e.x, y: e.y }, moved: false, from: e.doc };
     gesture = { ...g, ...target };
     // Its Handles show while they are pulled out, as Direct Selection shows a selected Anchor's
     // or segment's.
@@ -205,41 +249,35 @@ export const anchorPointTool: CanvasTool = {
     const g = gesture;
     const d = g && dragged(g, e);
     if (!g || !d) return;
-    const input =
-      g.kind === "anchor"
-        ? pullHandles(e.doc, g.key, ...d)
-        : g.kind === "handle"
-          ? moveHandle(e.doc, g.key, g.which, ...d, true)
-          : bendSegment(e.doc, g.nodeId, g.subpath, g.segment, g.t, ...d, e.shift);
+    g.last = { d, shift: e.shift };
+    // A press answered mid-drag keeps the drag on what it grabbed (ADR-0110).
+    const input = dragInput(e.doc, sameTarget(g, g.from, e.doc), d, e.shift);
     useStore.setState({ edit: input && { inputs: [input], commandIds: null } });
   },
-  up(e) {
+  up() {
     const g = gesture;
     gesture = null;
     if (!g) return;
-    if (g.moved) {
-      commitDrag(unheld(ANCHOR_TOOLS));
-      return;
-    }
-    if (g.kind === "segment") return;
-    const { nodeId, subpath, index } = parseKey(g.key);
-    const n = e.doc.nodes.get(nodeId);
-    const a = hasAnchors(n) ? localAnchors(n)[subpath]?.anchors[index] : undefined;
-    if (g.kind === "anchor" ? !a?.handleIn && !a?.handleOut : !a?.[g.which]) return;
-    const input: PathEditInput = {
-      nodeId,
-      ops: [
-        g.kind === "anchor"
-          ? { op: "set_point_type", subpath, index, type: "corner" }
-          : { op: "set_handles", subpath, index, [g.which]: null },
-      ],
-    };
-    useStore.setState({
-      edit: {
-        inputs: [input],
-        commandIds: [send({ type: "path_edit", input }, unheld(ANCHOR_TOOLS))],
-      },
-    });
+    // Sent once a Reverse Path Direction press in flight is answered, from the Document then, on
+    // what the gesture grabbed (ADR-0110); another Actor's edit to its path meanwhile drops it
+    // (ADR-0109).
+    const { last } = g;
+    const keys = keysOf(g);
+    afterReverse(({ doc: now, anchors, segments }, w) => {
+      const t = now && anchors.length + segments.length > 0 ? sameTarget(g, g.from, now) : null;
+      const input = now && t && (last ? dragInput(now, t, last.d, last.shift) : clickInput(now, t));
+      if (!input) {
+        if (last) cancelDrag();
+        return;
+      }
+      if (last) {
+        useStore.setState({ edit: { inputs: [input], commandIds: null } });
+        commitDrag(w);
+        return;
+      }
+      const commandIds = [send({ type: "path_edit", input }, w)];
+      useStore.setState({ edit: { inputs: [input], commandIds } });
+    }, keys);
   },
   cancel(redraw) {
     gesture = null;

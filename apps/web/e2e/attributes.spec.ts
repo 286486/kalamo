@@ -166,10 +166,19 @@ async function rings(page: Page, request: APIRequestContext, xs: number[]) {
       nodes: xs.map((x) => ({ type: "path", parentId, d: ring(x), appearance: { fills } })),
     })
   ).structuredContent.createdIds as string[];
-  /** The `path_reverse` commands held once `hold` is called, each passed on, answered or dropped. */
-  const held: { id: string; pass: () => void; answer: (m: object) => void; drop: () => void }[] =
-    [];
+  /**
+   * The `path_reverse` commands held once `hold` is called, each passed on, answered or dropped, or
+   * passed on with its answer lost to a dropped socket.
+   */
+  const held: {
+    id: string;
+    pass: () => void;
+    answer: (m: object) => void;
+    drop: () => void;
+    lose: () => void;
+  }[] = [];
   let holding = false;
+  let lost: string | null = null;
   let sockets = 0;
   await page.routeWebSocket(/\/ws$/, (ws) => {
     sockets += 1;
@@ -182,9 +191,18 @@ async function rings(page: Page, request: APIRequestContext, xs: number[]) {
         pass: () => server.send(m),
         answer: (a) => ws.send(JSON.stringify(a)),
         drop: () => ws.close(),
+        lose: () => {
+          lost = msg.id;
+          server.send(m);
+        },
       });
     });
-    server.onMessage((m) => ws.send(m));
+    server.onMessage((m) => {
+      if (lost && JSON.parse(String(m)).commandId === lost) {
+        lost = null;
+        ws.close();
+      } else ws.send(m);
+    });
   });
   await page.goto(`/docs/${docId}`);
   await expect(page.getByTestId("status-bar")).toContainText(/\d+%/);
@@ -401,3 +419,131 @@ for (const outcome of ["accepted", "rejected"] as const) {
     });
   }
 }
+
+// #276, ADR-0110: the Anchor Point tools and the Curvature tool, used on the hole while a press is
+// in flight, wait for the answer and change the point under the pointer whatever it is.
+const toolEdits = {
+  "an Add Anchor Point click": {
+    run: async (page: Page, at: (x: number, y: number) => readonly [number, number]) => {
+      await page.keyboard.press("+");
+      await page.mouse.click(...at(40, 46));
+    },
+    accepted: ["40 40", "60 40", "60 60", "40 60", "40 46"],
+    rejected: ["40 40", "40 46", "40 60", "60 60", "60 40"],
+  },
+  "a Delete Anchor Point click": {
+    run: async (page: Page, at: (x: number, y: number) => readonly [number, number]) => {
+      await page.keyboard.press("-");
+      await page.mouse.click(...at(60, 60));
+    },
+    accepted: ["40 40", "60 40", "40 60"],
+    rejected: ["40 40", "40 60", "60 40"],
+  },
+  "a Curvature drag": {
+    run: async (page: Page, at: (x: number, y: number) => readonly [number, number]) => {
+      await page.keyboard.press("Shift+~");
+      await page.mouse.move(...at(60, 60));
+      await page.mouse.down();
+      await page.mouse.move(...at(65, 60), { steps: 4 });
+      await page.mouse.up();
+    },
+    accepted: ["40 40", "60 40", "65 60", "40 60"],
+    rejected: ["40 40", "40 60", "65 60", "60 40"],
+  },
+};
+for (const outcome of ["accepted", "rejected"] as const) {
+  for (const [name, edit] of Object.entries(toolEdits)) {
+    test(`${name} while a Reverse Path Direction press is in flight changes the point under the pointer, ${outcome}`, async ({
+      page,
+      request,
+    }) => {
+      const { ids, held, hold, at, d, button } = await rings(page, request, [0]);
+      const [id] = ids as [string];
+      await page.keyboard.press("a");
+      await page.mouse.click(...at(40, 60));
+      await expect(button("Reverse Path Direction Off")).toHaveAttribute("aria-pressed", "true");
+
+      hold();
+      await button("Reverse Path Direction On").click();
+      await expect.poll(() => held.length).toBe(1);
+      // The panel shows the direction pressed while the press is in flight.
+      await expect(button("Reverse Path Direction On")).toHaveAttribute("aria-pressed", "true");
+      await edit.run(page, at);
+      // The edit waits for the answer.
+      await page.waitForTimeout(200);
+      expect(points(await d(id))).toEqual(points(ring(0)));
+      const [press] = held;
+      if (outcome === "accepted") press?.pass();
+      else {
+        press?.answer({
+          type: "rejected",
+          id: press.id,
+          error: { code: "INVALID_PATH", message: "Rejected for the test.", hint: "" },
+        });
+      }
+      // An added Anchor lands within rounding of the click.
+      const rounded = (d: string) =>
+        points(d).map((p) =>
+          p
+            .split(" ")
+            .map((v) => Math.round(Number(v)))
+            .join(" "),
+        );
+      await expect.poll(async () => rounded(await d(id))).toEqual([...outer, ...edit[outcome]]);
+    });
+  }
+}
+
+for (const outcome of ["accepted", "rejected"] as const) {
+  test(`the Attributes panel shows the pressed direction in flight and the answer's after, ${outcome}`, async ({
+    page,
+    request,
+  }) => {
+    const { held, hold, at, button } = await rings(page, request, [0]);
+    await page.keyboard.press("a");
+    await page.mouse.click(...at(40, 60));
+    hold();
+    await button("Reverse Path Direction On").click();
+    await expect.poll(() => held.length).toBe(1);
+    await expect(button("Reverse Path Direction On")).toHaveAttribute("aria-pressed", "true");
+    await expect(button("Reverse Path Direction Off")).toHaveAttribute("aria-pressed", "false");
+    const [press] = held;
+    if (outcome === "accepted") press?.pass();
+    else {
+      press?.answer({
+        type: "rejected",
+        id: press.id,
+        error: { code: "INVALID_PATH", message: "Rejected for the test.", hint: "" },
+      });
+    }
+    const shown = outcome === "accepted" ? "On" : "Off";
+    await expect(button(`Reverse Path Direction ${shown}`)).toHaveAttribute("aria-pressed", "true");
+  });
+}
+
+// #276: the Document DO applies the press but its answer is lost to a dropped socket. The Document
+// sent on reconnect has the hole as the press's preview drew it, so the chosen Anchor is renumbered.
+test("a Reverse Path Direction press whose answer is lost to a reconnect keeps the chosen Anchor chosen", async ({
+  page,
+  request,
+}) => {
+  const { ids, held, hold, sockets, at, d, button } = await rings(page, request, [0]);
+  const [id] = ids as [string];
+  await page.keyboard.press("a");
+  await page.mouse.click(...at(40, 60));
+  hold();
+  await button("Reverse Path Direction On").click();
+  await expect.poll(() => held.length).toBe(1);
+  held[0]?.lose();
+  await expect.poll(sockets).toBe(2);
+  await expect(page.getByTestId("status-bar")).not.toContainText("connecting");
+  await expect(button("Reverse Path Direction On")).toHaveAttribute("aria-pressed", "true");
+  expect(points(await d(id))).toEqual([...outer, "40 40", "60 40", "60 60", "40 60"]);
+
+  await page
+    .getByRole("toolbar", { name: "Anchors" })
+    .getByRole("button", { name: "Convert selected anchor points to smooth" })
+    .click();
+  await expect.poll(() => d(id)).toMatch(/C[^LZ]* 40 60 C/);
+  expect(await d(id)).toMatch(/M 40 40 L 60 40 L 60 60 C/);
+});
