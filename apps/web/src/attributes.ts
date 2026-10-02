@@ -1,5 +1,6 @@
 import {
   type Document,
+  directionEdits,
   isCompoundPath,
   type Node,
   type PathNode,
@@ -51,7 +52,7 @@ export function directionTargets(s: Selected): { nodeId: string; subpath: number
     if (seen.has(`${nodeId} ${subpath}`) || !reversible(doc, n)) return [];
     seen.add(`${nodeId} ${subpath}`);
     const on = runsClockwise(doc, n, subpath);
-    return on === true || on === false ? [{ nodeId, subpath, on }] : [];
+    return typeof on === "boolean" ? [{ nodeId, subpath, on }] : [];
   });
 }
 
@@ -76,12 +77,7 @@ export function setDirection(s: Selected, on: boolean) {
   if (!doc || flip.length === 0) return;
   const subpaths = flip.map(({ nodeId, subpath }) => ({ nodeId, subpath }));
   const commandId = send({ type: "path_reverse", subpaths, clockwise: on });
-  const inputs = [...new Set(subpaths.map((t) => t.nodeId))].map((nodeId) => ({
-    nodeId,
-    ops: subpaths
-      .filter((t) => t.nodeId === nodeId)
-      .map(({ subpath }) => ({ op: "reverse" as const, subpath })),
-  }));
+  const inputs = directionEdits(doc, subpaths, on);
   /** Where Anchor `index`, or the segment starting there, is once its subpath is reversed. */
   const renumber = (segment: boolean) => (key: string) => {
     const { nodeId, subpath, index } = parseKey(key);

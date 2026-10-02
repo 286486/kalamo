@@ -114,6 +114,8 @@ it("reads a Make result as Illustrator's, backmost Off and hole On, and sets a c
   // A straight subpath has no direction, so On could never show as set.
   const line = id("line");
   expect(directionOf({ ...s([anchorKey(line, 1, 0)]), selection: [line] })).toBeNull();
+  const both = { ...s([anchorKey(line, 0, 0), anchorKey(line, 1, 0)]), selection: [line] };
+  expect(directionOf(both)).toBe(true);
   setDirection(s([anchorKey(ring, 1, 0)]), true);
   setDirection(s([anchorKey(ring, 1, 0), anchorKey(ring, 1, 1)], [anchorKey(ring, 1, 3)]), false);
   expect(commands()).toEqual([
