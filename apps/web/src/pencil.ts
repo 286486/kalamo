@@ -7,6 +7,7 @@ import {
   formatPath,
   fromAnchors,
   invert,
+  type Node,
   type PathEditInput,
   toAnchors,
   worldTransform,
@@ -300,6 +301,10 @@ export function pencilResult(
   return sub ? { path: { anchors: sub.anchors, closed: sub.closed } } : null;
 }
 
+/** Why a held redraw sent nothing: the person's own edit in the window took its path off the Ink. */
+const DROPPED =
+  "The Pencil edit was not applied; its path changed before Reverse Path Direction was answered.";
+
 /** The Ink of the drag in progress, in document coordinates, and where a straight segment starts. */
 let ink: Point[] | null = null;
 let straight: { from: Point; kept: number } | null = null;
@@ -347,20 +352,34 @@ export function pencilUp(scale: number) {
   if ("edit" in r) {
     useStore.setState({ edit: { inputs: [r.edit], commandIds: null } });
     // Worked out again from the Ink once a Reverse Path Direction press in flight is answered, on
-    // the Document then, so it redraws the stretch drawn over (ADR-0110). It holds the key of the
-    // path's first Anchor only so that another Actor's edit to the path, which clears it, drops the
-    // redraw (ADR-0109); which Anchor does not matter.
+    // the Document then, so it redraws the stretch drawn over (ADR-0110). It redraws the path it
+    // was drawn over, whatever the Selection is then, and keeps the Ink in that path's own
+    // coordinates, so the person's Selection tool move sent meanwhile carries the Ink with the path,
+    // as Illustrator, which redraws before it moves, would (#284). It holds the key of the path's
+    // first Anchor only so that another Actor's edit to the path, which clears it, drops the redraw
+    // (ADR-0109); which Anchor does not matter.
+    const { nodeId } = r.edit;
+    const frame = (doc: Document) => worldTransform(doc, doc.nodes.get(nodeId) as Node);
+    const m = invert(frame(s.doc));
+    const own = done.map((p) => applyTo(m, ...p));
     afterReverse(
-      ({ doc: now, selection, anchors }, w) => {
-        const again = now && anchors.length > 0 && pencilResult(now, selection, done, o, scale);
+      ({ doc: now, anchors }, w) => {
+        if (!now || anchors.length === 0) {
+          cancelDrag();
+          return;
+        }
+        const f = frame(now);
+        const at = own.map((p) => applyTo(f, ...p));
+        const again = pencilResult(now, [nodeId], at, o, scale);
         if (!again || !("edit" in again)) {
           cancelDrag();
+          useStore.setState({ notice: DROPPED });
           return;
         }
         const commandIds = [send({ type: "path_edit", input: again.edit }, w)];
         useStore.setState({ edit: { inputs: [again.edit], commandIds } });
       },
-      { anchors: [anchorKey(r.edit.nodeId, 0, 0)], segments: [], previewed: true },
+      { anchors: [anchorKey(nodeId, 0, 0)], segments: [], previewed: true },
     );
     return;
   }
