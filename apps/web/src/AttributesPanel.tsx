@@ -41,14 +41,14 @@ export const AttributesPanel = memo(function AttributesPanel() {
       <div role="group" aria-label="Reverse Path Direction" style={{ display: "flex", gap: 4 }}>
         <Choice
           label="Reverse Path Direction Off"
-          text="Reverse Off"
+          text="Direction Off"
           value={on}
           is={false}
           set={() => setDirection(useStore.getState(), false)}
         />
         <Choice
           label="Reverse Path Direction On"
-          text="Reverse On"
+          text="Direction On"
           value={on}
           is={true}
           set={() => setDirection(useStore.getState(), true)}
