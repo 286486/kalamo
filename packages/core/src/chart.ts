@@ -174,6 +174,11 @@ function label(
 }
 
 const stroke = { fills: [], strokes: [{ color: "#000000", width: 1 }] };
+/** Series `j`'s columns and Legend swatch: one Fill from the palette, no Stroke. */
+const seriesFill = (j: number) => ({
+  fills: [{ color: CHART_PALETTE[j % CHART_PALETTE.length] as string }],
+  strokes: [],
+});
 const line = (x1: number, y1: number, x2: number, y2: number) => ({
   type: "line" as const,
   x1,
@@ -239,19 +244,22 @@ export function columnChart(raw: ChartInput): { node: NodeInput; warnings: Warni
   const max = ticks.at(-1) as number;
 
   // Text and spacing scale with the frame, in the bundled font.
-  const f = Math.min(12, Math.max(6, Math.round(Math.min(frame.width, frame.height) / 3) / 10));
-  const textHeight = measure("0", f).height;
-  const width = (s: string) => measure(s, f).width;
+  const fontSize = Math.min(
+    12,
+    Math.max(6, Math.round(Math.min(frame.width, frame.height) / 3) / 10),
+  );
+  const textHeight = measure("0", fontSize).height;
+  const width = (s: string) => measure(s, fontSize).width;
   const legend = series.length > 1;
-  const legendWidth = legend ? 1.5 * f + Math.max(...series.map(width)) : 0;
-  const tick = f / 2;
-  const left = frame.x + Math.max(...ticks.map((t) => width(String(t)))) + tick + f / 4;
+  const legendWidth = legend ? 1.5 * fontSize + Math.max(...series.map(width)) : 0;
+  const tick = fontSize / 2;
+  const left = frame.x + Math.max(...ticks.map((t) => width(String(t)))) + tick + fontSize / 4;
   // The baseline's Stroke reaches half its width past its end.
-  const right = frame.x + frame.width - (legend ? legendWidth + f : 0.5);
+  const right = frame.x + frame.width - (legend ? legendWidth + fontSize : 0.5);
   const top = frame.y + textHeight / 2;
-  const bottom = frame.y + frame.height - textHeight - f / 2;
+  const bottom = frame.y + frame.height - textHeight - fontSize / 2;
   // The last Legend row's name ends a text height below its centre, 1.5 sizes per row down.
-  const legendHeight = legend ? textHeight + 1.5 * f * (series.length - 1) : 0;
+  const legendHeight = legend ? textHeight + 1.5 * fontSize * (series.length - 1) : 0;
   if (right - left <= 0 || bottom - top <= 0 || legendHeight > frame.height) {
     throw invalid(
       "frame",
@@ -271,7 +279,7 @@ export function columnChart(raw: ChartInput): { node: NodeInput; warnings: Warni
       line(left, top, left, bottom),
       ...ticks.flatMap((t) => [
         line(left - tick, y(t), left, y(t)),
-        label(String(t), left - tick - f / 4, y(t), f, "right"),
+        label(String(t), left - tick - fontSize / 4, y(t), fontSize, "right"),
       ]),
     ],
   };
@@ -281,7 +289,13 @@ export function columnChart(raw: ChartInput): { node: NodeInput; warnings: Warni
     children: [
       line(left, zero, right, zero),
       ...categories.map((c, i) =>
-        label(c, left + (i + 0.5) * slot, bottom + f / 2 + textHeight / 2, f, "center"),
+        label(
+          c,
+          left + (i + 0.5) * slot,
+          bottom + fontSize / 2 + textHeight / 2,
+          fontSize,
+          "center",
+        ),
       ),
     ],
   };
@@ -301,10 +315,7 @@ export function columnChart(raw: ChartInput): { node: NodeInput; warnings: Warni
           y: Math.min(zero, y(v)),
           width: COLUMN_WIDTH * share,
           height: Math.abs(zero - y(v)),
-          appearance: {
-            fills: [{ color: CHART_PALETTE[j % CHART_PALETTE.length] as string }],
-            strokes: [],
-          },
+          appearance: seriesFill(j),
         },
       ];
     }),
@@ -319,15 +330,17 @@ export function columnChart(raw: ChartInput): { node: NodeInput; warnings: Warni
         type: "rect" as const,
         name,
         x: legendX,
-        y: frame.y + textHeight / 2 - f / 2 + 1.5 * f * j,
-        width: f,
-        height: f,
-        appearance: {
-          fills: [{ color: CHART_PALETTE[j % CHART_PALETTE.length] as string }],
-          strokes: [],
-        },
+        y: frame.y + textHeight / 2 - fontSize / 2 + 1.5 * fontSize * j,
+        width: fontSize,
+        height: fontSize,
+        appearance: seriesFill(j),
       },
-      label(name, legendX + 1.5 * f, frame.y + textHeight / 2 + 1.5 * f * j, f),
+      label(
+        name,
+        legendX + 1.5 * fontSize,
+        frame.y + textHeight / 2 + 1.5 * fontSize * j,
+        fontSize,
+      ),
     ]),
   };
 
