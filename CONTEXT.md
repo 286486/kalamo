@@ -202,7 +202,7 @@ _Avoid_: Midpoint stop、Bias、Diamond（那是它在面板上的图标）
 Window > Gradient（Ctrl+F9）打开的停靠面板，编辑 Selection 中各叶子的当前 Fill 或 Stroke（最上层的那个，由 Tools 面板的 Fill / Stroke 框决定）：类型、角度、长宽比、反向，以及滑块上的 Color Stop 与 Midpoint。每次改动一个 Transaction（ADR-0081）。
 
 **Pathfinder panel（路径查找器面板）**：
-Window > Pathfinder（Shift+Ctrl+F9）打开的停靠面板。目前只有 Shape Modes 一行（Unite、Minus Front、Intersect、Exclude），对 Selection 中可编辑的 Node（选中的 Group 算一个）执行扩展后的 `path_op`，结果 Path 成为 Selection，一步撤销（ADR-0104）。
+Window > Pathfinder（Shift+Ctrl+F9）打开的停靠面板。目前有 Shape Modes 一行（Unite、Minus Front、Intersect、Exclude）和 Pathfinders 一行（目前只有 Minus Back；Divide、Trim、Merge、Crop、Outline 待做），对 Selection 中可编辑的 Node（选中的 Group 算一个）执行扩展后的 `path_op`，结果 Path 成为 Selection，一步撤销（ADR-0104）。
 _Avoid_: Boolean panel
 
 **Gradient Annotator（渐变批注者）**：
