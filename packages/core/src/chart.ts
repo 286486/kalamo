@@ -186,7 +186,7 @@ export function columnChart(raw: ChartInput): { node: NodeInput; warnings: Warni
   const series = typeof encoding.y === "string" ? [encoding.y] : encoding.y;
   const rows = rowsOf(data);
   for (const [k, f] of [encoding.x, ...series].entries()) {
-    if (!rows.some(({ row }) => f in row)) {
+    if (!rows.some(({ row }) => Object.hasOwn(row, f))) {
       const at =
         k === 0
           ? "encoding.x"

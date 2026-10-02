@@ -217,6 +217,9 @@ describe("columnChart", () => {
     ).toMatchObject({
       path: "encoding.y[1]",
     });
+    expect(errorOf(() => chart({ encoding: { x: "quarter", y: "constructor" } }))).toMatchObject({
+      path: "encoding.y",
+    });
     expect(errorOf(() => chart({ encoding: { x: "month", y: "north" } }))).toMatchObject({
       path: "encoding.x",
     });
