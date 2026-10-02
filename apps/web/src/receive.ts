@@ -325,6 +325,19 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     segments: k.segments.map(reversedKey(doc, turned, true)).filter(kept(segmentInRange)),
   });
   const { anchors, segments } = rekey(s);
+  // Someone else's change to the path the Pen continues ends the continuation and its preview, so
+  // its finish never writes the Anchors it started from over theirs (ADR-0110). A reconnect does
+  // not say who changed it, so any change does but the press's own reverse.
+  const continued = s.pen?.from?.nodeId;
+  const same = (x: Document | null) =>
+    !!continued &&
+    JSON.stringify(x?.nodes.get(continued)) === JSON.stringify(doc.nodes.get(continued));
+  const reached =
+    !!continued &&
+    !own &&
+    (touched
+      ? touched.has(continued)
+      : !same(prior) && !(prior && s.reversing && same(previewEdit(prior, s.reversing))));
   const skipped = msg.type === "tx" ? (msg.skippedIds?.length ?? 0) : 0;
   // A selected Node that a browser's command moved into a new Group selects that Group, as Make
   // Clipping Mask does; an Agent's edit leaves the person's Selection alone.
@@ -391,6 +404,13 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
       }),
     ...(skipped > 0 && {
       notice: `Skipped ${skipped} object(s) deleted or moved since; they stay as they are.`,
+    }),
+    // Last, so its notice is the one shown: what the person drew is lost.
+    ...(reached && {
+      pen: null,
+      ...(s.edit?.commandIds === null && { edit: null }),
+      notice:
+        "Someone else changed the path the Pen was continuing; the Pen stopped, and what it drew was not applied.",
     }),
   };
 }
