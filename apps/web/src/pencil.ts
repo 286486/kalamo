@@ -12,7 +12,7 @@ import {
   worldTransform,
 } from "@kalamo/core";
 import { cancelDrag } from "./canvas.ts";
-import { anchorsOf, hasAnchors, localAnchors, nearestSegment } from "./direct.ts";
+import { anchorKey, anchorsOf, hasAnchors, localAnchors, nearestSegment } from "./direct.ts";
 import { editable } from "./selection.ts";
 import { getItem } from "./storage.ts";
 import { afterReverse, send, useStore } from "./store.ts";
@@ -347,10 +347,12 @@ export function pencilUp(scale: number) {
   if ("edit" in r) {
     useStore.setState({ edit: { inputs: [r.edit], commandIds: null } });
     // Worked out again from the Ink once a Reverse Path Direction press in flight is answered, on
-    // the Document then, so it redraws the stretch drawn over (ADR-0110).
+    // the Document then, so it redraws the stretch drawn over (ADR-0110). It holds the key of the
+    // path's first Anchor only so that another Actor's edit to the path, which clears it, drops the
+    // redraw (ADR-0109); which Anchor does not matter.
     afterReverse(
-      ({ doc: now, selection }, w) => {
-        const again = now && pencilResult(now, selection, done, o, scale);
+      ({ doc: now, selection, anchors }, w) => {
+        const again = now && anchors.length > 0 && pencilResult(now, selection, done, o, scale);
         if (!again || !("edit" in again)) {
           cancelDrag();
           return;
@@ -358,7 +360,7 @@ export function pencilUp(scale: number) {
         const commandIds = [send({ type: "path_edit", input: again.edit }, w)];
         useStore.setState({ edit: { inputs: [again.edit], commandIds } });
       },
-      { previewed: true },
+      { anchors: [anchorKey(r.edit.nodeId, 0, 0)], segments: [], previewed: true },
     );
     return;
   }

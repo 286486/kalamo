@@ -708,4 +708,40 @@ for (const outcome of ["accepted", "rejected"] as const) {
       await expect.poll(async () => anchorsIn(await d(id))[2]?.join(",")).toMatch(edit[outcome]);
     });
   }
+
+  // #281, ADR-0109: an Agent's edit to the path drops the held redraw, so the Agent's edit is
+  // stored as they made it, reversed only by an accepted press.
+  test(`a held Pencil redraw is dropped when an Agent edits its path, ${outcome}`, async ({
+    page,
+    request,
+  }) => {
+    const { docId, ids, held, hold, at, d, button } = await rings(page, request, [0], hook);
+    const [id] = ids as [string];
+    await page.keyboard.press("a");
+    await page.mouse.click(...at(120, 20));
+    await expect(button("Reverse Path Direction On")).toHaveAttribute("aria-pressed", "true");
+
+    hold();
+    await button("Reverse Path Direction Off").click();
+    await expect.poll(() => held.length).toBe(1);
+    await drawnEdits["a Pencil redraw"].run(page, at);
+    await call(request, "kalamo_path_edit", {
+      docId,
+      nodeId: id,
+      ops: [{ op: "move_anchor", subpath: 2, index: 0, to: [120, 10] }],
+    });
+    const theirs = outcome === "accepted" ? "160 60,160 20,120 10" : "120 10,160 20,160 60";
+    const [press] = held;
+    if (outcome === "accepted") press?.pass();
+    else {
+      press?.answer({
+        type: "rejected",
+        id: press.id,
+        error: { code: "INVALID_PATH", message: "Rejected for the test.", hint: "" },
+      });
+    }
+    await expect.poll(async () => anchorsIn(await d(id))[2]?.join(",")).toBe(theirs);
+    await page.waitForTimeout(300);
+    expect(anchorsIn(await d(id))[2]?.join(",")).toBe(theirs);
+  });
 }
