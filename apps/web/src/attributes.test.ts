@@ -224,3 +224,74 @@ it("after a press another Actor raced, names only the Anchors the Direct Selecti
   expect(at(answered.doc as Document, anchorKey(b.id, 1, 3))).toEqual([60, 20]);
   expect(at(doc, anchorKey(b.id, 1, 1))).toEqual([60, 20]);
 });
+
+it("after a rejected press, names the Anchors and segments named before it, on both Compound Paths", () => {
+  vi.mocked(send).mockClear();
+  const { doc, defaultLayerId: parentId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 200, height: 200 }],
+  });
+  const ring = (x: number) =>
+    `M${x} 0 L${x + 30} 0 L${x + 30} 30 L${x} 30 Z M${x + 10} 10 L${x + 10} 20 L${x + 20} 20 L${x + 20} 10 Z`;
+  const [a, b] = createNodes(doc, [
+    { type: "path", parentId, d: ring(0) },
+    { type: "path", parentId, d: ring(50) },
+  ]).nodes as [Node, Node];
+  const before = {
+    anchors: [anchorKey(a.id, 1, 1), anchorKey(b.id, 1, 2), anchorKey(b.id, 0, 1)],
+    segments: [anchorKey(a.id, 1, 3), anchorKey(b.id, 1, 0)],
+  };
+  const state = viewState({ doc, selection: [a.id, b.id], role: "owner", ...before });
+  setDirection(state, true);
+  const { edit, anchors, segments } = useStore.getState();
+  const pressed = { ...state, edit, anchors, segments };
+  expect(pressed.anchors).not.toEqual(before.anchors);
+  const rejected = message("rejected", {
+    id: "c",
+    error: { code: "INVALID_PATH", message: "No.", hint: "" },
+  });
+  expect(stateAfter(pressed, rejected)).toMatchObject({ edit: null, notice: "No.", ...before });
+});
+
+it("after a rejected press another Actor raced, leaves the raced path's Anchors cleared (ADR-0109)", () => {
+  vi.mocked(send).mockClear();
+  const { doc, defaultLayerId: parentId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 200, height: 200 }],
+  });
+  const ring = (x: number) =>
+    `M${x} 0 L${x + 30} 0 L${x + 30} 30 L${x} 30 Z M${x + 10} 10 L${x + 10} 20 L${x + 20} 20 L${x + 20} 10 Z`;
+  const [a, b] = createNodes(doc, [
+    { type: "path", parentId, d: ring(0) },
+    { type: "path", parentId, d: ring(50) },
+  ]).nodes as [Node, Node];
+  const state = viewState({
+    doc,
+    selection: [a.id, b.id],
+    anchors: [anchorKey(a.id, 1, 1), anchorKey(b.id, 1, 1)],
+    role: "owner",
+  });
+  setDirection(state, true);
+  const { edit, anchors, segments } = useStore.getState();
+  const pressed = { ...state, edit, anchors, segments };
+  const reversed = editPath(
+    { ...doc, nodes: new Map(doc.nodes) },
+    { nodeId: a.id, ops: [{ op: "reverse", subpath: 1 }] },
+  ).node;
+  const theirs = message("tx", { rev: doc.rev + 1, actor: "agent", updated: [reversed] });
+  const raced = { ...pressed, ...stateAfter(pressed, theirs) };
+  expect(raced.anchors).toEqual([anchorKey(b.id, 1, 3)]);
+  // The person then chooses an Anchor on a again, numbered as a now runs.
+  const chosen = { ...raced, anchors: [...raced.anchors, anchorKey(a.id, 1, 1)] };
+  const rejected = message("rejected", {
+    id: "c",
+    error: { code: "NODE_GONE", message: "Gone.", hint: "" },
+  });
+  expect(stateAfter(chosen, rejected)).toMatchObject({
+    edit: null,
+    anchors: [anchorKey(b.id, 1, 1), anchorKey(a.id, 1, 1)],
+    segments: [],
+  });
+});
