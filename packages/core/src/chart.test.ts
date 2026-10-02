@@ -74,22 +74,25 @@ describe("niceTicks", () => {
   });
 
   it("draws values of 1e-300 to 1e300 in magnitude and fails INVALID_INPUT at a cell outside", () => {
-    const numbers = (n: Child): number[] =>
-      Object.values(n).flatMap((v) =>
-        typeof v === "number"
-          ? [v]
-          : Array.isArray(v)
-            ? v.flatMap((c) => (typeof c === "object" ? numbers(c) : []))
-            : [],
-      );
+    const leaves = (v: unknown): unknown[] =>
+      v !== null && typeof v === "object" ? Object.values(v).flatMap(leaves) : [v];
+    const drawable = (l: unknown) =>
+      typeof l === "number" ? Number.isFinite(l) : !/NaN|Infinity/.test(String(l));
     const draw = (vs: number[]) =>
       chart({
         data: { rows: vs.map((v, i) => ({ c: `r${i}`, v })) },
         encoding: { x: "c", y: "v" },
       });
-    for (const vs of [[-1e300, 1e300], [1e300], [-1e300], [1e-300], [-1e-300, 1]]) {
+    for (const vs of [
+      [-1e300, 1e300],
+      [1e300],
+      [-1e300],
+      [1e-300],
+      [-1e-300, 1],
+      [0, -0, 1e-300],
+    ]) {
       const { group, part } = draw(vs);
-      expect(numbers(group).every(Number.isFinite)).toBe(true);
+      expect(leaves(group).every(drawable)).toBe(true);
       const ticks = part("Value Axis")
         .children?.filter((c) => c.type === "text")
         .map((c) => Number(c.content)) as number[];
@@ -105,14 +108,30 @@ describe("niceTicks", () => {
       [[Number.MAX_VALUE], 0],
       [[-Number.MAX_VALUE], 0],
       [[5e-324], 0],
+      [[-5e-324], 0],
+      [[-1e-301], 0],
+      [[1.1e300], 0],
       [[1, 1e-301], 1],
     ] as const) {
-      expect(errorOf(() => draw([...vs]))).toMatchObject({
+      const error = {
         code: "INVALID_INPUT",
-        path: `data.rows[${at}].v`,
         message: `Row ${at}'s v, ${vs[at]}, is outside 1e-300 to 1e+300 in magnitude.`,
+      };
+      expect(errorOf(() => draw([...vs]))).toMatchObject({ ...error, path: `data.rows[${at}].v` });
+      const csv = `c,v\n${vs.map((v, i) => `r${i},${v}`).join("\n")}\n`;
+      expect(errorOf(() => chart({ data: { csv }, encoding: { x: "c", y: "v" } }))).toMatchObject({
+        ...error,
+        path: "data.csv",
       });
     }
+    expect(
+      errorOf(() =>
+        chart({ data: { rows: [{ c: "a", v: "-$1e301" }] }, encoding: { x: "c", y: "v" } }),
+      ),
+    ).toMatchObject({
+      path: "data.rows[0].v",
+      message: "Row 0's v, -1e+301, is outside 1e-300 to 1e+300 in magnitude.",
+    });
   });
 });
 
