@@ -1,6 +1,7 @@
-import { ACCESS_CHANGED, type ServerMessage } from "@kalamo/sync";
+import type { PathEditInput } from "@kalamo/core";
+import { ACCESS_CHANGED, type Command, type ServerMessage } from "@kalamo/sync";
 import { afterEach, expect, it, vi } from "vitest";
-import { connect, useStore } from "./store.ts";
+import { afterReverse, connect, send, unheld, useStore } from "./store.ts";
 import { message } from "./testing.ts";
 
 afterEach(() => {
@@ -111,4 +112,28 @@ it("stops when a socket closed for changed access fails again before a Document"
   expect(useStore.getState().notice).toBe("This Document is no longer shared with you.");
   vi.useRealTimers();
   stop();
+});
+
+// tsc checks this test: each @ts-expect-error fails the check once its line compiles (ADR-0110).
+it("sends a command that names Anchors by index only once it waited or says why it need not", () => {
+  const input: PathEditInput = { nodeId: "p", ops: [{ op: "move_anchor", index: 0, to: [1, 1] }] };
+  const anchors = [{ nodeId: "p", subpath: 0, index: 0 }];
+  // @ts-expect-error A path_edit names Anchors by index.
+  send({ type: "path_edit", input });
+  // @ts-expect-error So does a Join of chosen Anchors.
+  send({ type: "path_op", input: { nodeIds: ["p"], op: "join", anchors } });
+  // @ts-expect-error And the Pen's path_join.
+  send({ type: "path_join", edit: input, join: { nodeIds: ["p"], op: "join", anchors } });
+  const some = { type: "undo" } as Command;
+  // @ts-expect-error A command that may be any of them.
+  send(some);
+  send({ type: "path_edit", input }, unheld("a test"));
+  afterReverse((_s, w) =>
+    send({ type: "path_op", input: { nodeIds: ["p"], op: "join", anchors } }, w),
+  );
+  // Whole Nodes, and a press, which names subpaths.
+  send({ type: "path_op", input: { nodeIds: ["p"], op: "join" } });
+  send({ type: "path_reverse", subpaths: [{ nodeId: "p", subpath: 0 }], clockwise: true });
+  send({ type: "delete", nodeIds: ["p"] });
+  expect(useStore.getState().held).toEqual([]);
 });

@@ -397,19 +397,19 @@ export function documentMenus(tabs: {
             },
             // A Delete while a Reverse Path Direction press is in flight waits for it (ADR-0110).
             run: () =>
-              afterReverse(({ doc, selection, anchors, segments, tool }) => {
+              afterReverse(({ doc, selection, anchors, segments, tool }, w) => {
                 // The Curvature tool removes an Anchor and keeps the curve connected (research 06 §2).
                 if (tool === "curvature" && removeCurveAnchor()) return;
                 if (!doc) return;
                 if (tool === "curvature" && anchors.length > 0) {
-                  sendAnchorEdits(curvatureClearInputs(doc, selection, anchors));
+                  sendAnchorEdits(curvatureClearInputs(doc, selection, anchors), w);
                   return;
                 }
                 if (anchors.length > 0 || segments.length > 0) {
                   // Selected Anchors go with their segments and selected segments alone, opening the
                   // path (research §4), and selected objects with neither go whole: one command per
                   // path.
-                  sendAnchorEdits(clearInputs(doc, selection, anchors, segments));
+                  sendAnchorEdits(clearInputs(doc, selection, anchors, segments), w);
                   return;
                 }
                 // The answering tx prunes the Selection; a rejection keeps it for another press.
@@ -443,9 +443,9 @@ export function documentMenus(tabs: {
                 enabled: join.enabled,
                 // Join and Average name Anchors by index, so they wait for a press too (ADR-0110).
                 run: () =>
-                  afterReverse((s) => {
+                  afterReverse((s, w) => {
                     const input = join.targets(s);
-                    if (input) send({ type: "path_op", input: { ...input, op: "join" } });
+                    if (input) send({ type: "path_op", input: { ...input, op: "join" } }, w);
                   }),
               },
               {
@@ -456,10 +456,10 @@ export function documentMenus(tabs: {
                   if (!average.targets(useStore.getState())) return;
                   averageDialog((axis) =>
                     // The Selection may have changed while the dialog was open.
-                    afterReverse((s) => {
+                    afterReverse((s, w) => {
                       const input = average.targets(s);
                       if (input)
-                        send({ type: "path_op", input: { ...input, op: "average", axis } });
+                        send({ type: "path_op", input: { ...input, op: "average", axis } }, w);
                     }),
                   );
                 },
@@ -473,8 +473,8 @@ export function documentMenus(tabs: {
                 label: "Remove Anchor Points",
                 enabled: ({ doc, anchors }) => doc !== null && anchors.some((k) => inRange(doc, k)),
                 run: () =>
-                  afterReverse(({ doc, anchors }) => {
-                    if (doc) sendAnchorEdits(removeAnchorInputs(doc, anchors));
+                  afterReverse(({ doc, anchors }, w) => {
+                    if (doc) sendAnchorEdits(removeAnchorInputs(doc, anchors), w);
                   }),
               },
               {

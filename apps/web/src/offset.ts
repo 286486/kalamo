@@ -1,6 +1,6 @@
 import type { PathOpInput } from "@kalamo/core";
 import { pathTargets } from "./selection.ts";
-import { send, useStore } from "./store.ts";
+import { type NodeOp, send, useStore } from "./store.ts";
 
 type Join = NonNullable<PathOpInput["join"]>;
 
@@ -35,7 +35,7 @@ export function offsetDialog() {
 </form>`;
   const form = dialog.querySelector("form") as HTMLFormElement;
   const field = (name: string) => form.elements.namedItem(name) as HTMLInputElement;
-  const input = (): PathOpInput => {
+  const input = (): NodeOp => {
     const { distance, join, miterLimit } = settings;
     return { nodeIds, op: "offset", distance, join, miterLimit };
   };

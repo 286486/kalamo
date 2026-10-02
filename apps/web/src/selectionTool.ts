@@ -12,7 +12,7 @@ import {
 } from "./canvas.ts";
 import { exitLevel, isolate } from "./isolation.ts";
 import { combine, editable, hitTest, marquee } from "./selection.ts";
-import { canEdit, useStore } from "./store.ts";
+import { canEdit, unheld, useStore } from "./store.ts";
 import type { CanvasTool, ToolEvent } from "./toolbox.ts";
 
 /** A press on the canvas: moving objects under `hit`, or drawing a marquee. */
@@ -104,7 +104,7 @@ export const selectionTool: CanvasTool = {
     } else if (g?.moved) {
       const { drag } = useStore.getState();
       if (drag?.commandId === null) useStore.setState({ drag: { ...drag, copy: e.alt } });
-      commitDrag();
+      commitDrag(unheld("a Selection tool drag moves whole Nodes"));
     }
     if (g && double) doubleClick(e, g.kind === "move" ? g.hit : null);
   },

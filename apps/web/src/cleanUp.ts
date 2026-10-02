@@ -1,5 +1,5 @@
-import { type PathOpInput, pathOp } from "@kalamo/core";
-import { send, useStore } from "./store.ts";
+import { pathOp } from "@kalamo/core";
+import { type NodeOp, send, useStore } from "./store.ts";
 
 /**
  * Object > Path > Clean Up… (research 06 §5): Stray Points, Unpainted Objects and Empty Text Paths,
@@ -22,7 +22,7 @@ ${box("strayPoints", "Stray Points")}${box("unpainted", "Unpainted Objects")}${b
     dialog.remove();
     const { doc } = useStore.getState();
     if (dialog.returnValue !== "ok" || !doc) return;
-    const input: PathOpInput = {
+    const input: NodeOp = {
       op: "clean_up",
       strayPoints: checked("strayPoints"),
       unpainted: checked("unpainted"),

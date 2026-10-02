@@ -9,7 +9,7 @@ import {
   curveThrough,
 } from "./curvature.ts";
 import { anchorKey, anchorsOf, hasAnchors } from "./direct.ts";
-import { useStore } from "./store.ts";
+import { unheld, useStore } from "./store.ts";
 import type { CanvasTool } from "./toolbox.ts";
 import { drawing, finishPen, pathD } from "./tools.ts";
 
@@ -54,7 +54,7 @@ export const curvatureTool: CanvasTool = {
   },
   up(e) {
     curvatureUp();
-    commitDrag();
+    commitDrag(unheld("the Curvature tool is not held yet (#276)"));
     e.redraw();
   },
   cancel(redraw) {

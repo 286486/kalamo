@@ -17,16 +17,22 @@ import {
 } from "./direct.ts";
 import { directTool } from "./directTool.ts";
 import { editable } from "./selection.ts";
-import { send, useStore } from "./store.ts";
+import { send, unheld, useStore, type Waited } from "./store.ts";
 import type { CanvasTool, ToolEvent } from "./toolbox.ts";
 
 /** The Add, Delete and Anchor Point tools (research 06 §1), and the Pen's Auto Add/Delete. */
 
 type Point = [number, number];
 
+/** The Anchor Point tools do not wait for a Reverse Path Direction press yet (ADR-0110, #276). */
+const ANCHOR_TOOLS = "the Anchor Point tools are not held yet (#276)";
+
 /** One `path_edit` per path and one `delete`, for edits on Anchors, which drop the selected Anchors and segments. */
-export function sendAnchorEdits({ edits, deleteIds }: ReturnType<typeof removeAnchorInputs>) {
-  for (const input of edits) send({ type: "path_edit", input });
+export function sendAnchorEdits(
+  { edits, deleteIds }: ReturnType<typeof removeAnchorInputs>,
+  w: Waited,
+) {
+  for (const input of edits) send({ type: "path_edit", input }, w);
   if (deleteIds.length > 0) send({ type: "delete", nodeIds: deleteIds });
   useStore.setState({ anchors: [], segments: [] });
 }
@@ -65,10 +71,13 @@ export function addAnchorAt(doc: Document, p: Point, tolerance: number, only?: s
   const line = !a?.handleOut && !b?.handleIn;
   const t = line ? 3 * hit.t ** 2 - 2 * hit.t ** 3 : hit.t;
   if (t <= 0 || t >= 1) return false;
-  sendAnchorEdits({
-    edits: [{ nodeId, ops: [{ op: "add_anchor", subpath, segment, t }] }],
-    deleteIds: [],
-  });
+  sendAnchorEdits(
+    {
+      edits: [{ nodeId, ops: [{ op: "add_anchor", subpath, segment, t }] }],
+      deleteIds: [],
+    },
+    unheld(ANCHOR_TOOLS),
+  );
   return true;
 }
 
@@ -91,7 +100,7 @@ export function deleteAnchorAt(
     scope: useStore.getState().isolated,
   });
   if (hit?.kind !== "anchor" || (only && !only.includes(parseKey(hit.key).nodeId))) return false;
-  sendAnchorEdits(removeAnchorInputs(doc, [hit.key]));
+  sendAnchorEdits(removeAnchorInputs(doc, [hit.key]), unheld(ANCHOR_TOOLS));
   return true;
 }
 
@@ -209,7 +218,7 @@ export const anchorPointTool: CanvasTool = {
     gesture = null;
     if (!g) return;
     if (g.moved) {
-      commitDrag();
+      commitDrag(unheld(ANCHOR_TOOLS));
       return;
     }
     if (g.kind === "segment") return;
@@ -226,7 +235,10 @@ export const anchorPointTool: CanvasTool = {
       ],
     };
     useStore.setState({
-      edit: { inputs: [input], commandIds: [send({ type: "path_edit", input })] },
+      edit: {
+        inputs: [input],
+        commandIds: [send({ type: "path_edit", input }, unheld(ANCHOR_TOOLS))],
+      },
     });
   },
   cancel(redraw) {
