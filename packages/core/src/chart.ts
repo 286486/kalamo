@@ -99,7 +99,8 @@ export function parseNumber(cell: string | number | null | undefined): number | 
     .replace(/^([-+]?)\p{Sc}\s*/u, "$1")
     .replace(/\s*(%|\p{Sc})$/u, "")
     .replace(/,(?=\d{3}(?!\d))/g, "");
-  return /^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i.test(s) ? Number(s) : undefined;
+  const n = /^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i.test(s) ? Number(s) : Number.NaN;
+  return Number.isFinite(n) ? n : undefined;
 }
 
 /** About five ticks at 1, 2 or 5 × 10ⁿ, from at most `lo` to at least `hi`, as d3's `ticks`. */
@@ -117,10 +118,17 @@ export function niceTicks(lo: number, hi: number): number[] {
   return ticks;
 }
 
+/** A row without Object's prototype, so a field named constructor is only ever the row's own. */
+const own = (row: Record<string, z.output<typeof Cell>>) =>
+  Object.assign(Object.create(null) as typeof row, row);
+
 /** The rows as records; a CSV's cells all take the path data.csv. */
 function rowsOf(data: z.output<typeof ChartInput>["data"]) {
   if ("rows" in data) {
-    return data.rows.map((row, i) => ({ row, at: (f: string) => `data.rows[${i}].${f}` }));
+    return data.rows.map((row, i) => ({
+      row: own(row),
+      at: (f: string) => `data.rows[${i}].${f}`,
+    }));
   }
   const [header = [], ...records] = parseCsv(data.csv).filter((r) => r.some((c) => c !== ""));
   if (records.length === 0 || records.length > 1000) {
@@ -138,7 +146,7 @@ function rowsOf(data: z.output<typeof ChartInput>["data"]) {
         'Quote a field that holds a comma, as "1,234".',
       );
     }
-    const row = Object.fromEntries(header.map((name, k) => [name, record[k] ?? ""]));
+    const row = own(Object.fromEntries(header.map((name, k) => [name, record[k] ?? ""])));
     return { row, at: () => "data.csv" };
   });
 }
@@ -242,7 +250,9 @@ export function columnChart(raw: ChartInput): { node: NodeInput; warnings: Warni
   const right = frame.x + frame.width - (legend ? legendWidth + f : 0.5);
   const top = frame.y + textHeight / 2;
   const bottom = frame.y + frame.height - textHeight - f / 2;
-  if (right - left <= 0 || bottom - top <= 0) {
+  // The last Legend row's name ends a text height below its centre, 1.5 sizes per row down.
+  const legendHeight = legend ? textHeight + 1.5 * f * (series.length - 1) : 0;
+  if (right - left <= 0 || bottom - top <= 0 || legendHeight > frame.height) {
     throw invalid(
       "frame",
       `A ${frame.width} × ${frame.height} frame leaves no room for the columns beside the axes${legend ? " and Legend" : ""}.`,

@@ -88,6 +88,7 @@ describe("parseNumber", () => {
     ["abc", undefined],
     ["1,2", undefined],
     ["$", undefined],
+    ["1e999", undefined],
   ])("%j", (cell, n) => expect(parseNumber(cell)).toBe(n));
 });
 
@@ -220,12 +221,37 @@ describe("columnChart", () => {
     expect(errorOf(() => chart({ encoding: { x: "quarter", y: "constructor" } }))).toMatchObject({
       path: "encoding.y",
     });
+    // A row without an Object-property-named field has no such cell, not Object's.
+    expect(
+      errorOf(() =>
+        chart({
+          data: { rows: [{ constructor: "a", v: 1 }, { v: 2 }] },
+          encoding: { x: "constructor", y: "v" },
+        }),
+      ),
+    ).toMatchObject({ path: "data.rows[1].constructor" });
+    expect(
+      chart({
+        data: { rows: [{ c: "a", toString: 1 }, { c: "b" }] },
+        encoding: { x: "c", y: "toString" },
+      }).part("toString").children,
+    ).toHaveLength(1);
     expect(errorOf(() => chart({ encoding: { x: "month", y: "north" } }))).toMatchObject({
       path: "encoding.x",
     });
     expect(errorOf(() => chart({ frame: { x: 0, y: 0, width: 20, height: 20 } }))).toMatchObject({
       path: "frame",
     });
+    const many = Array.from({ length: 20 }, (_, i) => `s${i}`);
+    expect(
+      errorOf(() =>
+        chart({
+          data: { rows: [Object.fromEntries([["c", "a"], ...many.map((s) => [s, 1])])] },
+          encoding: { x: "c", y: many },
+          frame: { x: 0, y: 0, width: 400, height: 150 },
+        }),
+      ),
+    ).toMatchObject({ path: "frame", message: expect.stringContaining("Legend") });
   });
 
   it("stays inside its frame, Strokes included", () => {
