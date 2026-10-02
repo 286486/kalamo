@@ -7,6 +7,7 @@ import {
   type PathNode,
   parsePath,
   pathOp,
+  runsClockwise,
   signedArea,
   toAnchors,
 } from "@kalamo/core";
@@ -16,10 +17,12 @@ import { directionOf, fillRuleOf, setDirection, setFillRule } from "./attributes
 import { curvatureDown, curvatureDrag, curvatureUp } from "./curvature.ts";
 import { anchorKey, localAnchors, parseKey } from "./direct.ts";
 import { directTool } from "./directTool.ts";
+import { pencilDown, pencilMove, pencilUp } from "./pencil.ts";
 import type { ViewState } from "./receive.ts";
 import { afterReverse, runHeld, send, useStore } from "./store.ts";
 import { message, stateAfter, viewState } from "./testing.ts";
 import type { ToolEvent } from "./toolbox.ts";
+import { finishPen, penDown, penUp } from "./tools.ts";
 
 vi.mock("./store.ts", async (original) => ({
   ...(await original<typeof import("./store.ts")>()),
@@ -639,4 +642,154 @@ it("holds the Anchor Point tool's Handle edits for the press and keeps them on t
     expect(accepted, name).toEqual(rejected_);
   }
   vi.useRealTimers();
+});
+
+// #278: the Pen and the Pencil, used while a press is in flight, wait for its answer and act on the
+// Endpoint or stretch drawn on. p's open subpath runs (50, 0), (80, 0), (80, 30); reversed,
+// (80, 30), (80, 0), (50, 0). q is an open line from (0, 100) to (20, 100).
+const drawnEdits: Record<string, () => void> = {
+  "a Pen continuing from an Endpoint": () => {
+    penDown([80, 30], 1);
+    penUp();
+    penDown([100, 30], 1);
+    penUp();
+    finishPen();
+  },
+  "a Pen path ending on an Endpoint": () => {
+    penDown([100, 60], 1);
+    penUp();
+    penDown([50, 0], 1);
+    penUp();
+  },
+  "a Pen continuing one path onto another's Endpoint": () => {
+    penDown([20, 100], 1);
+    penUp();
+    penDown([50, 0], 1);
+    penUp();
+  },
+  "a Pencil redraw": () => {
+    pencilDown([80, 10]);
+    for (const p of [
+      [85, 12],
+      [90, 15],
+      [95, 18],
+      [90, 21],
+      [85, 23],
+      [80, 25],
+    ] as const)
+      pencilMove([[...p]], { shift: false, alt: false });
+    pencilUp(1);
+  },
+};
+
+/** Each subpath with an Anchor at (50, 0), as "x y" lists, after the commands sent. */
+function openAfterSent() {
+  const doc = structuredClone(useStore.getState().doc as Document);
+  for (const c of commands()) {
+    if (c.type === "path_edit") editPath(doc, c.input);
+    if (c.type === "path_join") {
+      editPath(doc, c.edit);
+      pathOp(doc, c.join);
+    }
+  }
+  const r = (p: [number, number]) => p.map((v) => Math.round(v)).join(" ");
+  return [...doc.nodes.values()].flatMap((n) =>
+    n.type === "path"
+      ? localAnchors(n)
+          .map((s) => s.anchors.map((a) => r(a.anchor)))
+          .filter((s) => s.includes("50 0"))
+      : [],
+  );
+}
+
+/** p and q selected after a press reversing p's open subpath; `answer(outcome)` settles it. */
+function pressOnOpen() {
+  const { doc, defaultLayerId: parentId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 200, height: 200 }],
+  });
+  const [p, q] = createNodes(doc, [
+    { type: "path", parentId, d: "M0 0 L9 0 L9 9 Z M50 0 L80 0 L80 30" },
+    { type: "path", parentId, d: "M0 100 L20 100" },
+  ]).nodes as [PathNode, PathNode];
+  vi.mocked(send).mockClear();
+  const state = viewState({
+    doc,
+    selection: [p.id, q.id],
+    role: "owner",
+    tool: "pen",
+    anchors: [anchorKey(p.id, 1, 0)],
+  });
+  setDirection(state, !runsClockwise(doc, p, 1));
+  useStore.setState({ ...state, reversing: useStore.getState().reversing });
+  vi.mocked(send).mockClear();
+  const tx = message("tx", { rev: doc.rev + 1, commandId: "c", updated: [reversed(doc, p.id)] });
+  return (outcome: "accepted" | "rejected") => {
+    useStore.setState(stateAfter(useStore.getState(), outcome === "accepted" ? tx : rejected));
+    runHeld();
+  };
+}
+
+it("holds the Pen's and the Pencil's edits for the press and puts them on the Endpoint or stretch drawn on", () => {
+  const results = Object.entries(drawnEdits).map(([name, run]) =>
+    (["accepted", "rejected"] as const).map((outcome) => {
+      const answer = pressOnOpen();
+      run();
+      expect(commands(), name).toEqual([]);
+      answer(outcome);
+      expect(commands().length, name).toBeGreaterThan(0);
+      return openAfterSent();
+    }),
+  );
+  const [continued, ended, joined, redrawn] = results.map(([accepted, rejected_]) => ({
+    accepted,
+    rejected_,
+  }));
+  // The stored path keeps the direction the press gave it, or had before a rejection.
+  expect(continued?.rejected_).toEqual([["50 0", "80 0", "80 30", "100 30"]]);
+  expect(continued?.accepted).toEqual([["100 30", "80 30", "80 0", "50 0"]]);
+  expect(ended?.rejected_).toEqual([["100 60", "50 0", "80 0", "80 30"]]);
+  expect(ended?.accepted).toEqual([["80 30", "80 0", "50 0", "100 60"]]);
+  // The Join connects q's (20, 100) to p's (50, 0), whichever way it then runs.
+  const line = ["0 100", "20 100", "50 0", "80 0", "80 30"];
+  for (const s of [joined?.accepted, joined?.rejected_]) {
+    expect(s?.map((x) => (x[0] === "0 100" ? x : x.toReversed()))).toEqual([line]);
+  }
+  // The redraw replaces the stretch from (80, 10) to (80, 25) on the subpath as it then runs.
+  const [r] = redrawn?.rejected_ ?? [];
+  expect(r?.slice(0, 3)).toEqual(["50 0", "80 0", "80 10"]);
+  expect(r?.slice(-2)).toEqual(["80 25", "80 30"]);
+  expect(redrawn?.accepted).toEqual([r?.toReversed()]);
+});
+
+it("keeps the Pen on the Endpoint it continues when the answer comes while it draws", () => {
+  const [accepted, rejected_] = (["accepted", "rejected"] as const).map((outcome) => {
+    const answer = pressOnOpen();
+    penDown([80, 30], 1);
+    penUp();
+    answer(outcome);
+    penDown([100, 30], 1);
+    penUp();
+    finishPen();
+    return openAfterSent();
+  });
+  expect(rejected_).toEqual([["50 0", "80 0", "80 30", "100 30"]]);
+  expect(accepted).toEqual([["100 30", "80 30", "80 0", "50 0"]]);
+});
+
+it("drops a held Pen edit when another Actor edits its path before the answer (ADR-0109)", () => {
+  const answer = pressOnOpen();
+  drawnEdits["a Pen continuing from an Endpoint"]?.();
+  const { doc } = useStore.getState() as { doc: Document };
+  const [p] = useStore.getState().selection;
+  const moved = editPath(structuredClone(doc), {
+    nodeId: p as string,
+    ops: [{ op: "move_anchor", subpath: 1, index: 0, to: [50, 5] }],
+  }).node;
+  const theirs = message("tx", { rev: doc.rev + 1, actor: "agent", updated: [moved] });
+  useStore.setState(stateAfter(useStore.getState(), theirs));
+  answer("rejected");
+  expect(commands()).toEqual([]);
+  expect(useStore.getState().edit).toBeNull();
 });
