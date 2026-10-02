@@ -21,7 +21,7 @@ Place the SVG below into the `Logo` Layer at its own size, with the centre of it
 
 The file `poster.svg` in the current directory is an 800×600 pt poster, one user unit to the pt, with an Inkscape layer labelled `Logo`. Edit it in place.
 
-Place the SVG below into the `Logo` layer at its own size, with the centre of its bounds at (560, 150): copy in its elements, not its `<svg>` element. Change nothing else in the file.
+Place the SVG below into the `Logo` layer at its own size, with the centre of its bounds at (560, 150). Change nothing else in the file.
 
 ```svg
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="240" height="120" viewBox="0 0 240 120">
@@ -41,4 +41,4 @@ Place the SVG below into the `Logo` layer at its own size, with the centre of it
 - The Agent called `kalamo_svg_import` and never `kalamo_node_create`; a Place change created the Group, and no change after the setup touches anything but what it placed.
 - The `Logo` Layer holds exactly one Group, whose children are the Groups `Mark` (two Nodes) and `Wordmark` (one Node).
 - The Group's bounds are 220×100 with their centre at (560, 150).
-- The SVG arm's `poster.svg`, opened in Kalamo, still holds the background as it was, and its `Logo` Layer holds the logo's three shapes, their bounds 220×100 with their centre at (560, 150). Its prompt asks for the logo's elements, not a nested `<svg>`, which Kalamo's Open drops until #237.
+- The SVG arm's `poster.svg`, opened in Kalamo, still holds the background as it was, and its `Logo` Layer holds the logo's three shapes, their bounds 220×100 with their centre at (560, 150).

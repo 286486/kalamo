@@ -1,5 +1,6 @@
 import {
   applyTo,
+  aspectPlacement,
   bundledStyle,
   childrenOf,
   clippingPath,
@@ -25,7 +26,6 @@ import {
   notdefBox,
   type PaintedLeaf,
   paintedLeaves,
-  type Rect,
   type Segment,
   scaleOf,
   shapeSegments,
@@ -209,30 +209,6 @@ export function drawDocument(
   ctx.restore();
 }
 
-const ALIGN = { Min: 0, Mid: 0.5, Max: 1 } as Record<string, number>;
-
-/** Where SVG's `preserveAspectRatio` puts a file of `size` pixels in `frame`. */
-export function imagePlacement(
-  frame: Rect,
-  size: { width: number; height: number },
-  preserveAspectRatio: string,
-): Rect {
-  const { x, y } = frame;
-  if (preserveAspectRatio === "none") return { x, y, width: frame.width, height: frame.height };
-  const [align = "xMidYMid", how] = preserveAspectRatio.split(" ");
-  const k = (how === "slice" ? Math.max : Math.min)(
-    frame.width / size.width,
-    frame.height / size.height,
-  );
-  const [width, height] = [size.width * k, size.height * k];
-  return {
-    x: x + (frame.width - width) * (ALIGN[align.slice(1, 4)] ?? 0.5),
-    y: y + (frame.height - height) * (ALIGN[align.slice(5, 8)] ?? 0.5),
-    width,
-    height,
-  };
-}
-
 /** Whether one paint of `n` could show through or blend with another of its own (ADR-0044). */
 const paintsMoreThanOnce = (n: Node) =>
   n.type === "layer" ||
@@ -414,7 +390,7 @@ function paint(ctx: Canvas2D, n: Node, scene: Scene) {
         ctx.rect(n.x, n.y, n.width, n.height);
         ctx.clip();
       }
-      const r = imagePlacement(n, file, n.preserveAspectRatio);
+      const r = aspectPlacement(n, file, n.preserveAspectRatio);
       ctx.drawImage(file.image, r.x, r.y, r.width, r.height);
     }
   } else {

@@ -1190,3 +1190,92 @@ it("draws a midpoint edited in Inkscape as resvg draws the edited file (ADR-0082
     expect(differ / (want.width * want.height), name).toBeLessThanOrEqual(VECTOR_BUDGET);
   }
 });
+
+describe("a nested <svg> opens as resvg draws it (#237)", () => {
+  const S = 'xmlns="http://www.w3.org/2000/svg"';
+  const root = (body: string) =>
+    `<svg ${S} width="200" height="200" viewBox="0 0 200 200">${body}</svg>`;
+  const disc =
+    '<circle cx="30" cy="30" r="25" fill="#e4572e"/><rect x="10" y="40" width="40" height="15" fill="#2e86ab"/>';
+  const ROWS: [string, string][] = [
+    [
+      "the issue's repro",
+      '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600"><g transform="translate(440, 90)"><svg width="240" height="120" viewBox="0 0 240 120"><circle cx="60" cy="60" r="50" fill="#e4572e"/></svg></g></svg>',
+    ],
+    ["x and y without a viewBox", root(`<svg x="40" y="70" width="80" height="80">${disc}</svg>`)],
+    [
+      "a viewBox scale",
+      root(`<svg x="20" y="20" width="150" height="150" viewBox="0 0 60 60">${disc}</svg>`),
+    ],
+    ...["none", "xMinYMid meet", "xMaxYMax meet", "xMidYMid slice"].map((par): [string, string] => [
+      `preserveAspectRatio ${par}`,
+      root(
+        `<svg x="10" y="30" width="180" height="90" viewBox="0 0 60 60" preserveAspectRatio="${par}">${disc}</svg>`,
+      ),
+    ]),
+    [
+      "the default 100% size, percentages and mm",
+      root(
+        `<svg x="10%" y="5mm" viewBox="0 0 120 60">${disc}<svg x="50%" width="40%" height="40mm">${disc}</svg></svg>`,
+      ),
+    ],
+    [
+      "overflow clipped by default",
+      root(
+        `<svg x="30" y="30" width="40" height="40">${disc}<rect x="20" width="200" height="20" fill="#000"/></svg>`,
+      ),
+    ],
+    [
+      'overflow="visible"',
+      root(
+        `<svg overflow="visible" x="30" y="30" width="40" height="40">${disc}<rect x="20" width="150" height="20" fill="#000"/></svg>`,
+      ),
+    ],
+    [
+      "two nested levels",
+      root(
+        `<svg x="20" y="20" width="160" height="160" viewBox="0 0 80 80"><svg x="10" y="10" width="40" height="20" viewBox="0 0 60 60">${disc}</svg>${disc}</svg>`,
+      ),
+    ],
+    [
+      "a Stroke that overflows only by its width",
+      root(
+        '<svg x="40" y="40" width="120" height="120"><rect width="120" height="120" fill="#ffdd00" stroke="#000" stroke-width="16"/></svg>',
+      ),
+    ],
+    [
+      "a rotated parent",
+      root(
+        `<g transform="rotate(20 100 100)"><svg x="40" y="40" width="120" height="60" viewBox="0 0 60 30">${disc}</svg></g>`,
+      ),
+    ],
+    [
+      "text inside",
+      root(
+        '<svg x="20" y="60" width="160" height="80" viewBox="0 0 80 40"><text x="4" y="30" font-family="Source Sans 3" font-size="28" fill="#000">Kalamo</text></svg>',
+      ),
+    ],
+    [
+      "a userSpaceOnUse percentage gradient inside",
+      root(
+        '<svg x="20" y="20" width="160" height="100"><linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0%" x2="100%"><stop offset="0" stop-color="#e4572e"/><stop offset="1" stop-color="#2e86ab"/></linearGradient><rect width="160" height="100" fill="url(#g)"/></svg>',
+      ),
+    ],
+  ];
+
+  it.each(ROWS)("%s", async (name, svg) => {
+    const file = parseFile(svg);
+    expect(file.warnings, name).toEqual([]);
+    const doc = {
+      ...createDocument({ id: "d", name, artboards: [] }).doc,
+      artboards: file.artboards,
+      nodes: new Map(file.nodes.map((n) => [n.id, n])),
+    };
+    const [want, got] = await Promise.all([svgToPixels(svg, 1), svgToPixels(renderSvg(doc), 1)]);
+    expect([got.width, got.height]).toEqual([want.width, want.height]);
+    let differ = 0;
+    for (let i = 0; i < want.pixels.length; i += 4)
+      if (differs(want.pixels, got.pixels, i)) differ++;
+    expect(differ / (want.width * want.height)).toBeLessThanOrEqual(VECTOR_BUDGET);
+  });
+});

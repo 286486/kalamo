@@ -1395,7 +1395,7 @@ it("opens a file with content Kalamo cannot hold, with one warning per kind", ()
         '<pattern id="p" width="2" height="2"/></defs>' +
         '<use xlink:href="#s"/><use href="#s"/><image href="data:image/png;base64,AAAA" width="1" height="1"/>' +
         "<flowRoot><flowPara>x</flowPara></flowRoot><foreignObject><div/></foreignObject>" +
-        "<script>alert(1)</script><svg/><foo/>" +
+        "<script>alert(1)</script><foo/>" +
         '<rect clip-path="url(#c)" mask="url(#m)" style="filter:url(#f)" width="2" height="2"/>' +
         '<path inkscape:path-effect="#e" inkscape:original-d="M 0 0 L 9 9" d="M 0 0 L 1 1"/>' +
         '<g sodipodi:type="inkscape:box3d"><path sodipodi:type="inkscape:box3dside" d="M 0 0 L 2 0 L 2 2 Z"/></g>' +
@@ -1419,7 +1419,7 @@ it("opens a file with content Kalamo cannot hold, with one warning per kind", ()
   expect(leaves(file)[1]).toMatchObject({ clipping: true });
   expect(leaves(file)[2]).toMatchObject({ d: "M 0 0 L 1 1" });
   const codes = file.warnings.map((w) => w.code);
-  expect(codes.filter((c) => c === "UNSUPPORTED_ELEMENT")).toHaveLength(6);
+  expect(codes.filter((c) => c === "UNSUPPORTED_ELEMENT")).toHaveLength(5);
   expect(new Set(codes)).toEqual(
     new Set([
       "UNSUPPORTED_ELEMENT",
@@ -1694,6 +1694,216 @@ describe("Clipping Masks (ADR-0021)", () => {
   it("takes clip-path none, as Inkscape's Release writes it, as no clip", () => {
     const file = parseFile(svg("", '<g clip-path="none"><rect width="5" height="5"/></g>'));
     expect(file.warnings).toEqual([]);
+  });
+});
+
+describe("a nested <svg> (#237)", () => {
+  const REPRO =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600"><g transform="translate(440, 90)"><svg width="240" height="120" viewBox="0 0 240 120"><circle cx="60" cy="60" r="50" fill="#e4572e"/></svg></g></svg>';
+  const children = (file: ReturnType<typeof parseFile>, id: string | null | undefined) =>
+    file.nodes.filter((n) => n.parentId === id).sort((a, b) => (a.index < b.index ? -1 : 1));
+  const nested = (attrs: string, body: string, outer = 'width="100" height="100"') =>
+    parseFile(svg(outer, `<svg ${attrs}>${body}</svg>`));
+  const tree = (file: ReturnType<typeof parseFile>, id: string | null = null): unknown[] =>
+    children(file, id).map((n) =>
+      n.type === "layer" || n.type === "group" ? { [n.type]: tree(file, n.id) } : n.type,
+    );
+
+  it("opens the issue's repro as Layer > Group > Group > ellipse, without a warning", () => {
+    const file = parseFile(REPRO);
+    expect(file.warnings).toEqual([]);
+    expect(tree(file)).toEqual([{ layer: [{ group: [{ group: ["ellipse"] }] }] }]);
+    expect(leaves(file)).toMatchObject([
+      { type: "ellipse", x: 450, y: 100, width: 100, height: 100, transform: [1, 0, 0, 1, 0, 0] },
+    ]);
+  });
+
+  it("adds no Clipping Path when the content fits its viewport", () => {
+    const file = nested('x="10" y="20" width="50" height="50"', '<rect width="50" height="50"/>');
+    expect(file.nodes.some((n) => "clipping" in n && n.clipping)).toBe(false);
+    expect(leaves(file)).toMatchObject([{ type: "rect", x: 10, y: 20, width: 50 }]);
+  });
+
+  it("clips content that overflows its viewport with a rect Clipping Path on top", () => {
+    const file = nested(
+      'x="10" y="20" width="50" height="40" viewBox="0 0 25 20"',
+      '<circle cx="25" cy="10" r="10" fill="#f00"/>',
+    );
+    const [layer] = children(file, null);
+    const [group] = children(file, layer?.id);
+    expect(children(file, group?.id)).toMatchObject([
+      { type: "ellipse", x: 40, y: 20, width: 40, height: 40 },
+      {
+        type: "rect",
+        x: 10,
+        y: 20,
+        width: 50,
+        height: 40,
+        clipping: true,
+        appearance: { fills: [], strokes: [] },
+      },
+    ]);
+  });
+
+  it("clips a Stroke that overflows only by its width", () => {
+    const file = nested(
+      'width="50" height="50"',
+      '<rect width="50" height="50" fill="none" stroke="#000" stroke-width="4"/>',
+    );
+    expect(leaves(file).filter((n) => "clipping" in n && n.clipping)).toHaveLength(1);
+  });
+
+  it.each(["visible", "auto"])("leaves overflow=%s unclipped, as an attribute or CSS", (v) => {
+    for (const attrs of [`overflow="${v}"`, `style="overflow:${v}"`, 'class="o"']) {
+      const file = nested(
+        `${attrs} width="10" height="10"`,
+        `<style>.o{overflow:${v}}</style><rect width="50" height="50"/>`,
+      );
+      expect(leaves(file), attrs).toMatchObject([{ type: "rect", width: 50 }]);
+    }
+  });
+
+  it("does not inherit overflow from a <g> around it", () => {
+    const file = parseFile(
+      svg(
+        "",
+        '<g overflow="visible"><svg width="10" height="10"><rect width="50" height="50"/></svg></g>',
+      ),
+    );
+    expect(leaves(file).filter((n) => "clipping" in n && n.clipping)).toHaveLength(1);
+  });
+
+  it("keeps a clip-path on the nested <svg> on an outer Group, its viewport clip on an inner one", () => {
+    const file = parseFile(
+      svg(
+        'width="100" height="100"',
+        '<defs><clipPath id="c"><circle cx="5" cy="5" r="5"/></clipPath></defs>' +
+          '<svg clip-path="url(#c)" width="10" height="10"><rect width="50" height="50"/></svg>',
+      ),
+    );
+    expect(file.warnings).toEqual([]);
+    const [layer] = children(file, null);
+    const [outer] = children(file, layer?.id);
+    const [inner, circle] = children(file, outer?.id);
+    expect(circle).toMatchObject({ type: "ellipse", clipping: true });
+    expect(children(file, inner?.id)).toMatchObject([
+      { type: "rect", width: 50 },
+      { type: "rect", width: 10, height: 10, clipping: true },
+    ]);
+  });
+
+  it("reads an Inkscape layer inside as a Group, and is a Group directly under the root", () => {
+    const file = nested(
+      'inkscape:groupmode="layer" width="10" height="10"',
+      '<g inkscape:groupmode="layer" inkscape:label="L"><rect width="5" height="5"/></g>',
+    );
+    expect(tree(file)).toEqual([{ layer: [{ group: [{ group: ["rect"] }] }] }]);
+    expect(file.nodes.find((n) => n.name === "L")?.type).toBe("group");
+  });
+
+  it.each([
+    'width="0" height="10"',
+    'width="10" height="-1"',
+    'width="10" height="10" viewBox="0 0 0 10"',
+  ])("drops a nested <svg> with an empty viewport, %s, with one warning", (attrs) => {
+    const file = parseFile(
+      svg("", `<svg ${attrs}><rect width="5" height="5"/></svg><svg ${attrs}/>`),
+    );
+    expect(leaves(file)).toEqual([]);
+    expect(file.nodes.map((n) => n.type)).toEqual(["layer"]);
+    expect(file.warnings).toMatchObject([{ code: "INVALID_ELEMENT" }]);
+    expect(file.warnings[0]?.message).toMatch(/nested <svg>/);
+  });
+
+  it("ignores an unreadable viewBox or preserveAspectRatio, and a negative viewBox size", () => {
+    for (const attrs of [
+      'viewBox="0 0 10"',
+      'viewBox="0 0 -5 5"',
+      'viewBox="0 0 5 5" preserveAspectRatio="stretch"',
+    ]) {
+      const file = nested(`x="1" width="10" height="10" ${attrs}`, '<rect width="5" height="5"/>');
+      const [rect] = leaves(file);
+      expect(rect?.type === "rect" && [rect.x, rect.width], attrs).toEqual(
+        attrs.includes("stretch") ? [1, 10] : [1, 5],
+      );
+    }
+  });
+
+  it("counts toward MAX_DEPTH", () => {
+    const deep = (n: number) =>
+      svg("", `${"<svg>".repeat(n)}<rect width="1" height="1"/>${"</svg>".repeat(n)}`);
+    expect(leaves(parseFile(deep(MAX_DEPTH - 1)))).toHaveLength(1);
+    expect(errorOf(() => parseFile(deep(MAX_DEPTH + 1)))).toMatchObject({
+      code: "LIMIT_EXCEEDED",
+    });
+  });
+
+  it("keeps a Live Shape a Live Shape under a uniform viewBox scale", () => {
+    const file = nested(
+      'width="40" height="40" viewBox="0 0 20 20"',
+      '<rect x="1" y="1" width="10" height="5" rx="1" stroke="#000"/><circle cx="10" cy="10" r="5"/>',
+    );
+    expect(leaves(file)).toMatchObject([
+      { type: "rect", x: 2, y: 2, width: 20, height: 10, radius: 2, transform: [1, 0, 0, 1, 0, 0] },
+      { type: "ellipse", x: 10, width: 20 },
+    ]);
+  });
+
+  it("resolves percentages and units against the nearest viewport, and composes both", () => {
+    const file = parseFile(
+      svg(
+        'width="200" height="100" viewBox="0 0 200 100"',
+        '<svg x="10%" width="50%" height="1in"><svg x="25%" y="1mm" width="50%"><rect width="60" height="80"/></svg></svg>',
+      ),
+    );
+    // The inner viewport is (25, 1mm) 50 x 72 in the outer's, which is (20, 0) 100 x 72.
+    expect(leaves(file).map((n) => n.type === "rect" && [n.x, n.y, n.width, n.height])).toEqual([
+      [45, 2.835, 60, 80],
+      [45, 2.835, 50, 72],
+      [20, 0, 100, 72],
+    ]);
+  });
+
+  it("measures a userSpaceOnUse percentage gradient inside against its viewport", () => {
+    const file = nested(
+      'width="20" height="10"',
+      '<linearGradient id="g" gradientUnits="userSpaceOnUse" x2="100%"><stop offset="0" stop-color="#000"/><stop offset="1" stop-color="#fff"/></linearGradient><rect width="20" height="10" fill="url(#g)"/>',
+      'width="100" height="100"',
+    );
+    const [rect] = leaves(file);
+    expect(rect && "appearance" in rect && rect.appearance.fills[0]).toMatchObject({
+      gradient: { start: { x: 0, y: 0 }, end: { x: 20, y: 0 } },
+    });
+  });
+
+  it("keeps warnings from inside, and warns about a mask on it as on a <g>", () => {
+    const file = nested('mask="url(#m)" width="10" height="10"', "<foo/>");
+    expect(file.warnings.map((w) => w.code).sort()).toEqual([
+      "UNSUPPORTED_ATTRIBUTE",
+      "UNSUPPORTED_ELEMENT",
+    ]);
+    expect(file.warnings.find((w) => w.code === "UNSUPPORTED_ELEMENT")?.message).toMatch(/<foo>/);
+  });
+
+  it("gives the same Nodes on a second open of its export", () => {
+    const first = parseFile(
+      svg(
+        'width="100" height="100"',
+        '<defs><clipPath id="c"><circle cx="5" cy="5" r="5"/></clipPath></defs>' +
+          '<g transform="rotate(30)"><svg x="5" width="20" height="10" viewBox="0 0 10 5" preserveAspectRatio="xMinYMax slice"><rect width="50" height="3" stroke="#000"/><text y="4" font-size="3">Hi</text></svg></g>' +
+          '<svg clip-path="url(#c)" width="10" height="10"><rect width="50" height="50"/></svg>',
+      ),
+    );
+    const { doc } = createDocument({
+      id: "d",
+      name: "D",
+      artboards: [{ width: 100, height: 100 }],
+    });
+    const opened = { ...doc, nodes: new Map(first.nodes.map((n) => [n.id, n])) };
+    const again = parseFile(toSvg(opened));
+    const shape = (f: typeof first) =>
+      f.nodes.map(({ index, ...rest }) => rest).sort((a, b) => (a.id < b.id ? -1 : 1));
+    expect(shape(again)).toEqual(shape(first));
   });
 });
 

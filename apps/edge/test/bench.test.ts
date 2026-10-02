@@ -366,6 +366,20 @@ describe("the SVG arms of grid, labels and place", () => {
     const { files } = await placeSetup(call, "Bench", other);
     await expect(placeSvg(call, files ?? {})).rejects.toThrow("Logo holds 0 shapes");
   });
+
+  it("accepts the logo file pasted whole into poster.svg's Logo layer, as a nested <svg> (#237)", async () => {
+    const svg = placeTask.match(/```svg\n([\s\S]*?)```/)?.[1] ?? "";
+    const poster = (await placeSetup(call, "Bench", other)).files?.["poster.svg"] ?? "";
+    const pasted = `<g transform="translate(440, 90)">${svg}</g>`;
+    const logo = /(<g[^>]*inkscape:label="Logo"[^>]*?)(\/>|>)/;
+    expect(poster).toMatch(logo);
+    const files = {
+      "poster.svg": poster.replace(logo, (_, open, end) =>
+        end === "/>" ? `${open}>${pasted}</g>` : `${open}>${pasted}`,
+      ),
+    };
+    await expect(placeSvg(call, files)).resolves.toBeUndefined();
+  });
 });
 
 describe("edits", () => {
