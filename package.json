@@ -8,7 +8,7 @@
   },
   "scripts": {
     "check": "tsc --noEmit && tsc --noEmit -p apps/web && tsc --noEmit -p fixtures && biome check . && vitest run && pnpm check:bundle",
-    "check:bundle": "pnpm --filter @kalamo/web build && ls apps/web/dist/assets/*.js > /dev/null && ! grep -l xmldom apps/web/dist/assets/*.js && ! grep -l PathKit apps/web/dist/assets/index-*.js && ls apps/web/dist/assets/pathkit-*.wasm > /dev/null && ! grep -l WebPDecode apps/web/dist/assets/*",
+    "check:bundle": "pnpm --filter @kalamo/web build && ls apps/web/dist/assets/*.js > /dev/null && ! grep -l xmldom apps/web/dist/assets/*.js && ! grep -l PathKit apps/web/dist/assets/index-*.js && ls apps/web/dist/assets/pathkit-*.wasm > /dev/null && ! grep -l WebPDecode apps/web/dist/assets/* && grep -q pathkit-wasm apps/web/dist/third-party-licenses.txt && grep -q 'Redistributions in binary form must reproduce the above' apps/web/dist/third-party-licenses.txt && grep -q 'The Kalamo Authors' apps/web/dist/NOTICE.txt && grep -q 'SIL OPEN FONT LICENSE Version 1.1' apps/web/dist/NOTICE.txt",
     "bench": "pnpm --filter @kalamo/web build && wrangler d1 migrations apply DB --local -c apps/edge/wrangler.jsonc --persist-to .wrangler/bench && node fixtures/agent-benchmarks/run.ts",
     "roundtrip": "pnpm --filter @kalamo/web build && wrangler d1 migrations apply DB --local -c apps/edge/wrangler.jsonc --persist-to .wrangler/roundtrip && node fixtures/roundtrip.ts",
     "dev": "pnpm --filter @kalamo/web build && wrangler d1 migrations apply DB --local -c apps/edge/wrangler.jsonc && wrangler dev -c apps/edge/wrangler.jsonc",
