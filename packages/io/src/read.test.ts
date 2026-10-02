@@ -2827,6 +2827,18 @@ describe("<image>", () => {
     expect(images(file)).toHaveLength(2);
   });
 
+  it("finds an embedded image's href through the DOCTYPE's entities, either quote inside", () => {
+    const text = `<!DOCTYPE svg [<!ENTITY img "data:a,b">]>${svg(
+      'width="100" height="100"',
+      `<image href="&img;"/><image href="data:c,'d'"/>`,
+    )}`;
+    const hrefs = embeddedImages(text);
+    expect(hrefs).toEqual(["data:a,b", "data:c,'d'"]);
+    const png = readImage(RED_2x2_PNG, "src");
+    const file = parseFile(text, { converted: new Map(hrefs.map((h) => [h, png])) });
+    expect(images(file)).toHaveLength(2);
+  });
+
   it("makes an image clipped by Inkscape's Set Clip a Clipping Mask", () => {
     const file = open(
       `<defs><clipPath id="c"><rect x="1" y="1" width="2" height="2"/></clipPath></defs><image clip-path="url(#c)" width="4" height="4" href="${RED_2x2_PNG}"/>`,

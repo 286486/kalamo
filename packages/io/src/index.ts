@@ -26,28 +26,24 @@ const outsideImages = (text: string) =>
     text.length,
   );
 
-const PREDEFINED_CHARS: Record<string, string> = {
-  lt: "<",
-  gt: ">",
-  amp: "&",
-  quot: '"',
-  apos: "'",
-};
+const PREDEFINED: Record<string, string> = { lt: "<", gt: ">", amp: "&", quot: '"', apos: "'" };
 
 /**
- * The `href` of each embedded image in SVG text, as the parsed attribute holds it: XML's
- * attribute-value normalisation applied, trimmed. The keys a `ConvertedImages` takes (ADR-0100).
+ * The `href` of each embedded image in SVG text, as the parsed attribute holds it: the DOCTYPE's
+ * entities expanded as `parseFile` expands them, XML's attribute-value normalisation applied,
+ * trimmed. The keys a `ConvertedImages` takes (ADR-0100).
  */
 export const embeddedImages = (text: string) =>
-  [...text.matchAll(/href\s*=\s*(["'])(\s*data:[^"']*)\1/g)].map(([, , value = ""]) =>
-    value
-      .replace(/[\t\n\r]/g, " ")
-      .replace(/&(?:#x([0-9a-fA-F]+)|#([0-9]+)|(lt|gt|amp|quot|apos));/g, (_, hex, dec, name) =>
-        name
-          ? (PREDEFINED_CHARS[name] ?? "")
-          : String.fromCodePoint(parseInt(hex ?? dec, hex ? 16 : 10)),
-      )
-      .trim(),
+  [...expandEntities(text).matchAll(/href\s*=\s*(?:"(\s*data:[^"]*)"|'(\s*data:[^']*)')/g)].map(
+    ([, double, single = ""]) =>
+      (double ?? single)
+        .replace(/[\t\n\r]/g, " ")
+        .replace(/&(?:#x([0-9a-fA-F]+)|#([0-9]+)|(lt|gt|amp|quot|apos));/g, (_, hex, dec, name) =>
+          name
+            ? (PREDEFINED[name] ?? "")
+            : String.fromCodePoint(parseInt(hex ?? dec, hex ? 16 : 10)),
+        )
+        .trim(),
   );
 
 // XML 1.0's Name production.
@@ -62,7 +58,6 @@ const SUBSET =
   /\s+|<!--[\s\S]*?-->|<\?[\s\S]*?\?>|<!(?:[^"'>]|"[^"]*"|'[^']*')*>|(%)[^;\s]*;|(\])\s*>/y;
 const ENTITY = new RegExp(`^<!ENTITY\\s+(${NAME})\\s([\\s\\S]*)>$`, "u");
 const PLAIN = /^\s*(?:"([^"&%<]*)"|'([^'&%<]*)')\s*$/;
-const PREDEFINED = new Set(["lt", "gt", "amp", "quot", "apos"]);
 /** What the parser leaves as written, and the references it expands. */
 const REFERENCE = new RegExp(
   `<!--[\\s\\S]*?(?:-->|$)|<!\\[CDATA\\[[\\s\\S]*?(?:\\]\\]>|$)|<\\?[\\s\\S]*?(?:\\?>|$)|&(${NAME});`,
@@ -95,7 +90,7 @@ function expandEntities(text: string): string {
     seen.add(name);
     const plain = PLAIN.exec(rest);
     const value = plain?.[1] ?? plain?.[2];
-    if (value !== undefined && !PREDEFINED.has(name)) {
+    if (value !== undefined && !Object.hasOwn(PREDEFINED, name)) {
       values.set(name, value.replace(/"/g, "&quot;").replace(/'/g, "&apos;"));
     }
   }

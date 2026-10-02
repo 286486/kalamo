@@ -123,7 +123,7 @@ const TX_IDLE_MS = 5 * 60_000;
 const UNDO_DEPTH = 200;
 
 /** The image files one Document may store: F-MCP-06c's 20 MB Document size (ADR-0046). */
-const MAX_DOCUMENT_IMAGE_BYTES = 20 * 1024 * 1024;
+export const MAX_DOCUMENT_IMAGE_BYTES = 20 * 1024 * 1024;
 
 /** An object with no row this old is a failed write's upload, not one whose write is in flight. */
 const ORPHAN_GRACE_MS = 60 * 60_000;

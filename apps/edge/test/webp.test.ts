@@ -16,7 +16,13 @@ import {
   WEBP_TRUNCATED,
 } from "../../../fixtures/images.ts";
 import { decodePng } from "../../../fixtures/png.ts";
-import { decoder, encodePng, normaliseImage, webpHeader } from "../src/normalise-image.ts";
+import {
+  decoder,
+  encodePng,
+  normaliseImage,
+  webpConverter,
+  webpHeader,
+} from "../src/normalise-image.ts";
 
 const bytes = (url: string) => dataUrlBytes(url, "src");
 const convert = (url: string) => normaliseImage(bytes(url), "src");
@@ -151,4 +157,16 @@ describe("refuses", () => {
       },
     });
   });
+});
+
+it("converts a request's WebPs once each, within what one Document can store", async () => {
+  const first = await convert(WEBP_LOSSLESS_4x3);
+  const request = webpConverter(first.bytes.length);
+  expect(await request(WEBP_LOSSLESS_4x3, "a")).toMatchObject({ bytes: first.bytes });
+  // The same src again is the PNG already held, so it costs nothing.
+  expect(await request(WEBP_LOSSLESS_4x3, "b")).toMatchObject({ bytes: first.bytes });
+  expect((await request(WEBP_ALPHA_4x3, "c")) as KalamoError).toMatchObject({
+    data: { code: "LIMIT_EXCEEDED", path: "c" },
+  });
+  expect(await request(RED_2x2_PNG, "d")).toBeUndefined();
 });

@@ -6,10 +6,11 @@ import {
   KalamoError,
   MAX_IMAGE_BYTES,
 } from "@kalamo/core";
+import { MAX_DOCUMENT_IMAGE_BYTES } from "./document-object.ts";
 import wasm from "./webp/webp.wasm";
 
 /** The most pixels a WebP may have, 4096 × 2048 (ADR-0100): what fits the decoder's memory cap. */
-export const MAX_WEBP_PIXELS = 8 * 1024 * 1024;
+const MAX_WEBP_PIXELS = 8 * 1024 * 1024;
 
 const invalid = (message: string, path: string, hint: string) =>
   new KalamoError({ code: "INVALID_IMAGE", message, hint, path });
@@ -54,25 +55,45 @@ export async function normaliseImage(
 }
 
 /**
- * `src` converted when it is a data URL of a WebP, or the error that refuses it; undefined for
- * anything else, which the synchronous readers check as they always have (ADR-0100).
+ * A request's converter (ADR-0100): `src` converted when it is a data URL of a WebP, or the error
+ * that refuses it; undefined for anything else, which the synchronous readers check as they always
+ * have. One `src` converts once, and the PNGs together stay within a Document's 20 MB, since one
+ * request's files go to one Document: past that a WebP is refused, so a request of many small
+ * WebPs never holds more PNG than it could store.
  */
-export async function convertWebp(
-  src: unknown,
-  path: string,
-): Promise<ImageFile | KalamoError | undefined> {
-  if (typeof src !== "string" || !src.startsWith("data:")) return undefined;
-  let bytes: Uint8Array<ArrayBuffer>;
-  try {
-    bytes = dataUrlBytes(src, path);
-  } catch {
-    return undefined; // readImage refuses it with the same error
-  }
-  if (!isWebp(bytes)) return undefined;
-  return normaliseImage(bytes, path).catch((e: unknown) => {
-    if (e instanceof KalamoError) return e;
-    throw e;
-  });
+export function webpConverter(limit = MAX_DOCUMENT_IMAGE_BYTES) {
+  const done = new Map<string, ImageFile>();
+  let held = 0;
+  return async (src: unknown, path: string): Promise<ImageFile | KalamoError | undefined> => {
+    if (typeof src !== "string" || !src.startsWith("data:")) return undefined;
+    const known = done.get(src);
+    if (known) return known;
+    let bytes: Uint8Array<ArrayBuffer>;
+    try {
+      bytes = dataUrlBytes(src, path);
+    } catch {
+      return undefined; // readImage refuses it with the same error
+    }
+    if (!isWebp(bytes)) return undefined;
+    let file: ImageFile;
+    try {
+      file = await normaliseImage(bytes, path);
+    } catch (e) {
+      if (e instanceof KalamoError) return e;
+      throw e;
+    }
+    if (held + file.bytes.length > limit) {
+      return new KalamoError({
+        code: "LIMIT_EXCEEDED",
+        message: `The WebPs in this request convert to more than ${limit} bytes of PNG, what one Document can store.`,
+        hint: "Place fewer or smaller WebPs at a time.",
+        path,
+      });
+    }
+    held += file.bytes.length;
+    done.set(src, file);
+    return file;
+  };
 }
 
 /** The pixel size and animation flag from a WebP's first chunk, or undefined when it is none. */
@@ -177,7 +198,8 @@ export async function encodePng(rgba: Uint8Array, width: number, path: string) {
   };
   const zlib = new CompressionStream("deflate");
   const chunks: Uint8Array[] = [];
-  let length = 0;
+  // The PNG's size: the zlib stream, plus 57 bytes of signature, IHDR, IDAT's framing and IEND.
+  let length = 57;
   const reading = (async () => {
     const reader = zlib.readable.getReader();
     for (let r = await reader.read(); !r.done; r = await reader.read()) {

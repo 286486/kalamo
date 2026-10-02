@@ -12,7 +12,7 @@ import { svgToPng } from "@kalamo/render";
 import type { DocumentService, PathEditReceipt, RasterRequest } from "@kalamo/sync";
 import type { Principal } from "./auth.ts";
 import { fetchImage } from "./fetch-image.ts";
-import { convertWebp, normaliseImage } from "./normalise-image.ts";
+import { normaliseImage, webpConverter } from "./normalise-image.ts";
 import { checkDocuments, countCall, ownerStorage } from "./quotas.ts";
 import { assertWrites, authorize, listDocuments, type Need } from "./roles.ts";
 
@@ -28,8 +28,9 @@ async function parse(content: string, { name }: { name?: string } = {}) {
   }
   const converted = new Map<string, ImageFile | KalamoError>();
   if (text.startsWith("<")) {
+    const convert = webpConverter();
     for (const href of new Set(embeddedImages(text))) {
-      const file = await convertWebp(href, "src");
+      const file = await convert(href, "src");
       if (file) converted.set(href, file);
     }
   }
@@ -150,9 +151,10 @@ export function documentService(env: Env, principal: Principal): DocumentService
     createNodes: async (docId, nodes, opts) => {
       const target = await doc(docId, "write");
       const refusedImages: Record<string, ErrorData> = {};
+      const convert = srcConverter(refusedImages);
       const converted = await each(
         nodes,
-        async (n, i) => (await convertInput(n, `nodes[${i}]`, refusedImages)) as typeof n,
+        async (n, i) => (await convertInput(n, `nodes[${i}]`, convert)) as typeof n,
       );
       const withFiles = await withStorage(docId, converted, { ...opts, refusedImages });
       return unwrap(await target.createNodes(converted, actor, withFiles));
@@ -160,9 +162,10 @@ export function documentService(env: Env, principal: Principal): DocumentService
     updateNodes: async (docId, updates, opts) => {
       const target = await doc(docId, "write");
       const refusedImages: Record<string, ErrorData> = {};
+      const convert = srcConverter(refusedImages);
       const converted = await each(updates, async (u, i) => {
         const patch = u.patch as { src?: unknown };
-        const src = await convertSrc(patch.src, `updates[${i}].patch.src`, refusedImages);
+        const src = await convert(patch.src, `updates[${i}].patch.src`);
         return src === patch.src ? u : { ...u, patch: { ...u.patch, src } };
       });
       const withFiles = await withStorage(docId, converted, { ...opts, refusedImages });
@@ -211,30 +214,33 @@ export function documentService(env: Env, principal: Principal): DocumentService
  * (ADR-0100). A refused one keeps its `src`, and its error goes in `refused` under the path the
  * Document Durable Object reports it at, which fails that item as its own refusal would.
  */
-async function convertInput(
-  input: unknown,
-  path: string,
-  refused: Record<string, ErrorData>,
-): Promise<unknown> {
+async function convertInput(input: unknown, path: string, convert: SrcConverter): Promise<unknown> {
   if (typeof input !== "object" || input === null) return input;
   const item = input as { type?: unknown; src?: unknown; children?: unknown };
   if (item.type === "image") {
-    const src = await convertSrc(item.src, `${path}.src`, refused);
+    const src = await convert(item.src, `${path}.src`);
     return src === item.src ? input : { ...item, src };
   }
   if (!Array.isArray(item.children)) return input;
   const children = [];
   for (const [k, c] of item.children.entries()) {
-    children.push(await convertInput(c, `${path}.children[${k}]`, refused));
+    children.push(await convertInput(c, `${path}.children[${k}]`, convert));
   }
   return { ...item, children };
 }
 
-/** `src` with a WebP's data URL converted, as `convertInput` does. */
-async function convertSrc(src: unknown, path: string, refused: Record<string, ErrorData>) {
-  const file = await convertWebp(src, path);
-  if (file instanceof KalamoError) refused[path] = file.data;
-  return file && !(file instanceof KalamoError) ? dataUrl(file) : src;
+type SrcConverter = (src: unknown, path: string) => Promise<unknown>;
+
+/** `src` with a WebP's data URL converted, as `convertInput` does; a refusal goes in `refused`. */
+function srcConverter(refused: Record<string, ErrorData>): SrcConverter {
+  const convert = webpConverter();
+  return async (src, path) => {
+    const file = await convert(src, path);
+    if (!file) return src;
+    if (!(file instanceof KalamoError)) return dataUrl(file);
+    refused[path] = file.data;
+    return src;
+  };
 }
 
 /** `items` converted one by one, in order. */
