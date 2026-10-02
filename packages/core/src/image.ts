@@ -140,6 +140,12 @@ export function checkImage(bytes: Uint8Array<ArrayBuffer>, path: string): ImageF
  */
 export type Orientation = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 
+/** A linked file's EXIF orientation as an Image records it: never 1, which it leaves out (ADR-0102). */
+export type FileOrientation = Exclude<Orientation, 1>;
+
+/** The orientation that undoes `o`: 6 and 8 swap, every other one undoes itself. */
+export const inverseOrientation = (o: Orientation): Orientation => (o === 6 ? 8 : o === 8 ? 6 : o);
+
 /** An APP1 block that holds Exif starts `Exif\0\0`. */
 const EXIF = [0x45, 0x78, 0x69, 0x66, 0, 0];
 

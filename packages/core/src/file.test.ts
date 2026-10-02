@@ -612,6 +612,24 @@ describe("images", () => {
     expect(serializeDocument(reopened, provider)).toBe(text);
   });
 
+  it("keeps a linked Image's fileOrientation, version 1 (ADR-0102)", () => {
+    const text = file((raw) =>
+      Object.assign(raw.nodes.find((n) => n.src) ?? {}, { file: "a.jpg", fileOrientation: 6 }),
+    );
+    const parsed = parseDocument(text);
+    expect(parsed.nodes.find((n) => n.type === "image" && n.file)).toMatchObject({
+      file: "a.jpg",
+      fileOrientation: 6,
+    });
+    const doc = withImages();
+    const reopened = { ...doc, nodes: new Map(parsed.nodes.map((n) => [n.id, n])) };
+    const saved = JSON.parse(serializeDocument(reopened, provider));
+    expect(saved.version).toBe(1);
+    expect(saved.nodes).toContainEqual(
+      expect.objectContaining({ file: "a.jpg", fileOrientation: 6 }),
+    );
+  });
+
   it("needs the file of every Image to write", () => {
     expect(errorOf(() => serializeDocument(withImages()))).toMatchObject({ code: "INVALID_IMAGE" });
   });
@@ -645,6 +663,35 @@ describe("images", () => {
           /^nodes\[\d+\]\.file$/,
         ] satisfies [string, (raw: Raw) => unknown, RegExp],
     ),
+    ...[1, 9, 6.5, "6", null].map(
+      (o) =>
+        [
+          `the fileOrientation ${JSON.stringify(o)}`,
+          (raw: Raw) =>
+            Object.assign(raw.nodes.find((n) => n.src) ?? {}, {
+              file: "a.jpg",
+              fileOrientation: o,
+            }),
+          /^nodes\[\d+\]\.fileOrientation$/,
+        ] satisfies [string, (raw: Raw) => unknown, RegExp],
+    ),
+    [
+      "a fileOrientation on an embedded Image",
+      (raw: Raw) => Object.assign(raw.nodes.find((n) => n.src) ?? {}, { fileOrientation: 6 }),
+      /^nodes\[\d+\]\.fileOrientation$/,
+    ],
+    [
+      "a fileOrientation on a missing link",
+      (raw: Raw) =>
+        raw.nodes.push({
+          ...raw.nodes.find((n) => n.src),
+          id: "01J00000000000000000000M01",
+          src: undefined,
+          file: "gone.jpg",
+          fileOrientation: 6,
+        }),
+      /^nodes\[\d+\]\.fileOrientation$/,
+    ],
     [
       "an unspelled preserveAspectRatio",
       (raw: Raw) =>

@@ -122,7 +122,7 @@ _Avoid_: Run、Span
 置入的位图 Node，`type: "image"`：一个框 `x, y, width, height`、`preserveAspectRatio`（缺省 `none`，即拉伸到框），以及 `src`，即图像文件字节的 SHA-256。同一文件在 Document 中按 `src` 只存一份，Node 里只有这个 id。存储的格式为 PNG、JPEG、GIF（首帧）；WebP 进入时在 Worker 中转为同像素的 PNG，Document 从不存 WebP（ADR-0100）。带 EXIF 方向的 JPEG 进入时只把方向值改写为 1，方向成为 `transform` 的一部分，所以从入口存下的 JPEG 方向都是 1，Image 正立显示、边界是正立的（ADR-0101）。裁切就是以它为内容的 Clipping Mask（ADR-0023）。Image 分嵌入与链接两种（ADR-0042）：
 
 - **嵌入（embedded）**：没有 `file`，像素就是 `src`。
-- **链接（linked）**：有 `file`，即 SVG 引用该文件所写的路径或 URL，对应 Illustrator PlacedItem 的 `file`；可以同时有 `src`，即 Document 存下的一份像素。导出 SVG 写 `xlink:href="<file>"`，不写像素。
+- **链接（linked）**：有 `file`，即 SVG 引用该文件所写的路径或 URL，对应 Illustrator PlacedItem 的 `file`；可以同时有 `src`，即 Document 存下的一份像素。导出 SVG 写 `xlink:href="<file>"`，不写像素。有像素的链接 Image 记住像素来源文件的 EXIF 方向 `fileOrientation`（2 到 8，缺省即正立或未知）：用户磁盘上的文件仍带方向，所以导出 SVG 按该文件的正立框写 `<image>`，查看器只转一次（ADR-0102）。
 - **缺失链接（missing link）**：有 `file` 而没有 `src` 的链接 Image。`render` 和画布把它画成框加两条对角线，如 Illustrator 画找不到的置入文件。
 
 **Relink（重新链接）**：
@@ -130,7 +130,7 @@ _Avoid_: Run、Span
 _Avoid_: Replace、Swap
 
 **Embed（嵌入）**：
-把有像素的链接 Image 变为嵌入 Image，即去掉 `file`，对应 Illustrator 的 Embed。Agent 经 `node_update` 写 `file: null`，设计师用 Object > Embed；缺失链接不能 Embed（ADR-0042）。
+把有像素的链接 Image 变为嵌入 Image，即去掉 `file`，对应 Illustrator 的 Embed。Agent 经 `node_update` 写 `file: null`，设计师用 Object > Embed；缺失链接不能 Embed（ADR-0042）。Embed 同时去掉 `fileOrientation`，像素与变换不变，显示的框不变（ADR-0102）。
 _Avoid_: Bitmap、Picture、Raster、Photo、Placed item 作为类型名
 
 ## 实时对象

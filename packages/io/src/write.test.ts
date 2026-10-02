@@ -9,8 +9,11 @@ import {
   LEGACY_SVG_NS,
   layoutText,
   makeMask,
+  multiply,
   type Node,
+  type Orientation,
   placeNodes,
+  round,
   type ShapeNode,
   serializeDocument,
   shapeSegments,
@@ -19,7 +22,7 @@ import {
 } from "@kalamo/core";
 import { describe, expect, it } from "vitest";
 import { NS } from "./dialect.ts";
-import { parseSvg } from "./read.ts";
+import { parseSvg, resolveLinks } from "./read.ts";
 import { scopeRect, svgRect, toSvg } from "./write.ts";
 
 const newDoc = () =>
@@ -1200,6 +1203,80 @@ it("writes a linked Image as its file, with kalamo:src when it has pixels, never
   expect(drawn).toContain(
     `<path d="M 5 0 L 21 0 L 21 8 L 5 8 Z M 5 0 L 21 8 M 21 0 L 5 8" id="z-${missing.id}" style="fill:none;stroke:#999999;stroke-width:0.5;opacity:0.5"/>`,
   );
+});
+
+describe("a linked Image of an oriented file (ADR-0102)", () => {
+  const src = "a".repeat(64);
+  const info = { mime: "image/jpeg" as const, width: 8, height: 4 };
+  const box = { x: 10, y: 20, width: 30, height: 40 };
+  // Any transform the user adds on top.
+  const USER = [0, 2, -1, 0, 50, 5] as const;
+  const KEYS = ["src", "file", "fileOrientation", "x", "y", "width", "height"] as const;
+  const cases = [1, 2, 3, 4, 5, 6, 7, 8].flatMap((o) =>
+    ["none", "xMinYMax meet", "xMaxYMin slice"].map((par) => [o as Orientation, par] as const),
+  );
+
+  it.each(cases)(
+    "writes orientation %i, %s, in the file's upright terms and reads it back",
+    (o, par) => {
+      const { doc, defaultLayerId: parentId } = newDoc();
+      doc.images.set(src, info);
+      const [image] = createNodes(
+        doc,
+        [{ type: "image", parentId, src, file: "p.jpg", ...box, preserveAspectRatio: par }],
+        { orientations: new Map([["nodes[0]", o]]) },
+      ).nodes;
+      if (image?.type !== "image") throw new Error("setup");
+      image.transform = round(multiply([...USER], image.transform));
+      expect(image.fileOrientation).toBe(o === 1 ? undefined : o);
+      if (o >= 5) expect(image).toMatchObject({ width: 40, height: 30 });
+
+      // The box the Image shows, as it was given, and only the user's transform.
+      const svg = toSvg(doc);
+      const fileOrientation = o === 1 ? "" : ` kalamo:fileOrientation="${o}"`;
+      expect(svg).toContain(
+        `<image x="10" y="20" width="30" height="40" preserveAspectRatio="${par}" xlink:href="p.jpg" kalamo:src="${src}"${fileOrientation} id="z-${image.id}" transform="matrix(${USER.join(" ")})"/>`,
+      );
+      // render draws the stored pixels with the composed transform, as before.
+      const drawn = toSvg(doc, undefined, { images: () => "data:,", linked: "draw" });
+      expect(drawn).not.toContain("fileOrientation");
+
+      const read = (lookup: (id: string) => typeof info | undefined) =>
+        resolveLinks(parseSvg(svg), lookup).nodes.find((n) => n.type === "image");
+      const back = read((id) => (id === src ? info : undefined));
+      for (const key of KEYS) expect(back?.[key as keyof Node], key).toEqual(image[key]);
+      expect(back?.transform).toEqual(image.transform);
+      expect(back?.type === "image" && back.preserveAspectRatio).toBe(image.preserveAspectRatio);
+
+      const missing = read(() => undefined);
+      expect(missing).toMatchObject({ file: "p.jpg", ...box, preserveAspectRatio: par });
+      expect(missing?.transform).toEqual([...USER]);
+      expect(missing).not.toHaveProperty("src");
+      expect(missing).not.toHaveProperty("fileOrientation");
+    },
+  );
+
+  it.each([
+    ["a value out of range", "9"],
+    ["a fraction", "6.5"],
+    ["no number", "six"],
+    ["another spelling of 6", "6.0"],
+    ["a hex 6", "0x6"],
+  ])("reads the box as written for %s", (_, value) => {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:kalamo="${NS.kalamo}" width="100" height="100"><image x="10" y="20" width="30" height="40" xlink:href="p.jpg" kalamo:src="${src}" kalamo:fileOrientation="${value}"/></svg>`;
+    const image = resolveLinks(parseSvg(svg), () => info).nodes.find((n) => n.type === "image");
+    expect(image).toMatchObject({ src, ...box, transform: [1, 0, 0, 1, 0, 0] });
+    expect(image).not.toHaveProperty("fileOrientation");
+  });
+
+  it("an embedded Image never writes one", () => {
+    const { doc, defaultLayerId: parentId } = newDoc();
+    doc.images.set(src, info);
+    createNodes(doc, [{ type: "image", parentId, src, ...box }], {
+      orientations: new Map([["nodes[0]", 6]]),
+    });
+    expect(toSvg(doc, undefined, { images: () => "data:," })).not.toContain("fileOrientation");
+  });
 });
 
 describe("gradients (ADR-0026)", () => {

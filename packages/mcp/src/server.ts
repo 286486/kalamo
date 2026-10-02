@@ -668,7 +668,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       description: [
         "Read Nodes by id, in document coordinates.",
         "concise (default): id, type, name, parentId, visible, locked, childCount and geometricBounds.",
-        "full adds every stored property (Live Shape parameters, text content and font, an image's frame, src id and linked file, never its bytes, appearance, transform, opacity, blendMode, tags, meta), the outline d and closed of a Live Shape or path (a text or image has none), visibleBounds (including Strokes) and worldTransform.",
+        "full adds every stored property (Live Shape parameters, text content and font, an image's frame, src id and linked file, never its bytes, and fileOrientation (read-only: that file's EXIF orientation, 2 to 8), appearance, transform, opacity, blendMode, tags, meta), the outline d and closed of a Live Shape or path (a text or image has none), visibleBounds (including Strokes) and worldTransform.",
         "A Point Type's geometricBounds run from its first line's ascender to its last line's descender, as wide as its widest line; an Area Type's are its frame.",
         coordinates,
       ].join(" "),

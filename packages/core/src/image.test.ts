@@ -12,14 +12,17 @@ import {
   checkImage,
   dataUrl,
   imageId,
+  inverseOrientation,
   MAX_IMAGE_BYTES,
   neutraliseOrientation,
   type Orientation,
+  orientedImage,
   orientImage,
   preserveAspectRatio,
   readImage,
 } from "./image.ts";
 import { applyTo } from "./matrix.ts";
+import type { Matrix } from "./schema.ts";
 
 const url = (bytes: number[] | Uint8Array, mime = "image/png") =>
   `data:${mime};base64,${new Uint8Array(bytes).toBase64()}`;
@@ -337,5 +340,20 @@ describe("orientImage (ADR-0101)", () => {
         }
       }
     }
+  });
+});
+
+describe("inverseOrientation (ADR-0102)", () => {
+  it("undoes orientedImage exactly, whatever the alignment and the transform on top", () => {
+    const box = { x: 10, y: 20, width: 30, height: 40 };
+    for (const o of [1, 2, 3, 4, 5, 6, 7, 8] as const) {
+      for (const preserveAspectRatio of ["none", "xMinYMax meet", "xMaxYMin slice"]) {
+        const image = { ...box, preserveAspectRatio, transform: [0, 2, -1, 0, 50, 5] as Matrix };
+        expect(orientedImage(orientedImage(image, o), inverseOrientation(o))).toEqual(image);
+      }
+    }
+    expect([1, 2, 3, 4, 5, 6, 7, 8].map((o) => inverseOrientation(o as Orientation))).toEqual([
+      1, 2, 3, 4, 5, 8, 7, 6,
+    ]);
   });
 });

@@ -12,6 +12,7 @@ Inkscape and Illustrator SVGs often link their photos (`xlink:href="photo.png"`)
 - **`file`**, optional on an Image, is the linked file's path or URL as the SVG wrote it: relative, absolute, `file:` or `http(s):`. It is a non-empty string that is not a `data:` URL, at most 2048 characters. Anything else fails `INVALID_IMAGE`, since a data URL belongs in `src` and its checks. The name is Illustrator's PlacedItem `file`. `link` would clash with CONTEXT.md, which avoids "Link" because of Connectors.
 - An Image without `file` is **embedded**, as before. One with `file` is **linked**. F-DOC-03's `embedded` flag is derived from `file` being absent, not stored, because a stored boolean could contradict `file`.
 - **`src` becomes optional.** Only a linked Image may lack it, so every Image has `src`, `file` or both. A linked Image without `src` is a **missing link**. A linked Image with `src` draws those stored pixels. Kalamo never checks them against the file on disk, because the Worker cannot read the disk. Illustrator's "modified" link state therefore does not exist here.
+- (Amended by ADR-0102: a linked Image with pixels may also carry `fileOrientation`, the EXIF orientation of its file, 2 to 8. SVG `link` mode then writes the `<image>` in the file's upright terms with `kalamo:fileOrientation`, import composes it back when `kalamo:src` resolves, and `.kalamo.json` saves it.)
 - Why keep pixels on a linked Image at all: without them, every linked Image would be a crossed frame in `render`, and an Agent could never see it.
 
 ## MCP

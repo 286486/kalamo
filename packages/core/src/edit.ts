@@ -438,10 +438,17 @@ function patched(
       });
     }
     next.preserveAspectRatio = preserveAspectRatio(next.preserveAspectRatio) ?? "none";
-    // Relink to an oriented JPEG keeps the box the patch leaves, turning the new file into it.
-    if (orientation !== 1 && typeof patch.src === "string") {
-      Object.assign(next, orientedImage(next, orientation));
+    // Relink to an oriented JPEG keeps the box the patch leaves, turning the new file into it; a
+    // linked Image records the file's orientation, an image id's being unknown (ADR-0102).
+    if (typeof patch.src === "string") {
+      delete next.fileOrientation;
+      if (orientation !== 1) {
+        Object.assign(next, orientedImage(next, orientation));
+        if (next.file !== undefined) next.fileOrientation = orientation;
+      }
     }
+    // Embed forgets it.
+    if (next.file === undefined) delete next.fileOrientation;
   } else if (isContainer(next)) {
     if (next.appearance) {
       next.appearance = paintContainer(

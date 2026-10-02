@@ -38,6 +38,7 @@ export type KalamoAttr =
   | "tags"
   | "meta"
   | "src"
+  | "fileOrientation"
   | "midpoint"
   | "simulated"
   | "autosize";
