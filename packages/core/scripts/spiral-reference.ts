@@ -234,6 +234,10 @@ for (const [name, rs] of [
 }
 if (special.some((r) => !r.ok)) throw new Error("A special spiral differs");
 if (ends.some((r) => !r.ok && !r.out)) throw new Error("A range end differs");
+const centre = [...first, ...full].filter((r) =>
+  CENTRE.some((c) => Object.entries(c).every(([k, v]) => r.p[k as keyof Params] === v)),
+);
+if (centre.length !== CENTRE.length) throw new Error("A centre spiral is no longer sampled");
 // The special ones, the range ends short enough to keep, the first 30 matching samples of the
 // second seed and the first 10 of the full-range one short enough to keep, and the centre ones
 // short enough to keep.
@@ -246,9 +250,7 @@ const kept = [
     .filter((r) => short(r, 2500))
     .slice(0, 30),
   ...full.filter((r) => short(r, 20000)).slice(0, 10),
-  ...[...first, ...full].filter(
-    (r) => CENTRE.some((c) => JSON.stringify(c) === JSON.stringify(r.p)) && short(r, 20000),
-  ),
+  ...centre.filter((r) => short(r, 20000)),
 ];
 writeFileSync(
   new URL("../src/spiral.inkscape.json", import.meta.url),
