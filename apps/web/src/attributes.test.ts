@@ -113,3 +113,42 @@ it("reads a Make result as Illustrator's, backmost Off and hole On, and sets a c
     edit: { inputs: [{ nodeId: ring, ops: [{ op: "reverse", subpath: 1 }] }], commandIds: ["c"] },
   });
 });
+
+it("disables both rows for a locked, hidden or locked-Group path and an Image, and Reverse for a plain path", () => {
+  const { doc, defaultLayerId: parentId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 200, height: 200 }],
+  });
+  const d = "M0 0 L9 0 L9 9 Z M1 1 L1 2 L2 2 Z";
+  const { keyMap } = createNodes(doc, [
+    { type: "path", clientKey: "locked", parentId, d },
+    { type: "path", clientKey: "hidden", parentId, d },
+    { type: "group", clientKey: "g", parentId, children: [{ type: "path", d }] },
+    { type: "image", clientKey: "i", parentId, x: 0, y: 0, width: 2, height: 2, file: "a.png" },
+    { type: "path", clientKey: "plain", parentId, d: "M0 0 L9 0 L9 9 Z" },
+  ]);
+  for (const [key, patch] of [
+    ["locked", { locked: true }],
+    ["hidden", { visible: false }],
+    ["g", { locked: true }],
+  ] as const) {
+    const n = doc.nodes.get(keyMap[key] as string) as Node;
+    doc.nodes.set(n.id, { ...n, ...patch });
+  }
+  const one = (key: string) => {
+    const nodeId = keyMap[key] as string;
+    const leaf = [...doc.nodes.values()].find((c) => c.parentId === nodeId)?.id ?? nodeId;
+    return {
+      doc,
+      role: "owner" as const,
+      selection: [leaf],
+      anchors: [anchorKey(leaf, 0, 0)],
+      segments: [],
+    };
+  };
+  for (const key of ["locked", "hidden", "g", "i"]) {
+    expect([fillRuleOf(one(key)), directionOf(one(key))]).toEqual([null, null]);
+  }
+  expect([fillRuleOf(one("plain")), directionOf(one("plain"))]).toEqual(["nonzero", null]);
+});
