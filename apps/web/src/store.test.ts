@@ -5,6 +5,7 @@ import { message } from "./testing.ts";
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 it("keeps each Document Tab's Isolation while another tab is shown, and none for a new one", () => {

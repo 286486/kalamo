@@ -49,7 +49,7 @@ it("snaps back and shows a notice when its command is rejected", () => {
   const { doc, a } = fixture();
   const state = viewState({ doc, selection: [a.id], drag: drag([a.id], "c1") });
   const error = { code: "NODE_GONE" as const, message: "gone", hint: "", nodeIds: [a.id] };
-  const next = stateAfter(state, message("rejected", { error }));
+  const next = stateAfter(state, message("rejected", { id: "c1", error }));
   expect(next).toMatchObject({ drag: null, notice: expect.stringContaining("deleted") });
 });
 
@@ -243,7 +243,7 @@ it("keeps each drawn create until its own answer, which selects what it made", (
   expect(answer("c1")).not.toHaveProperty("pen");
   expect(answer("c1")).toMatchObject({ pending: [pending("c2", false)], selection: ["p"] });
   expect(answer("c2")).toMatchObject({ pending: [pending("c1")], selection: [] });
-  const rejected = stateAfter(state, message("rejected"));
+  const rejected = stateAfter(state, message("rejected", { id: "c1" }));
   expect(rejected).toEqual({ pending: [pending("c2", false)], notice: "no" });
 });
 
@@ -273,7 +273,7 @@ it("keeps a Direct Selection drag's preview until every path_edit is answered", 
     edit: null,
   });
   // A rejection drops only that path's part of the preview.
-  expect(stateAfter(state, message("rejected"))).toMatchObject({
+  expect(stateAfter(state, message("rejected", { id: "c1" }))).toMatchObject({
     edit: { inputs: [move(b.id)], commandIds: ["c2"] },
   });
   // A reconnect loses the answers, so the preview goes.
@@ -326,7 +326,7 @@ it("keeps a Simplify preview until the answer to its path_op, and previews it wi
   const sent = { ...open, opPreview: { ...opPreview, commandId: "c1" } };
   expect(stateAfter(sent, tx(doc, { actor: "agent-a" }))).not.toHaveProperty("simplify");
   expect(stateAfter(sent, tx(doc, { commandId: "c1" }))).toMatchObject({ opPreview: null });
-  expect(stateAfter(sent, message("rejected"))).toMatchObject({
+  expect(stateAfter(sent, message("rejected", { id: "c1" }))).toMatchObject({
     opPreview: null,
   });
   // A Gradient panel or tool preview lasts until its own answer too (ADR-0081).
