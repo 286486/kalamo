@@ -6,9 +6,9 @@ import {
   parseDocument,
   readImage,
 } from "@kalamo/core";
-import { type OpenedFile, parseSvg } from "./read.ts";
+import { type ConvertedImages, type OpenedFile, parseSvg } from "./read.ts";
 
-export { MAX_DEPTH, parseSvg, resolveLinks } from "./read.ts";
+export { type ConvertedImages, MAX_DEPTH, parseSvg, resolveLinks } from "./read.ts";
 export { docRect, type SvgOptions, scopeRect, svgRect, toSvg } from "./write.ts";
 
 export type { OpenedFile };
@@ -26,6 +26,26 @@ const outsideImages = (text: string) =>
     text.length,
   );
 
+const PREDEFINED: Record<string, string> = { lt: "<", gt: ">", amp: "&", quot: '"', apos: "'" };
+
+/**
+ * The `href` of each embedded image in SVG text, as the parsed attribute holds it: the DOCTYPE's
+ * entities expanded as `parseFile` expands them, XML's attribute-value normalisation applied,
+ * trimmed. The keys a `ConvertedImages` takes (ADR-0100).
+ */
+export const embeddedImages = (text: string) =>
+  [...expandEntities(text).matchAll(/href\s*=\s*(?:"(\s*data:[^"]*)"|'(\s*data:[^']*)')/g)].map(
+    ([, double, single = ""]) =>
+      (double ?? single)
+        .replace(/[\t\n\r]/g, " ")
+        .replace(/&(?:#x([0-9a-fA-F]+)|#([0-9]+)|(lt|gt|amp|quot|apos));/g, (_, hex, dec, name) =>
+          name
+            ? (PREDEFINED[name] ?? "")
+            : String.fromCodePoint(parseInt(hex ?? dec, hex ? 16 : 10)),
+        )
+        .trim(),
+  );
+
 // XML 1.0's Name production.
 const START =
   ":A-Z_a-z\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u02FF\\u0370-\\u037D\\u037F-\\u1FFF\\u200C\\u200D\\u2070-\\u218F\\u2C00-\\u2FEF\\u3001-\\uD7FF\\uF900-\\uFDCF\\uFDF0-\\uFFFD\\u{10000}-\\u{EFFFF}";
@@ -38,7 +58,6 @@ const SUBSET =
   /\s+|<!--[\s\S]*?-->|<\?[\s\S]*?\?>|<!(?:[^"'>]|"[^"]*"|'[^']*')*>|(%)[^;\s]*;|(\])\s*>/y;
 const ENTITY = new RegExp(`^<!ENTITY\\s+(${NAME})\\s([\\s\\S]*)>$`, "u");
 const PLAIN = /^\s*(?:"([^"&%<]*)"|'([^'&%<]*)')\s*$/;
-const PREDEFINED = new Set(["lt", "gt", "amp", "quot", "apos"]);
 /** What the parser leaves as written, and the references it expands. */
 const REFERENCE = new RegExp(
   `<!--[\\s\\S]*?(?:-->|$)|<!\\[CDATA\\[[\\s\\S]*?(?:\\]\\]>|$)|<\\?[\\s\\S]*?(?:\\?>|$)|&(${NAME});`,
@@ -71,7 +90,7 @@ function expandEntities(text: string): string {
     seen.add(name);
     const plain = PLAIN.exec(rest);
     const value = plain?.[1] ?? plain?.[2];
-    if (value !== undefined && !PREDEFINED.has(name)) {
+    if (value !== undefined && !Object.hasOwn(PREDEFINED, name)) {
       values.set(name, value.replace(/"/g, "&quot;").replace(/'/g, "&apos;"));
     }
   }
@@ -96,14 +115,15 @@ function expandEntities(text: string): string {
 
 /**
  * A PNG, JPEG or GIF data URL as a new Document (ADR-0098): one Artboard at the origin at its pixel
- * size, and `Layer 1` holding the Image that fills it. Named by `name` without its extension.
+ * size, and `Layer 1` holding the Image that fills it. Named by `name` without its extension, a
+ * converted WebP's `.webp` included (ADR-0100).
  */
 function openImage(src: string, name = ""): OpenedFile {
   const file = readImage(src, "content");
   const { width, height } = file;
   const { doc, defaultLayerId } = createDocument({
     id: "",
-    name: name.replace(/\.(png|jpe?g|gif)$/i, "") || "Untitled",
+    name: name.replace(/\.(png|jpe?g|gif|webp)$/i, "") || "Untitled",
     artboards: [{ width, height }],
   });
   // resolveImages renames the key to the file's hash.
@@ -125,11 +145,11 @@ function openImage(src: string, name = ""): OpenedFile {
 /**
  * Reads a file for Open or Place (ADR-0017): `.kalamo.json`, SVG or, for Open, a bitmap's data URL
  * (ADR-0098), told apart by content. `name` is the file name, used for an SVG that names no
- * Document and for a bitmap.
+ * Document and for a bitmap; `converted`, an SVG's embedded images the Worker converted (ADR-0100).
  */
 export function parseFile(
   content: string,
-  { name }: { name?: string } = {},
+  { name, converted }: { name?: string; converted?: ConvertedImages } = {},
 ): OpenedFile & { format: "svg" | "kalamo_json" | "image" } {
   const text = content.replace(/^﻿/, "").trimStart();
   if (/^data:/i.test(text)) return { ...openImage(text, name), format: "image" };
@@ -145,12 +165,12 @@ export function parseFile(
         path: "content",
       });
     }
-    file = parseSvg(expandEntities(text), name);
+    file = parseSvg(expandEntities(text), name, converted);
   } else {
     throw new KalamoError({
       code: "INVALID_DOCUMENT",
       message: "The content is not an SVG or .kalamo.json file.",
-      hint: "Pass the text of an .svg file, of a .kalamo.json file as kalamo_export returns it, or a data: URL of a PNG, JPEG or GIF.",
+      hint: "Pass the text of an .svg file, of a .kalamo.json file as kalamo_export returns it, or a data: URL of a PNG, JPEG, GIF or WebP.",
       path: "content",
     });
   }

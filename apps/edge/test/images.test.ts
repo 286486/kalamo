@@ -3,7 +3,7 @@ import { env, exports } from "cloudflare:workers";
 import { imageId, readImage } from "@kalamo/core";
 import { parseFile } from "@kalamo/io";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { BLUE_1x1_PNG, RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
+import { BLUE_1x1_PNG, RED_2x2_PNG, WEBP_LOSSY_4x3 } from "../../../fixtures/images.ts";
 import { imageKey } from "../src/document-object.ts";
 
 const stub = (docId: string) => env.DOCUMENT.get(env.DOCUMENT.idFromName(docId));
@@ -66,18 +66,24 @@ it("stores a data URL's file once and gives its Images the file's SHA-256 as src
   expect(ok(await s.raster("agent", { scale: 1 }, true)).svg).toContain(RED_2x2_PNG);
 });
 
-it("refuses a WebP with the reason, and with partial keeps the other items", async () => {
+// The Worker converts a WebP before the Document Durable Object sees it (ADR-0100); one that
+// reaches it as it is, say over the WebSocket, is refused and never stored.
+it("refuses a raw WebP with the reason, and with partial keeps the other items", async () => {
   const { s, image } = await setup("images-refuse");
   const { rev } = ok(await s.info());
-  const refused = await s.createNodes([image(WEBP_HEADER)], "agent");
+  const refused = await s.createNodes([image(WEBP_LOSSY_4x3)], "agent");
   expect(refused).toMatchObject({
-    error: { code: "INVALID_IMAGE", path: "nodes[0].src", hint: expect.stringContaining("PNG") },
+    error: {
+      code: "INVALID_IMAGE",
+      path: "nodes[0].src",
+      message: expect.stringContaining("no Kalamo file holds"),
+    },
   });
   expect(ok(await s.info()).rev).toBe(rev);
   const bad = { type: "rect", parentId: "nope", x: 0, y: 0, width: 1, height: 1 } as const;
   const receipt = ok(
     await s.createNodes(
-      [image(RED_2x2_PNG), image(WEBP_HEADER), bad, image(RED_2x2_PNG, { x: 5 })],
+      [image(RED_2x2_PNG), image(WEBP_LOSSY_4x3), bad, image(RED_2x2_PNG, { x: 5 })],
       "agent",
       { partial: true },
     ),
@@ -252,7 +258,7 @@ describe("Relink and Embed through node_update (ADR-0042)", () => {
 
   it.each([
     ["src: null", { src: null }, "INVALID_PATCH", "src"],
-    ["a WebP", { src: WEBP_HEADER }, "INVALID_IMAGE", "src"],
+    ["a raw WebP", { src: WEBP_LOSSY_4x3 }, "INVALID_IMAGE", "src"],
     ["an id the Document does not hold", { src: "b".repeat(64) }, "INVALID_IMAGE", "src"],
     ["an empty file", { file: "" }, "INVALID_IMAGE", "file"],
     ["a data: URL as file", { file: RED_2x2_PNG }, "INVALID_IMAGE", "file"],
@@ -274,7 +280,7 @@ describe("Relink and Embed through node_update (ADR-0042)", () => {
     const receipt = ok(
       await s.updateNodes(
         [
-          { nodeId: a, patch: { src: WEBP_HEADER } },
+          { nodeId: a, patch: { src: WEBP_LOSSY_4x3 } },
           { nodeId: b, patch: { src: BLUE_1x1_PNG } },
           { nodeId: "nope", patch: {} },
         ],

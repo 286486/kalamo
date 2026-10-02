@@ -679,9 +679,10 @@ it("draws the fixture Document with known pixels", async () => {
   // By #221, a twenty-second holding Area Type whose words are wider than a rectangle and a triangle.
   // By #222, a twenty-third holding Area Type that wraps after `/` and hyphens; by #236, it widens
   // to hold an Auto Size Area Type, by #225 an Area Type that wraps after `?` and before `—`, and
-  // by #227 one that wraps at soft hyphens.
+  // by #227 one that wraps at soft hyphens. By #250, the Images Artboard holds an Image whose
+  // file was converted from a WebP.
   expect(await hash(toSvg(doc, docRect(doc), { images }))).toBe(
-    "a099cbeb33764fef1f710205f67bb04d4bc5df277aa205ffc9c95f9ce61d745e",
+    "28714e8b91cca7cf8a289bc61a7aad19de974c988029ea4f8b7afb98c72e3541",
   );
   expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned, images }))).toBe(
     "24c1e7ad8db33f59933a1b355c879cb19bfdfd67d70b11427b196aa646ea4b60",

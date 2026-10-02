@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
+import { RED_2x2_PNG, WEBP_LOSSLESS_4x3, WEBP_LOSSY_4x3 } from "../../../fixtures/images.ts";
 import {
   aspectPlacement,
   checkImage,
@@ -42,8 +42,17 @@ it("reads a percent-encoded data URL as the same bytes", () => {
   expect(readImage(encoded, "src").bytes).toEqual(new Uint8Array(GIF));
 });
 
-it("refuses WebP with a hint to convert it to PNG", () => {
-  expect(() => readImage(WEBP_HEADER, "src")).toThrow(invalid(expect.stringContaining("PNG")));
+// The Worker converts a WebP before anything stores it (ADR-0100); one reaching here was not.
+it.each([WEBP_LOSSY_4x3, WEBP_LOSSLESS_4x3])("never takes a WebP as it is: %#", (src) => {
+  expect(() => readImage(src, "src")).toThrow(
+    expect.objectContaining({
+      data: expect.objectContaining({
+        code: "INVALID_IMAGE",
+        message: expect.stringContaining("no Kalamo file holds"),
+        hint: expect.not.stringContaining("onvert it"),
+      }),
+    }),
+  );
 });
 
 it.each([

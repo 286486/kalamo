@@ -97,6 +97,12 @@ interface Link {
   size?: { scale: number; width: number | undefined; height: number | undefined };
 }
 
+/**
+ * Embedded images the caller already converted, by `href` as the parsed attribute holds it: the
+ * file to keep, or the error to drop the `<image>` with (ADR-0100). Other data URLs go to `readImage`.
+ */
+export type ConvertedImages = ReadonlyMap<string, ImageFile | KalamoError>;
+
 const invalid = (message: string) =>
   new KalamoError({
     code: "INVALID_DOCUMENT",
@@ -501,6 +507,7 @@ class Reader {
     private readonly rules: Rule[],
     private readonly byId: Map<string, Element>,
     private readonly artboards: Artboard[],
+    private readonly converted: ConvertedImages,
   ) {}
 
   warn(code: string, key: string, message: string, nodeId?: string) {
@@ -1957,9 +1964,11 @@ class Reader {
       if (!offered) return { shape };
       return { shape, link: { src, ...(!sized && { size: { scale: k, width: w, height: h } }) } };
     }
+    const converted = this.converted.get(href);
+    if (converted instanceof KalamoError) return drop(converted.data.message);
     let file: ImageFile;
     try {
-      file = readImage(href, "src");
+      file = converted ?? readImage(href, "src");
     } catch (err) {
       if (!(err instanceof KalamoError)) throw err;
       return drop(err.data.message);
@@ -2099,7 +2108,11 @@ class Reader {
 }
 
 /** Reads SVG text into a Document's contents (ADR-0017). */
-export function parseSvg(text: string, nameHint?: string): OpenedFile {
+export function parseSvg(
+  text: string,
+  nameHint?: string,
+  converted: ConvertedImages = new Map(),
+): OpenedFile {
   let error: string | undefined;
   let dom: ReturnType<DOMParser["parseFromString"]>;
   try {
@@ -2166,7 +2179,7 @@ export function parseSvg(text: string, nameHint?: string): OpenedFile {
   const viewport = hasViewBox
     ? { width: vw, height: vh }
     : { width: width ?? 300, height: height ?? 150 };
-  const reader = new Reader(rules, byId, artboards);
+  const reader = new Reader(rules, byId, artboards, converted);
   const matrix: Matrix = [scale, 0, 0, scale, 0, 0];
   const ctx = { parentId: null, layerLevel: true, matrix, style: {}, depth: 0, viewport };
   for (const e of elements(root)) reader.walk(e, ctx);

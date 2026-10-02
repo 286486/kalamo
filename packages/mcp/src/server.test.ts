@@ -1413,12 +1413,19 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
   }
   expect(described("kalamo_doc_open")).not.toMatch(/\(gradients/);
   for (const word of [
-    "data: URL of a PNG, JPEG or GIF",
-    "WebP",
+    "data: URL of a PNG, JPEG, GIF or WebP (stored as PNG)",
+    ".gif or .webp",
     "Layer 1",
     "name is the file's name",
   ]) {
     expect(described("kalamo_doc_open")).toContain(word);
+  }
+  // A WebP is converted on the way in (ADR-0100); nothing tells an Agent to convert it.
+  for (const t of tools) {
+    expect(JSON.stringify(t), t.name).not.toMatch(/convert it to PNG|WebP is refused/);
+  }
+  for (const tool of ["kalamo_node_create", "kalamo_node_update", "kalamo_image_place"]) {
+    expect(JSON.stringify(byName[tool]), tool).toContain("PNG, JPEG, GIF or WebP (stored as PNG)");
   }
   for (const t of tools) {
     expect(t.annotations, t.name).toEqual({

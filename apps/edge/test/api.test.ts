@@ -9,10 +9,17 @@ import {
   GREY_5x4_GIF,
   RED_2x2_PNG,
   RGB_3x2_PNG,
-  WEBP_HEADER,
+  WEBP_4x3_RGBA,
+  WEBP_ALPHA_4x3,
+  WEBP_ALPHA_4x3_RGBA,
+  WEBP_ANIMATED,
+  WEBP_LOSSLESS_4x3,
+  WEBP_OVER_CAP,
+  WEBP_TRUNCATED,
 } from "../../../fixtures/images.ts";
 import { counted, fullKalamoFile, MiB } from "./bodies.ts";
 import { call, errorOf } from "./rpc.ts";
+import { servedPng } from "./served.ts";
 
 const open: WebSocket[] = [];
 
@@ -902,7 +909,24 @@ describe("Open of a bitmap POSTed to /api/docs as its bytes", () => {
     expect(changes).toMatchObject([{ rev: 1, actor: "user" }]);
   });
 
-  it("refuses a WebP and a body over 5 MB as Place does, creating no Document", async () => {
+  it("opens x.webp as a Document named x holding the WebP's pixels as a PNG (ADR-0100)", async () => {
+    const res = await post("x.webp", bytesOf(WEBP_LOSSLESS_4x3));
+    expect(res.status).toBe(200);
+    const { docId } = (await res.json()) as { docId: string };
+    const listed = (await (await exports.default.fetch("http://kalamo/api/docs")).json()) as {
+      documents: { docId: string; name: string }[];
+    };
+    expect(listed.documents.find((d) => d.docId === docId)?.name).toBe("x");
+    const file = JSON.parse(
+      (await call("kalamo_export", { docId, format: "kalamo_json" })).content[0].text,
+    );
+    expect(file.artboards[0].frame).toEqual({ x: 0, y: 0, width: 4, height: 3 });
+    const image = file.nodes.find((n: { type: string }) => n.type === "image");
+    expect(file.images[image.src]).toMatch(/^data:image\/png;base64,/);
+    expect(await servedPng(docId, image.src)).toEqual(WEBP_4x3_RGBA);
+  });
+
+  it("refuses a WebP Kalamo cannot convert and a body over 5 MB as Place does, creating no Document", async () => {
     const listed = async () =>
       (
         (await (await exports.default.fetch("http://kalamo/api/docs")).json()) as {
@@ -910,13 +934,19 @@ describe("Open of a bitmap POSTed to /api/docs as its bytes", () => {
         }
       ).documents.length;
     const before = await listed();
-    const webp = await post("a.webp", bytesOf(WEBP_HEADER));
-    expect(webp.status).toBe(400);
-    expect(await webp.json()).toMatchObject({
-      code: "INVALID_IMAGE",
-      hint: expect.stringContaining("Convert the image to PNG"),
-      path: "content",
-    });
+    for (const [url, code, message] of [
+      [WEBP_ANIMATED, "INVALID_IMAGE", "animated"],
+      [WEBP_OVER_CAP, "LIMIT_EXCEEDED", "4096 × 2049"],
+      [WEBP_TRUNCATED, "INVALID_IMAGE", "damaged"],
+    ] as const) {
+      const webp = await post("a.webp", bytesOf(url));
+      expect(webp.status).toBe(400);
+      expect(await webp.json()).toMatchObject({
+        code,
+        message: expect.stringContaining(message),
+        path: "content",
+      });
+    }
     const big = new Uint8Array(5 * MiB + 1);
     big.set(bytesOf(RED_2x2_PNG));
     const large = await post("big.png", big);
@@ -1083,11 +1113,29 @@ describe("images through the Worker", () => {
     const loose = await post(`parentId=${defaultLayerId}&x=abc&y=1`, png);
     expect(await loose.json()).toMatchObject({ bounds: { x: 99, y: 49, width: 2, height: 2 } });
 
+    // A WebP is stored as a PNG of its pixels (ADR-0100).
+    const webp = await post(
+      `parentId=${defaultLayerId}&x=50&y=40`,
+      Uint8Array.fromBase64(WEBP_ALPHA_4x3.split(",")[1] ?? ""),
+    );
+    expect(webp.status).toBe(200);
+    const placed = (await webp.json()) as { createdIds: string[]; bounds: object };
+    expect(placed.bounds).toEqual({ x: 48, y: 38.5, width: 4, height: 3 });
+    const { nodes } = (
+      await call("kalamo_node_get", { docId, nodeIds: placed.createdIds, detail: "full" })
+    ).structuredContent;
+    expect(nodes[0]).toMatchObject({ width: 4, height: 3 });
+    expect(await servedPng(docId, nodes[0].src)).toEqual(WEBP_ALPHA_4x3_RGBA);
+
     const refusals: [BodyInit, string, object][] = [
       [
-        Uint8Array.fromBase64(WEBP_HEADER.split(",")[1] ?? ""),
+        Uint8Array.fromBase64(WEBP_ANIMATED.split(",")[1] ?? ""),
         `parentId=${defaultLayerId}`,
-        { code: "INVALID_IMAGE", hint: expect.stringContaining("Convert the image to PNG") },
+        {
+          code: "INVALID_IMAGE",
+          hint: expect.stringContaining("one frame as PNG or GIF"),
+          path: "file",
+        },
       ],
       [
         new Uint8Array(5 * 1024 * 1024 + 1),
@@ -1185,6 +1233,18 @@ describe("images through the Worker", () => {
       expect(node).not.toHaveProperty("file");
     });
 
+    it("relinks to a WebP, stored as a PNG of its pixels (ADR-0100)", async () => {
+      const { docId, defaultLayerId } = await newDoc();
+      const [id = ""] = await create(docId, [
+        { type: "image", parentId: defaultLayerId, src: RED_2x2_PNG, x: 0, y: 0 },
+      ]);
+      const webp = Uint8Array.fromBase64(WEBP_LOSSLESS_4x3.split(",")[1] ?? "");
+      const res = await relink(docId, `nodeId=${id}&name=photo.webp`, webp);
+      expect(res.status).toBe(200);
+      const node = (await nodeOf(docId, id)) as { src: string };
+      expect(await servedPng(docId, node.src)).toEqual(WEBP_4x3_RGBA);
+    });
+
     it("refuses what is not an Image, a locked Image or Layer, and files Place refuses", async () => {
       const { docId, defaultLayerId } = await newDoc();
       const [layer = ""] = await create(docId, [{ type: "layer", name: "Locked" }]);
@@ -1211,8 +1271,8 @@ describe("images through the Worker", () => {
         [inLocked, blue, locked],
         [
           free,
-          Uint8Array.fromBase64(WEBP_HEADER.split(",")[1] ?? ""),
-          { code: "INVALID_IMAGE", hint: expect.stringContaining("Convert the image to PNG") },
+          Uint8Array.fromBase64(WEBP_TRUNCATED.split(",")[1] ?? ""),
+          { code: "INVALID_IMAGE", message: expect.stringContaining("damaged"), path: "file" },
         ],
         [free, new Uint8Array(5 * 1024 * 1024 + 1), { code: "LIMIT_EXCEEDED" }],
       ];

@@ -1,15 +1,41 @@
-import { type ErrorData, KalamoError, newId, resolveImages } from "@kalamo/core";
-import { parseFile, resolveLinks } from "@kalamo/io";
+import {
+  dataUrl,
+  dataUrlBytes,
+  type ErrorData,
+  type ImageFile,
+  KalamoError,
+  newId,
+  resolveImages,
+} from "@kalamo/core";
+import { embeddedImages, parseFile, resolveLinks } from "@kalamo/io";
 import { svgToPng } from "@kalamo/render";
 import type { DocumentService, PathEditReceipt, RasterRequest } from "@kalamo/sync";
 import type { Principal } from "./auth.ts";
 import { fetchImage } from "./fetch-image.ts";
+import { normaliseImage, webpConverter } from "./normalise-image.ts";
 import { checkDocuments, countCall, ownerStorage } from "./quotas.ts";
 import { assertWrites, authorize, listDocuments, type Need } from "./roles.ts";
 
-/** A file for Open or Place, its images named by their hash (ADR-0023). */
-const parse = (content: string, opts: { name?: string } = {}) =>
-  resolveImages(parseFile(content, opts));
+/**
+ * A file for Open or Place, its images named by their hash (ADR-0023). A bitmap data URL, and each
+ * WebP an SVG embeds, is converted here first, since `parseFile` reads synchronously (ADR-0100).
+ */
+async function parse(content: string, { name }: { name?: string } = {}) {
+  const text = content.replace(/^\uFEFF/, "").trimStart();
+  if (/^data:/i.test(text)) {
+    const file = await normaliseImage(dataUrlBytes(text, "content"), "content");
+    return resolveImages(parseFile(dataUrl(file), { name }));
+  }
+  const converted = new Map<string, ImageFile | KalamoError>();
+  if (text.startsWith("<")) {
+    const convert = webpConverter();
+    for (const href of new Set(embeddedImages(text))) {
+      const file = await convert(href, "src");
+      if (file) converted.set(href, file);
+    }
+  }
+  return resolveImages(parseFile(content, { name, converted }));
+}
 
 /**
  * DocumentService over one Document Durable Object per docId, acting as the Principal's Actor.
@@ -121,13 +147,29 @@ export function documentService(env: Env, principal: Principal): DocumentService
       return { docId, deleted: true };
     },
     info: async (docId) => read(docId, (d) => d.info()),
+    // A WebP is converted here, in the Worker, never in the Durable Object (ADR-0100).
     createNodes: async (docId, nodes, opts) => {
-      const withFiles = await withStorage(docId, nodes, opts);
-      return write(docId, (d) => d.createNodes(nodes, actor, withFiles));
+      const target = await doc(docId, "write");
+      const refusedImages: Record<string, ErrorData> = {};
+      const convert = srcConverter(refusedImages);
+      const converted = await each(
+        nodes,
+        async (n, i) => (await convertInput(n, `nodes[${i}]`, convert)) as typeof n,
+      );
+      const withFiles = await withStorage(docId, converted, { ...opts, refusedImages });
+      return unwrap(await target.createNodes(converted, actor, withFiles));
     },
     updateNodes: async (docId, updates, opts) => {
-      const withFiles = await withStorage(docId, updates, opts);
-      return write(docId, (d) => d.updateNodes(updates, actor, withFiles));
+      const target = await doc(docId, "write");
+      const refusedImages: Record<string, ErrorData> = {};
+      const convert = srcConverter(refusedImages);
+      const converted = await each(updates, async (u, i) => {
+        const patch = u.patch as { src?: unknown };
+        const src = await convert(patch.src, `updates[${i}].patch.src`);
+        return src === patch.src ? u : { ...u, patch: { ...u.patch, src } };
+      });
+      const withFiles = await withStorage(docId, converted, { ...opts, refusedImages });
+      return unwrap(await target.updateNodes(converted, actor, withFiles));
     },
     deleteNodes: async (docId, nodeIds, opts) =>
       write(docId, (d) => d.deleteNodes(nodeIds, actor, opts)),
@@ -165,6 +207,47 @@ export function documentService(env: Env, principal: Principal): DocumentService
       return read(docId, (d) => d.file(actor, txId));
     },
   };
+}
+
+/**
+ * Node inputs with each Image's WebP data URL `src`, inline children's too, converted to a PNG's
+ * (ADR-0100). A refused one keeps its `src`, and its error goes in `refused` under the path the
+ * Document Durable Object reports it at, which fails that item as its own refusal would.
+ */
+async function convertInput(input: unknown, path: string, convert: SrcConverter): Promise<unknown> {
+  if (typeof input !== "object" || input === null) return input;
+  const item = input as { type?: unknown; src?: unknown; children?: unknown };
+  if (item.type === "image") {
+    const src = await convert(item.src, `${path}.src`);
+    return src === item.src ? input : { ...item, src };
+  }
+  if (!Array.isArray(item.children)) return input;
+  const children = [];
+  for (const [k, c] of item.children.entries()) {
+    children.push(await convertInput(c, `${path}.children[${k}]`, convert));
+  }
+  return { ...item, children };
+}
+
+type SrcConverter = (src: unknown, path: string) => Promise<unknown>;
+
+/** `src` with a WebP's data URL converted, as `convertInput` does; a refusal goes in `refused`. */
+function srcConverter(refused: Record<string, ErrorData>): SrcConverter {
+  const convert = webpConverter();
+  return async (src, path) => {
+    const file = await convert(src, path);
+    if (!file) return src;
+    if (!(file instanceof KalamoError)) return dataUrl(file);
+    refused[path] = file.data;
+    return src;
+  };
+}
+
+/** `items` converted one by one, in order. */
+async function each<T>(items: T[], convert: (item: T, i: number) => Promise<T>) {
+  const out: T[] = [];
+  for (const [i, item] of items.entries()) out.push(await convert(item, i));
+  return out;
 }
 
 export function unwrap<T extends object>(result: T): Exclude<T, { error: ErrorData }> {
