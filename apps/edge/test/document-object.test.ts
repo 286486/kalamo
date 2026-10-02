@@ -398,6 +398,27 @@ it("hides a Transaction from other Actors and from unknown ids", async () => {
   expect(await create("agent-a", txId)).toMatchObject({ txId });
 });
 
+it("validates inside a Transaction only for the Actor that holds it, at the committed rev", async () => {
+  const { s, defaultLayerId, rectId } = await withRect("v1");
+  const { txId } = ok(await s.begin("agent-a"));
+  const [groupId] = ok(
+    await s.createNodes([{ type: "group", parentId: defaultLayerId, children: [] }], "agent-a", {
+      txId,
+    }),
+  ).createdIds;
+  ok(await s.transformNodes({ nodeIds: [rectId], translate: { x: 500 } }, "agent-a", { txId }));
+  expect(ok(await s.validate({}, "agent-a", txId))).toMatchObject({
+    rev: 2,
+    issues: [
+      { rule: "outside_artboards", nodeId: rectId },
+      { rule: "empty_group", nodeId: groupId },
+    ],
+  });
+  expect(ok(await s.validate({ rules: ["empty_group"] }, "agent-a", txId)).issues).toHaveLength(1);
+  expect(ok(await s.validate({}, "agent-a"))).toEqual({ rev: 2, issues: [] });
+  expect(await s.validate({}, "agent-b", txId)).toMatchObject({ error: { code: "TX_NOT_FOUND" } });
+});
+
 afterEach(() => vi.useRealTimers());
 
 it("expires a Transaction idle for 5 minutes through the alarm", async () => {

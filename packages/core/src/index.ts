@@ -17,3 +17,4 @@ export * from "./schema.ts";
 export { shapedFrame } from "./stored-text.ts";
 export * from "./text.ts";
 export * from "./tx.ts";
+export * from "./validate.ts";

@@ -360,6 +360,10 @@ _Avoid_: Tree、Layers（那是面板）；不要单说 Outline（Illustrator �
 `node_query` 按条件（类型、名称正则、标签、父级、区域）找 Node，条件同时成立才算匹配，结果按 id 排序分页。它是 Agent 侧的"选择"，不改变 Selection。
 _Avoid_: Search、Filter、Find
 
+**Validation Issue（检查问题）**：
+`validate` 返回的一条 `{rule, nodeId, message, hint?}`：某个可见 Node 违反了一条规则（`font_missing`、`missing_glyphs`、`text_overflow`、`missing_link`、`zero_area`、`empty_group`、`outside_artboards`）。按绘制次序排列，不写入 Document，也不随写入的回执返回（ADR-0105）。
+_Avoid_: Warning（那是写入回执里的提示）、Lint、Error
+
 **Cursor（游标）**：
 分页结果里的 `nextCursor`：上一页最后一个 Node 的 id，原样传回取下一页。它不在服务器上保存任何状态。
 _Avoid_: Page token、Offset、Session

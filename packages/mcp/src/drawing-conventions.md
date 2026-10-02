@@ -56,19 +56,20 @@ Read this once before your first write. Tool descriptions cover each call; this 
 1. Before a round of writes, call `kalamo_doc_changes` with the `rev` you last saw (or `kalamo_doc_get_info` the first time) to learn what a person changed since.
 2. Create the skeleton: Layers and named, empty Groups.
 3. Fill it in batches, one `kalamo_node_create` per part. To give Nodes different transforms, such as tilting letters by different angles, send one `kalamo_node_transform` with `transforms: [{nodeIds, rotate}, ...]` instead of one call per Node: the entries apply in order, as one Transaction.
-4. Check with `kalamo_render` and `overlays: ["bounds", "ids"]`, then fix what is off.
+4. After each logical stage, check with `kalamo_render` and `overlays: ["bounds", "ids"]`, then `kalamo_validate`, and fix what is off before the next stage.
 5. Guard key writes with `ifRev` set to the `rev` you last read: if anyone committed since, the write fails with `REV_CONFLICT` and changes nothing. Then call `kalamo_doc_changes`, look at what changed, and retry.
 
 ## Transactions
 
 - Use one when several writes should land and undo as one step, or when `kalamo_doc_get_info` shows `browsers` above 0 and a person should not watch a half-built drawing.
-- `kalamo_tx_begin` returns a `txId`. Pass it to every write and to the reads (`kalamo_node_get`, `kalamo_node_query`, `kalamo_doc_outline`, `kalamo_render`, `kalamo_export`) to see your uncommitted work. Nobody else sees it until `kalamo_tx_commit`; put `intent` there. `kalamo_tx_rollback` discards it.
+- `kalamo_tx_begin` returns a `txId`. Pass it to every write and to the reads (`kalamo_node_get`, `kalamo_node_query`, `kalamo_doc_outline`, `kalamo_render`, `kalamo_validate`, `kalamo_export`) to see your uncommitted work. Nobody else sees it until `kalamo_tx_commit`; put `intent` there. `kalamo_tx_rollback` discards it.
 - A Transaction rolls back after 5 minutes without a call carrying its `txId`.
 - If someone deleted a Node you edited meanwhile, the commit fails with `NODE_GONE` and the Transaction stays open: roll it back and redo the work. It fails the same way with `TREE_CONFLICT` when the merge would break a tree rule: a cycle with someone's moves meanwhile, a Layer in a Group, two Clipping Paths in one Layer or Group, or no top-level Layer left once your deletes meet someone else's. Once someone's moves make your Transaction's view a cycle, its reads and writes fail with `TREE_CONFLICT` too.
 
 ## Checking what you drew
 
 - `kalamo_render` returns a PNG of the whole Document, one Artboard, some Nodes or a rect. It lowers the scale to fit `maxSize` (default 1600 px); `viewport` maps pixels back to document coordinates.
+- `kalamo_validate` lists what a render can miss: text that overflows its frame, missing fonts and glyphs, Nodes off every Artboard, zero-area shapes, missing links and empty Groups. Pass the same `txId` to check uncommitted work.
 - `kalamo_export` with `format: "svg"` returns the drawing as SVG text when you need exact geometry.
 
 ## Saving and opening

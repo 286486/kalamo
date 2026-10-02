@@ -654,6 +654,41 @@ describe("reads pass their filters and txId, and bad arguments never reach the s
     ]);
   });
 
+  it("validate: scope, rules and txId pass through; an unknown rule lists the rules", async () => {
+    const { service, call } = await harness({
+      validate: async () => ({ rev: 3, issues: [] }),
+    });
+    expect((await call("kalamo_validate", { docId: "d" })).structuredContent).toEqual({
+      rev: 3,
+      issues: [],
+    });
+    await call("kalamo_validate", {
+      docId: "d",
+      scope: { artboardId: "a" },
+      rules: ["zero_area"],
+      txId: "t",
+    });
+    expect(service.validate.mock.calls).toEqual([
+      ["d", {}, undefined],
+      ["d", { scope: { artboardId: "a" }, rules: ["zero_area"] }, "t"],
+    ]);
+    const result = await call("kalamo_validate", { docId: "d", rules: ["overlap"] });
+    expect(errorOf(result)).toMatchObject({
+      code: "INVALID_INPUT",
+      path: "rules[0]",
+      hint: "Send one of: font_missing, missing_glyphs, text_overflow, missing_link, zero_area, empty_group, outside_artboards.",
+    });
+    for (const args of [
+      { rules: [] },
+      { scope: { rect: { x: 0, y: 0, width: 1, height: 1 } } },
+      { level: "all" },
+    ]) {
+      const bad = await call("kalamo_validate", { docId: "d", ...args });
+      expect(errorOf(bad)).toMatchObject({ code: "INVALID_INPUT" });
+    }
+    expect(service.validate).toHaveBeenCalledTimes(2);
+  });
+
   it("doc_changes and doc_get_info", async () => {
     const { service, call } = await harness({
       changes: async () => ({ rev: 1, changes: [] }),
@@ -1319,6 +1354,7 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
     "kalamo_tx_begin",
     "kalamo_tx_commit",
     "kalamo_tx_rollback",
+    "kalamo_validate",
   ]);
   const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
   const inputKeys = (name: string) => {
@@ -1366,6 +1402,7 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
     "kalamo_doc_outline",
     "kalamo_render",
     "kalamo_export",
+    "kalamo_validate",
   ]) {
     expect(inputKeys(name)).toContain("txId");
   }
@@ -1600,7 +1637,7 @@ it("logs one line per call: Actor, tool, duration, node count, error code and re
 it("names every tool kalamo_ and knows the former name's tools and format as nothing (ADR-0069)", async () => {
   const { client, call } = await harness();
   const names = (await client.listTools()).tools.map((t) => t.name);
-  expect(names).toHaveLength(28);
+  expect(names).toHaveLength(29);
   expect(names.filter((n) => !n.startsWith("kalamo_") || n.includes(LEGACY_NAME))).toEqual([]);
 
   const failure = async (name: string) =>

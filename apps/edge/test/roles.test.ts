@@ -58,6 +58,8 @@ const FAMILIES: Record<
 > = {
   "MCP read": async (who, { docId }) => {
     const { error } = await tool(who, "kalamo_doc_get_info", { docId });
+    const validated = await tool(who, "kalamo_validate", { docId });
+    expect(validated.error?.code).toBe(error?.code);
     return error?.code ?? "ok";
   },
   "MCP write": async (who, { docId, layerId }) => {

@@ -68,6 +68,18 @@ export function lookup(doc: Document, id: string, path: string): Node {
   });
 }
 
+/** The Artboard with this id, else ARTBOARD_NOT_FOUND at `path`. */
+export function artboardOf(doc: Document, id: string, path: string) {
+  const artboard = doc.artboards.find((a) => a.id === id);
+  if (artboard) return artboard;
+  throw new KalamoError({
+    code: "ARTBOARD_NOT_FOUND",
+    message: `No Artboard with id ${id}.`,
+    hint: "kalamo_doc_get_info lists the Artboards with their ids.",
+    path,
+  });
+}
+
 /**
  * The Node and everything beneath it that a transform of it moves, depth first: an unlinked mask
  * stays where it is (ADR-0103).
