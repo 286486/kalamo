@@ -555,24 +555,37 @@ function holeAfterSent(a: string, reverseBack: boolean) {
   }));
 }
 
+/**
+ * a's hole after `run` while a press is in flight with a's hole Anchor `index` chosen, then the
+ * press accepted and rejected; `prep` edits the committed Document first. The accepted hole is
+ * reversed back to compare.
+ */
+function heldEdit(
+  run: (doc: Document) => void,
+  name: string,
+  { index = 0, prep }: { index?: number; prep?: (doc: Document, a: string) => void } = {},
+) {
+  return (["accepted", "rejected"] as const).map((outcome) => {
+    const { doc, a, pressed, answer } = pressOn((a) => ({ anchors: [anchorKey(a.id, 1, index)] }));
+    prep?.(doc, a.id);
+    useStore.setState({ ...pressed, edit: null, drag: null, held: [] });
+    vi.advanceTimersByTime(1000);
+    vi.mocked(send).mockClear();
+    run(doc);
+    expect(commands(), name).toEqual([]);
+    useStore.setState(
+      stateAfter(useStore.getState(), outcome === "accepted" ? answer(doc, a.id) : rejected),
+    );
+    runHeld();
+    expect(commands().length, name).toBeGreaterThan(0);
+    return holeAfterSent(a.id, outcome === "accepted");
+  });
+}
+
 it("holds the Anchor Point and Curvature tools' edits for the press and puts them on the point chosen", () => {
   vi.useFakeTimers();
   for (const [name, run] of Object.entries(toolEdits)) {
-    const after = (["accepted", "rejected"] as const).map((outcome) => {
-      const { doc, a, pressed, answer } = pressOn((a) => ({ anchors: [anchorKey(a.id, 1, 0)] }));
-      useStore.setState({ ...pressed, edit: null, drag: null, held: [] });
-      vi.advanceTimersByTime(1000);
-      vi.mocked(send).mockClear();
-      run(doc);
-      expect(commands(), name).toEqual([]);
-      useStore.setState(
-        stateAfter(useStore.getState(), outcome === "accepted" ? answer(doc, a.id) : rejected),
-      );
-      runHeld();
-      expect(commands().length, name).toBeGreaterThan(0);
-      return holeAfterSent(a.id, outcome === "accepted");
-    });
-    const [accepted, rejected_] = after;
+    const [accepted, rejected_] = heldEdit(run, name);
     const corners = ["10 10", "10 20", "20 20", "20 10"].map((at) => ({ at, in: null, out: null }));
     expect(rejected_, name).not.toEqual(corners);
     if (name === "an Anchor Point drag out of an Anchor") {
@@ -580,6 +593,49 @@ it("holds the Anchor Point and Curvature tools' edits for the press and puts the
       expect(rejected_?.[3], name).toEqual({ at: "20 10", in: "15 10", out: "25 10" });
       expect(accepted?.[3], name).toEqual({ at: "20 10", in: "25 10", out: "15 10" });
     } else expect(accepted, name).toEqual(rejected_);
+  }
+  vi.useRealTimers();
+});
+
+// With Handles on (20, 10), its In toward (20, 20) and its Out toward (10, 10), which the reverse
+// swaps: with (20, 10) chosen, the Anchor Point tool acts on the Handle under the pointer, and a
+// click on the Anchor retracts both.
+const handleEdits: Record<string, [(doc: Document) => void, ReturnType<typeof holeAfterSent>]> = {
+  "an Anchor Point Handle drag": [
+    (doc) => {
+      anchorPointTool.down?.(event(doc, 15, 6));
+      anchorPointTool.move?.(event(doc, 15, 2));
+      anchorPointTool.up?.(event(doc, 15, 2));
+    },
+    [{ at: "20 10", in: "24 15", out: expect.not.stringMatching(/^15 6$/) }],
+  ],
+  "an Anchor Point Handle click": [
+    (doc) => {
+      anchorPointTool.down?.(event(doc, 24, 15));
+      anchorPointTool.up?.(event(doc, 24, 15));
+    },
+    [{ at: "20 10", in: null, out: "15 6" }],
+  ],
+  "an Anchor Point click on an Anchor": [
+    (doc) => {
+      anchorPointTool.down?.(event(doc, 20, 10));
+      anchorPointTool.up?.(event(doc, 20, 10));
+    },
+    [{ at: "20 10", in: null, out: null }],
+  ],
+};
+
+it("holds the Anchor Point tool's Handle edits for the press and keeps them on the Handle chosen", () => {
+  vi.useFakeTimers();
+  const handles = (doc: Document, a: string) =>
+    editPath(doc, {
+      nodeId: a,
+      ops: [{ op: "set_handles", subpath: 1, index: 3, handleIn: [24, 15], handleOut: [15, 6] }],
+    });
+  for (const [name, [run, [last]]] of Object.entries(handleEdits)) {
+    const [accepted, rejected_] = heldEdit(run, name, { index: 3, prep: handles });
+    expect(rejected_?.[3], name).toEqual(last);
+    expect(accepted, name).toEqual(rejected_);
   }
   vi.useRealTimers();
 });

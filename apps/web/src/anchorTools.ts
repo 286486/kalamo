@@ -103,7 +103,8 @@ export function deleteAnchorAt(
     scope: useStore.getState().isolated,
   });
   if (hit?.kind !== "anchor" || (only && !only.includes(parseKey(hit.key).nodeId))) return false;
-  // The key is renumbered as the Direct Selection's are until a press in flight is answered.
+  // Sent once a Reverse Path Direction press in flight is answered, on the Anchor chosen, which the
+  // answer renumbers (ADR-0110); another Actor's edit to the path meanwhile drops it (ADR-0109).
   afterReverse(
     ({ doc: now, anchors }, w) => {
       if (now && anchors.length > 0) sendAnchorEdits(removeAnchorInputs(now, anchors), w);
