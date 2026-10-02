@@ -1,5 +1,13 @@
 import { generateKeyBetween, generateNKeysBetween } from "fractional-indexing";
-import { assertParent, bounds, childrenOf, createNodes, newId, union } from "./document.ts";
+import {
+  assertParent,
+  bounds,
+  childrenOf,
+  createNodes,
+  newId,
+  union,
+  unmasked,
+} from "./document.ts";
 import { transformNodes } from "./edit.ts";
 import { type Orientation, uprightSize } from "./image.ts";
 import type { Artboard, Document, Node, Rect, RenderScope, Warning } from "./schema.ts";
@@ -60,14 +68,14 @@ export function placeNodes(
           { type: "group", parentId: opts.parentId, name: file.name, children: [] },
         ]).nodes[0] as Node)
       : undefined;
-  // A pasted Clipping Path never clips the parent (ADR-0053): a listed one comes as an ordinary
-  // Path; one written only for the Clipping Mask that leads to a listed Node stays behind.
+  // A pasted Clipping Path or mask never clips or masks the parent (ADR-0053, ADR-0103): a listed
+  // one comes as an ordinary Node; one written only for the mask that leads to a listed Node stays
+  // behind.
   const roots = group
     ? childrenIn(null)
     : tops(null).flatMap((n): Node[] => {
-        if (!("clipping" in n && n.clipping)) return [n];
-        const { clipping: _, ...path } = n;
-        return listed.has(n.id) ? [path] : [];
+        const plain = unmasked(n);
+        return plain === n || listed.has(n.id) ? [plain] : [];
       });
   const keys = group
     ? roots.map((n) => n.index)
