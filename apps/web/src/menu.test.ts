@@ -38,6 +38,9 @@ it("names a key press in Illustrator's Windows notation, Cmd as Ctrl", () => {
   expect(keysOf(press("{", { metaKey: true, shiftKey: true }, "BracketLeft"))).toBe("Shift+Ctrl+[");
   const shifted8 = { altKey: true, shiftKey: true, ctrlKey: true };
   expect(keysOf(press("*", shifted8, "Digit8"))).toBe("Alt+Shift+Ctrl+8");
+  // AZERTY types - on Digit6, and Swiss German + on Shift+Digit1.
+  expect(keysOf(press("-", { ctrlKey: true }, "Digit6"))).toBe("Ctrl+-");
+  expect(keysOf(press("+", { ctrlKey: true, shiftKey: true }, "Digit1"))).toBe("Ctrl+=");
 });
 
 it("shows a shortcut as the platform's menus do", () => {

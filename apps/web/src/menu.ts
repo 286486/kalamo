@@ -665,8 +665,8 @@ export function keysOf(
   let key = e.key;
   // macOS Option types another character, such as ß for S; the physical key names it then.
   if (key.length === 1 && key > "~") key = e.code.replace(/^(Key|Digit)/, "");
-  // Shift+8 types *, and Illustrator names the digit key.
-  if (/^Digit\d$/.test(e.code)) key = e.code.slice(5);
+  // Shift+8 types *, and Illustrator names the digit key; + and AZERTY's unshifted - keep theirs.
+  else if (e.shiftKey && key !== "+" && /^Digit\d$/.test(e.code)) key = e.code.slice(5);
   // Ctrl++ is Shift+Ctrl+= on a US keyboard, and Ctrl+= wherever + has a key of its own.
   const plus = key === "+";
   if (plus) key = "=";
