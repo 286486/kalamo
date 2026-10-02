@@ -118,7 +118,7 @@ Read this once before your first write. Tool descriptions cover each call; this 
 ## Charts
 
 - To draw data as a chart, call a chart tool rather than drawing bars yourself. Only `kalamo_chart_create_column` exists so far. It draws expanded output: a Group named `Column Graph` of plain rects, lines and texts, as Illustrator's Object > Graph > Expand Graph would leave it. Edit any of it with the usual tools. It does not stay bound to its data, so to change the data, delete the Group and draw the chart again.
-- `data` is `{rows}` or `{csv}`; `encoding.x` names the category field and `encoding.y` one value field or several, one series each. A value may be written `1,234`, `12%` or `$5`. An empty cell leaves a gap, and any other value that does not parse fails `INVALID_INPUT` at its `path`.
+- `data` is `{rows}` or `{csv}`; `encoding.x` names the category field and `encoding.y` one value field or several, one series each. A value may be written `1,234`, `12%` or `$5`. An empty cell leaves a gap. Any other value that does not parse, or a value other than 0 below `1e-300` or above `1e300` in magnitude, fails `INVALID_INPUT` at its `path`.
 - Everything, the axes, the labels and the Legend, lies inside `frame`. If `warnings` says `CHART_LABELS_OVERLAP`, widen the frame or shorten the category labels.
 - A chart draws at most ⌊(1975 − S − (S > 1 ? 1 + 2S : 0)) ÷ (S + 1)⌋ rows for S series, whatever the values: 987 rows for 1 series, 491 for 3, 35 for 50. One row more fails `LIMIT_EXCEEDED` at `data` and names the limit; chart fewer rows or series, or split the data over several charts.
 

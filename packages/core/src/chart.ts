@@ -74,6 +74,9 @@ export const CHART_PALETTE = [
 /** Illustrator's Graph Type defaults: a cluster fills 80% of its category, a column 90% of its share. */
 const CLUSTER_WIDTH = 0.8;
 const COLUMN_WIDTH = 0.9;
+/** A drawn value's magnitude bounds, so the Value Axis span and its ticks stay finite doubles. */
+const SMALLEST = 1e-300;
+const LARGEST = 1e300;
 
 const invalid = (path: string, message: string, hint: string) =>
   new KalamoError({ code: "INVALID_INPUT", message, hint, path });
@@ -254,6 +257,13 @@ export function columnChart(raw: ChartInput): { node: NodeInput; warnings: Warni
           at(f),
           `Row ${i}'s ${f}, ${JSON.stringify(row[f])}, is not a number.`,
           "Give a number such as 1234, 1,234, 12% or $5, or leave the cell empty for a gap.",
+        );
+      }
+      if (v !== null && v !== 0 && !(Math.abs(v) >= SMALLEST && Math.abs(v) <= LARGEST)) {
+        throw invalid(
+          at(f),
+          `Row ${i}'s ${f}, ${v}, is outside ${SMALLEST} to ${LARGEST} in magnitude.`,
+          `Give 0 or a value from ${SMALLEST} to ${LARGEST} in magnitude, in a larger or smaller unit.`,
         );
       }
       return v;
