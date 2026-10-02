@@ -166,10 +166,13 @@ async function rings(page: Page, request: APIRequestContext, xs: number[]) {
       nodes: xs.map((x) => ({ type: "path", parentId, d: ring(x), appearance: { fills } })),
     })
   ).structuredContent.createdIds as string[];
-  /** The `path_reverse` commands held once `hold` is called, each passed on or answered here. */
-  const held: { id: string; pass: () => void; answer: (m: object) => void }[] = [];
+  /** The `path_reverse` commands held once `hold` is called, each passed on, answered or dropped. */
+  const held: { id: string; pass: () => void; answer: (m: object) => void; drop: () => void }[] =
+    [];
   let holding = false;
+  let sockets = 0;
   await page.routeWebSocket(/\/ws$/, (ws) => {
+    sockets += 1;
     const server = ws.connectToServer();
     ws.onMessage((m) => {
       const msg = JSON.parse(String(m));
@@ -178,6 +181,7 @@ async function rings(page: Page, request: APIRequestContext, xs: number[]) {
         id: msg.id,
         pass: () => server.send(m),
         answer: (a) => ws.send(JSON.stringify(a)),
+        drop: () => ws.close(),
       });
     });
     server.onMessage((m) => ws.send(m));
@@ -203,6 +207,7 @@ async function rings(page: Page, request: APIRequestContext, xs: number[]) {
     hold: () => {
       holding = true;
     },
+    sockets: () => sockets,
     at,
     d,
     button,
@@ -280,4 +285,34 @@ test("a Reverse Path Direction press an Agent raced is refused and leaves no Anc
   await expect(button("Reverse Path Direction On")).toBeDisabled();
   await expect(button("Reverse Path Direction Off")).toBeDisabled();
   expect(await d(id)).toBe(raced);
+});
+
+// #272: the socket drops with the press in flight, before the Document DO saw it. The Document sent
+// on reconnect still has the hole as it was, so the chosen Anchor is numbered back.
+test("a Reverse Path Direction press lost to a reconnect leaves the chosen Anchor chosen", async ({
+  page,
+  request,
+}) => {
+  const { ids, held, hold, sockets, at, d, button } = await rings(page, request, [0]);
+  const [id] = ids as [string];
+  await page.keyboard.press("a");
+  await page.mouse.click(...at(40, 60));
+  await expect(button("Reverse Path Direction Off")).toHaveAttribute("aria-pressed", "true");
+
+  hold();
+  await button("Reverse Path Direction On").focus();
+  await page.keyboard.press("Enter");
+  await expect.poll(() => held.length).toBe(1);
+  held[0]?.drop();
+  await expect.poll(sockets).toBe(2);
+  await expect(page.getByTestId("status-bar")).not.toContainText("connecting");
+  await expect(button("Reverse Path Direction Off")).toHaveAttribute("aria-pressed", "true");
+  expect(points(await d(id))).toEqual(points(ring(0)));
+
+  await page
+    .getByRole("toolbar", { name: "Anchors" })
+    .getByRole("button", { name: "Convert selected anchor points to smooth" })
+    .click();
+  await expect.poll(() => d(id)).toMatch(/C[^LZ]* 40 60 C/);
+  expect(await d(id)).toMatch(/L 60 40 Z$/);
 });

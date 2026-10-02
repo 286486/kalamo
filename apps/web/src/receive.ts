@@ -11,6 +11,7 @@ import {
   type PathOpInput,
   paintOrder,
   pathOp,
+  runsClockwise,
   transformNodes,
 } from "@kalamo/core";
 import { applyBroadcast, type Role, type ServerMessage } from "@kalamo/sync";
@@ -280,8 +281,15 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     const changed = !touched || touched.has(parseKey(key).nodeId);
     return !changed || ((own || !touched) && inRangeOf(doc, key));
   };
-  const anchors = s.anchors.filter(kept(inRange));
-  const segments = s.segments.filter(kept(segmentInRange));
+  // A reconnect loses the answer to a press in flight; a subpath that still runs as it did never got
+  // it, so its keys are numbered back.
+  const prior = s.doc;
+  const unreversed =
+    msg.type === "document" && prior && s.reversing
+      ? s.reversing.subpaths.filter((t) => direction(prior, t) === direction(doc, t))
+      : [];
+  const anchors = s.anchors.map(reversedKey(doc, unreversed, false)).filter(kept(inRange));
+  const segments = s.segments.map(reversedKey(doc, unreversed, true)).filter(kept(segmentInRange));
   // The press's answer or a reconnect settles its renumbering.
   const reversing =
     !s.reversing || msg.type === "document" || msg.commandId === s.reversing.commandId
@@ -423,6 +431,12 @@ function settle(edit: PathDrag | null, id: string | undefined): { edit?: PathDra
   const inputs = edit.inputs.filter((_, i) => ids[i] !== id);
   const commandIds = ids.filter((c) => c !== id);
   return { edit: inputs.length > 0 ? { inputs, commandIds } : null };
+}
+
+/** Which way subpath `t` runs in `doc`; undefined when it is gone. */
+function direction(doc: Document, t: { nodeId: string; subpath: number }) {
+  const n = doc.nodes.get(t.nodeId);
+  return n?.type === "path" ? runsClockwise(doc, n, t.subpath) : undefined;
 }
 
 /** The pending creates without the one whose command `id` was answered or rejected. */

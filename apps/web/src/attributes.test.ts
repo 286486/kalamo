@@ -343,3 +343,35 @@ it("after a rejected press another Actor raced, leaves the raced path's Anchors 
     segments: [],
   });
 });
+
+it("after a reconnect, numbers the keys back on a subpath the press never reached", () => {
+  vi.mocked(send).mockClear();
+  const { doc, defaultLayerId: parentId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 200, height: 200 }],
+  });
+  const ring = (x: number) =>
+    `M${x} 0 L${x + 30} 0 L${x + 30} 30 L${x} 30 Z M${x + 10} 10 L${x + 10} 20 L${x + 20} 20 L${x + 20} 10 Z`;
+  const [a, b] = createNodes(doc, [
+    { type: "path", parentId, d: ring(0) },
+    { type: "path", parentId, d: ring(50) },
+  ]).nodes as [Node, Node];
+  const chosen = [anchorKey(a.id, 1, 1), anchorKey(b.id, 1, 1)];
+  const state = viewState({ doc, selection: [a.id, b.id], anchors: chosen, role: "owner" });
+  setDirection(state, true);
+  const { edit, reversing, anchors, segments } = useStore.getState();
+  const pressed = { ...state, edit, reversing, anchors, segments };
+  // The press reached the Document DO for b only before the socket dropped.
+  const reversed = editPath(
+    { ...doc, nodes: new Map(doc.nodes) },
+    { nodeId: b.id, ops: [{ op: "reverse", subpath: 1 }] },
+  ).node;
+  const nodes = [...doc.nodes.values()].map((n) => (n.id === b.id ? reversed : n));
+  const snapshot = message("document", { rev: doc.rev + 1, nodes });
+  expect(stateAfter(pressed, snapshot)).toMatchObject({
+    edit: null,
+    reversing: null,
+    anchors: [anchorKey(a.id, 1, 1), anchorKey(b.id, 1, 3)],
+  });
+});
