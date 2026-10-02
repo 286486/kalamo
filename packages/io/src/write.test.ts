@@ -1260,6 +1260,8 @@ describe("a linked Image of an oriented file (ADR-0102)", () => {
     ["a value out of range", "9"],
     ["a fraction", "6.5"],
     ["no number", "six"],
+    ["another spelling of 6", "6.0"],
+    ["a hex 6", "0x6"],
   ])("reads the box as written for %s", (_, value) => {
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:kalamo="${NS.kalamo}" width="100" height="100"><image x="10" y="20" width="30" height="40" xlink:href="p.jpg" kalamo:src="${src}" kalamo:fileOrientation="${value}"/></svg>`;
     const image = resolveLinks(parseSvg(svg), () => info).nodes.find((n) => n.type === "image");

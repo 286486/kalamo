@@ -53,7 +53,7 @@ A core test checks `orientedImage(orientedImage(image, o), inverseOrientation(o)
 
 - **Write the stored frame and the composed transform, and strip the tag in a copy of the user's file.** Kalamo never writes the user's files (ADR-0042).
 - **Write the upright box without remembering the orientation.** Kalamo cannot tell which part of a transform came from Exif (ADR-0101 decision 7), so it would not know what to undo.
-- **Keep the orientation in the image file record (`doc.images`, R2) instead of on the Node.** One stored file can be linked from files with different orientations (ADR-0101 decision 1 stores them once). The orientation belongs to the link, not to the pixels.
+- **Keep the orientation in the image file record (`doc.images`, R2) instead of on the Node.** One stored file can be linked from files with different orientations (ADR-0101 decision 1 stores them once). The orientation belongs to the linked Image, not to the pixels.
 - **Read the linked file on import to learn its orientation.** Kalamo fetches nothing (ADR-0042).
 - **Let Agents set the field.** A wrong value would turn the photo in Inkscape and nowhere else, where no Agent can see it.
 

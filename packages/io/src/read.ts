@@ -1968,13 +1968,13 @@ class Reader {
       // Missing until resolveLinks finds its pixels, so a read that skips it still warns.
       this.warn("IMAGE_LINK_MISSING", "", MISSING);
       if (!offered) return { shape };
-      const o = Number(kalamoAttr(e, "fileOrientation"));
+      const o = kalamoAttr(e, "fileOrientation") ?? "";
       return {
         shape,
         link: {
           src,
           ...(!sized && { size: { scale: k, width: w, height: h } }),
-          ...(Number.isInteger(o) && o >= 2 && o <= 8 && { fileOrientation: o as FileOrientation }),
+          ...(/^[2-8]$/.test(o) && { fileOrientation: Number(o) as FileOrientation }),
         },
       };
     }
