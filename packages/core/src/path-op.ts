@@ -25,7 +25,7 @@ import {
   worldSegments,
   worldTransform,
 } from "./document.ts";
-import { deleteNodes, lookup, subtree } from "./edit.ts";
+import { deleteNodes, lookup, outermost, subtree } from "./edit.ts";
 import { KalamoError } from "./errors.ts";
 import { simplifySubpath } from "./fit.ts";
 import { applyTo, IDENTITY, invert, multiply, scaleOf, transformSegments } from "./matrix.ts";
@@ -765,8 +765,13 @@ const EMPTY: Record<ShapeMode, string> = {
  */
 function shapeMode(doc: Document, nodeIds: string[], op: ShapeMode, geometry: Geometry) {
   const order = paintOrder(doc);
-  const named = nodeIds.map((id, i) => {
-    const node = lookup(doc, id, `nodeIds[${i}]`);
+  // A Node inside another operand is already part of it, as when Illustrator selects a Group.
+  const { kept, nested } = outermost(
+    doc,
+    nodeIds.map((id, i) => lookup(doc, id, `nodeIds[${i}]`)),
+  );
+  const named = kept.map((node) => {
+    const i = nodeIds.indexOf(node.id);
     const leaves = subtree(doc, node).filter(
       (n): n is WithAnchors => (n.type === "path" || isLiveShape(n)) && !n.clipping,
     );
@@ -792,7 +797,7 @@ function shapeMode(doc: Document, nodeIds: string[], op: ShapeMode, geometry: Ge
     }
     return { node, leaves };
   });
-  const operands = [...new Map(named.map((o) => [o.node.id, o])).values()].sort(
+  const operands = named.sort(
     (a, b) => (order.get(a.node.id) ?? 0) - (order.get(b.node.id) ?? 0),
   );
   if (operands.length < 2) {
@@ -832,7 +837,12 @@ function shapeMode(doc: Document, nodeIds: string[], op: ShapeMode, geometry: Ge
     operands.map((o) => o.node.id),
   );
   doc.nodes.set(result.id, result);
-  return { created: [result], updated: [], deletedIds, warnings: [] };
+  const warnings = nested.map((n) => ({
+    code: "NESTED_TARGET",
+    nodeId: n.id,
+    message: "Also inside another operand, so it counted once, as part of that one.",
+  }));
+  return { created: [result], updated: [], deletedIds, warnings };
 }
 
 /**

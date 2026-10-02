@@ -900,6 +900,23 @@ describe("pathOp Shape Modes, on real PathKit (ADR-0104)", () => {
     expect(out.deletedIds.sort()).toEqual([back.id, group.id, ...inside].sort());
   });
 
+  it("counts a Node inside a Group operand once, as part of the Group", async () => {
+    const { doc, layer, box, child } = scene();
+    const [back, group] = createNodes(doc, [
+      box(-5, 0, 10, 10),
+      { type: "group", parentId: layer, children: [child(0, 0, 10, 10), child(5, 0, 10, 10)] },
+    ]).nodes as [Node, GroupNode];
+    const [inner] = childrenOf(doc, group.id) as [Node];
+    const out = await run(doc, [group.id, inner.id, back.id], "exclude");
+    const [made] = out.created as [PathNode];
+    // Above the Group's place in the Layer, not in the deleted Group.
+    expect(made).toMatchObject({ parentId: layer, index: group.index });
+    expect(childrenOf(doc, layer).map((n) => n.id)).toEqual([made.id]);
+    // The overlap of back and Group, -5..15 minus 0..5; as a third operand, inner would toggle 0..10.
+    expect(total(made.d)).toBe(150);
+    expect(out.warnings).toEqual([expect.objectContaining({ code: "NESTED_TARGET", nodeId: inner.id })]);
+  });
+
   it("refuses a text, one operand and an empty result, changing nothing", async () => {
     const { doc, layer, box } = scene();
     const [a, text, far, cover] = createNodes(doc, [
