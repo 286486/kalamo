@@ -336,6 +336,7 @@ export function Viewer({ docId }: { docId: string }) {
         svg = toSvg(doc, undefined, {
           scope: { nodeIds: selection },
           images: (id) => images.get(id)?.dataUrl,
+          templates: true,
         });
       } catch (err) {
         useStore.setState({ notice: `Could not ${e.type}: ${String(err)}` });

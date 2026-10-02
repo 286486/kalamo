@@ -40,7 +40,7 @@ F-ILL-04 is Illustrator's Place with **Template** checked. Illustrator puts the 
 - The Image gets `opacity: 0.5`.
 - Without `frame`, the Image is centred on `parentId`'s Artboard, as it would be without `asTemplate`.
 
-Illustrator's template layer also does not print. Kalamo has no `template` flag on a Layer yet, so the Template Layer still exports and renders like any other Layer; an Agent that does not want the reference in `export` hides or deletes it. The flag, which should keep the Layer in `render` and out of `export`, waits for its own issue.
+Illustrator's template layer also does not print. Kalamo has no `template` flag on a Layer yet, so the Template Layer still exports and renders like any other Layer; an Agent that does not want the reference in `export` hides or deletes it. The flag, which should keep the Layer in `render` and out of `export`, waits for its own issue. (Done by ADR-0099: `asTemplate` sets the Layer's `template`, and `export` leaves it out.)
 
 ## Considered Options
 

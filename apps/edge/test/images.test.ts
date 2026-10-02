@@ -63,7 +63,7 @@ it("stores a data URL's file once and gives its Images the file's SHA-256 as src
   expect(await objectOf("images-store", id)).toBe(RED_2x2_PNG.split(",")[1]);
   expect(ok(await s.svg("agent", {})).svg).toContain(`xlink:href="${RED_2x2_PNG}"`);
   expect(JSON.parse(ok(await s.file("agent")).text).images).toEqual({ [id]: RED_2x2_PNG });
-  expect(ok(await s.raster("agent", { scale: 1 })).svg).toContain(RED_2x2_PNG);
+  expect(ok(await s.raster("agent", { scale: 1 }, true)).svg).toContain(RED_2x2_PNG);
 });
 
 it("refuses a WebP with the reason, and with partial keeps the other items", async () => {
@@ -130,7 +130,7 @@ describe("linked Images (ADR-0042)", () => {
     expect(svg).toContain(`xlink:href="photos/red.png" kalamo:src="${id}" id="z-${linked}"`);
     expect(svg).toContain(`xlink:href="gone.png" id="z-${missing}"`);
     expect(svg).not.toContain("data:");
-    const raster = ok(await s.raster("agent", { scale: 1 })).svg;
+    const raster = ok(await s.raster("agent", { scale: 1 }, true)).svg;
     expect(raster).toContain(`xlink:href="${RED_2x2_PNG}"`);
     expect(raster).toContain(`<path d="M 0 0 L 40 0 L 40 20 L 0 20 Z M 0 0 L 40 20`);
     expect(raster).not.toContain("gone.png");
@@ -192,7 +192,7 @@ describe("Relink and Embed through node_update (ADR-0042)", () => {
     ok(await s.updateNodes([{ nodeId, patch: { src: BLUE_1x1_PNG } }], "agent"));
     const [after] = ok(await s.get([nodeId], "full", "agent")).nodes;
     expect(after).toEqual({ ...before, src: await blueId() });
-    expect(ok(await s.raster("agent", { scale: 1 })).svg).toContain(BLUE_1x1_PNG);
+    expect(ok(await s.raster("agent", { scale: 1 }, true)).svg).toContain(BLUE_1x1_PNG);
 
     ok(await s.undo("agent"));
     expect(ok(await s.get([nodeId], "full", "agent")).nodes[0]).toEqual(before);
@@ -343,7 +343,7 @@ describe("image files in R2, swept once nothing names them (ADR-0046)", () => {
     ok(await s.deleteNodes([nodeId], "agent"));
     await sweep(s, parentId);
     ok(await s.undo("agent"));
-    expect(ok(await s.raster("agent", { scale: 1 })).svg).toContain(RED_2x2_PNG);
+    expect(ok(await s.raster("agent", { scale: 1 }, true)).svg).toContain(RED_2x2_PNG);
     ok(await s.redo("agent"));
     ok(await s.undo("agent"));
     ok(await s.deleteNodes([nodeId], "agent"));
@@ -380,7 +380,7 @@ describe("image files in R2, swept once nothing names them (ADR-0046)", () => {
     const copyIds = ids.map((n) => copies[n]?.[0] as string);
     const { nodes } = ok(await s.get(copyIds, "full", "agent"));
     expect(nodes).toMatchObject([{ src: id }, { src: id, file: "red.png" }]);
-    const raster = ok(await s.raster("agent", { scale: 1, scope: { nodeIds: copyIds } })).svg;
+    const raster = ok(await s.raster("agent", { scale: 1, scope: { nodeIds: copyIds } }, true)).svg;
     expect(raster.split(`xlink:href="${RED_2x2_PNG}"`)).toHaveLength(3);
   });
 
@@ -393,7 +393,9 @@ describe("image files in R2, swept once nothing names them (ADR-0046)", () => {
     ok(await s.createNodes([image(BLUE_1x1_PNG)], "agent", { txId: rolled }));
     ok(await s.deleteNodes([kept], "agent", { txId: rolled }));
     await sweep(s, parentId);
-    expect(ok(await s.raster("agent", { scale: 1, txId: rolled })).svg).toContain(BLUE_1x1_PNG);
+    expect(ok(await s.raster("agent", { scale: 1, txId: rolled }, true)).svg).toContain(
+      BLUE_1x1_PNG,
+    );
     expect(await stored("r2-tx")).toEqual({
       rows: [blue, red].sort(),
       objects: [blue, red].sort(),
@@ -401,7 +403,7 @@ describe("image files in R2, swept once nothing names them (ADR-0046)", () => {
     ok(await s.rollback(rolled, "agent"));
     expect(await runDurableObjectAlarm(s)).toBe(true);
     expect(await stored("r2-tx")).toEqual({ rows: [red], objects: [red] });
-    expect(ok(await s.raster("agent", { scale: 1 })).svg).toContain(RED_2x2_PNG);
+    expect(ok(await s.raster("agent", { scale: 1 }, true)).svg).toContain(RED_2x2_PNG);
 
     const expiring = ok(await s.begin("agent")).txId;
     ok(await s.createNodes([image(BLUE_1x1_PNG)], "agent", { txId: expiring }));

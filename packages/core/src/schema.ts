@@ -779,7 +779,18 @@ const container = {
     "Paints every descendant Live Shape's and path's outline, each in its stacking order; omit for none.",
   ),
 };
-const LayerItem = z.strictObject({ type: z.literal("layer"), ...item, ...container });
+/** Illustrator's Template Layer option (ADR-0099). */
+export const LayerTemplate = z
+  .boolean()
+  .describe(
+    "A Template Layer: a reference drawn by kalamo_render and the canvas but left out of kalamo_export, as Illustrator never prints or exports one.",
+  );
+const LayerItem = z.strictObject({
+  type: z.literal("layer"),
+  ...item,
+  ...container,
+  template: LayerTemplate.optional(),
+});
 export const NodeInput: z.ZodType<NodeOutput, NodeInput> = z
   .lazy(() => z.discriminatedUnion("type", [LayerItem, ...LEAF_ITEMS, GroupItem]))
   .meta({ id: "Node" });
@@ -861,6 +872,7 @@ export const NodePatch = z
           .strictObject({ fills: z.array(Fill), strokes: z.array(Stroke), contents })
           .partial()
           .describe("contents only on a Layer or Group."),
+        template: LayerTemplate.describe(`Layer only. ${LayerTemplate.description}`),
         ...parameters,
       }).map(([k, t]) => [k, (t as z.ZodType).nullable().optional()]),
     ),
@@ -1092,6 +1104,8 @@ export interface LayerNode extends NodeBase {
   type: "layer";
   /** Missing means empty (ADR-0043). */
   appearance?: ContainerAppearance;
+  /** A Template Layer: drawn by `render` and the canvas, left out of `export` (ADR-0099); missing means false. */
+  template?: boolean;
 }
 
 export interface GroupNode extends NodeBase {

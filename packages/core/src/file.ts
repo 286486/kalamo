@@ -99,7 +99,7 @@ const container = {
 };
 /** A Node exactly as stored; unknown keys are refused so nothing in a file is dropped silently. */
 const StoredNode = z.discriminatedUnion("type", [
-  z.strictObject({ ...container, type: z.literal("layer") }),
+  z.strictObject({ ...container, type: z.literal("layer"), template: z.boolean().optional() }),
   z.strictObject({ ...container, type: z.literal("group") }),
   z.strictObject({
     ...base,

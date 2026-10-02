@@ -26,6 +26,7 @@ import {
   type GroupNode,
   ImageShape,
   type LayerNode,
+  LayerTemplate,
   type LeafNode,
   type Node,
   PIVOTS,
@@ -226,7 +227,10 @@ export const zodPath = (path: PropertyKey[]) =>
 
 function writableSchema(node: Node) {
   if (node.type === "layer" || node.type === "group") {
-    return Writable.extend({ appearance: ContainerAppearanceInput.optional() });
+    return Writable.extend({
+      appearance: ContainerAppearanceInput.optional(),
+      ...(node.type === "layer" && { template: LayerTemplate.optional() }),
+    });
   }
   if (node.type === "image") {
     const { src, file, x, y, width, height, preserveAspectRatio } = ImageShape.shape;
@@ -388,6 +392,8 @@ function patched(doc: Document, raw: UpdateInput, i: number): { node: Node; warn
       patch = { ...patch, autoSize: null };
     }
   }
+  // Missing means false, so false is stored as missing, as node_create stores it (ADR-0099).
+  if (node.type === "layer" && patch.template === false) patch = { ...patch, template: null };
   const merged = mergePatch(node, patch) as Record<string, unknown>;
   // Indices into the old content would style the wrong characters of the new one (ADR-0029).
   if ("content" in patch && !("ranges" in patch)) delete merged.ranges;

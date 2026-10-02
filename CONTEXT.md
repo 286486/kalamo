@@ -21,7 +21,7 @@ _Avoid_: Element、Object、Item、Shape（泛指时）
 _Avoid_: Folder、Sublayer 作为独立类型（嵌套 Layer 就叫 Layer）
 
 **Template Layer（模板图层）**：
-放参考图供描摹的 Layer，对应 Illustrator 置入时勾选 Template：`image_place` 的 `asTemplate` 在父级所在 Layer 下方新建一个锁定的 Layer，名为 `Template <文件名>`，其中的 Image 不透明度 50%。Illustrator 的模板图层不打印；Kalamo 的 Layer 还没有 `template` 标志，所以它照常导出与渲染（ADR-0027）。
+放参考图供描摹的 Layer，对应 Illustrator 置入时勾选 Template：`image_place` 的 `asTemplate` 在父级所在 Layer 下方新建一个锁定的 Layer，名为 `Template <文件名>`，其中的 Image 不透明度 50%。Layer 的 `template: true` 标记它：`render` 与画布照常绘制，`export`（SVG、PNG）与浏览器的 Export As SVG 不写出它及其中任何内容，与 Illustrator 的模板图层不打印、不导出一致；`.kalamo.json` 保存该标志，SVG 不写 `kalamo:template`。图层面板在其眼睛列显示模板图标（ADR-0027、ADR-0099）。
 _Avoid_: Reference layer、Trace layer、Background layer
 
 **Group（编组）**：

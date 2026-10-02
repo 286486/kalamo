@@ -45,8 +45,13 @@ it("asTemplate puts it at 50% on a locked Template Layer beneath the parent's La
     { id: layerId, type: "layer", name: "Template Image", locked: true, childCount: 1 },
     { id: defaultLayerId },
   ]);
-  const got = await call("kalamo_node_get", { docId, nodeIds: [imageId], detail: "full" });
+  const got = await call("kalamo_node_get", {
+    docId,
+    nodeIds: [layerId, imageId],
+    detail: "full",
+  });
   expect(got.structuredContent.nodes).toMatchObject([
+    { type: "layer", template: true, locked: true },
     { type: "image", parentId: layerId, opacity: 0.5 },
   ]);
 });

@@ -60,6 +60,8 @@ export interface RenderOptions {
   scale?: number;
   /** The file of each Image by id (ADR-0023). */
   images?: ImageSource;
+  /** Draws Template Layers, as `render` does; PNG `export` leaves them out (ADR-0099). */
+  templates?: boolean;
 }
 
 /**

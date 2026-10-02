@@ -19,7 +19,7 @@ An Agent looks at part of a Document with `kalamo_render` and saves part of it w
   - `ids`: each of those Nodes' id as a label at the top-left corner of its `geometricBounds`, with a white halo so it reads on any colour.
   - `artboards`: each Artboard's `frame` as a line in a colour distinct from `bounds`.
   - Hidden Nodes, and Nodes outside the nodeIds scope, get no overlay.
-- **Formats.** `export` takes `format: "svg" | "png"` (and `kalamo_json` with #13) and returns the result inline: SVG as text content, PNG as image content. Overlays never appear in an export; it is the artwork the Agent hands on.
+- **Formats.** `export` takes `format: "svg" | "png"` (and `kalamo_json` with #13) and returns the result inline: SVG as text content, PNG as image content. Overlays never appear in an export; it is the artwork the Agent hands on. (Amended by ADR-0099: Template Layers do not appear in an export either, though `render` draws them.)
 
 ## Considered Options
 
