@@ -157,7 +157,7 @@ _Avoid_: Array、Pattern（那是填充）、Clone
 
 **Chart（图表）**：
 由数据、编码与主题派生出坐标轴、图形与标签的 Live Object。改数据即重绘；Expand 后成为普通 Node。
-扩展后的 Chart 是一个以 Illustrator 图表类型命名的普通 Group，如 `Column Graph`，这是 Graph 一词在映射表外唯一出现的地方（ADR-0106）。
+扩展后的 Chart 是一个以 Illustrator 图表类型命名的普通 Group，如 `Column Graph`，内含 `Value Axis`（数值轴）、`Category Axis`（类别轴）、每个系列一个 Group，多系列时还有 `Legend`（图例）；同一类别的各系列柱并排，簇占类别宽度的 Cluster Width（80%），每根柱占其份额的 Column Width（90%）。除映射表外，Graph 一词只出现在这些 Group 名与对 Illustrator 菜单、对话框的引用中（ADR-0106）。
 _Avoid_: Graph（Illustrator 旧称，仅在映射表中出现）、Plot、Visualization
 
 **Diagram（图示）**：
