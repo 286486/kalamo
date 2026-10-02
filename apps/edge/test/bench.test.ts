@@ -1,5 +1,6 @@
 import { exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
+import chart from "../../../fixtures/agent-benchmarks/chart.ts";
 import collab, { setup as collabSetup } from "../../../fixtures/agent-benchmarks/collab.ts";
 import edits, {
   setup as editsSetup,
@@ -160,6 +161,44 @@ describe("freehand", () => {
       "no kalamo_freehand_stroke",
     );
     await expect(freehand(call, docId, ["kalamo_freehand_stroke"])).rejects.toThrow("60 segments");
+  });
+});
+
+describe("chart", () => {
+  const csv =
+    "quarter,North,South,West\nQ1,120,80,100\nQ2,150,95,90\nQ3,170,110,130\nQ4,160,125,140\n";
+  const draw = async (data: object) => {
+    const { docId, defaultLayerId: parentId } = await newDoc(600, 400);
+    const result = await call("kalamo_chart_create_column", {
+      docId,
+      parentId,
+      data,
+      encoding: { x: "quarter", y: ["North", "South", "West"] },
+      frame: { x: 30, y: 30, width: 540, height: 340 },
+    });
+    return { docId, result: result.structuredContent };
+  };
+
+  it("accepts the chart drawn with chart_create_column, in one change with its outline", async () => {
+    const { docId, result } = await draw({ csv });
+    await expect(chart(call, docId, [])).resolves.toBeUndefined();
+    const { changes } = (await call("kalamo_doc_changes", { docId, sinceRev: 1 }))
+      .structuredContent as { changes: { createdIds: string[] }[] };
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.createdIds[0]).toBe(result.createdIds[0]);
+    expect(result.outline.map((n: { name: string }) => n.name)).toEqual([
+      "Value Axis",
+      "Category Axis",
+      "North",
+      "South",
+      "West",
+      "Legend",
+    ]);
+  });
+
+  it("rejects bars whose heights do not follow the values", async () => {
+    const { docId } = await draw({ csv: csv.replace("Q3,170", "Q3,270") });
+    await expect(chart(call, docId, [])).rejects.toThrow("within 1%");
   });
 });
 

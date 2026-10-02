@@ -115,6 +115,13 @@ Read this once before your first write. Tool descriptions cover each call; this 
 - The Pathfinder Shape Modes `unite`, `minus_front`, `intersect` and `exclude` combine two or more `nodeIds` into one new path and delete them. Each path or Live Shape is one operand, and each Group is one operand, the union of its paths and Live Shapes. Texts, Images and Clipping Paths are not operands. `minus_front` keeps the backmost's appearance, name and place and cuts away everything in front of it. The other three keep the topmost's. `exclude` fills `evenodd`, the rest `nonzero`. A result with no area, such as an `intersect` of objects that do not overlap, fails and changes nothing. These ops make the expanded path. The live `compound_shape` is not built yet.
 - The receipt names what changed: new paths and Groups in `createdIds`, Nodes `join`, `divide_below`, `split_into_grid`, `clean_up` and the Shape Modes delete in `deletedIds`, and Nodes changed in place in `updatedIds`.
 
+## Charts
+
+- To draw data as a chart, call a chart tool rather than drawing bars yourself. Only `kalamo_chart_create_column` exists so far. It draws expanded output: a Group named `Column Graph` of plain rects, lines and texts, as Illustrator's Object > Graph > Expand Graph would leave it. Edit any of it with the usual tools. It does not stay bound to its data, so to change the data, delete the Group and draw the chart again.
+- `data` is `{rows}` or `{csv}`; `encoding.x` names the category field and `encoding.y` one value field or several, one series each. A value may be written `1,234`, `12%` or `$5`. An empty cell leaves a gap, and any other value that does not parse fails `INVALID_INPUT` at its `path`.
+- Everything, the axes, the labels and the Legend, lies inside `frame`. If `warnings` says `CHART_LABELS_OVERLAP`, widen the frame or shorten the category labels.
+- A chart is one `kalamo_node_create` underneath, so it counts toward its 2000 Nodes: a rect per value, a label per category, and the ticks.
+
 ## Reading a Document
 
 Go from coarse to fine: `kalamo_doc_outline` for the Layer tree, `kalamo_node_query` to find Nodes by type, name, tags, parent or area, and `kalamo_node_get` for the properties of the few you will change.

@@ -79,6 +79,9 @@ export const PathEditOutput = WriteReceipt.extend({
 
 export const PlacedOutput = WriteReceipt.extend({ nodes: z.array(OutlineNode) });
 
+/** chart_create_*'s receipt: `outline` is the chart Group's contents to depth 2. */
+export const ChartOutput = WriteReceipt.extend({ outline: z.array(OutlineNode) });
+
 export const DuplicateOutput = WriteReceipt.extend({
   copies: z
     .record(z.string(), z.array(z.string()))

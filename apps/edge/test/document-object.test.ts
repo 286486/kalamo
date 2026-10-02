@@ -1,6 +1,7 @@
 import { evictDurableObject, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import {
+  columnChart,
   type DuplicateInput,
   linesBox,
   type PathOpInput,
@@ -679,6 +680,23 @@ it("runs a Shape Mode on PathKit as one Transaction that one undo takes back, id
     error: { code: "NODE_NOT_FOUND", path: "nodeIds[1]" },
   });
   expect(ok(await s.info())).toMatchObject({ rev: 5 });
+});
+
+it("creates a Column Graph as one Transaction that one undo takes back whole", async () => {
+  const { s, defaultLayerId, rectId } = await withRect("chart1");
+  const { node } = columnChart({
+    parentId: defaultLayerId,
+    data: { rows: [{ q: "Q1", a: 1, b: 2 }] },
+    encoding: { x: "q", y: ["a", "b"] },
+    frame: { x: 0, y: 0, width: 200, height: 100 },
+  });
+  const made = ok(await s.createNodes([node], "agent-a"));
+  expect(made.rev).toBe(3);
+  expect(await layerChildren(s)).toEqual([rectId, made.createdIds[0]]);
+  const undone = ok(await s.undo("agent-a"));
+  expect(undone.rev).toBe(4);
+  expect(undone.deletedIds.toSorted()).toEqual(made.createdIds.toSorted());
+  expect(await layerChildren(s)).toEqual([rectId]);
 });
 
 it("makes and releases a Clipping Mask as one Transaction each, undone and redone like any other", async () => {

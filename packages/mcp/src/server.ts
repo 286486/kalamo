@@ -1,6 +1,8 @@
 import {
   ArtboardInput,
+  ChartInput,
   Color,
+  columnChart,
   DuplicateInput,
   FreehandStrokeInput,
   freehandPath,
@@ -26,7 +28,7 @@ import {
   ValidateScope,
   WriteReceipt,
 } from "@kalamo/core";
-import type { DocumentService, Viewport } from "@kalamo/sync";
+import type { DocumentService, Viewport, WriteOptions } from "@kalamo/sync";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
   type CallToolResult,
@@ -38,6 +40,7 @@ import { exclusive, parseArgs } from "./args.ts";
 import conventions from "./drawing-conventions.md";
 import {
   ChangesOutput,
+  ChartOutput,
   CreatedDocumentOutput,
   DocDeleteOutput,
   DocInfoOutput,
@@ -507,6 +510,16 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       json(await service.reorderNodes(docId, nodeIds, op, opts)),
   );
 
+  /** Creates one Node a tool built from its input; an error names the tool's own parentId. */
+  const createOne = async (docId: string, item: NodeInput, write: WriteOptions) => {
+    try {
+      return await service.createNodes(docId, [item], write);
+    } catch (e) {
+      if (!(e instanceof KalamoError)) throw e;
+      throw new KalamoError({ ...e.data, path: e.data.path?.replace(/^nodes\[0\]\./, "") });
+    }
+  };
+
   /** The write options of a tool without partial. */
   const txWrite = { intent, txId: writeFields.txId, ifRev };
   // index, before and after are the browser's, for Alt-drag (ADR-0076); layerSuffix is its
@@ -657,13 +670,40 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
     },
     async (args) => {
       const [docId, input, write] = splitTxWrite(args);
-      const item = freehandPath(input);
-      try {
-        return json(await service.createNodes(docId, [item], write));
-      } catch (e) {
-        if (!(e instanceof KalamoError)) throw e;
-        throw new KalamoError({ ...e.data, path: e.data.path?.replace(/^nodes\[0\]\./, "") });
-      }
+      return json(await createOne(docId, freehandPath(input), write));
+    },
+  );
+
+  tool(
+    "kalamo_chart_create_column",
+    {
+      title: "Create Column Chart",
+      description: [
+        "Draw data as a column chart, as Illustrator's Column Graph tool does, already expanded: one Group named Column Graph under parentId, laid out inside frame, of plain Nodes to edit like any other. Not live: to change the data, draw it again.",
+        "It holds a Value Axis Group (the axis, ticks and labels at 1, 2 or 5 × 10ⁿ, covering 0 and every value), a Category Axis Group (the baseline at 0 and a label under each category), one Group per y field, named after it, with a rect per category named after the category, and with two or more series a Legend Group at the top right.",
+        "Each category's columns sit side by side, Illustrator's 80% Cluster Width and 90% Column Width, coloured from a colour-blind-safe palette; text is Source Sans 3, sized from the frame.",
+        "One Transaction. createdIds starts with the Group; outline is its contents to depth 2. warnings says CHART_LABELS_OVERLAP when a category label is wider than its category. A value that does not parse fails INVALID_INPUT at its path.",
+      ].join(" "),
+      inputSchema: { docId, ...ChartInput.shape, ...txWrite },
+      outputSchema: ChartOutput.shape,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async (args) => {
+      const [docId, input, write] = splitTxWrite(args);
+      const { node, warnings } = columnChart(input);
+      const receipt = await createOne(docId, node, write);
+      const chartId = receipt.createdIds[0] as string;
+      const { nodes } = await service.outline(docId, { rootId: chartId, depth: 2 }, write.txId);
+      return json({
+        ...receipt,
+        warnings: [...receipt.warnings, ...warnings.map((w) => ({ ...w, nodeId: chartId }))],
+        outline: nodes,
+      });
     },
   );
 

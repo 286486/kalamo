@@ -373,7 +373,7 @@ Kalamo 要填的空位是：**每个人带自己的 AI，人和这些 Agent 共�
 
 目标：Illustrator 9 种 Graph 的能力 + 现代图表工具（Datawrapper / Vega-Lite）的声明式便利，产物是普通矢量节点。
 
-- **F-CHART-01** 图表类型（P0，与 Illustrator 9 种 Graph 一一对应）：column、stacked_column、bar、stacked_bar、line、area、scatter、pie、radar；（P1）：donut、stacked_area、bubble、histogram、box_plot、heatmap、treemap、waterfall、funnel、gauge；（P2）sankey。
+- **F-CHART-01** 图表类型（P0，与 Illustrator 9 种 Graph 一一对应）：column、stacked_column、bar、stacked_bar、line、area、scatter、pie、radar；（P1）：donut、stacked_area、bubble、histogram、box_plot、heatmap、treemap、waterfall、funnel、gauge；（P2）sankey。目前只交付了 column：`kalamo_chart_create_column` 画出的是扩展后的输出，一个名为 `Column Graph` 的普通 Group（坐标轴、每个系列一个 Group、图例），尚无 `chart` 节点与数据绑定（ADR-0106）。
 - **F-CHART-02** 数据输入：内联 JSON 行、CSV 文本、粘贴表格（UI 里有 Graph Data 表格编辑器，支持 Tab / Enter 导航、转置、切换 x/y）、从 URL 加载（P2）。数字解析忽略千分位、支持百分号与货币符号。（P0）
 - **F-CHART-03** 编码（encoding）：x / y / series / size / color 字段映射；数值 / 分类 / 时间轴类型；轴范围、刻度数、格式（d3-format / d3-time-format 语法）、网格线、轴标题；图例位置；数据标签（位置、格式）；排序；空值处理。（P0 主要项）
 - **F-CHART-04** 主题（chartTheme 资源）：调色板（分类 / 顺序 / 发散）、字体、描边宽度、背景、间距；内置 4–6 套；Agent 可传主题对象。默认调色板需满足 WCAG 对比与色盲友好。（P0）
@@ -622,6 +622,8 @@ flowchart LR
 
 参照 Illustrator 的 9 个独立 Graph 工具与 antvis/mcp-server-chart 的实践，**每种图表类型一个具名工具**，共享 `ChartDataSchema` / `EncodingSchema` / `ThemeSchema` / `ChartOptionsSchema` 子 schema；更新与展开对所有类型通用。
 
+目前只有 `kalamo_chart_create_column`，输入 `{docId, parentId, data: {rows} | {csv}, encoding: {x, y}, frame, txId?, ifRev?}`，输出扩展后的 `Column Graph` Group 与其深度 2 的 `outline`；`theme` 与 `options` 尚未提供（ADR-0106）。实测 9 个同 schema 的具名工具约 29 KB，超出 ADR-0088 的工具定义预算，因此第二种图表类型落地时改为单工具 `kalamo_chart_create {chartType, …}`（下表"图表工具粒度"的备选方案），`kalamo_chart_create_column` 随之改名（ADR-0106）。
+
 | 工具 | 输入要点 | 输出 | 注 |
 |---|---|---|---|
 | `chart_create_column` / `chart_create_stacked_column` / `chart_create_bar` / `chart_create_stacked_bar` / `chart_create_line` / `chart_create_area` / `chart_create_scatter` / `chart_create_pie` / `chart_create_radar` | `docId`, `parentId`, `data`（rows 或 csv）, `encoding`, `frame{x,y,w,h}`, `theme?`（id 或内联）, `options`（axes, legend, labels, sort, stacking） | 回执 + 图表节点 id + 子节点大纲 + 警告（如标签被隐藏） | P0；与 Illustrator 9 种 Graph 一一对应 |
@@ -858,7 +860,7 @@ flowchart TD
 | 描摹 | imagetracerjs（Unlicense） | 许可干净 | potrace（GPL，否） |
 | 托管平台 | Cloudflare（Workers + DO + R2 + D1 + KV + Queues） | 用户决策；每文档一个 DO 天然契合"服务端权威 + 广播"模型；R2 无出站费；全球边缘 | AWS / Fly.io（运维更重） |
 | 开源许可 | Apache-2.0（全仓库） | 用户决策开源；Apache-2.0 含专利授权、对商业集成方友好，与 Skia（BSD）/ HarfBuzz（MIT）/ resvg（MPL）兼容 | MIT（无专利条款）；AGPL（保护托管业务但降低采用率） |
-| 图表工具粒度 | 每类型一个工具（`chart_create_column` …） | 参照 Illustrator 9 个 Graph 工具与 antvis 模式；可发现性高 | 单工具 + 枚举（若工具数成问题再合并） |
+| 图表工具粒度 | 每类型一个工具（`chart_create_column` …）；ADR-0106 实测 9 个工具超出工具定义预算，第二种类型落地时合并为单工具 + `chartType` 枚举 | 参照 Illustrator 9 个 Graph 工具与 antvis 模式；可发现性高 | 单工具 + 枚举（若工具数成问题再合并） |
 | 字体来源 | 本地字体（Local Font Access API）+ Google Fonts + 上传；内置 Source Sans 3，中日文逐字回退到内置 Noto Sans SC、韩文回退到内置 Noto Sans KR，随 Worker 静态打包、浏览器按字体族按需加载（ADR-0063、ADR-0066） | 参照 Illustrator 的"系统字体 + Adobe Fonts" | 仅上传 |
 | Headless 渲染（Worker） | resvg-wasm 为主，CanvasKit 补齐效果 | 体积小、启动快 | Browser Rendering（贵、慢，作回退） |
 

@@ -1,4 +1,5 @@
 export * from "./anchor.ts";
+export * from "./chart.ts";
 export * from "./color.ts";
 export * from "./document.ts";
 export * from "./edit.ts";
