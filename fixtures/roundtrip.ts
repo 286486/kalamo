@@ -38,7 +38,7 @@ const MARGIN = 2;
 /** The inkscape fixture's painted Group (ADR-0043), which the edit passes transform in Inkscape. */
 const PAINTED = "01M38T29SXC0NTA1NERSGR0VP0";
 /** The files the fixtures' linked Images name, as the user has them: still EXIF-oriented (ADR-0102). */
-const LINKED_FILES = { "oriented-6.jpg": orientedJpeg(6) };
+const LINKED_FILES = { "oriented-6.jpg": orientedJpeg(6), "oriented-7.jpg": orientedJpeg(7) };
 /** Writes each linked file into `dirs`, beside the SVGs Inkscape reads there. */
 function writeLinkedFiles(...dirs: string[]) {
   for (const dir of dirs)

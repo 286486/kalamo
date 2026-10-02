@@ -11,6 +11,7 @@ import {
   canonicalRanges,
   cssColor,
   type Document,
+  type FileOrientation,
   type Fill,
   fileProblem,
   fontStyleName,
@@ -32,7 +33,6 @@ import {
   neutraliseOrientation,
   newId,
   normalizePath,
-  type Orientation,
   type OwnAttributes,
   orientedImage,
   parseDocument,
@@ -100,7 +100,7 @@ interface Link {
   src: string;
   size?: { scale: number; width: number | undefined; height: number | undefined };
   /** `kalamo:fileOrientation`: the box is in the linked file's upright terms (ADR-0102). */
-  fileOrientation?: Exclude<Orientation, 1>;
+  fileOrientation?: FileOrientation;
 }
 
 /**
@@ -1974,9 +1974,7 @@ class Reader {
         link: {
           src,
           ...(!sized && { size: { scale: k, width: w, height: h } }),
-          ...(Number.isInteger(o) &&
-            o >= 2 &&
-            o <= 8 && { fileOrientation: o as Link["fileOrientation"] }),
+          ...(Number.isInteger(o) && o >= 2 && o <= 8 && { fileOrientation: o as FileOrientation }),
         },
       };
     }

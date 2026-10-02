@@ -596,6 +596,11 @@ describe("a linked Image of an oriented JPEG (ADR-0102)", () => {
         expect(back[key], key).toEqual(image[key]);
       }
       expect(back.geometricBounds).toEqual(box);
+      // Embedded, it keeps the box it shows.
+      await update(docId, back.id, { file: null });
+      const embedded = await node(docId, back.id);
+      expect(embedded).not.toHaveProperty("fileOrientation");
+      expect(embedded.geometricBounds).toEqual(box);
 
       const other = ok(await call("kalamo_doc_open", { content: svg })).structuredContent.docId;
       const missing = JSON.parse(await kalamoJson(other)).nodes.find(
@@ -625,41 +630,41 @@ describe("a linked Image of an oriented JPEG (ADR-0102)", () => {
     );
     expect(image.fileOrientation).toBe(6);
   });
-});
 
-it("the embed command clears it, and undo and redo bring it back and take it away", async () => {
-  const { docId, defaultLayerId } = await newDoc();
-  const [nodeId = ""] = ok(
-    await call("kalamo_node_create", {
-      docId,
-      nodes: [
-        {
-          type: "image",
-          parentId: defaultLayerId,
-          file: "a.jpg",
-          src: orientedJpeg(6),
-          x: 0,
-          y: 0,
-        },
-      ],
-    }),
-  ).structuredContent.createdIds;
-  const res = await exports.default.fetch(`http://kalamo/api/docs/${docId}/ws`, {
-    headers: { upgrade: "websocket" },
+  it("the embed command clears it, and undo and redo bring it back and take it away", async () => {
+    const { docId, defaultLayerId } = await newDoc();
+    const [nodeId = ""] = ok(
+      await call("kalamo_node_create", {
+        docId,
+        nodes: [
+          {
+            type: "image",
+            parentId: defaultLayerId,
+            file: "a.jpg",
+            src: orientedJpeg(6),
+            x: 0,
+            y: 0,
+          },
+        ],
+      }),
+    ).structuredContent.createdIds;
+    const res = await exports.default.fetch(`http://kalamo/api/docs/${docId}/ws`, {
+      headers: { upgrade: "websocket" },
+    });
+    const ws = res.webSocket as WebSocket;
+    const messages: { type: string; commandId?: string }[] = [];
+    ws.addEventListener("message", (e) => {
+      messages.push(JSON.parse(e.data as string));
+    });
+    ws.accept();
+    const send = async (id: string, command: object) => {
+      ws.send(JSON.stringify({ type: "command", id, command }));
+      while (!messages.some((m) => m.commandId === id)) await new Promise((r) => setTimeout(r, 5));
+      return (await full(docId, [nodeId]))[0].fileOrientation;
+    };
+    expect(await send("e1", { type: "embed", nodeIds: [nodeId] })).toBeUndefined();
+    expect(await send("u1", { type: "undo" })).toBe(6);
+    expect(await send("r1", { type: "redo" })).toBeUndefined();
+    ws.close();
   });
-  const ws = res.webSocket as WebSocket;
-  const messages: { type: string; commandId?: string }[] = [];
-  ws.addEventListener("message", (e) => {
-    messages.push(JSON.parse(e.data as string));
-  });
-  ws.accept();
-  const send = async (id: string, command: object) => {
-    ws.send(JSON.stringify({ type: "command", id, command }));
-    while (!messages.some((m) => m.commandId === id)) await new Promise((r) => setTimeout(r, 5));
-    return (await full(docId, [nodeId]))[0].fileOrientation;
-  };
-  expect(await send("e1", { type: "embed", nodeIds: [nodeId] })).toBeUndefined();
-  expect(await send("u1", { type: "undo" })).toBe(6);
-  expect(await send("r1", { type: "redo" })).toBeUndefined();
-  ws.close();
 });

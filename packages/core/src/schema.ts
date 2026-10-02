@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { COLOR_PATTERN } from "./color.ts";
-import { type ImageInfo, MAX_FILE_LENGTH, type Orientation, preserveAspectRatio } from "./image.ts";
+import {
+  type FileOrientation,
+  type ImageInfo,
+  MAX_FILE_LENGTH,
+  preserveAspectRatio,
+} from "./image.ts";
 import { compose, scaleOf } from "./matrix.ts";
 import { autoSizeMisplaced } from "./stored-text.ts";
 import { BUNDLED_FAMILIES_NOTE, BUNDLED_FONT, FONT_STYLES } from "./text.ts";
@@ -1145,7 +1150,7 @@ export interface ImageNode extends NodeBase {
    * The EXIF orientation of the linked file the pixels came from, when it is not 1; only with both
    * `file` and `src` (ADR-0102). Absent means upright or unknown.
    */
-  fileOrientation?: Exclude<Orientation, 1>;
+  fileOrientation?: FileOrientation;
   x: number;
   y: number;
   width: number;

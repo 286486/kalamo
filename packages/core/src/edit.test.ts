@@ -19,6 +19,7 @@ import {
 } from "./edit.ts";
 import { KalamoError } from "./errors.ts";
 import { parseDocument, serializeDocument } from "./file.ts";
+import type { Orientation } from "./image.ts";
 import { makeMask } from "./mask.ts";
 import { applyTo, compose, IDENTITY, invert, transformSegments } from "./matrix.ts";
 import { formatPath, parsePath, pathBounds, shapeSegments } from "./path.ts";
@@ -1134,6 +1135,33 @@ describe("an Image", () => {
     // An id, or an upright file, keeps the frame and transform as before.
     const [same] = updateNodes(doc, [{ nodeId: id, patch: { src: "a".repeat(64) } }]).nodes;
     expect(same).toMatchObject({ x: 16, y: -16, width: 16, height: 48, transform: node.transform });
+  });
+
+  it("records a linked Image's file orientation on Relink, clears it on an id, an upright file or Embed (ADR-0102)", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const src = "a".repeat(64);
+    doc.images.set(src, { mime: "image/jpeg", width: 24, height: 16 });
+    const image = { type: "image", parentId: defaultLayerId, src, x: 0, y: 0 } as const;
+    const [linked, embedded] = createNodes(doc, [{ ...image, file: "a.jpg" }, image], {
+      orientations: new Map([
+        ["nodes[0]", 6],
+        ["nodes[1]", 6],
+      ]),
+    }).nodes as [Node, Node];
+    expect(linked).toMatchObject({ fileOrientation: 6 });
+    expect(embedded).not.toHaveProperty("fileOrientation");
+    const update = (patch: Record<string, unknown>, o: Orientation = 1) =>
+      updateNodes(doc, [{ nodeId: linked.id, patch }], {
+        orientations: new Map([["updates[0]", o]]),
+      }).nodes[0] as Node;
+    expect(update({ file: "b.jpg" })).toMatchObject({ fileOrientation: 6 });
+    expect(update({ src })).not.toHaveProperty("fileOrientation");
+    expect(update({ src }, 7)).toMatchObject({ fileOrientation: 7 });
+    expect(update({ src }, 1)).not.toHaveProperty("fileOrientation");
+    update({ src }, 8);
+    expect(update({ file: null })).not.toHaveProperty("fileOrientation");
+    // An embedded Image linked in the same patch as an oriented file records it.
+    expect(update({ src, file: "c.jpg" }, 5)).toMatchObject({ fileOrientation: 5 });
   });
 
   it("moves by its transform, keeping its frame, with or without scaling Strokes", () => {

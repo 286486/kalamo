@@ -47,7 +47,7 @@ A core test checks `orientedImage(orientedImage(image, o), inverseOrientation(o)
 ### Verified
 
 - Inkscape 1.2.2 headless, all 8 orientations, each with no transform and with a user mirror on top, the oriented file written beside the SVG: Inkscape's quadrants match `render`'s in all 16 cases.
-- `pnpm roundtrip`'s fixture holds a linked Image of an orientation-6 JPEG, with the user's file written beside each SVG Inkscape reads. Its fields come back equal, and its Image region is within the 15% budget.
+- `pnpm roundtrip`'s fixture holds linked Images of an orientation-6 JPEG and of an orientation-7 one mirrored by the user, with the user's files written beside each SVG Inkscape reads. Their fields come back equal, and their Image regions are 0% off, within the 15% budget. With the export's inverse removed, the round trip fails at 53%.
 
 ## Considered Options
 
