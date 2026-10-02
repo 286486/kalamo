@@ -724,9 +724,14 @@ function pressOnOpen() {
   setDirection(state, !runsClockwise(doc, p, 1));
   useStore.setState({ ...state, reversing: useStore.getState().reversing });
   vi.mocked(send).mockClear();
-  const tx = message("tx", { rev: doc.rev + 1, commandId: "c", updated: [reversed(doc, p.id)] });
   return (outcome: "accepted" | "rejected") => {
-    useStore.setState(stateAfter(useStore.getState(), outcome === "accepted" ? tx : rejected));
+    // The press reverses p as it is then, after any other Actor's edit.
+    const { doc: now } = useStore.getState() as { doc: Document };
+    const answered =
+      outcome === "accepted"
+        ? message("tx", { rev: now.rev + 1, commandId: "c", updated: [reversed(now, p.id)] })
+        : rejected;
+    useStore.setState(stateAfter(useStore.getState(), answered));
     runHeld();
   };
 }
@@ -792,6 +797,39 @@ it("drops a held Pen edit when another Actor edits its path before the answer (A
   answer("rejected");
   expect(commands()).toEqual([]);
   expect(useStore.getState().edit).toBeNull();
+});
+
+// #281: another Actor's edit to the path a held Pencil redraw starts on drops it, as it drops the
+// Pen's; their edit to another path leaves it.
+it("drops a held Pencil redraw when another Actor edits its path before the answer (ADR-0109)", () => {
+  for (const outcome of ["accepted", "rejected"] as const) {
+    for (const theirsOn of ["p", "q"] as const) {
+      const label = `${outcome}, their edit on ${theirsOn}`;
+      const answer = pressOnOpen();
+      drawnEdits["a Pencil redraw"]?.();
+      const { doc, selection } = useStore.getState() as { doc: Document; selection: string[] };
+      const [p, q] = selection as [string, string];
+      const moved = editPath(structuredClone(doc), {
+        nodeId: theirsOn === "p" ? p : q,
+        ops: [{ op: "move_anchor", subpath: theirsOn === "p" ? 1 : 0, index: 0, to: [50, 5] }],
+      }).node;
+      const theirs = message("tx", { rev: doc.rev + 1, actor: "agent", updated: [moved] });
+      useStore.setState(stateAfter(useStore.getState(), theirs));
+      const after = useStore.getState().doc as Document;
+      answer(outcome);
+      const stored = (id: string) =>
+        ((useStore.getState().doc as Document).nodes.get(id) as PathNode).d;
+      if (theirsOn === "p") {
+        // Nothing is sent over their edit, which stays as they made it, and the preview goes.
+        expect(commands(), label).toEqual([]);
+        expect(useStore.getState().edit, label).toBeNull();
+        expect(stored(p), label).toBe(outcome === "accepted" ? reversed(after, p).d : moved.d);
+      } else {
+        expect(commands(), label).toMatchObject([{ type: "path_edit", input: { nodeId: p } }]);
+        expect(stored(q), label).toBe(moved.d);
+      }
+    }
+  }
 });
 
 // #283: a held edit, when it runs or is dropped, touches its own preview only. Each edit is held on
