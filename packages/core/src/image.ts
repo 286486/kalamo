@@ -1,5 +1,6 @@
 /// <reference path="./base64.d.ts" />
 import { KalamoError } from "./errors.ts";
+import { IDENTITY, multiply, round } from "./matrix.ts";
 import type { Segment } from "./path.ts";
 import type { Matrix, Rect } from "./schema.ts";
 
@@ -251,6 +252,23 @@ export function orientImage(
     frame,
     matrix,
     preserveAspectRatio: `x${along(a, b, x, y)}Y${along(d, c, y, x)} ${how}`,
+  };
+}
+
+/**
+ * `image` turned by `o` into the box it shows (ADR-0101): its frame and `preserveAspectRatio` as
+ * `orientImage` gives them, and the orientation applied before its own transform.
+ */
+export function orientedImage<T extends Rect & { preserveAspectRatio: string; transform?: Matrix }>(
+  image: T,
+  o: Orientation,
+): T & { transform: Matrix } {
+  const turned = orientImage(image, o, image.preserveAspectRatio);
+  return {
+    ...image,
+    ...turned.frame,
+    preserveAspectRatio: turned.preserveAspectRatio,
+    transform: round(multiply(image.transform ?? IDENTITY, turned.matrix)),
   };
 }
 

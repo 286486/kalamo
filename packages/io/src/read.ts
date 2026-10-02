@@ -33,7 +33,7 @@ import {
   newId,
   normalizePath,
   type OwnAttributes,
-  orientImage,
+  orientedImage,
   parseDocument,
   parseNode,
   pathBounds,
@@ -1982,17 +1982,12 @@ class Reader {
     const width = w ?? upright.width;
     const height = h ?? upright.height;
     if (!(width > 0 && height > 0)) return null;
-    let shape = frame(width, height);
-    if (orientation !== 1) {
-      const turned = orientImage(shape, orientation, shape.preserveAspectRatio);
-      shape = {
-        ...shape,
-        ...turned.frame,
-        preserveAspectRatio: turned.preserveAspectRatio,
-        // The element's own transform applies after the orientation.
-        transform: round(multiply(shape.transform as Matrix, turned.matrix)),
-      };
-    }
+    const box = frame(width, height);
+    // The element's own transform applies after the orientation.
+    const shape =
+      orientation === 1
+        ? box
+        : orientedImage({ ...box, transform: box.transform as Matrix }, orientation);
     // Checked before its file is kept, which no Image would then use.
     if (!this.holds({ ...shape, src: "-" })) return null;
     let src = this.keys.get(href);

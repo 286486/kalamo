@@ -15,7 +15,7 @@ import {
   union,
 } from "./document.ts";
 import { collect, type Failed, KalamoError } from "./errors.ts";
-import { type Orientation, orientImage, preserveAspectRatio } from "./image.ts";
+import { type Orientation, orientedImage, preserveAspectRatio } from "./image.ts";
 import { compose, multiply, round, scaleOf } from "./matrix.ts";
 import { formatPath, parsePath } from "./path.ts";
 import {
@@ -440,11 +440,7 @@ function patched(
     next.preserveAspectRatio = preserveAspectRatio(next.preserveAspectRatio) ?? "none";
     // Relink to an oriented JPEG keeps the box the patch leaves, turning the new file into it.
     if (orientation !== 1 && typeof patch.src === "string") {
-      const turned = orientImage(next, orientation, next.preserveAspectRatio);
-      Object.assign(next, turned.frame, {
-        preserveAspectRatio: turned.preserveAspectRatio,
-        transform: round(multiply(next.transform, turned.matrix)),
-      });
+      Object.assign(next, orientedImage(next, orientation));
     }
   } else if (isContainer(next)) {
     if (next.appearance) {

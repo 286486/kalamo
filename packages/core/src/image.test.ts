@@ -231,12 +231,17 @@ describe("neutraliseOrientation (ADR-0101)", () => {
   });
 
   it("never throws on a truncation, and reads 1 unless the Exif block is whole", () => {
-    for (const url of [orientedJpeg(6), orientedJpeg(6, { bigEndian: true })]) {
+    const fixtures = [
+      ...ORIENTATIONS.map((o) => [orientedJpeg(o), o] as const),
+      [orientedJpeg(6, { bigEndian: true }), 6] as const,
+      [orientedJpeg(6, { ifd0: 1000 }), 1] as const,
+    ];
+    for (const [url, o] of fixtures) {
       const bytes = readImage(url, "src").bytes;
       for (let n = 0; n <= bytes.length; n++) {
         const cut = bytes.slice(0, n);
         const out = neutraliseOrientation(jpegFile(cut));
-        expect(out.orientation).toBe(n >= APP1_END ? 6 : 1);
+        expect(out.orientation).toBe(n >= APP1_END ? o : 1);
         if (n < APP1_END) expect(out.file.bytes).toBe(cut);
       }
     }

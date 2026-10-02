@@ -247,46 +247,60 @@ describe("Relink to an oriented JPEG (ADR-0042, ADR-0101)", () => {
   });
 });
 
-describe("Place", () => {
-  it("kalamo_image_place sizes and centres the upright photo, and takes a frame as the upright box", async () => {
-    const { docId, defaultLayerId } = await newDoc();
-    const place = async (extra: object = {}) => {
-      const placed = ok(
-        await call("kalamo_image_place", {
-          docId,
-          src: orientedJpeg(6),
-          parentId: defaultLayerId,
-          ...extra,
-        }),
-      );
-      return (await full(docId, placed.structuredContent.createdIds))[0].geometricBounds;
-    };
-    expect(await place()).toEqual({ x: 98, y: 46, width: 4, height: 8 });
-    expect(await place({ frame: { x: 10, y: 10 } })).toEqual({ x: 10, y: 10, width: 4, height: 8 });
-    const box = { x: 20, y: 10, width: 16, height: 32 };
-    expect(await place({ frame: box })).toEqual(box);
-    expect(await quadrants(docId, box)).toBe(UPRIGHT_QUADRANTS[6]);
-  });
+/** The upright pixel size of orientedJpeg(o). */
+const uprightOf = (o: number) => (o >= 5 ? { width: 4, height: 8 } : { width: 8, height: 4 });
 
-  it("the place-image route centres the upright photo on the point", async () => {
-    const { docId, defaultLayerId } = await newDoc();
-    const res = await exports.default.fetch(
-      `http://kalamo/api/docs/${docId}/place-image?parentId=${defaultLayerId}&x=50&y=40`,
-      { method: "POST", body: bytesOf(orientedJpeg(6)) },
-    );
-    expect(await res.json()).toMatchObject({ bounds: { x: 48, y: 36, width: 4, height: 8 } });
-  });
+describe("Place", () => {
+  it.each(ORIENTATIONS)(
+    "kalamo_image_place sizes and centres orientation %i upright, and takes a frame as the upright box",
+    async (o) => {
+      const { docId, defaultLayerId } = await newDoc();
+      const size = uprightOf(o);
+      const place = async (extra: object = {}) => {
+        const placed = ok(
+          await call("kalamo_image_place", {
+            docId,
+            src: orientedJpeg(o),
+            parentId: defaultLayerId,
+            ...extra,
+          }),
+        );
+        return (await full(docId, placed.structuredContent.createdIds))[0].geometricBounds;
+      };
+      expect(await place()).toEqual({ x: 100 - size.width / 2, y: 50 - size.height / 2, ...size });
+      expect(await place({ frame: { x: 10, y: 10 } })).toEqual({ x: 10, y: 10, ...size });
+      const box = { x: 20, y: 10, width: size.width * 4, height: size.height * 4 };
+      expect(await place({ frame: box })).toEqual(box);
+      expect(await quadrants(docId, box)).toBe(UPRIGHT_QUADRANTS[o]);
+    },
+  );
+
+  it.each(ORIENTATIONS)(
+    "the place-image route centres orientation %i upright on the point",
+    async (o) => {
+      const { docId, defaultLayerId } = await newDoc();
+      const res = await exports.default.fetch(
+        `http://kalamo/api/docs/${docId}/place-image?parentId=${defaultLayerId}&x=50&y=40`,
+        { method: "POST", body: bytesOf(orientedJpeg(o)) },
+      );
+      const size = uprightOf(o);
+      expect(await res.json()).toMatchObject({
+        bounds: { x: 50 - size.width / 2, y: 40 - size.height / 2, ...size },
+      });
+    },
+  );
 });
 
 describe("Open", () => {
-  const opened = async (docId: string) => {
+  const opened = async (docId: string, o: number) => {
+    const size = uprightOf(o);
     const file = JSON.parse(await kalamoJson(docId));
-    expect(file.artboards[0].frame).toEqual({ x: 0, y: 0, width: 4, height: 8 });
+    expect(file.artboards[0].frame).toEqual({ x: 0, y: 0, ...size });
     const image = file.nodes.find((n: { type: string }) => n.type === "image");
-    expect(await served(docId, image.src)).toEqual(upright(bytesOf(orientedJpeg(6))));
+    expect(await served(docId, image.src)).toEqual(upright(bytesOf(orientedJpeg(o))));
     const [node] = await full(docId, [image.id]);
-    expect(node.geometricBounds).toEqual({ x: 0, y: 0, width: 4, height: 8 });
-    // 16 pt per pixel, so each quadrant is several pixels wide.
+    expect(node.geometricBounds).toEqual({ x: 0, y: 0, ...size });
+    // 4 pt per pixel, so each quadrant is several pixels wide.
     ok(
       await call("kalamo_node_transform", {
         docId,
@@ -295,25 +309,27 @@ describe("Open", () => {
         pivot: { x: 0, y: 0 },
       }),
     );
-    expect(await quadrants(docId, { x: 0, y: 0, width: 16, height: 32 })).toBe(
-      UPRIGHT_QUADRANTS[6],
-    );
+    const box = { x: 0, y: 0, width: size.width * 4, height: size.height * 4 };
+    expect(await quadrants(docId, box)).toBe(UPRIGHT_QUADRANTS[o]);
   };
 
-  it("kalamo_doc_open makes the Artboard the upright size", async () => {
-    const result = ok(
-      await call("kalamo_doc_open", { content: orientedJpeg(6), name: "photo.jpg" }),
-    );
-    await opened(result.structuredContent.docId);
-  });
+  it.each(ORIENTATIONS)(
+    "kalamo_doc_open makes the Artboard orientation %i's upright size",
+    async (o) => {
+      const result = ok(
+        await call("kalamo_doc_open", { content: orientedJpeg(o), name: "photo.jpg" }),
+      );
+      await opened(result.structuredContent.docId, o);
+    },
+  );
 
-  it("POST /api/docs does the same", async () => {
+  it.each(ORIENTATIONS)("POST /api/docs does the same for orientation %i", async (o) => {
     const res = await exports.default.fetch("http://kalamo/api/docs", {
       method: "POST",
-      body: bytesOf(orientedJpeg(6)),
+      body: bytesOf(orientedJpeg(o)),
     });
     expect(res.status).toBe(200);
-    await opened(((await res.json()) as { docId: string }).docId);
+    await opened(((await res.json()) as { docId: string }).docId, o);
   });
 
   it("loads a .kalamo.json image untouched, orientation and all", async () => {

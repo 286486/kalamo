@@ -7,7 +7,7 @@ import {
   fileProblem,
   MAX_FILE_LENGTH,
   type Orientation,
-  orientImage,
+  orientedImage,
   preserveAspectRatio,
   uprightSize,
 } from "./image.ts";
@@ -554,14 +554,7 @@ function imageOf(doc: Document, input: unknown, path: string, orientation: Orien
     // The schema refused anything this cannot spell.
     preserveAspectRatio: preserveAspectRatio(rest.preserveAspectRatio) ?? "none",
   };
-  if (orientation === 1) return image;
-  const turned = orientImage(image, orientation, image.preserveAspectRatio);
-  return {
-    ...image,
-    ...turned.frame,
-    preserveAspectRatio: turned.preserveAspectRatio,
-    transform: turned.matrix,
-  };
+  return orientation === 1 ? image : orientedImage(image, orientation);
 }
 
 /** Illustrator's basic appearance for a new shape, fresh per Node so no two share arrays. */
