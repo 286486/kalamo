@@ -173,31 +173,31 @@ export function receive(
   docId: string,
   now: number,
 ): { state: Partial<ViewState>; effects: Effect[] } {
+  const snapshot = msg.type === "document" ? msg : null;
   const effects: Effect[] = [];
-  if (msg.type === "document" || msg.type === "joined") effects.push({ type: "resend-presence" });
+  if (snapshot || msg.type === "joined") effects.push({ type: "resend-presence" });
   const unseen =
     msg.type === "presence" || msg.type === "joined" || msg.type === "tx" || msg.type === "staged"
       ? [msg.actor].filter((a) => !s.asked.has(a) && !s.actorNames.has(a))
       : [];
   // Each Document asks for every Peer's name again.
-  const actors = msg.type === "document" ? msg.peers.map((p) => p.actor) : unseen;
-  if (msg.type === "document" || actors.length > 0) effects.push({ type: "fetch-names", actors });
-  const asked =
-    msg.type === "document"
-      ? { asked: new Set(actors) }
-      : actors.length > 0 && { asked: new Set([...s.asked, ...actors]) };
+  const actors = snapshot ? snapshot.peers.map((p) => p.actor) : unseen;
+  if (snapshot || actors.length > 0) effects.push({ type: "fetch-names", actors });
+  const asked = snapshot
+    ? { asked: new Set(actors) }
+    : actors.length > 0 && { asked: new Set([...s.asked, ...actors]) };
   const view = viewAfter(s, msg, docId);
   if (!view) return { state: { ...asked }, effects: [...effects, { type: "reconnect" }] };
   const peers = peersAfter(s.peers, msg);
   const areas = areasAfter(s.areas, msg, now);
-  const viewer = msg.type === "document" && msg.role === "viewer" && !VIEWER_TOOLS.includes(s.tool);
+  const viewer = snapshot?.role === "viewer" && !VIEWER_TOOLS.includes(s.tool);
   return {
     state: {
       ...view,
       ...asked,
       ...(peers !== s.peers && { peers }),
       ...(areas !== s.areas && { areas }),
-      ...(msg.type === "document" && { live: true, role: msg.role }),
+      ...(snapshot && { live: true, role: snapshot.role }),
       ...(viewer && { tool: "selection" }),
     },
     effects,

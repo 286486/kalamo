@@ -213,7 +213,8 @@ export function connect(docId: string): () => void {
         fetchActors(docId).then((actors) => {
           if (!stopped) useStore.setState(actors);
         });
-      else ws.close();
+      else if (effect.type === "reconnect") ws.close();
+      else effect satisfies never;
     };
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data) as ServerMessage;
@@ -232,6 +233,7 @@ export function connect(docId: string): () => void {
         return stop("This Document is no longer shared with you.");
       }
       accessChanged = e.code === ACCESS_CHANGED;
+      // The Peers come again with the next socket's Document.
       useStore.setState({ live: false, peers: peersFrom([]) });
       if (opened) return later();
       // The upgrade's refusal is unreadable (1006); the same check over HTTP says why.
