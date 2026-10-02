@@ -7,6 +7,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { normalizePath, type Segment, shapeSegments } from "../src/path.ts";
 
+type Point = [number, number];
+
 type Params = Record<
   "cx" | "cy" | "radius" | "revolution" | "expansion" | "argument" | "t0",
   number
@@ -51,7 +53,7 @@ function random(n: number, seed: number, upper = false): Params[] {
   });
 }
 
-/** Round numbers and the ends of each range. */
+/** Round numbers and the ends of each range ADR-0060 first measured. */
 const SPECIAL: Params[] = [
   { cx: 100, cy: 100, radius: 50, revolution: 3, expansion: 1, argument: 0, t0: 0 },
   { cx: 0, cy: 0, radius: 0, revolution: 3, expansion: 1, argument: 0, t0: 0 },
@@ -62,7 +64,7 @@ const SPECIAL: Params[] = [
   { cx: -40.5, cy: 7.25, radius: 1500, revolution: 2.5, expansion: 0.5, argument: 30, t0: 0.1 },
 ];
 
-/** The ends of the public ranges: revolution 0.05, 3 and 1024 by expansion 0, 1 and 1000. */
+/** The ends of the public ranges and the defaults: revolution 0.05, 3 and 1024 by expansion 0, 1 and 1000. */
 const ENDS: Params[] = [0.05, 3, 1024].flatMap((revolution) =>
   [0, 1, 1000].flatMap((expansion) =>
     [0, 0.999].map((t0) => ({
@@ -118,18 +120,18 @@ const same = (a: Segment | undefined, b: Segment | undefined) =>
     return Math.abs(v - want) < Math.max(0.01, Math.abs(want) * 1e-6);
   });
 
+/** Whether ours matches Inkscape's, segment by segment. */
 const matches = (ours: Segment[], theirs: Segment[]) =>
   ours.length === theirs.length && ours.every((s, j) => same(s, theirs[j]));
 
-/** Inkscape's own points are non-finite or huge: its samples ran past t = 1 (ADR-0060). */
-const outOfComparison = (theirs: Segment[]) =>
-  theirs.some((s) => s.args.some((v) => !(Math.abs(v) < 1e6)));
+/** Some point is non-finite or huge: the samples ran past t = 1 (ADR-0060). */
+const huge = (segs: Segment[]) => segs.some((s) => s.args.some((v) => !(Math.abs(v) < 1e6)));
 
 /** Points along segments [from, to) of a path, 32 per cubic, from the end of the one before. */
-function polyline(segs: Segment[], from: number, to: number): number[][] {
-  const start = segs[from - 1]?.args.slice(-2) ?? [0, 0];
+function polyline(segs: Segment[], from: number, to: number): Point[] {
+  const start = (segs[from - 1]?.args.slice(-2) ?? [0, 0]) as Point;
   const out = [start];
-  let [x, y] = start as [number, number];
+  let [x, y] = start;
   for (const { cmd, args } of segs.slice(from, to)) {
     if (cmd === "C") {
       const [x1, y1, x2, y2, x3, y3] = args as [number, number, number, number, number, number];
@@ -141,20 +143,20 @@ function polyline(segs: Segment[], from: number, to: number): number[][] {
           u * u * u * y + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t * y3,
         ]);
       }
-    } else out.push(args.slice(-2));
-    [x, y] = out.at(-1) as [number, number];
+    } else out.push(args.slice(-2) as Point);
+    [x, y] = out.at(-1) as Point;
   }
   return out;
 }
 
 /** The farthest any point of `a` lies from the polyline `b`. */
-function farthest(a: number[][], b: number[][]): number {
+function farthest(a: Point[], b: Point[]): number {
   let worst = 0;
-  for (const [px, py] of a as [number, number][]) {
+  for (const [px, py] of a) {
     let near = Number.POSITIVE_INFINITY;
     for (let i = 1; i < b.length; i++) {
-      const [ax, ay] = b[i - 1] as [number, number];
-      const [bx, by] = b[i] as [number, number];
+      const [ax, ay] = b[i - 1] as Point;
+      const [bx, by] = b[i] as Point;
       const dx = bx - ax;
       const dy = by - ay;
       const t = Math.max(
@@ -170,12 +172,12 @@ function farthest(a: number[][], b: number[][]): number {
 
 /** How far apart the two outlines lie where their segments differ, both ways round. */
 function deviation(ours: Segment[], theirs: Segment[]): number {
-  let first = 0;
-  while (same(ours[first], theirs[first])) first++;
+  let head = 0;
+  while (same(ours[head], theirs[head])) head++;
   let tail = 0;
   while (same(ours.at(-1 - tail), theirs.at(-1 - tail))) tail++;
-  const a = polyline(ours, first, ours.length - tail);
-  const b = polyline(theirs, first, theirs.length - tail);
+  const a = polyline(ours, head, ours.length - tail);
+  const b = polyline(theirs, head, theirs.length - tail);
   return Math.max(farthest(a, b), farthest(b, a));
 }
 
@@ -188,16 +190,16 @@ const results = all.map((p, i) => {
   const ours = shapeSegments({ type: "spiral", ...p });
   const theirs = normalizePath(d, "d");
   const ok = matches(ours, theirs);
-  const out = !ok && outOfComparison(theirs);
+  const out = !ok && huge(theirs) && huge(ours);
   return { p, d, ok, out, off: ok || out ? 0 : deviation(ours, theirs) };
 });
 const special = results.slice(0, SPECIAL.length);
 const ends = results.slice(SPECIAL.length, SPECIAL.length + ENDS.length);
 const first = results.slice(SPECIAL.length + ENDS.length, -upper.length);
-const second = results.slice(-upper.length);
+const full = results.slice(-upper.length);
 for (const [name, rs] of [
   ["first 700", first],
-  ["full-range 600", second],
+  ["full-range 600", full],
   ["range ends", ends],
 ] as const) {
   const differ = rs.filter((r) => !r.ok && !r.out);
@@ -220,7 +222,7 @@ const kept = [
     .slice(300)
     .filter((r) => short(r, 2500))
     .slice(0, 30),
-  ...second.filter((r) => short(r, 20000)).slice(0, 10),
+  ...full.filter((r) => short(r, 20000)).slice(0, 10),
 ];
 writeFileSync(
   new URL("../src/spiral.inkscape.json", import.meta.url),
