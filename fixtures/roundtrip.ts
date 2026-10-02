@@ -495,34 +495,51 @@ async function main() {
       );
       return compare(map, join(dir, "resvg.png"), join(dir, "inkscape.png"), join(dir, "diff.png"));
     };
+    /** `svg` written to `saved` and saved over itself by Inkscape; returns what Inkscape wrote. */
+    const saveOver = (saved: string, svg: string) => {
+      writeFileSync(saved, svg);
+      inkscape("--export-type=svg", `--export-filename=${saved}`, saved);
+      return readFileSync(saved, "utf8");
+    };
+    /** The Kalamo JSON of two opened Documents. */
+    const docs = (a: { docId: string }, b: { docId: string }) =>
+      Promise.all(
+        [a, b].map(
+          async (d) => JSON.parse(await text({ docId: d.docId, format: "kalamo_json" })) as Doc,
+        ),
+      );
+    /** Prints `label` and the line `check` returns, or its error as a failed line. */
+    const printLine = async (label: string, check: () => Promise<string>) => {
+      let line: string;
+      try {
+        line = await check();
+      } catch (e) {
+        failed++;
+        line = `FAIL  ${(e as Error).message}`;
+      }
+      console.log(`${label}  ${line}`);
+    };
     for (const file of readdirSync(FIXTURES).filter((f) => f.endsWith(".kalamo.json"))) {
       const fixture = file.slice(0, -".kalamo.json".length);
       const json = readFileSync(join(FIXTURES, file), "utf8");
       const dir = join(STATE, fixture);
       mkdirSync(join(dir, "inkscape"), { recursive: true });
-      let line: string;
       const probes: string[] = [];
-      try {
+      await printLine(fixture.padEnd(12), async () => {
         const original = await open(json);
         const { docId } = original;
         // Inkscape names the Document after the file it reads, and Open reads the name back from it.
         const exported = await text({ docId, format: "svg" });
         writeFileSync(join(dir, `${original.name}.svg`), exported);
         // Saved over its input: Inkscape rewrites a relative link against the folder it saves to.
-        const saved = join(dir, "inkscape", `${original.name}.svg`);
-        writeFileSync(saved, exported);
-        inkscape("--export-type=svg", `--export-filename=${saved}`, saved);
-        const reopened = await open(readFileSync(saved, "utf8"));
-        const [want, got] = await Promise.all(
-          [original, reopened].map(
-            async (d) => JSON.parse(await text({ docId: d.docId, format: "kalamo_json" })) as Doc,
-          ),
-        );
+        const resaved = saveOver(join(dir, "inkscape", `${original.name}.svg`), exported);
+        const reopened = await open(resaved);
+        const [want, got] = await docs(original, reopened);
         // A missing link warns on every Open; firstDifference still catches a lost src or file.
         const warnings = reopened.warnings.filter((w) => w.code !== "IMAGE_LINK_MISSING");
         const structure = warnings.length
           ? `warnings: ${JSON.stringify(warnings)}`
-          : (firstDifference(want, got) ?? lineDifference(exported, readFileSync(saved, "utf8")));
+          : (firstDifference(want, got) ?? lineDifference(exported, resaved));
 
         // resvg's PNG of the whole Document, and Inkscape's of an export framed to the same rect:
         // -C draws the viewBox at 1 px per pt, which --export-area (in px) does not.
@@ -530,7 +547,7 @@ async function main() {
         const pixelsSvg = join(dir, "pixels.svg");
         writeFileSync(pixelsSvg, await text({ docId, format: "svg", scope: { rect: docRect } }));
         const map = await regionMap(docId, docRect);
-        line = report(structure, await inkscapeDiff(dir, pixelsSvg, map));
+        const line = report(structure, await inkscapeDiff(dir, pixelsSvg, map));
 
         // Each probe hidden from resvg must fail on its own Artboard and region kind. The probes
         // are the edit target's fixture's: there a missing one fails, as a buried one does.
@@ -572,15 +589,12 @@ async function main() {
             probes.push(`probe ${probe}: FAIL ${(e as Error).message}`);
           }
         }
-      } catch (e) {
-        failed++;
-        line = `FAIL  ${(e as Error).message}`;
-      }
-      console.log(`${fixture.padEnd(12)}  ${line}`);
+        return line;
+      });
       for (const probe of probes) console.log(`${fixture.padEnd(12)}  ${probe}`);
       if (!JSON.parse(json).nodes.some((n: Doc["nodes"][number]) => n.id === PAINTED)) continue;
       for (const [edit, actions] of Object.entries(EDITS)) {
-        try {
+        await printLine(`${fixture} ${edit}`.padEnd(12), async () => {
           const original = await open(json);
           const { docId } = original;
           const editDir = join(dir, edit);
@@ -611,23 +625,15 @@ async function main() {
             pivot: { x: 0, y: 0 },
             scaleStrokes: true,
           });
-          const [want, got] = await Promise.all(
-            [original, reopened].map(async (d) =>
-              rounded(JSON.parse(await text({ docId: d.docId, format: "kalamo_json" })) as Doc),
-            ),
-          );
+          const [want, got] = (await docs(original, reopened)).map(rounded);
           const warnings = reopened.warnings.filter((w) => w.code !== "IMAGE_LINK_MISSING");
           const structure = warnings.length
             ? `warnings: ${JSON.stringify(warnings)}`
             : firstDifference(want, got);
           await resvg(editDir, reopened.docId, docRect);
           const map = await regionMap(reopened.docId, docRect);
-          line = report(structure, await inkscapeDiff(editDir, framed, map));
-        } catch (e) {
-          failed++;
-          line = `FAIL  ${(e as Error).message}`;
-        }
-        console.log(`${`${fixture} ${edit}`.padEnd(12)}  ${line}`);
+          return report(structure, await inkscapeDiff(editDir, framed, map));
+        });
       }
     }
     // Each edit Inkscape makes to a midpoint's stops (ADR-0082), on Kalamo's export: saved by
@@ -635,22 +641,13 @@ async function main() {
     const midpoint = await open(MIDPOINT_DOC);
     const exported = await text({ docId: midpoint.docId, format: "svg" });
     for (const [edit, svg] of Object.entries(midpointEdits(exported))) {
-      let line: string;
-      try {
+      await printLine(`midpoint ${edit}`, async () => {
         const editDir = join(STATE, "midpoint-edits", edit.replace(/\W+/g, "-"));
         mkdirSync(join(editDir, "inkscape"), { recursive: true });
         const saved = join(editDir, "inkscape", `${midpoint.name}.svg`);
-        writeFileSync(saved, svg);
-        inkscape("--export-type=svg", `--export-filename=${saved}`, saved);
-        const [edited, reopened] = await Promise.all([
-          open(svg),
-          open(readFileSync(saved, "utf8")),
-        ]);
-        const [want, got] = await Promise.all(
-          [edited, reopened].map(
-            async (d) => JSON.parse(await text({ docId: d.docId, format: "kalamo_json" })) as Doc,
-          ),
-        );
+        const resaved = saveOver(saved, svg);
+        const [edited, reopened] = await Promise.all([open(svg), open(resaved)]);
+        const [want, got] = await docs(edited, reopened);
         const codes = (d: typeof edited) => JSON.stringify(d.warnings.map((w) => w.code));
         const structure =
           codes(edited) !== codes(reopened)
@@ -658,15 +655,11 @@ async function main() {
             : firstDifference(want, got);
         // The export's viewBox is its one Artboard, the Document's whole rect.
         const docRect = await resvg(editDir, reopened.docId);
-        line = report(
+        return report(
           structure,
           await inkscapeDiff(editDir, saved, await regionMap(reopened.docId, docRect)),
         );
-      } catch (e) {
-        failed++;
-        line = `FAIL  ${(e as Error).message}`;
-      }
-      console.log(`midpoint ${edit}  ${line}`);
+      });
     }
   } finally {
     server.stop();
