@@ -655,7 +655,7 @@ describe("reads pass their filters and txId, and bad arguments never reach the s
   });
 
   it("validate: scope, rules and txId pass through; an unknown rule lists the rules", async () => {
-    const { service, call, called } = await harness({
+    const { service, call } = await harness({
       validate: async () => ({ rev: 3, issues: [] }),
     });
     expect((await call("kalamo_validate", { docId: "d" })).structuredContent).toEqual({
@@ -678,6 +678,14 @@ describe("reads pass their filters and txId, and bad arguments never reach the s
       path: "rules[0]",
       hint: "Send one of: font_missing, missing_glyphs, text_overflow, missing_link, zero_area, empty_group, outside_artboards.",
     });
+    for (const args of [
+      { rules: [] },
+      { scope: { rect: { x: 0, y: 0, width: 1, height: 1 } } },
+      { level: "all" },
+    ]) {
+      const bad = await call("kalamo_validate", { docId: "d", ...args });
+      expect(errorOf(bad)).toMatchObject({ code: "INVALID_INPUT" });
+    }
     expect(service.validate).toHaveBeenCalledTimes(2);
   });
 

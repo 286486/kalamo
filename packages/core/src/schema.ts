@@ -30,10 +30,12 @@ export const Rect = z.strictObject({
 });
 export type Rect = z.infer<typeof Rect>;
 
+export const ArtboardScope = z.strictObject({ artboardId: z.string() });
+export const NodesScope = z.strictObject({ nodeIds: z.array(z.string()).min(1).max(1000) });
 /** What `render` and `export` draw (ADR-0014); omitted, the whole Document. */
 export const RenderScope = z.union([
-  z.strictObject({ artboardId: z.string() }),
-  z.strictObject({ nodeIds: z.array(z.string()).min(1).max(1000) }),
+  ArtboardScope,
+  NodesScope,
   z.strictObject({
     rect: Rect.extend({ width: z.number().positive(), height: z.number().positive() }),
   }),

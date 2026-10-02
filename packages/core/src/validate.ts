@@ -1,9 +1,8 @@
 import { z } from "zod";
 import { childrenOf, isOpacityMask, touches, visibleBounds, worldSegments } from "./document.ts";
-import { lookup } from "./edit.ts";
-import { KalamoError } from "./errors.ts";
+import { artboardOf, lookup } from "./edit.ts";
 import type { Segment } from "./path.ts";
-import { type Document, type Node, type Rect, RenderScope } from "./schema.ts";
+import { ArtboardScope, type Document, type Node, NodesScope, type Rect } from "./schema.ts";
 import { textWarnings } from "./text.ts";
 
 /** `validate`'s rules (ADR-0105), in the order a Node's issues are listed. */
@@ -19,7 +18,7 @@ export const ValidateRule = z.enum([
 export type ValidateRule = z.infer<typeof ValidateRule>;
 
 /** `render`'s `{artboardId}` and `{nodeIds}` scopes. */
-export const ValidateScope = z.union([RenderScope.options[0], RenderScope.options[1]]);
+export const ValidateScope = z.union([ArtboardScope, NodesScope]);
 export type ValidateScope = z.infer<typeof ValidateScope>;
 
 export interface ValidateOptions {
@@ -29,33 +28,22 @@ export interface ValidateOptions {
   rules?: ValidateRule[];
 }
 
-export interface ValidateIssue {
-  rule: ValidateRule;
-  nodeId: string;
-  message: string;
-  hint?: string;
-}
+export const ValidateIssue = z.object({
+  rule: ValidateRule,
+  nodeId: z.string(),
+  message: z.string(),
+  hint: z.string().optional(),
+});
+export type ValidateIssue = z.infer<typeof ValidateIssue>;
 
 /** Under this, in pt, a length or a distance from a line counts as zero: `round3`'s precision. */
 const EPSILON = 0.001;
 
-const TEXT_RULES: Record<string, ValidateRule> = {
+const TEXT_RULES: Record<string, ValidateRule | undefined> = {
   FONT_MISSING: "font_missing",
   MISSING_GLYPHS: "missing_glyphs",
   TEXT_OVERFLOW: "text_overflow",
 };
-
-/** The Artboard with this id, else ARTBOARD_NOT_FOUND at `path`. */
-export function artboardOf(doc: Document, id: string, path: string) {
-  const artboard = doc.artboards.find((a) => a.id === id);
-  if (artboard) return artboard;
-  throw new KalamoError({
-    code: "ARTBOARD_NOT_FOUND",
-    message: `No Artboard with id ${id}.`,
-    hint: "kalamo_doc_get_info lists the Artboards with their ids.",
-    path,
-  });
-}
 
 /**
  * The visible Nodes of `scope` that break a rule, in drawing order, bottom first; a Node's issues
@@ -115,11 +103,10 @@ function check(doc: Document, n: Node): ValidateIssue[] {
           ]
         : [];
     case "text":
-      return textWarnings([n]).map((w) => ({
-        rule: TEXT_RULES[w.code] as ValidateRule,
-        nodeId: n.id,
-        message: w.message,
-      }));
+      return textWarnings([n]).flatMap((w) => {
+        const rule = TEXT_RULES[w.code];
+        return rule ? [{ rule, nodeId: n.id, message: w.message }] : [];
+      });
     case "image":
       return n.src
         ? []
