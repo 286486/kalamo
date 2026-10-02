@@ -1,0 +1,37 @@
+---
+status: accepted
+date: 2026-10-02
+---
+
+# A Template Layer is drawn by render and the canvas, and left out of export
+
+Illustrator's Layer Options has a **Template** option. A template layer is locked by default, its images are dimmed, and it is shown while you work, but it is never printed and never written by Save As or Export. Place with **Template** checked makes one. ADR-0027 gave `image_place` an `asTemplate` that makes the same locked Layer with its Image at 50%, but Kalamo had no flag. So the reference was included in every `kalamo_export` (SVG and PNG) and in the browser's Export As SVG, and the Agent was told to hide or delete it before exporting. ADR-0014 says `render` and `export` build the same SVG serialization, so io's writer had no way to write a Layer for one and not the other. This ADR adds the flag, completes ADR-0027's "the flag waits for its own issue", and amends ADR-0014. It implements #65 and F-ILL-04.
+
+## Decision
+
+1. **`template` on a Layer.** `LayerNode` gains `template?: boolean`. A missing key means false, in the same optional-flag style as `clipping` on a leaf. Only a Layer has it.
+   - `node_update` writes it on a Layer: `true` sets it, and `false` or `null` deletes it. Missing means false, so false is always stored as missing, as `autoSize: false` is (ADR-0092). A Layer then has one stored form for "not a template", whichever tool wrote it. On any other type the key fails as any unknown key does, with `INVALID_PATCH` "A group has no template." and the "can write: …" hint.
+   - `node_create` of a `layer` takes it, and stores it only when it is true.
+   - `node_get` shows it with the Node's other keys.
+   - The published `NodePatch` describes it as Layer only.
+   - `image_place` with `asTemplate: true` sets it on the Layer it makes, which is still locked, with the Image still at 50% (ADR-0027).
+   - `template` and `locked` are independent, as in Illustrator: unlocking a Template Layer keeps it a Template Layer.
+2. **Drawn where people and Agents look.** `kalamo_render` and the browser canvas draw a Template Layer and everything in it exactly as before, Render Overlays included. An Agent tracing a reference sees it.
+3. **Left out of what is handed on.** `kalamo_export` with `format: "svg"` or `"png"`, and the browser's File > Export > Export As SVG, write nothing for a Template Layer or anything it contains, sub-Layers included. There is no `<g>`, hidden or otherwise, and no pixels. This holds in every Render Scope. The scope's `docRect` is worked out as before (ADR-0014), so a scope that holds only template content gives a valid SVG or PNG with no artwork. Artboard backgrounds and `background` are still drawn where they apply. This is not an error, since the scope did name Nodes that have bounds.
+4. **One writer, and the caller chooses.** As ADR-0042 did for linked Images, io keeps one writer. `toSvg`'s `SvgOptions` gains `templates?: boolean`. The default, false, is what `export` does, so a caller that forgets the option still leaves the reference out of a deliverable. The walk returns nothing for a Template Layer before it visits anything inside it. `renderSvg` passes `templates` through. `render` and PNG `export` both rasterise through the Document Durable Object's `raster()`. It takes a required `templates` argument, so a new caller cannot leave the choice out. The `DocumentService`'s `render`/`png` split passes true for `render` and false for PNG `export`. The Durable Object's `svg()` and the browser's Export As SVG use the default. A Document without a Template Layer serialises byte for byte as before.
+5. **Copy is unchanged.** The browser's Copy and Cut write the Selection's nodes-scope SVG with `templates: true`, so copying something on a Template Layer still copies it. The clipboard moves artwork between Documents. It is not a deliverable.
+6. **`kalamo:scope` names the scope that was asked for.** A `{nodeIds}` export's root still writes `kalamo:scope="nodes:<ids>"` with every listed id, even ids on a Template Layer that have no element in the file. The attribute records the Render Scope that fixed the `viewBox`, and the `viewBox` is still the union of all the listed Nodes' bounds (decision 3). A filtered list would disagree with the `viewBox`, and when every listed Node is on a Template Layer it would be the empty `nodes:`, which `scopeOf` reads as one empty id. Place and paste are not affected: `placeNodes` keeps only the listed ids that are in the file (ADR-0030), so such a file pastes exactly as an SVG with no artwork does. An id is not template content: it carries no geometry or pixels, and the caller supplied it.
+7. **No SVG attribute.** Export writes no `kalamo:template`, and the SVG reader is unchanged. Export leaves the Template Layer out, so there is nothing to round-trip. Illustrator does not write template layers to SVG either. Inkscape has no template layers, so an attribute would carry nothing for Inkscape to show, and a Layer read back from an attribute would be a reference that the next export leaves out without warning. `.kalamo.json` is the file that keeps the flag (decision 8).
+8. **`.kalamo.json` keeps it.** `serializeDocument` writes `template: true`, and the stored-node schema accepts the key on a Layer. That schema is strict, so the key on any other node is refused, as other unknown keys are. `kalamo_export` with `format: "kalamo_json"` and File > Save carry it. It is an optional key, so older files still read, with no version bump and no migration.
+9. **Layers panel.** A Template Layer's row shows Illustrator's template glyph, a small triangle, circle and square, in the eye column instead of the eye. Clicking it toggles `visible`, as Illustrator's template icon does: the column is blank when the Layer is hidden, and shows the template glyph when it is shown. The button's accessible label is still `Hide <name>` / `Show <name>`. Rows inside a Template Layer keep their normal eye. Turning the flag on or off in the browser (Illustrator's Layer Options or the panel menu's Template item) is not part of this ADR.
+
+ADR-0014 now reads: `export` is `render`'s serialization minus Render Overlays and minus Template Layers.
+
+## Considered Options
+
+- **Two writers, one for `render` and one for `export`.** They would drift apart on every new Node feature. ADR-0042 already chose one writer with a caller's choice.
+- **Defaulting `templates` to true, the old behaviour.** Every deliverable path (the Durable Object's `svg()`, PNG `export`, Export As SVG) would then have to remember to opt out. A missed path leaks the reference into a file someone hands on. With the default false, the paths that draw for viewing opt in instead: `render` and Copy.
+- **Writing the Template Layer hidden (`display:none`) in export.** The file would still carry the reference's bytes, including an embedded photo. Inkscape would show it as a hidden layer, and Illustrator leaves it out entirely.
+- **A `kalamo:template` attribute so SVG round-trips the flag.** See decision 7. There is nothing to round-trip once export leaves the Layer out.
+- **An `overlays`-style option on `render` to leave Template Layers out.** No Agent has needed it. `export` PNG already shows the artwork without them.
+- **Dimming every Image on a Template Layer, as Illustrator's "Dim Images to" does.** The 50% opacity that `asTemplate` puts on the placed Image stays as ADR-0027 made it.

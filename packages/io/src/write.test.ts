@@ -10,6 +10,7 @@ import {
   layoutText,
   makeMask,
   type Node,
+  placeNodes,
   type ShapeNode,
   serializeDocument,
   shapeSegments,
@@ -1674,3 +1675,40 @@ it.each([
     expect(file.nodes.find((n) => n.id === t.id)).toEqual(node);
   },
 );
+
+it("writes Template Layers, sub-Layers and all, only when asked, as render asks (ADR-0099)", () => {
+  const { doc, defaultLayerId } = newDoc();
+  const plain = toSvg(doc);
+  expect(toSvg(doc, undefined, { templates: true })).toBe(plain);
+  const [template] = createNodes(doc, [{ type: "layer", name: "Reference", template: true }])
+    .nodes as [Node];
+  const [sub] = createNodes(doc, [{ type: "layer", parentId: template.id }]).nodes as [Node];
+  const inside = createNodes(doc, [
+    { type: "rect", parentId: sub.id, x: 0, y: 0, width: 5, height: 5 },
+    { type: "image", parentId: template.id, file: "a.png", x: 0, y: 0, width: 4, height: 4 },
+  ]).nodes;
+  const [rect] = createNodes(doc, [
+    { type: "rect", parentId: defaultLayerId, x: 0, y: 0, width: 5, height: 5 },
+  ]).nodes as [Node];
+  const ids = [template, sub, ...inside].map((n) => `z-${n.id}`);
+  for (const scope of [undefined, { artboardId: doc.artboards[0]?.id ?? "" }]) {
+    const exported = toSvg(doc, undefined, { scope });
+    for (const id of ids) expect(exported).not.toContain(id);
+    expect(exported).not.toContain("<image");
+    expect(exported).toContain(`z-${rect.id}`);
+    const rendered = toSvg(doc, undefined, { scope, templates: true });
+    for (const id of ids) expect(rendered).toContain(id);
+    expect(rendered).toContain("<image");
+  }
+  // The root still names the scope asked for, which fixed the viewBox; paste then places nothing
+  // of it, as for an SVG with no artwork (ADR-0099).
+  const scope = { nodeIds: inside.map((n) => n.id) };
+  const only = toSvg(doc, undefined, { scope });
+  expect(only).not.toMatch(/<(g|rect|image)\b/);
+  const file = parseSvg(only);
+  expect(file.scope).toEqual(scope);
+  const before = doc.nodes.size;
+  const { created } = placeNodes(doc, file, { parentId: defaultLayerId });
+  expect(created.every((n) => n.type === "group")).toBe(true);
+  expect(doc.nodes.size).toBe(before + created.length);
+});

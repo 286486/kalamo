@@ -172,6 +172,7 @@ export function placeImage(
     const layer = {
       ...made,
       locked: true,
+      template: true,
       index: generateKeyBetween(below?.index ?? null, holder.index),
     };
     doc.nodes.set(layer.id, layer);

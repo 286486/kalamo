@@ -472,6 +472,42 @@ describe("updateNodes", () => {
     });
   });
 
+  it("writes template on a Layer, null deleting it, and refuses it on any other type (ADR-0099)", () => {
+    const { doc, defaultLayerId, rect } = newDoc();
+    const [group, path, image] = createNodes(doc, [
+      { type: "group", parentId: defaultLayerId, children: [] },
+      { type: "path", parentId: defaultLayerId, d: "M 0 0 L 10 0" },
+      {
+        type: "image",
+        parentId: defaultLayerId,
+        file: "a.gif",
+        x: 0,
+        y: 0,
+        width: 1,
+        height: 1,
+      },
+      rect(0, 0),
+    ]).nodes as [Node, Node, Node];
+    updateNodes(doc, [{ nodeId: defaultLayerId, patch: { template: true } }]);
+    expect(doc.nodes.get(defaultLayerId)).toMatchObject({ template: true });
+    updateNodes(doc, [{ nodeId: defaultLayerId, patch: { template: null } }]);
+    expect(doc.nodes.get(defaultLayerId)).not.toHaveProperty("template");
+    // Missing means false, so false is stored as missing too.
+    updateNodes(doc, [{ nodeId: defaultLayerId, patch: { template: true } }]);
+    updateNodes(doc, [{ nodeId: defaultLayerId, patch: { template: false } }]);
+    expect(doc.nodes.get(defaultLayerId)).not.toHaveProperty("template");
+    for (const n of [group, path, image]) {
+      expect(
+        errorOf(() => updateNodes(doc, [{ nodeId: n.id, patch: { template: true } }])),
+      ).toMatchObject({
+        code: "INVALID_PATCH",
+        message: `A ${n.type} has no template.`,
+        hint: expect.stringMatching(new RegExp(`^A ${n.type} can write: `)),
+        path: "updates[0].patch.template",
+      });
+    }
+  });
+
   it("changes a star's Inkscape parameters, and refuses twist on a polygon", () => {
     const { doc, defaultLayerId } = newDoc();
     const at = { parentId: defaultLayerId, cx: 0, cy: 0 };

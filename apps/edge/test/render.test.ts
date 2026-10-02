@@ -1,6 +1,7 @@
 import { LAZY_FONTS, renderFonts } from "@kalamo/render";
 import { beforeAll, expect, it } from "vitest";
 import fixture from "../../../fixtures/documents/inkscape.kalamo.json?raw";
+import { decodePng } from "../../../fixtures/png.ts";
 import { call, errorOf } from "./rpc.ts";
 
 // The test pool's import of a lazy family takes seconds (#213). The Worker renders with this
@@ -331,4 +332,46 @@ it("renders and exports an Artboard while a translucent Group over far artwork h
   const png = await call("kalamo_export", { docId, format: "png", scope: { artboardId } });
   expect(png.isError).toBeFalsy();
   expect(pngSize(png)).toEqual({ width: 100, height: 100 });
+});
+
+it("renders a Template Layer but exports none of it, in every scope (ADR-0099)", async () => {
+  const { docId, artboards } = await newDoc([{ width: 200, height: 100, background: "#00FF00" }]);
+  const [layerId] = (
+    await call("kalamo_node_create", {
+      docId,
+      nodes: [{ type: "layer", name: "Reference", template: true }],
+    })
+  ).structuredContent.createdIds;
+  const [rectId] = (await call("kalamo_node_create", { docId, nodes: [redRect(layerId)] }))
+    .structuredContent.createdIds;
+  /** The colour at the rect's centre, (35, 25). */
+  const centre = async (result: { content: { type: string; data?: string }[] }) => {
+    const png = result.content.find((c) => c.type === "image");
+    const { data, width } = await decodePng(Uint8Array.fromBase64(png?.data ?? ""));
+    const i = 4 * (25 * width + 35);
+    return [...data.subarray(i, i + 3)];
+  };
+  const artboardId = artboards[0]?.id;
+  for (const scope of [
+    undefined,
+    { artboardId },
+    { rect: { x: 0, y: 0, width: 100, height: 50 } },
+  ]) {
+    const rendered = await call("kalamo_render", { docId, scope });
+    expect(await centre(rendered)).toEqual([255, 0, 0]);
+    const exported = await call("kalamo_export", { docId, format: "png", scope });
+    expect(await centre(exported)).toEqual([0, 255, 0]);
+    const svg = (await call("kalamo_export", { docId, format: "svg", scope })).content[0].text;
+    expect(svg).not.toContain(layerId);
+    expect(svg).not.toContain(rectId);
+  }
+  // A scope of template content alone exports a valid image with no artwork.
+  const nodeIds = [rectId];
+  const svg = await call("kalamo_export", { docId, format: "svg", scope: { nodeIds } });
+  expect(svg.isError).toBeFalsy();
+  expect(svg.structuredContent.docRect).toEqual({ x: 8, y: 8, width: 54, height: 34 });
+  expect(svg.content[0].text).not.toMatch(/<(g|rect)\b/);
+  const png = await call("kalamo_export", { docId, format: "png", scope: { nodeIds } });
+  expect(png.isError).toBeFalsy();
+  expect(pngSize(png)).toEqual({ width: 54, height: 34 });
 });

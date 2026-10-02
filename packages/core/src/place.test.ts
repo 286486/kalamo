@@ -403,6 +403,7 @@ describe("placeImage", () => {
       type: "layer",
       name: "Template photo.png",
       locked: true,
+      template: true,
       parentId: null,
     });
     expect(image).toMatchObject({ type: "image", parentId: layer.id, opacity: 0.5, x: 99, y: 49 });

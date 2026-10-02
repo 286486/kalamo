@@ -1209,12 +1209,14 @@ export class DocumentObject extends DurableObject<Env> {
   }
 
   /**
-   * The SVG to rasterise at `req.scale`: fitted to whole pixels and `maxSize`, with overlays.
-   * The Worker rasterises it, so PNG encoding never blocks this Document's writes.
+   * The SVG to rasterise at `req.scale`: fitted to whole pixels and `maxSize`, with overlays, and
+   * with Template Layers only when asked, as `render` asks and PNG `export` does not (ADR-0099). The Worker rasterises it, so
+   * PNG encoding never blocks this Document's writes.
    */
   async raster(
     actor: string,
     req: RasterRequest,
+    templates: boolean,
   ): Promise<Result<{ svg: string; viewport: Viewport }>> {
     const doc = guard(() => this.view(this.load(), actor, req.txId));
     if ("error" in doc) return doc;
@@ -1231,6 +1233,7 @@ export class DocumentObject extends DurableObject<Env> {
         overlays: req.overlays,
         scale,
         images,
+        templates,
       });
       return { svg, viewport: { docRect, pixelSize, scale } };
     });

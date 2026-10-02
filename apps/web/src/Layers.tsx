@@ -19,13 +19,18 @@ const DROP = "#3B6CF6";
 /** A row's indent per depth. */
 const INDENT = 14;
 /** Inline SVG, since an emoji eye or lock depends on the system's emoji font. */
-const glyph = (d: string) => (
-  <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
+const glyph = (d: string, name: string) => (
+  <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" data-testid={name}>
     <path d={d} fill="none" stroke="currentColor" strokeWidth="1.5" />
   </svg>
 );
-const EYE = glyph("M1 8 Q8 1 15 8 Q8 15 1 8 Z M6 8 A2 2 0 1 0 10 8 A2 2 0 1 0 6 8");
-const LOCK = glyph("M3 7 H13 V15 H3 Z M5 7 V4 A3 3 0 0 1 11 4 V7");
+const EYE = glyph("M1 8 Q8 1 15 8 Q8 15 1 8 Z M6 8 A2 2 0 1 0 10 8 A2 2 0 1 0 6 8", "eye-glyph");
+const LOCK = glyph("M3 7 H13 V15 H3 Z M5 7 V4 A3 3 0 0 1 11 4 V7", "lock-glyph");
+/** Illustrator's template icon, a triangle, a circle and a square, in a Template Layer's eye column. */
+const TEMPLATE = glyph(
+  "M4.5 1.5 L8 7 H1 Z M15 4 A2.5 2.5 0 1 1 10 4 A2.5 2.5 0 1 1 15 4 M4 10 H12 V15 H4 Z",
+  "template-glyph",
+);
 const icon = {
   width: 20,
   height: 20,
@@ -271,7 +276,7 @@ export const Layers = memo(function Layers() {
                 aria-label={`${node.visible ? "Hide" : "Show"} ${label}`}
                 onClick={() => update(node.id, { visible: !node.visible })}
               >
-                {node.visible && EYE}
+                {node.visible && (node.type === "layer" && node.template ? TEMPLATE : EYE)}
               </button>
               <button
                 type="button"

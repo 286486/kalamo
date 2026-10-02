@@ -216,7 +216,7 @@ Kalamo 要填的空位是：**每个人带自己的 AI，人和这些 Agent 共�
 **F-DOC-03 节点类型**（P0 除标注外）
 | type | 说明 | 对应 Illustrator |
 |---|---|---|
-| `layer` | 图层容器；有 `color`（选中高亮色）、`isTemplate`。**父级只能是文档根或另一个 `layer`**；`doc_outline` 顶层永远是 Layer 列表。换父级与重排用 `node_reparent`（ADR-0071），在父级内置顶 / 置底用 `node_reorder`（ADR-0074） | Layer / Sublayer |
+| `layer` | 图层容器；有 `color`（选中高亮色）、`template`（Template Layer，ADR-0099）。**父级只能是文档根或另一个 `layer`**；`doc_outline` 顶层永远是 Layer 列表。换父级与重排用 `node_reparent`（ADR-0071），在父级内置顶 / 置底用 `node_reorder`（ADR-0074） | Layer / Sublayer |
 | `group` | 编组；可出现在 `layer` 或 `group` 内，**不能包含 `layer`**。含一个 `clipping: true` 子节点（Clipping Path）即 Clipping Mask，不另设 `clip_group` 类型（ADR-0021） | GroupItem（`clipped`） |
 | `path` | 贝塞尔路径，`d`（SVG 语法）、`closed`、`fillRule`（nonzero / evenodd）。`d` 含多个子路径即 Compound Path（挖洞），不另设 `compound_path` 类型（ADR-0018） | PathItem / CompoundPathItem |
 | `rect` / `ellipse` / `polygon` / `star` / `line` / `arc` / `spiral` | **Live Shape**：保留参数（圆角半径、边数、内外半径、起止角等），随时可"转为路径" | Live Shapes |
@@ -393,7 +393,7 @@ Kalamo 要填的空位是：**每个人带自己的 AI，人和这些 Agent 共�
 - **F-ILL-01** 画笔系统：Calligraphic（角度、圆度、直径，可绑定压力）P0；Art Brush（沿路径拉伸一段图稿，可分段缩放）P1；Scatter Brush P1；Pattern Brush（边 / 角瓦片）P2；Bristle P2。画笔描边为非破坏性，可 Expand 为路径。（见括注）
 - **F-ILL-02** Image Trace：置入位图 → 预设（自动色 / 高色 / 低色 / 灰度 / 黑白 / 轮廓线）→ 参数（颜色数、阈值、路径拟合度、角点、噪点、方法 abutting / overlapping、忽略白色）→ 预览 → Expand 为路径组。实现采用 imagetracerjs（Unlicense）或自研，不使用 GPL 的 potrace。（P1）
 - **F-ILL-03** Recolor Artwork（见 F-APP-11）。（P1）
-- **F-ILL-04** 参考图工作流：置入图像为模板图层，设不透明度，锁定；Agent 可以 `image_place` + 描摹。（P0）现状（ADR-0027）：`image_place` 的 `asTemplate` 建锁定的 Template Layer，Image 不透明度 50%；不打印待 Layer 的 `template` 标志。
+- **F-ILL-04** 参考图工作流：置入图像为模板图层，设不透明度，锁定；Agent 可以 `image_place` + 描摹。（P0）现状（ADR-0027、ADR-0099，已完成）：`image_place` 的 `asTemplate` 建锁定的 Template Layer（`template: true`），Image 不透明度 50%；`render` 与画布绘制它，`export` 与 Export As SVG 不写出它，`.kalamo.json` 保存该标志。
 - **F-ILL-05** 对称绘制（Mirror Repeat 的实时版，画一半自动镜像）。（P1，随 Repeat）
 - **F-ILL-06** 图标网格与像素对齐：24 / 16 网格预设、Snap to Pixel、整数描边宽度检查（validate 工具报告）。（P0）
 - **F-ILL-07** 导出资产：Asset Export（收集对象为资产，多倍率 PNG / SVG 一次导出）。（P1）
@@ -597,7 +597,7 @@ flowchart LR
 
 | 工具 | 输入要点 | 输出 | 注 |
 |---|---|---|---|
-| `node_update` | `docId`, `updates[]`：`{nodeId, patch}`，patch 为 JSON Merge Patch（RFC 7396）作用于节点可写属性（name、visible、locked、opacity、blendMode、appearance、几何参数、text 属性、meta）；image 另可写 `src`（data URL 或已有图像 id，只换像素，即 Relink）与 `file`（字符串链接或重新链接，`null` 即 Embed，无 `src` 时 `INVALID_IMAGE`；`src: null` 为 `INVALID_PATCH`，ADR-0042） | 回执 | D（覆盖属性） |
+| `node_update` | `docId`, `updates[]`：`{nodeId, patch}`，patch 为 JSON Merge Patch（RFC 7396）作用于节点可写属性（name、visible、locked、opacity、blendMode、appearance、几何参数、text 属性、meta）；layer 另可写 `template`（`false` 与 `null` 都删去该键，ADR-0099）；image 另可写 `src`（data URL 或已有图像 id，只换像素，即 Relink）与 `file`（字符串链接或重新链接，`null` 即 Embed，无 `src` 时 `INVALID_IMAGE`；`src: null` 为 `INVALID_PATCH`，ADR-0042） | 回执 | D（覆盖属性） |
 | `node_delete` | `docId`, `nodeIds[]`；删掉最后一个顶层 Layer 的删除以 `LAST_LAYER` 拒绝（ADR-0073） | 回执 | D |
 | `node_duplicate` | `docId`, `nodeIds[]`, `offset?`, `count?`（1–100，缺省 1）, `targetParentId?`；每个 Node 连同子树复制为新 id，其余不变（image 共享像素）；缺省每个副本紧贴原件之上，给 `targetParentId`（Layer、Group，或 `null` 即顶层）则全部作为一块按原件绘制次序置于其顶部；第 *k* 份平移 *k* × `offset`，自下而上排列；与祖先同列或重复的 id 只复制一次；单独复制的 Clipping Path 失去 `clipping`；Layer 入 Group 等为 `INVALID_PARENT`，不写入；一个事务（ADR-0076） | 回执 + `copies`：源 id → 新顶层 id（按 *k*） | |
 | `node_reparent` | `docId`, `moves[]`：`{nodeId, parentId, index | before | after}`；`index` 自下而上数父级的其余子节点，`before` 落在该兄弟之下，`after` 之上，缺省置顶；同一 `parentId` 即重排；按序施加，一个事务；Clipping Path 移出原父级即失去 `clipping`（ADR-0071） | 回执 | |
@@ -1014,6 +1014,7 @@ kalamo/
 | 65 | 卖点：每个人带自己的 AI（2026-10-01） | 卖点从"Agent 能画图"改为"每个人带自己的 AI，人和各自的 Agent 编辑同一份文档"，产出仍是可交付矢量而非白板草图；Kalamo 不内置 AI；其他 User 的光标与选区、Agent 意图展示从 M3 提前到 M1，评论仍为 P2；MCP 工具定义瘦身进入 M1。依据调研十一：Haiku 4.5 直接写 SVG 与经 MCP 出图质量相当、成本低 4–9 倍，每轮约 10 万 token 花在工具定义上 | ADR-0086、§1.1–1.3、§3、F-COLLAB-04/05、§9 |
 | 66 | 在场与 Agent 工作区域（2026-10-01） | 光标与 Selection 由浏览器经 Document 的 WebSocket 发送，DO 只转发给其他连接、不存储（新连接加入时其余连接重发），不经 MCP；Agent 的工作区域是其最近一次写入的回执 `bounds` 加 `intent`，事务内暂存的写入也广播区域；每个 Actor 一种由 id 哈希决定的颜色；标签取自 D1 Actor 名称；Peer 的拖拽预览随软锁留在 M3 | ADR-0090、F-COLLAB-04/05、#232 |
 | 67 | 打开位图（2026-10-02） | `doc_open` 的 `content` 以 data URL 携带 PNG / JPEG / GIF（不新增工具、不收裸 base64 或 http(s) URL），新增可选 `name`；新 Document 为 (0, 0) 处像素尺寸的 `Artboard 1` 与 `Layer 1` 中铺满它的未命名嵌入 Image；以文件名去掉位图扩展名命名；浏览器原样发送字节，Worker 以开头的 `<` / `{`、UTF-8 有效性与 GIF / RIFF 签名区分文本与位图 | ADR-0098、F-IO-05、#71 |
+| 68 | Template Layer 不导出（2026-10-02） | Layer 增加可选 `template`（缺省为 false，仅 Layer 有）：`render` 与画布照常绘制，`export` SVG / PNG 与 Export As SVG 在任何 Render Scope 都不写出它及其内容，只含模板内容的 scope 得到无图稿的有效结果；io 仍是一个写出器，由调用方选择（缺省不写）；复制不变；SVG 不写 `kalamo:template`（Illustrator 不导出模板图层，Inkscape 没有）；`.kalamo.json` 保存，无需迁移；`asTemplate` 设置它；图层面板显示模板图标 | ADR-0099、F-ILL-04、#65 |
 
 **剩余开放问题**
 

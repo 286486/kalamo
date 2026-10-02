@@ -335,7 +335,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         "src is a public http or https URL, which the server fetches: at most 10 s and 20 MB read, following at most 5 redirects; localhost and private, loopback or link-local addresses are refused, and any fetch that fails is FETCH_FAILED. src may instead be a data: URL. A local path is refused: the server cannot read your disk.",
         "The format comes from the file's bytes, not its Content-Type; WebP is refused (convert it to PNG), and a file over 5 MB is LIMIT_EXCEEDED.",
         "frame {x, y, width, height} is as kalamo_node_create's image takes it, width and height both or neither (default the file's pixel size at 1 pt per pixel); omitted, the Image is centred on the parent's Artboard.",
-        "asTemplate: true makes a Template Layer for a reference to trace: a new locked Layer named Template <file name>, directly beneath the Layer holding parentId, with the Image at 50% opacity. It still renders and exports: hide or delete it before kalamo_export.",
+        "asTemplate: true makes a Template Layer for a reference to trace: a new locked Layer named Template <file name>, directly beneath the Layer holding parentId, with the Image at 50% opacity, marked template: kalamo_render draws it, kalamo_export leaves it out.",
         "One Transaction; createdIds lists the Template Layer, if any, then the Image.",
       ].join(" "),
       inputSchema: {
@@ -769,7 +769,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         "Export the artwork of part of the Document, returned inline: svg as text content with docRect, its viewBox; png as image content with viewport, as kalamo_render returns it.",
         "svg is Inkscape SVG. Without a scope its viewBox is one Artboard, the one at (0, 0) or else the first, which Inkscape uses as its viewport page; every Artboard is still written, the others as pages outside the viewBox.",
         scopes,
-        "No overlays and no maxSize: a png is scale pixels per point, at most 4096 px on its longer side.",
+        "No overlays, no Template Layers and no maxSize: a png is scale pixels per point, at most 4096 px on its longer side.",
         "kalamo_json is the whole Document as a .kalamo.json file in text content, which kalamo_doc_open reads back; scope, scale and background do not apply to it.",
       ].join(" "),
       inputSchema: {

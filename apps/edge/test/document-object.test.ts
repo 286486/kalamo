@@ -555,10 +555,29 @@ it("writes each Node id into the SVG it hands the Worker to rasterise, with the 
       "agent-a",
     ),
   );
-  const { svg } = ok(await stub("ids").raster("agent-a", { scale: 1, overlays: ["ids"] }));
+  const { svg } = ok(await stub("ids").raster("agent-a", { scale: 1, overlays: ["ids"] }, true));
   expect(receipt.createdIds).toHaveLength(3);
   for (const id of receipt.createdIds) expect(svg).toContain(`>${id}</text>`);
   expect(svg).not.toContain(`>${parentId}</text>`);
+});
+
+it("rasterises Template Layers only when the caller asks, as render does and PNG export does not (ADR-0099)", async () => {
+  const s = stub("tpl");
+  ok(await s.create({ docId: "tpl", name: "Doc", artboards, actor: "agent-a" }));
+  const [layerId] = ok(await s.createNodes([{ type: "layer", template: true }], "agent-a"))
+    .createdIds as [string];
+  const [inside] = ok(
+    await s.createNodes(
+      [{ type: "rect", parentId: layerId, x: 10, y: 10, width: 20, height: 20 }],
+      "agent-a",
+    ),
+  ).createdIds as [string];
+  const drawn = ok(await s.raster("agent-a", { scale: 1 }, true)).svg;
+  expect(drawn).toContain(`z-${layerId}`);
+  expect(drawn).toContain(`z-${inside}`);
+  const left = ok(await s.raster("agent-a", { scale: 1 }, false)).svg;
+  expect(left).not.toContain(`z-${layerId}`);
+  expect(left).not.toContain(`z-${inside}`);
 });
 
 it("queries Nodes as a Transaction sees them, and reports DOC_NOT_FOUND", async () => {

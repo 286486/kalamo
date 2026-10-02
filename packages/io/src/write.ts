@@ -143,6 +143,11 @@ export interface SvgOptions {
    * `render` and PNG do.
    */
   linked?: "link" | "draw";
+  /**
+   * Writes Template Layers and all they contain, as `render` and the canvas draw them and Copy
+   * copies them; `export` and Export As SVG leave them out, as Illustrator does (ADR-0099).
+   */
+  templates?: boolean;
   /** The stroke width in pt of a missing link drawn by `draw`: one pixel at the render's scale. */
   hairline?: number;
   /**
@@ -188,6 +193,7 @@ interface Walk {
   drawn: Node[];
   images: ImageSource | undefined;
   linked: "link" | "draw";
+  templates: boolean;
   hairline: number;
   /** Inside an isolated `<g>`: a layer of resvg's, so the inner cull rect applies. */
   isolated?: boolean;
@@ -291,6 +297,7 @@ export function toSvg(doc: Document, rect?: Rect, opts: SvgOptions = {}): string
         drawn,
         images: opts.images,
         linked: opts.linked ?? "link",
+        templates: !!opts.templates,
         hairline: opts.hairline ?? 1,
         resvg,
         chunked: !!resvg,
@@ -451,6 +458,7 @@ const transformAttr = (m: Matrix) =>
 const style = (...parts: (string | false)[]) => parts.filter(Boolean).join(";") || undefined;
 
 function node(doc: Document, n: Node, walk: Walk): string {
+  if (n.type === "layer" && n.template && !walk.templates) return "";
   const { resvg } = walk;
   if (resvg) {
     const b = visibleBounds(doc, n);

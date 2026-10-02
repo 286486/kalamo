@@ -43,7 +43,7 @@ export function documentService(env: Env, principal: Principal): DocumentService
   /** `render` or `export` counted against the caller's day (ADR-0048), then drawn. */
   const raster = (kind: "render" | "export") => async (docId: string, req: RasterRequest) => {
     await countCall(env, principal, kind);
-    const { svg, viewport } = await read(docId, (d) => d.raster(actor, req));
+    const { svg, viewport } = await read(docId, (d) => d.raster(actor, req, kind === "render"));
     const { png } = await svgToPng(svg, viewport.scale);
     return { png, viewport };
   };

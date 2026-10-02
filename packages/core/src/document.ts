@@ -224,7 +224,12 @@ export function createNodes(
     const name = input.name ?? "";
     let node: Node;
     if (input.type === "layer" || input.type === "group") {
-      const container: LayerNode | GroupNode = { ...at, type: input.type, name };
+      const container: LayerNode | GroupNode = {
+        ...at,
+        type: input.type,
+        name,
+        ...(input.type === "layer" && input.template && { template: true }),
+      };
       // Painted once its inline children are in, so a gradient spans them (ADR-0043).
       if ("appearance" in input && input.appearance) {
         out.painted.push({

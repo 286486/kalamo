@@ -28,6 +28,21 @@ function scene(): Document {
   return doc;
 }
 
+it("keeps a Template Layer's template flag, reads a file without it, and refuses it elsewhere (ADR-0099)", () => {
+  const doc = scene();
+  const [layer] = createNodes(doc, [{ type: "layer", name: "Reference", template: true }])
+    .nodes as [Node];
+  const back = parseDocument(serializeDocument(doc));
+  expect(back.nodes.find((n) => n.id === layer.id)).toMatchObject({ template: true });
+  expect(back.nodes.filter((n) => "template" in n)).toHaveLength(1);
+  const raw = JSON.parse(serializeDocument(doc));
+  const group = raw.nodes.find((n: Node) => n.type === "group");
+  group.template = true;
+  expect(errorOf(() => parseDocument(JSON.stringify(raw)))).toMatchObject({
+    code: "INVALID_DOCUMENT",
+  });
+});
+
 const sorted = (keys: string[]) => [...keys].sort();
 
 it("serialises version, name, artboards and nodes, sorted, with a final newline", () => {
