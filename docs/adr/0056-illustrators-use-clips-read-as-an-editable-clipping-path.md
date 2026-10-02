@@ -31,6 +31,7 @@ A `<g>` read as a Group is the Clip Group itself, with its Clipping Path on top,
 - it is not an Inkscape layer;
 - it has no `clip-path` of its own and no `<g kalamo:clipped>` wrapper, so the Kalamo and Inkscape forms keep their rules;
 - it has at least one drawn child, and every drawn child names the same holdable `<clipPath>`, inline or through a `<use>`;
+- that `<clipPath>` is not inside one of those children, where Kalamo writes a Clipping Mask's own (ADR-0097);
 - every such child's own `transform` is identity within Illustrator's rounding: linear terms within 1e-6 and translation within 1e-3 user units. Illustrator writes matrices such as `matrix(1 0 2.980232e-08 1 -3.051758e-05 -3.051758e-05)` on clipped groups.
 
 Its children then import without their `clip-path`, each keeping its own tiny transform; only the clip is read in the `<g>`'s space. In every other case a clipped `<g>` is a Clip Group and a clipped leaf gets a Clip Group of its own, as ADR-0021 says. In the sample, 147 of the 149 elements that share a `<clipPath>` with siblings share it with every drawn sibling.

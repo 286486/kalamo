@@ -1763,6 +1763,24 @@ describe("a nested <svg> (#237)", () => {
     }
   });
 
+  it("clips content that overflows a rotated viewport only inside its bounding box", () => {
+    const file = parseFile(
+      svg(
+        'width="400" height="400"',
+        '<g transform="rotate(45 200 200)"><svg x="150" y="150" width="100" height="100"><circle cx="50" cy="50" r="60"/></svg></g>',
+      ),
+    );
+    expect(leaves(file).filter((n) => "clipping" in n && n.clipping)).toHaveLength(1);
+  });
+
+  it("applies its own transform once, before x and y, as SVG 2 and Chrome do", () => {
+    const file = nested(
+      'transform="translate(25 0)" x="5" width="50" height="50"',
+      '<rect width="50" height="50"/>',
+    );
+    expect(leaves(file)).toMatchObject([{ type: "rect", x: 30, y: 0, width: 50 }]);
+  });
+
   it("does not inherit overflow from a <g> around it", () => {
     const file = parseFile(
       svg(
@@ -1883,6 +1901,24 @@ describe("a nested <svg> (#237)", () => {
       "UNSUPPORTED_ELEMENT",
     ]);
     expect(file.warnings.find((w) => w.code === "UNSUPPORTED_ELEMENT")?.message).toMatch(/<foo>/);
+  });
+
+  it("reopens Kalamo's export of a Group around a Clipping Mask as the same Nodes", () => {
+    const first = parseFile(
+      svg(
+        "",
+        '<defs><clipPath id="c"><rect width="5" height="5"/></clipPath></defs><g><g><g clip-path="url(#c)"><rect width="9" height="9"/></g></g></g>',
+      ),
+    );
+    const { doc } = createDocument({
+      id: "d",
+      name: "D",
+      artboards: [{ width: 100, height: 100 }],
+    });
+    const opened = { ...doc, nodes: new Map(first.nodes.map((n) => [n.id, n])) };
+    const shape = (f: typeof first) =>
+      f.nodes.map(({ index, ...rest }) => rest).sort((a, b) => (a.id < b.id ? -1 : 1));
+    expect(shape(parseFile(toSvg(opened)))).toEqual(shape(first));
   });
 
   it("gives the same Nodes on a second open of its export", () => {

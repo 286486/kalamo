@@ -1250,6 +1250,12 @@ describe("a nested <svg> opens as resvg draws it (#237)", () => {
       ),
     ],
     [
+      "a rotated parent, the content overflowing within the viewport's bounding box",
+      root(
+        '<g transform="rotate(45 100 100)"><svg x="50" y="50" width="100" height="100"><circle cx="50" cy="50" r="60" fill="#e4572e"/></svg></g>',
+      ),
+    ],
+    [
       "text inside",
       root(
         '<svg x="20" y="60" width="160" height="80" viewBox="0 0 80 40"><text x="4" y="30" font-family="Source Sans 3" font-size="28" fill="#000">Kalamo</text></svg>',
