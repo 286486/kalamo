@@ -210,7 +210,7 @@ export function documentService(env: Env, principal: Principal): DocumentService
   };
 }
 
-/** `src` with a WebP's data URL converted, as `mapImageSrc` gives it; a refusal goes in `refused`. */
+/** For `mapImageSrc`: a WebP data URL `src` converted to a PNG's; a refusal goes in `refused`. */
 function srcConverter(refused: Record<string, ErrorData>): SrcConverter {
   const convert = webpConverter();
   return async (src, path) => {

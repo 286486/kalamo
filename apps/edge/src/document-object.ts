@@ -1766,9 +1766,9 @@ const sizes = (files: Files) =>
 export type SrcConverter = (src: unknown, path: string) => Promise<unknown>;
 
 /**
- * `input` with each Image's `src`, inline children's too, replaced by `fn`'s result for it. `path`
- * is where the Worker and the Document Durable Object both report that `src`, so a refusal the
- * Worker records under it (`Options.refusedImages`) is found here (ADR-0100).
+ * `input` with each Image's `src`, inline children's too, replaced by `fn`'s result for it. `fn`
+ * gets the path the Worker and the Document Durable Object both report that `src` at, so a refusal
+ * the Worker records under it (`Options.refusedImages`) is found by `readStored` (ADR-0100).
  */
 export async function mapImageSrc(
   input: unknown,
