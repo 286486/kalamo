@@ -18,14 +18,14 @@ packages/render/fonts/LICENSE.md. Shipped unmodified.
 
 Noto Sans SC, version 2.004 (notofonts/noto-cjk Sans/SubsetOTF/SC), in
 packages/render/fonts: NotoSansSC-Regular.otf and NotoSansSC-Bold.otf
-Copyright 2014-2021 Adobe (http://www.adobe.com/). Noto is a trademark of Google Inc.
+© 2014-2021 Adobe (http://www.adobe.com/). Noto is a trademark of Google Inc.
 Licensed under the SIL Open Font License, Version 1.1, with no Reserved Font
 Name; the full text is in packages/render/fonts/LICENSE-NotoSansSC.txt.
 Shipped unmodified.
 
 Noto Sans KR, version 2.004 (notofonts/noto-cjk Sans/SubsetOTF/KR), in
 packages/render/fonts: NotoSansKR-Regular.otf and NotoSansKR-Bold.otf
-Copyright 2014-2021 Adobe (http://www.adobe.com/). Noto is a trademark of Google Inc.
+© 2014-2021 Adobe (http://www.adobe.com/). Noto is a trademark of Google Inc.
 Licensed under the SIL Open Font License, Version 1.1, with no Reserved Font
 Name; the full text is in packages/render/fonts/LICENSE-NotoSansKR.txt.
 Shipped unmodified.
@@ -52,5 +52,5 @@ tag v2.6.2; built from resvg 0.34.1, https://github.com/zimond/resvg rev
 Copyright the resvg-js and resvg authors.
 Licensed under the Mozilla Public License, Version 2.0
 (https://mozilla.org/MPL/2.0/). The source is at the URLs above. The wasm also
-contains Rust crates under their own permissive licenses, listed in those
-projects' manifests. Shipped unmodified.
+contains Rust crates under their own licenses, listed in those projects'
+manifests. Shipped unmodified.
