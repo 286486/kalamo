@@ -303,7 +303,7 @@ export function pencilResult(
 
 /** Why a held redraw sent nothing: the person's own edit in the window took its path off the Ink. */
 const DROPPED =
-  "The Pencil stroke was not applied: its path changed before Reverse Path Direction was answered.";
+  "The Pencil edit was not applied; its path changed before Reverse Path Direction was answered.";
 
 /** The Ink of the drag in progress, in document coordinates, and where a straight segment starts. */
 let ink: Point[] | null = null;
@@ -369,8 +369,8 @@ export function pencilUp(scale: number) {
           return;
         }
         const f = frame(now);
-        const ink = own.map((p) => applyTo(f, ...p));
-        const again = pencilResult(now, [nodeId], ink, o, scale);
+        const at = own.map((p) => applyTo(f, ...p));
+        const again = pencilResult(now, [nodeId], at, o, scale);
         if (!again || !("edit" in again)) {
           cancelDrag();
           useStore.setState({ notice: DROPPED });

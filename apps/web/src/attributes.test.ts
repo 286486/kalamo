@@ -829,10 +829,7 @@ it("drops a held Pencil redraw when another Actor edits its path before the answ
         expect(shown(p), label).toBe(stored(p));
       } else {
         // The redraw replaces the stretch from (80, 10) to (80, 25) on p as it then runs.
-        const [r] = openAfterSent();
-        const run = outcome === "accepted" ? r?.toReversed() : r;
-        expect(run?.slice(0, 3), label).toEqual(["50 0", "80 0", "80 10"]);
-        expect(run?.slice(-2), label).toEqual(["80 25", "80 30"]);
+        expectRedrawn(outcome, label);
         expect(stored(q), label).toBe(moved.d);
       }
     }
@@ -891,6 +888,32 @@ it("moves a held Pencil redraw's Ink with its path when the person moves the pat
     expectRedrawn(outcome, outcome);
     const stored = (useStore.getState().doc as Document).nodes.get(p) as PathNode;
     expect(stored.transform, outcome).toEqual([1, 0, 0, 1, 100, 50]);
+  }
+});
+
+it("keeps a held Pencil redraw's Ink in a rotated and scaled path's own coordinates", () => {
+  // p turned 90° and doubled: (x, y) in p is drawn at (150 - 2y, 20 + 2x).
+  const t = ([x, y]: readonly [number, number]): [number, number] => [150 - 2 * y, 20 + 2 * x];
+  for (const outcome of ["accepted", "rejected"] as const) {
+    const answer = pressOnOpen();
+    const [p] = useStore.getState().selection as [string, string];
+    const doc = structuredClone(useStore.getState().doc as Document);
+    (doc.nodes.get(p) as PathNode).transform = [0, 2, -2, 0, 150, 20];
+    useStore.setState({ doc });
+    pencilDown(t([80, 10]));
+    for (const q of [
+      [85, 12],
+      [90, 15],
+      [95, 18],
+      [90, 21],
+      [85, 23],
+      [80, 25],
+    ] as const)
+      pencilMove([t(q)], { shift: false, alt: false });
+    pencilUp(1);
+    ownMove(p, 100, 50);
+    answer(outcome);
+    expectRedrawn(outcome, outcome);
   }
 });
 
