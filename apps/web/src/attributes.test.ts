@@ -797,6 +797,37 @@ it("keeps the Pen on the Endpoint it continues when the answer comes while it dr
   expect(accepted).toEqual([["100 30", "80 30", "80 0", "50 0"]]);
 });
 
+// #282: the Document sent on reconnect that carries the press's reverse of the path the Pen
+// continues leaves the continuation on its Endpoint; one that also carries another Actor's reshape
+// of it ends the continuation.
+it("after a reconnect, ends a Pen continuation only when someone else changed its path", () => {
+  for (const theirs of [false, true]) {
+    const label = theirs ? "their reshape too" : "the press alone";
+    pressOnOpen();
+    const [p] = useStore.getState().selection as [string];
+    penDown([80, 30], 1);
+    penUp();
+    const now = useStore.getState().doc as Document;
+    const turned = reversed(now, p);
+    const after = theirs ? { ...turned, d: `${(turned as PathNode).d} M0 50 L9 50` } : turned;
+    const nodes = [...now.nodes.values()].map((n) => (n.id === p ? after : n));
+    useStore.setState(
+      stateAfter(useStore.getState(), message("document", { rev: now.rev + 1, nodes })),
+    );
+    runHeld();
+    expect(useStore.getState().pen === null, label).toBe(theirs);
+    penDown([100, 30], 1);
+    penUp();
+    finishPen();
+    if (theirs) {
+      expect(commands(), label).toEqual([]);
+      continue;
+    }
+    expect(useStore.getState().notice, label).toBeNull();
+    expect(openAfterSent(), label).toEqual([["100 30", "80 30", "80 0", "50 0"]]);
+  }
+});
+
 it("drops a held Pen edit when another Actor edits its path before the answer (ADR-0109)", () => {
   const answer = pressOnOpen();
   drawnEdits["a Pen continuing from an Endpoint"]?.();

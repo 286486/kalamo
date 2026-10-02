@@ -381,6 +381,7 @@ it("ends a continuation when another Actor edits or deletes its path, and only t
     "the continued subpath": tx({ updated: [moved(a, 0)] }),
     "another subpath": tx({ updated: [moved(a, 1)] }),
     "a deletion": tx({ deletedIds: [a] }),
+    "a deletion that skipped another object": tx({ deletedIds: [a], skippedIds: [b] }),
     "a reconnect after their edit": message("document", {
       rev: doc.rev + 1,
       nodes: nodes.map((n) => (n.id === a ? moved(a, 0) : n)),
@@ -401,9 +402,9 @@ it("ends a continuation when another Actor edits or deletes its path, and only t
     if (label in keeps) {
       penClick([30, 10], 1);
       finishPen();
-      const d = "M 0 0 L 10 0 L 20 10 L 30 10 M 0 20 L 10 20";
+      const finished = "M 0 0 L 10 0 L 20 10 L 30 10 M 0 20 L 10 20";
       expect(sent(), label).toEqual([
-        { type: "path_edit", input: { nodeId: a, ops: [{ op: "set_d", d }] } },
+        { type: "path_edit", input: { nodeId: a, ops: [{ op: "set_d", d: finished }] } },
       ]);
       continue;
     }
