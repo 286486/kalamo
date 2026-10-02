@@ -71,7 +71,7 @@ _Avoid_: Orphan point、Lone anchor
 _Avoid_: Primitive、Basic shape、Parametric shape
 
 **Compound Path（复合路径）**：
-多条子路径按同一填充规则视为一个 Path，用于挖洞。它是破坏性的：子路径不再各自独立。在模型中它就是一个 `path` Node：`d` 含多个子路径，`fillRule` 为 `nonzero`（默认）或 `evenodd`；没有单独的 `compound_path` 类型（ADR-0018）。Object > Compound Path > Make（Agent 用 `path_op make_compound_path`）把所选 Path 与 Live Shape 合成一个，取最后面对象的外观，重叠处挖洞；Release（`release_compound_path`）按子路径拆开（ADR-0107）。Layers 面板把未命名的 Compound Path 显示为 `<Compound Path>`。
+多条子路径按同一填充规则视为一个 Path，用于挖洞。它是破坏性的：子路径不再各自独立。在模型中它就是一个 `path` Node：`d` 含多个子路径，`fillRule` 为 `nonzero`（默认）或 `evenodd`；没有单独的 `compound_path` 类型（ADR-0018）。Object > Compound Path > Make（Agent 用 `path_op make_compound_path`）把所选 Path 与 Live Shape 合成一个，取最后面对象的外观并将其反向绕行，与同向绘制的对象重叠处挖洞；Release（`release_compound_path`）按子路径拆开（ADR-0107）。Layers 面板把未命名的 Compound Path 显示为 `<Compound Path>`。
 _Avoid_: Compound Shape（另一个概念）、Hole、Cutout
 
 **Compound Shape（复合形状）**：

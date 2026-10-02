@@ -1253,7 +1253,7 @@ describe("pathOp Compound Path Make and Release (ADR-0107)", () => {
     expect(out.deletedIds.sort()).toEqual([outer.id, inner.id].sort());
     expect(childrenOf(doc, layer).map((n) => n.id)).toEqual([ring.id]);
 
-    // An inner square already drawn the other way keeps its direction.
+    // Only the backmost is reversed, so an inner square drawn the other way fills, as in Illustrator.
     const { doc: d3, layer: l3, box: box3 } = scene();
     const [o3, i3] = createNodes(d3, [
       box3(0, 0, 30, 30),
@@ -1261,7 +1261,7 @@ describe("pathOp Compound Path Make and Release (ADR-0107)", () => {
     ]).nodes as [Node, Node];
     const [ring3] = make(d3, [o3.id, i3.id]).created as [PathNode];
     expect(splitD(ring3.d)[1]).toBe("M 10 10 L 10 20 L 20 20 L 20 10 Z");
-    expect(await filled(ring3.d)).toEqual({ contours: 2, area: 800 });
+    expect(await filled(ring3.d)).toEqual({ contours: 1, area: 900 });
 
     // Concentric circles: Skia keeps the hole as a second contour.
     const { doc: d2, layer: l2 } = scene();

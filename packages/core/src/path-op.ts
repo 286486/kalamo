@@ -29,7 +29,6 @@ import {
 import { deleteNodes, lookup, outermost } from "./edit.ts";
 import { KalamoError } from "./errors.ts";
 import { simplifySubpath } from "./fit.ts";
-import { frameEdges } from "./frame.ts";
 import { applyTo, IDENTITY, invert, multiply, scaleOf, transformSegments } from "./matrix.ts";
 import { formatPath, parsePath, pathBounds, type Segment, shapeSegments } from "./path.ts";
 import type {
@@ -899,10 +898,6 @@ const splitSubpaths = (segments: Segment[]): Segment[][] =>
 export const isCompoundPath = (n: Node): boolean =>
   n.type === "path" && (n.d.match(/M/g)?.length ?? 0) >= 2;
 
-/** Twice the area the subpath encloses, its sign its direction. */
-const signedArea = (subpath: Segment[]) =>
-  frameEdges(subpath).reduce((sum, [x1, y1, x2, y2]) => sum + x1 * y2 - x2 * y1, 0);
-
 /** `segments` with every subpath drawn the other way. */
 const reversed = (segments: Segment[]) =>
   fromAnchors(editSubpaths(toAnchors(segments), { op: "reverse" }, ""));
@@ -911,7 +906,7 @@ const reversed = (segments: Segment[]) =>
  * `path_op make_compound_path` (ADR-0107): the paths and Live Shapes in `nodeIds` become one new
  * path, every operand's subpaths in document order back to front, its transform composed in. It
  * takes the backmost operand's paint and fill rule and the frontmost's place, and the operands are
- * deleted. Under nonzero the backmost winds against the others, so where they overlap it is a hole.
+ * deleted. Under nonzero the backmost is reversed, so where same-way operands overlap it is a hole.
  */
 function makeCompoundPath(doc: Document, nodeIds: string[]): PathOpResult {
   const nodes = [...new Map(nodeIds.map((id, i) => [id, lookup(doc, id, `nodeIds[${i}]`)]))];
@@ -940,13 +935,8 @@ function makeCompoundPath(doc: Document, nodeIds: string[]): PathOpResult {
     transformSegments(shapeSegments(n), multiply(back, worldTransform(doc, n))),
   );
   const fillRule = backmost.type === "path" ? backmost.fillRule : "nonzero";
-  const sign = (s: Segment[]) => Math.sign(signedArea(splitSubpaths(s)[0] ?? []));
-  const turn = sign(each[0] as Segment[]);
-  const d = each.flatMap((s, k) =>
-    // Illustrator reverses the backmost; reversing the rest fills the same under nonzero, and
-    // each operand keeps its own holes.
-    k > 0 && fillRule === "nonzero" && sign(s) === turn ? reversed(s) : s,
-  );
+  // Illustrator reverses the backmost, whole, so its own holes stay holes.
+  const d = each.flatMap((s, k) => (k === 0 && fillRule === "nonzero" ? reversed(s) : s));
   const { visible, locked, opacity, blendMode, tags, meta } = backmost;
   const result: PathNode = {
     ...{ id: newId(), name: "", parentId: front.parentId, index: front.index, visible, locked },
