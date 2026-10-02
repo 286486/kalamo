@@ -11,6 +11,7 @@ import { embeddedImages, parseFile, resolveLinks } from "@kalamo/io";
 import { svgToPng } from "@kalamo/render";
 import type { DocumentService, PathEditReceipt, RasterRequest } from "@kalamo/sync";
 import type { Principal } from "./auth.ts";
+import { mapImageSrc, type SrcConverter } from "./document-object.ts";
 import { fetchImage } from "./fetch-image.ts";
 import { normaliseImage, webpConverter } from "./normalise-image.ts";
 import { checkDocuments, countCall, ownerStorage } from "./quotas.ts";
@@ -154,7 +155,7 @@ export function documentService(env: Env, principal: Principal): DocumentService
       const convert = srcConverter(refusedImages);
       const converted = await each(
         nodes,
-        async (n, i) => (await convertInput(n, `nodes[${i}]`, convert)) as typeof n,
+        async (n, i) => (await mapImageSrc(n, `nodes[${i}]`, convert)) as typeof n,
       );
       const withFiles = await withStorage(docId, converted, { ...opts, refusedImages });
       return unwrap(await target.createNodes(converted, actor, withFiles));
@@ -209,29 +210,7 @@ export function documentService(env: Env, principal: Principal): DocumentService
   };
 }
 
-/**
- * Node inputs with each Image's WebP data URL `src`, inline children's too, converted to a PNG's
- * (ADR-0100). A refused one keeps its `src`, and its error goes in `refused` under the path the
- * Document Durable Object reports it at, which fails that item as its own refusal would.
- */
-async function convertInput(input: unknown, path: string, convert: SrcConverter): Promise<unknown> {
-  if (typeof input !== "object" || input === null) return input;
-  const item = input as { type?: unknown; src?: unknown; children?: unknown };
-  if (item.type === "image") {
-    const src = await convert(item.src, `${path}.src`);
-    return src === item.src ? input : { ...item, src };
-  }
-  if (!Array.isArray(item.children)) return input;
-  const children = [];
-  for (const [k, c] of item.children.entries()) {
-    children.push(await convertInput(c, `${path}.children[${k}]`, convert));
-  }
-  return { ...item, children };
-}
-
-type SrcConverter = (src: unknown, path: string) => Promise<unknown>;
-
-/** `src` with a WebP's data URL converted, as `convertInput` does; a refusal goes in `refused`. */
+/** `src` with a WebP's data URL converted, as `mapImageSrc` gives it; a refusal goes in `refused`. */
 function srcConverter(refused: Record<string, ErrorData>): SrcConverter {
   const convert = webpConverter();
   return async (src, path) => {

@@ -687,7 +687,11 @@ export class DocumentObject extends DurableObject<Env> {
       "nodes",
       opts,
       async (input, path) =>
-        (await this.ingest(input, path, files, opts.refusedImages)) as NodeInput,
+        (await mapImageSrc(input, path, async (src, at) =>
+          typeof src === "string" && src.startsWith("data:")
+            ? hashed(readStored(src, at, opts.refusedImages), files)
+            : src,
+        )) as NodeInput,
     );
     if ("error" in ingested) return ingested;
     const { ready, merge } = ingested;
@@ -744,28 +748,6 @@ export class DocumentObject extends DurableObject<Env> {
     const merge = (failed: Failed[]) =>
       [...refused, ...failed.map(own)].sort((a, b) => a.index - b.index);
     return { ready, merge };
-  }
-
-  /** `input` with each Image's data URL, inline children's too, put in `files` and replaced by its id. */
-  private async ingest(
-    input: unknown,
-    path: string,
-    files: Files,
-    refused: Record<string, ErrorData> = {},
-  ): Promise<unknown> {
-    if (typeof input !== "object" || input === null) return input;
-    const item = input as { type?: unknown; src?: unknown; children?: unknown };
-    if (item.type === "image" && typeof item.src === "string" && item.src.startsWith("data:")) {
-      return { ...item, src: await hashed(readStored(item.src, `${path}.src`, refused), files) };
-    }
-    if (Array.isArray(item.children)) {
-      const children = [];
-      for (const [k, c] of item.children.entries()) {
-        children.push(await this.ingest(c, `${path}.children[${k}]`, files, refused));
-      }
-      return { ...item, children };
-    }
-    return input;
   }
 
   /**
@@ -1780,6 +1762,32 @@ const sizes = (files: Files) =>
   new Map<string, StoredImage>(
     [...files].map(([id, { bytes, ...info }]) => [id, { ...info, size: bytes.length }]),
   );
+
+export type SrcConverter = (src: unknown, path: string) => Promise<unknown>;
+
+/**
+ * `input` with each Image's `src`, inline children's too, replaced by `fn`'s result for it. `path`
+ * is where the Worker and this Durable Object both report that `src`, so a refusal the Worker
+ * records under it (`Options.refusedImages`) is found here (ADR-0100).
+ */
+export async function mapImageSrc(
+  input: unknown,
+  path: string,
+  fn: SrcConverter,
+): Promise<unknown> {
+  if (typeof input !== "object" || input === null) return input;
+  const item = input as { type?: unknown; src?: unknown; children?: unknown };
+  if (item.type === "image") {
+    const src = await fn(item.src, `${path}.src`);
+    return src === item.src ? input : { ...item, src };
+  }
+  if (!Array.isArray(item.children)) return input;
+  const children = [];
+  for (const [k, c] of item.children.entries()) {
+    children.push(await mapImageSrc(c, `${path}.children[${k}]`, fn));
+  }
+  return { ...item, children };
+}
 
 /** A data URL's file, or the Worker's refusal of it, a WebP it could not convert (ADR-0100). */
 function readStored(src: string, path: string, refused: Record<string, ErrorData> = {}) {
