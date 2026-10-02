@@ -165,9 +165,12 @@ function fit(pts: Point[], hat1: Point, hat2: Point, depth = 3): Point[][] | nul
       const den = dot(d1, d1) + dot(diff, d2);
       const v = den > 0 ? t - dot(diff, d1) / den : t;
       const w = Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : t;
-      // A step that lands farther from the point is not taken.
+      // A step that lands farther from the point is drawn back towards t by 1/8 of the way,
+      // then 2/8 of what is left, and so on, until it lands no farther; at 8/8 it is t.
       const far = (x: number) => Math.hypot(...sub(at(q, x), pts[i] as Point));
-      return far(w) > far(t) ? t : w;
+      let x = w;
+      for (let k = 1; far(x) > far(t); k++) x = (1 - k / 8) * x + (k / 8) * t;
+      return x;
     });
   };
   /** The worst inner point's distance to q at its parameter, over the tolerance, and where. */
