@@ -201,7 +201,7 @@ export function curvatureUp() {
       useStore.setState({ edit: { inputs: [input], commandIds: null } });
       commitDrag(w);
     },
-    { anchors: [p.key], segments: [] },
+    { anchors: [p.key], segments: [], previewed: true },
   );
 }
 

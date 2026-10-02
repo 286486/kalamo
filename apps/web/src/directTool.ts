@@ -199,15 +199,21 @@ export const directTool: CanvasTool = {
       if (!doc) return;
       const h = { ...onPoints(g, doc), from: doc };
       const holds = keysOf(h);
-      afterReverse(({ doc: now, anchors, segments }, w) => {
-        if (!now) return;
-        if (h.kind === "anchors") previewDrag({ ...h, keys: anchors, from: null }, now);
-        else if (anchors.length + segments.length < holds.anchors.length + holds.segments.length) {
-          cancelDrag();
-          return;
-        } else previewDrag(h, now);
-        commitDrag(w);
-      }, holds);
+      afterReverse(
+        ({ doc: now, anchors, segments }, w) => {
+          if (!now) return;
+          if (h.kind === "anchors") previewDrag({ ...h, keys: anchors, from: null }, now);
+          else if (
+            anchors.length + segments.length <
+            holds.anchors.length + holds.segments.length
+          ) {
+            cancelDrag();
+            return;
+          } else previewDrag(h, now);
+          commitDrag(w);
+        },
+        { ...holds, previewed: true },
+      );
     }
   },
   cancel(redraw) {

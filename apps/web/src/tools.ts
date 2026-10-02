@@ -265,7 +265,7 @@ function finishEdit(doc: Document, pen: PenPath) {
       }
       useStore.setState({ edit: { inputs: [c.input], commandIds: [send(c.command, w)] } });
     },
-    { anchors: keys, segments: [] },
+    { anchors: keys, segments: [], previewed: true },
   );
 }
 

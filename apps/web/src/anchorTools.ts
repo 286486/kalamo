@@ -263,21 +263,25 @@ export const anchorPointTool: CanvasTool = {
     // (ADR-0109).
     const { last } = g;
     const keys = keysOf(g);
-    afterReverse(({ doc: now, anchors, segments }, w) => {
-      const t = now && anchors.length + segments.length > 0 ? sameTarget(g, g.from, now) : null;
-      const input = now && t && (last ? dragInput(now, t, last.d, last.shift) : clickInput(now, t));
-      if (!input) {
-        if (last) cancelDrag();
-        return;
-      }
-      if (last) {
-        useStore.setState({ edit: { inputs: [input], commandIds: null } });
-        commitDrag(w);
-        return;
-      }
-      const commandIds = [send({ type: "path_edit", input }, w)];
-      useStore.setState({ edit: { inputs: [input], commandIds } });
-    }, keys);
+    afterReverse(
+      ({ doc: now, anchors, segments }, w) => {
+        const t = now && anchors.length + segments.length > 0 ? sameTarget(g, g.from, now) : null;
+        const input =
+          now && t && (last ? dragInput(now, t, last.d, last.shift) : clickInput(now, t));
+        if (!input) {
+          if (last) cancelDrag();
+          return;
+        }
+        if (last) {
+          useStore.setState({ edit: { inputs: [input], commandIds: null } });
+          commitDrag(w);
+          return;
+        }
+        const commandIds = [send({ type: "path_edit", input }, w)];
+        useStore.setState({ edit: { inputs: [input], commandIds } });
+      },
+      { ...keys, previewed: true },
+    );
   },
   cancel(redraw) {
     gesture = null;
