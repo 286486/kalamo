@@ -16,7 +16,7 @@ ADR-0018 made a Compound Path one `path` with several subpaths and a `fillRule`,
 
 ## Decision
 
-**Make and Release are the `path_op` ops `make_compound_path` and `release_compound_path`.** A new tool would add its whole definition to every turn (ADR-0088). The two ops add 510 bytes to `kalamo_path_op`, and the total stays under the 112,000-byte budget (110,557), so the budget does not rise.
+**Make and Release are the `path_op` ops `make_compound_path` and `release_compound_path`.** A new tool would add its whole definition to every turn (ADR-0088). The two ops add 621 bytes to `kalamo_path_op` (7,339 to 7,960), and the total stays under the 112,000-byte budget (110,002 to 110,623), so the budget does not rise.
 
 - **Make's operands.** Each Node in `nodeIds` is a path or a Live Shape, which counts by its outline. A repeated id counts once. A text, an Image, a Group, a Layer, a Clipping Path and an Opacity Mask fail `INVALID_PATH` at `nodeIds[i]`. A Clipping Path and a mask paint nothing, and a Group holds at most one of either (ADR-0021, ADR-0103). The hint for a text says it needs Create Outlines, which is not built yet. A Group is refused, unlike the Shape Modes (ADR-0104): taking its paths out would leave its other children behind, with no clear place. The browser selects the paths inside a selected Group instead, as Illustrator's Make uses the paths in a selected Group. Fewer than two operands fail `INVALID_PATH` at `nodeIds`.
 - **Make's geometry.** The result's `d` holds every operand's subpaths, operands back to front in paint order, each with its own `transform` and its ancestors' composed in, in the result parent's coordinates. The result has no `transform`. No boolean is run: every contour stays as it was.
