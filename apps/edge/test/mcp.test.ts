@@ -870,33 +870,28 @@ describe("a bitmap", () => {
     );
   });
 
-  it("names an SVG after the name it is opened with", async () => {
-    const svg =
-      '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><title>T</title></svg>';
-    expect(
-      (await call("kalamo_doc_open", { content: svg, name: "x.svg" })).structuredContent,
-    ).toMatchObject({ name: "x" });
-  });
-
+  // Each code is io's (read.test.ts); here, that a refused file creates no Document.
   it.each([
-    [WEBP_HEADER, "INVALID_IMAGE", expect.stringContaining("Convert the image to PNG")],
-    ["data:text/plain,hello", "INVALID_IMAGE", expect.any(String)],
-    [
-      `data:image/png;base64,${new Uint8Array(5 * 1024 * 1024 + 1).toBase64()}`,
-      "LIMIT_EXCEEDED",
-      expect.any(String),
-    ],
-  ])("refuses a data URL Place refuses, creating no Document: %#", async (content, code, hint) => {
+    [WEBP_HEADER, "INVALID_IMAGE"],
+    ["data:text/plain,hello", "INVALID_IMAGE"],
+    [`data:image/png;base64,${new Uint8Array(5 * 1024 * 1024 + 1).toBase64()}`, "LIMIT_EXCEEDED"],
+  ])("refuses a data URL Place refuses, creating no Document: %#", async (content, code) => {
     const count = async () =>
       (await call("kalamo_doc_list", {})).structuredContent.documents.length;
     const before = await count();
     expect(errorOf(await call("kalamo_doc_open", { content }))).toMatchObject({
       code,
-      hint,
       path: "content",
     });
     expect(await count()).toBe(before);
   });
+});
+
+it("names an SVG after the name it is opened with", async () => {
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><title>T</title></svg>';
+  expect(
+    (await call("kalamo_doc_open", { content: svg, name: "x.svg" })).structuredContent,
+  ).toMatchObject({ name: "x" });
 });
 
 it("opens and places an SVG set in CJK with one MISSING_GLYPHS for the file", async () => {

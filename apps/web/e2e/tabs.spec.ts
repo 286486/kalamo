@@ -113,23 +113,20 @@ test("Open file and a drop on the tab bar open a PNG at its pixel size; a WebP i
   ).structuredContent as { docId: string };
   await page.goto(`/docs/${docId}`);
   await expect(tabs(page)).toHaveText(["Host"]);
-  /** A File of the data URL's bytes, made in the page. */
-  const file = (url: string, name: string, type: string) =>
-    [url, name, type] as [string, string, string];
 
   const [chooser] = await Promise.all([
     page.waitForEvent("filechooser"),
     page.getByRole("button", { name: "Open file…" }).click(),
   ]);
   await (await chooser.element()).evaluate(
-    (input: HTMLInputElement, [url, name, type]) => {
+    (input: HTMLInputElement, [url = "", name = "", type]) => {
       const bytes = Uint8Array.from(atob(url.split(",")[1] ?? ""), (c) => c.charCodeAt(0));
       const data = new DataTransfer();
       data.items.add(new File([bytes], name, { type }));
       input.files = data.files;
       input.dispatchEvent(new Event("change", { bubbles: true }));
     },
-    file(RGB_3x2_PNG, "rgb.png", "image/png"),
+    [RGB_3x2_PNG, "rgb.png", "image/png"],
   );
   await expect(tabs(page)).toHaveText(["Host", "rgb"]);
   await expect(page.getByRole("tab", { name: "rgb" })).toHaveAttribute("aria-selected", "true");
@@ -174,10 +171,10 @@ test("Open file and a drop on the tab bar open a PNG at its pixel size; a WebP i
         new DragEvent("drop", { dataTransfer: data, bubbles: true, cancelable: true }),
       );
     }, args);
-  await drop(file(RGB_3x2_PNG, "dropped.png", "image/png"));
+  await drop([RGB_3x2_PNG, "dropped.png", "image/png"]);
   await expect(tabs(page)).toHaveText(["Host", "rgb", "dropped"]);
 
-  await drop(file(WEBP_HEADER, "photo.webp", "image/webp"));
+  await drop([WEBP_HEADER, "photo.webp", "image/webp"]);
   await expect(page.locator("body")).toContainText("Could not open photo.webp");
   await expect(page.locator("body")).toContainText("Convert the image to PNG");
   await expect(tabs(page)).toHaveText(["Host", "rgb", "dropped"]);

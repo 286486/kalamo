@@ -1,4 +1,11 @@
-import { checkImage, type ErrorData, IMAGE_ID, KalamoError, MAX_IMAGE_BYTES } from "@kalamo/core";
+import {
+  checkImage,
+  dataUrl,
+  type ErrorData,
+  IMAGE_ID,
+  KalamoError,
+  MAX_IMAGE_BYTES,
+} from "@kalamo/core";
 import { createMcpServer } from "@kalamo/mcp";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import {
@@ -172,15 +179,20 @@ async function openFile(request: Request, env: Env, principal: Principal): Promi
 
 /**
  * Open's body as `kalamo_doc_open`'s `content` (ADR-0098): text that starts as SVG or JSON does, or
- * any other UTF-8 text, as itself; anything else, a bitmap, as a data URL, which Open then checks
- * as Place does. A PNG's and a JPEG's first byte is never UTF-8; a GIF and a RIFF (WebP) file
+ * any other UTF-8 text, as itself; anything else, a bitmap, checked as Place checks it and passed
+ * as a data URL. A PNG's and a JPEG's first byte is never UTF-8; a GIF and a RIFF (WebP) file
  * start in ASCII, so they are told by their signature.
  */
 function openedContent(bytes: Uint8Array<ArrayBuffer>): string {
-  const text = new TextDecoder().decode(bytes);
-  const binary = /^(GIF8|RIFF)/.test(text) || text.includes("\uFFFD");
-  if (/^\uFEFF?\s*[<{]/.test(text) || !binary) return text;
-  return `data:application/octet-stream;base64,${bytes.toBase64()}`;
+  const head = new TextDecoder().decode(bytes.subarray(0, 1024));
+  if (/^\uFEFF?\s*[<{]/.test(head)) return new TextDecoder().decode(bytes);
+  if (!/^(GIF8|RIFF)/.test(head)) {
+    try {
+      return new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes);
+    } catch {}
+  }
+  // Checked before it is encoded, so a refused file is never copied.
+  return dataUrl(checkImage(bytes, "content"));
 }
 
 /**
