@@ -9,6 +9,7 @@ import {
   closestEnds,
   convertToPath,
   type Filled,
+  GEOMETRY_OPS,
   type Geometry,
   type OffsetStyle,
   operandLeaves,
@@ -1485,3 +1486,12 @@ describe("pathOp Compound Path Make and Release (ADR-0107)", () => {
 
 const IDENTITY_T = [1, 0, 0, 1, 0, 0];
 const splitD = (d: string) => d.split(/(?=M)/).map((s) => s.trim());
+
+describe("GEOMETRY_OPS", () => {
+  it.each(GEOMETRY_OPS)("refuses %s without the path geometry", (op) => {
+    const { doc, node } = setup("M0 0 L10 0 L10 10 Z");
+    expect(() => pathOp(doc, { nodeIds: [node.id], op, distance: 1 })).toThrow(
+      `${op} needs the path geometry (ADR-0034).`,
+    );
+  });
+});

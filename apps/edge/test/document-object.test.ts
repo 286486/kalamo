@@ -3,7 +3,9 @@ import { env } from "cloudflare:workers";
 import {
   columnChart,
   type DuplicateInput,
+  GEOMETRY_OPS,
   linesBox,
+  PATH_OP_TEXT,
   type PathOpInput,
   parseDocument,
   type Rect,
@@ -658,6 +660,28 @@ it("runs a path_op as one Transaction with its PATH_OP_TEXT summary, loading Pat
     "Divide Objects Below",
     "Reverse Path Direction",
   ]);
+});
+
+it("loads PathKit for a path_op in GEOMETRY_OPS and for no other", async () => {
+  const s = stub("pathop-geometry");
+  ok(await s.create({ docId: "pathop-geometry", name: "Doc", artboards, actor: "agent-a" }));
+  const ops = Object.keys(PATH_OP_TEXT) as PathOpInput["op"][];
+  const loaded = await runInDurableObject(s, async (instance) => {
+    const geometry = vi.spyOn(
+      instance as unknown as { geometry: () => Promise<unknown> },
+      "geometry",
+    );
+    const out: PathOpInput["op"][] = [];
+    for (const op of ops) {
+      geometry.mockClear();
+      await instance.pathOp({ nodeIds: ["nope"], op }, "agent-a");
+      if (geometry.mock.calls.length > 0) out.push(op);
+    }
+    return out;
+  });
+  expect(loaded).toEqual([...GEOMETRY_OPS].sort((a, b) => ops.indexOf(a) - ops.indexOf(b)));
+  expect(loaded).not.toContain("make_compound_path");
+  expect(loaded).not.toContain("reverse");
 });
 
 it("runs a Shape Mode on PathKit as one Transaction that one undo takes back, ids and all", async () => {

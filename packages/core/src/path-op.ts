@@ -204,7 +204,19 @@ export type ShapeMode = (typeof SHAPE_MODES)[number];
 export const COMBINING = [...SHAPE_MODES, ...PATHFINDERS] as const;
 /** A Shape Mode or a Pathfinder that combines like one. */
 export type Combining = (typeof COMBINING)[number];
-const isCombining = (op: string): op is Combining => (COMBINING as readonly string[]).includes(op);
+/**
+ * The ops that need the path geometry (ADR-0034): the service loads it for these alone, and
+ * `pathOp` refuses them without it.
+ */
+export const GEOMETRY_OPS = [
+  "outline_stroke",
+  "offset",
+  "divide_below",
+  ...COMBINING,
+] as const satisfies readonly PathOpInput["op"][];
+export type GeometryOp = (typeof GEOMETRY_OPS)[number];
+export const needsGeometry = (op: string): op is GeometryOp =>
+  (GEOMETRY_OPS as readonly string[]).includes(op);
 
 /** How a Stroke is drawn along its path, without its paint. */
 export type StrokeStyle = Pick<Stroke, "width" | "cap" | "join" | "miterLimit" | "dash">;
@@ -1040,8 +1052,7 @@ function cleanUp(doc: Document, input: z.output<typeof PathOpInput>): PathOpResu
 
 /**
  * `path_op` (REQUIREMENTS §6.4) on each path or Live Shape; every op but convert_to_path and
- * offset converts a Live Shape first (F-PATH-07), with a warning. outline_stroke, offset,
- * divide_below and the Shape Modes need `geometry`.
+ * offset converts a Live Shape first (F-PATH-07), with a warning. The GEOMETRY_OPS need `geometry`.
  */
 export function pathOp(doc: Document, raw: PathOpInput, geometry?: Geometry): PathOpResult {
   const input = PathOpInput.parse(raw);
@@ -1053,20 +1064,11 @@ export function pathOp(doc: Document, raw: PathOpInput, geometry?: Geometry): Pa
   if (op === "convert_to_path") {
     return { ...convertToPath(doc, nodeIds), deletedIds: [], warnings: [] };
   }
-  if (op === "outline_stroke") {
-    if (!geometry) throw new Error("outline_stroke needs the path geometry (ADR-0034).");
-    return outlineStrokes(doc, nodeIds, geometry);
-  }
-  if (op === "offset") {
-    if (!geometry) throw new Error("offset needs the path geometry (ADR-0034).");
-    return offset(doc, input, geometry);
-  }
-  if (op === "divide_below") {
-    if (!geometry) throw new Error("divide_below needs the path geometry (ADR-0034).");
-    return divideBelow(doc, nodeIds, geometry);
-  }
-  if (isCombining(op)) {
+  if (needsGeometry(op)) {
     if (!geometry) throw new Error(`${op} needs the path geometry (ADR-0034).`);
+    if (op === "outline_stroke") return outlineStrokes(doc, nodeIds, geometry);
+    if (op === "offset") return offset(doc, input, geometry);
+    if (op === "divide_below") return divideBelow(doc, nodeIds, geometry);
     return shapeMode(doc, nodeIds, op, geometry);
   }
   if (op === "make_compound_path") return makeCompoundPath(doc, nodeIds);
