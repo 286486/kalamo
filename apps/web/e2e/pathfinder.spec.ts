@@ -9,7 +9,7 @@ interface Entry {
   type: string;
 }
 
-/** A red rect at `x` behind a blue one at `x2`, both 40 × 40, open at Actual Size, both selected. */
+/** A red rect "Red" at x 20 behind a blue one "Blue" at `x2`, both 40 × 40 and selected. */
 async function setup(page: Page, request: APIRequestContext, x2: number) {
   const { docId, defaultLayerId: parentId } = (
     await call(request, "kalamo_doc_create", {
@@ -17,9 +17,10 @@ async function setup(page: Page, request: APIRequestContext, x2: number) {
       artboards: [{ width: 200, height: 100 }],
     })
   ).structuredContent;
-  const rect = (x: number, color: string) => ({
+  const rect = (x: number, color: string, name: string) => ({
     type: "rect",
     parentId,
+    name,
     x,
     y: 20,
     width: 40,
@@ -29,7 +30,7 @@ async function setup(page: Page, request: APIRequestContext, x2: number) {
   const ids = (
     await call(request, "kalamo_node_create", {
       docId,
-      nodes: [rect(20, "#FF0000"), rect(x2, "#0000FF")],
+      nodes: [rect(20, "#FF0000", "Red"), rect(x2, "#0000FF", "Blue")],
     })
   ).structuredContent.createdIds as string[];
   /** The Layer's children, bottom first. */
@@ -43,8 +44,6 @@ async function setup(page: Page, request: APIRequestContext, x2: number) {
       .structuredContent.nodes[0].appearance.fills[0].color;
   await page.goto(`/docs/${docId}`);
   await expect(page.getByTestId("status-bar")).toContainText(/\d+%/);
-  await page.keyboard.press("Control+1");
-  await expect(page.getByTestId("status-bar")).toContainText("100%");
   await page.keyboard.press("Control+A");
   await page.keyboard.press("Shift+Control+F9");
   const panel = page.getByRole("region", { name: "Pathfinder" });
@@ -79,7 +78,8 @@ test("Unite replaces two selected rects with one selected path, and one Ctrl+Z r
 
   await panel.getByRole("button", { name: "Unite" }).click();
   await expect.poll(art).toEqual([{ id: expect.any(String), type: "path" }]);
-  await expect.poll(selected).toEqual([expect.stringMatching(/path/i)]);
+  // The result takes the top operand's name (ADR-0104).
+  await expect.poll(selected).toEqual(["Blue"]);
   for (const m of await modes.all()) await expect(m).toBeDisabled();
 
   await page.keyboard.press("Control+Z");
@@ -98,9 +98,8 @@ test("Tab and Enter run Minus Front, whose result keeps the back rect's fill", a
   await expect.poll(art).toEqual([{ id: expect.any(String), type: "path" }]);
   const [result] = await art();
   expect(await fill(result?.id as string)).toBe("#FF0000");
-  // Enter pressed the button only: the canvas neither panned nor cleared the Selection.
-  await expect(page.getByTestId("status-bar")).toContainText("100%");
-  await expect.poll(selected).toHaveLength(1);
+  // Enter pressed the button only, and the result, named for Minus Front's back operand, is selected.
+  await expect.poll(selected).toEqual(["Red"]);
 });
 
 test("Intersect on disjoint rects shows the server's message and changes nothing", async ({
@@ -116,13 +115,9 @@ test("Intersect on disjoint rects shows the server's message and changes nothing
 test("one selected rect disables every Shape Mode", async ({ page, request }) => {
   const { modes, panel, selected } = await setup(page, request, 120);
   await expect(modes.first()).toBeEnabled();
-  // A click on empty Artboard deselects; one on the red rect, 60 pt left of the Artboard's centre
-  // at Actual Size, selects it alone.
-  const box = await page.getByTestId("canvas").boundingBox();
-  if (!box) throw new Error("no canvas");
-  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2 + 40);
-  await page.mouse.click(box.x + box.width / 2 - 60, box.y + box.height / 2);
-  await expect.poll(selected).toHaveLength(1);
+  // A click on Red's Layers row selects it alone.
+  await page.getByRole("button", { name: "Red", exact: true }).click();
+  await expect.poll(selected).toEqual(["Red"]);
   for (const m of await modes.all()) await expect(m).toBeDisabled();
   await expect(panel).toBeVisible();
 });
@@ -133,6 +128,9 @@ test("Space presses a focused Shape Mode rather than reaching the canvas's hand"
 }) => {
   const { art, panel } = await setup(page, request, 40);
   await panel.getByRole("button", { name: "Exclude" }).focus();
-  await page.keyboard.press("Space");
+  // Held, Space would show the Hand tool's cursor if it reached the canvas.
+  await page.keyboard.down("Space");
+  await expect(page.getByTestId("overlay")).not.toHaveCSS("cursor", "grab");
+  await page.keyboard.up("Space");
   await expect.poll(art).toEqual([{ id: expect.any(String), type: "path" }]);
 });
