@@ -1,5 +1,5 @@
 import { formatPath, fromAnchors } from "@kalamo/core";
-import { cancelDrag, commitDrag, drawDrawing, SELECTION, SLOP } from "./canvas.ts";
+import { cancelDrag, drawDrawing, SELECTION, SLOP } from "./canvas.ts";
 import {
   curvatureCancel,
   curvatureDown,
@@ -9,7 +9,7 @@ import {
   curveThrough,
 } from "./curvature.ts";
 import { anchorKey, anchorsOf, hasAnchors } from "./direct.ts";
-import { unheld, useStore } from "./store.ts";
+import { useStore } from "./store.ts";
 import type { CanvasTool } from "./toolbox.ts";
 import { drawing, finishPen, pathD } from "./tools.ts";
 
@@ -54,7 +54,6 @@ export const curvatureTool: CanvasTool = {
   },
   up(e) {
     curvatureUp();
-    commitDrag(unheld("the Curvature tool is not held yet (#276)"));
     e.redraw();
   },
   cancel(redraw) {
