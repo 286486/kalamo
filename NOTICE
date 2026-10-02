@@ -8,10 +8,30 @@ Third-party components bundled or redistributed with Kalamo are listed here
 together with their required attribution notices. This file is updated as
 dependencies are added.
 
-Source Sans 3 Regular (packages/render/fonts/SourceSans3-Regular.ttf)
-Copyright 2010-2024 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'.
+Source Sans 3, version 3.052 (adobe-fonts/source-sans 3.052R), in
+packages/render/fonts: SourceSans3-Regular.ttf, SourceSans3-It.ttf,
+SourceSans3-Bold.ttf, SourceSans3-BoldIt.ttf, SourceSans3-Black.ttf and
+SourceSans3-BlackIt.ttf
+Copyright 2010-2024 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'. All Rights Reserved. Source is a trademark of Adobe in the United States and/or other countries.
 Licensed under the SIL Open Font License, Version 1.1; the full text is in
 packages/render/fonts/LICENSE.md. Shipped unmodified.
+
+Noto Sans SC, version 2.004 (notofonts/noto-cjk Sans/SubsetOTF/SC), in
+packages/render/fonts: NotoSansSC-Regular.otf and NotoSansSC-Bold.otf
+© 2014-2021 Adobe (http://www.adobe.com/). Noto is a trademark of Google Inc.
+Licensed under the SIL Open Font License, Version 1.1, with no Reserved Font
+Name; the full text is in packages/render/fonts/LICENSE-NotoSansSC.txt.
+Shipped unmodified.
+
+Noto Sans KR, version 2.004 (notofonts/noto-cjk Sans/SubsetOTF/KR), in
+packages/render/fonts: NotoSansKR-Regular.otf and NotoSansKR-Bold.otf
+© 2014-2021 Adobe (http://www.adobe.com/). Noto is a trademark of Google Inc.
+Licensed under the SIL Open Font License, Version 1.1, with no Reserved Font
+Name; the full text is in packages/render/fonts/LICENSE-NotoSansKR.txt.
+Shipped unmodified.
+
+The generated font metrics in packages/core (source-sans-3, noto-sans-sc and
+noto-sans-kr) are derived from these fonts and remain under the same license.
 
 PathKit (pathkit-wasm 1.0.0, Skia PathOps and stroker compiled to WebAssembly;
 used by packages/geometry)
@@ -25,3 +45,12 @@ Copyright (c) 2010, Google Inc. All rights reserved.
 Licensed under the BSD 3-Clause License; the full text is in
 apps/edge/src/webp/COPYING, and Google's patent grant in
 apps/edge/src/webp/PATENTS. Compiled from the unmodified release.
+
+resvg-wasm 2.6.2 (@resvg/resvg-wasm, https://github.com/yisibl/resvg-js
+tag v2.6.2; built from resvg 0.34.1, https://github.com/zimond/resvg rev
+3495d870; used by packages/render in the Worker only)
+Copyright the resvg-js and resvg authors.
+Licensed under the Mozilla Public License, Version 2.0
+(https://mozilla.org/MPL/2.0/). The source is at the URLs above. The wasm also
+contains Rust crates under their own licenses, listed in those projects'
+manifests. Shipped unmodified.
