@@ -1279,7 +1279,11 @@ describe("pathOp Compound Path Make and Release (ADR-0107)", () => {
     const { doc, layer, box } = scene();
     const [under, back, group, over] = createNodes(doc, [
       box(0, 0, 5, 5),
-      { ...box(0, 0, 10, 10, "#00FF00"), name: "back" },
+      {
+        ...box(0, 0, 10, 10),
+        name: "back",
+        appearance: { fills: [{ color: "#00FF00" }], strokes: [{ color: "#000000", width: 1 }] },
+      },
       { type: "group", parentId: layer },
       box(0, 0, 5, 5),
     ]).nodes as [Node, Node, Node, Node];
@@ -1287,13 +1291,7 @@ describe("pathOp Compound Path Make and Release (ADR-0107)", () => {
       .nodes as [Node];
     // back scaled 2× at (100, 0), its 1 pt Stroke with it; front moved by (40, 20) in a Group
     // moved by (10, 0).
-    const stroke = { color: "#000000", width: 1, dash: [] };
-    doc.nodes.set(back.id, {
-      ...back,
-      opacity: 0.5,
-      transform: [2, 0, 0, 2, 100, 0],
-      appearance: { fills: [{ color: "#00FF00" }], strokes: [stroke] },
-    } as Node);
+    doc.nodes.set(back.id, { ...back, opacity: 0.5, transform: [2, 0, 0, 2, 100, 0] } as Node);
     doc.nodes.set(group.id, { ...group, transform: [1, 0, 0, 1, 10, 0] } as Node);
     doc.nodes.set(front.id, { ...front, transform: [1, 0, 0, 1, 40, 20] } as Node);
     const [made] = make(doc, [front.id, back.id]).created as [PathNode];
