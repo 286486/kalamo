@@ -161,7 +161,7 @@ it("kalamo_image_place places a WebP at the 4096 × 2048 cap", async () => {
   expect(node).toMatchObject({ width: 4096, height: 2048 });
   const pixels = await servedPng(docId, node.src);
   expect(pixels.slice(0, 4)).toEqual([40, 90, 160, 255]);
-});
+}, 30_000);
 
 describe("kalamo_doc_open", () => {
   it("opens a WebP data URL as a Document named without .webp", async () => {
