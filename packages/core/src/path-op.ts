@@ -18,6 +18,7 @@ import {
   bounds,
   childrenOf,
   createNodes,
+  isCompoundPath,
   isOpacityMask,
   MAX_NODES_PER_CREATE,
   mapPaint,
@@ -30,7 +31,7 @@ import { deleteNodes, lookup, outermost } from "./edit.ts";
 import { KalamoError } from "./errors.ts";
 import { simplifySubpath } from "./fit.ts";
 import { applyTo, IDENTITY, invert, multiply, scaleOf, transformSegments } from "./matrix.ts";
-import { formatPath, parsePath, pathBounds, type Segment } from "./path.ts";
+import { formatPath, parsePath, pathBounds, type Segment, shapeSegments } from "./path.ts";
 import type {
   Appearance,
   Document,
@@ -52,12 +53,16 @@ export const SHAPE_MODES = ["unite", "minus_front", "intersect", "exclude"] as c
 /** Illustrator's Pathfinders built so far, which combine as the Shape Modes do (ADR-0104). */
 export const PATHFINDERS = ["minus_back"] as const;
 
+/** Object > Compound Path's Make and Release (ADR-0107). */
+export const COMPOUND_PATH = ["make_compound_path", "release_compound_path"] as const;
+
 /**
  * `path_op` (REQUIREMENTS §6.4) so far: convert_to_path (Object > Shape > Expand Shape), reverse
  * (Reverse Path Direction), add_anchors (Add Anchor Points), join (Join), average (Average),
  * simplify (Simplify), outline_stroke (Outline Stroke), offset (Offset Path), divide_below (Divide
  * Objects Below), split_into_grid (Split Into Grid), clean_up (Clean Up) and the Pathfinder Shape
- * Modes unite, minus_front, intersect and exclude and the Pathfinder minus_back (ADR-0104).
+ * Modes unite, minus_front, intersect and exclude and the Pathfinder minus_back (ADR-0104), and
+ * Compound Path make_compound_path and release_compound_path (ADR-0107).
  */
 export const PathOpInput = z.strictObject({
   nodeIds: z
@@ -79,6 +84,7 @@ export const PathOpInput = z.strictObject({
     "clean_up",
     ...SHAPE_MODES,
     ...PATHFINDERS,
+    ...COMPOUND_PATH,
   ]),
   tolerance: z
     .number()
@@ -189,6 +195,8 @@ export const PATH_OP_TEXT: Record<PathOpInput["op"], { menu: string; summary: st
   intersect: { menu: "Intersect", summary: "Intersect" },
   exclude: { menu: "Exclude", summary: "Exclude" },
   minus_back: { menu: "Minus Back", summary: "Minus Back" },
+  make_compound_path: { menu: "Make", summary: "Make Compound Path" },
+  release_compound_path: { menu: "Release", summary: "Release Compound Path" },
 };
 
 export type ShapeMode = (typeof SHAPE_MODES)[number];
@@ -765,8 +773,14 @@ const EMPTY: Record<Combining, string> = {
   minus_back: "The objects behind cover all of the frontmost one.",
 };
 
-/** A Shape Mode operand's paths and Live Shapes, back to front; no Clipping Path or mask. */
-function operandLeaves(doc: Document, n: Node): WithAnchors[] {
+/** Why a text is refused where an outline is needed. */
+const OUTLINES_HINT = "A text has no outline until Create Outlines, still to come.";
+
+/**
+ * The paths and Live Shapes of `n` that paint, back to front, as a Shape Mode or Make takes a
+ * selected Node: a Group or Layer's leaves, no Clipping Path or mask, nor what a mask holds.
+ */
+export function operandLeaves(doc: Document, n: Node): WithAnchors[] {
   // A mask paints nothing (ADR-0103).
   if (isOpacityMask(n)) return [];
   if (n.type === "layer" || n.type === "group") {
@@ -800,13 +814,9 @@ function shapeMode(
       const what =
         node.type === "group" || node.type === "layer"
           ? `A ${node.type} with no path or Live Shape`
-          : "clipping" in node && node.clipping
-            ? "A Clipping Path"
-            : `A ${node.type}`;
+          : notOperandLeaf(node);
       const hint =
-        node.type === "text"
-          ? "A text has no outline until Create Outlines, still to come."
-          : "Name paths, Live Shapes, or Groups of them.";
+        node.type === "text" ? OUTLINES_HINT : "Name paths, Live Shapes, or Groups of them.";
       throw invalid(`nodeIds[${i}]`, `${what} is not a ${PATH_OP_TEXT[op].menu} operand.`, hint);
     }
     if (node.parentId === null) {
@@ -866,6 +876,129 @@ function shapeMode(
     message: "Also inside another operand, so it counted once, as part of that one.",
   }));
   return { created: [result], updated: [], deletedIds, warnings };
+}
+
+/**
+ * Each Node `nodeIds` names, once, with `at`, the `nodeIds[i]` that first names it; every id is
+ * looked up before any is checked.
+ */
+function eachNamed(doc: Document, nodeIds: string[]): { node: Node; at: string }[] {
+  const found = new Map<string, { node: Node; at: string }>();
+  for (const [i, id] of nodeIds.entries()) {
+    const at = `nodeIds[${i}]`;
+    const node = lookup(doc, id, at);
+    if (!found.has(id)) found.set(id, { node, at });
+  }
+  return [...found.values()];
+}
+
+/**
+ * What a refusal calls `node` when it is no path or Live Shape that paints, so no leaf Make, Release
+ * or a Shape Mode takes; else null.
+ */
+function notOperandLeaf(node: Node): string | null {
+  if (node.type !== "path" && !isLiveShape(node)) return article(node.type);
+  if (node.clipping) return "A Clipping Path";
+  // A Group holds one mask (ADR-0103).
+  return isOpacityMask(node) ? "An Opacity Mask" : null;
+}
+
+/** "A text", "An image". */
+const article = (type: string) => `${/^[aeiou]/.test(type) ? "An" : "A"} ${type}`;
+
+/** `segments` cut at each M, one list per subpath. */
+const splitSubpaths = (segments: Segment[]): Segment[][] =>
+  segments.reduce<Segment[][]>((out, s) => {
+    if (s.cmd === "M" || out.length === 0) out.push([]);
+    out.at(-1)?.push(s);
+    return out;
+  }, []);
+
+/** `segments` with every subpath drawn the other way. */
+const reversed = (segments: Segment[]) =>
+  fromAnchors(editSubpaths(toAnchors(segments), { op: "reverse" }, ""));
+
+/**
+ * `path_op make_compound_path` (ADR-0107): the paths and Live Shapes in `nodeIds` become one new
+ * path, every operand's subpaths in document order back to front, its transform composed in. It
+ * takes the backmost operand's paint and fill rule and the frontmost's place, and the operands are
+ * deleted. Under nonzero the backmost is reversed, so where same-way operands overlap it is a hole.
+ */
+function makeCompoundPath(doc: Document, nodeIds: string[]): PathOpResult {
+  const order = paintOrder(doc);
+  const operands = eachNamed(doc, nodeIds)
+    .map(({ node, at }) => {
+      const what = notOperandLeaf(node);
+      if (!what) return node as WithAnchors;
+      const hint =
+        node.type === "text"
+          ? OUTLINES_HINT
+          : "Name paths and Live Shapes; select the ones inside a Group.";
+      throw invalid(at, `${what} cannot be part of a Compound Path.`, hint);
+    })
+    .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+  const [backmost] = operands;
+  const front = operands.at(-1);
+  if (!backmost || !front || backmost === front) {
+    throw invalid("nodeIds", "Make joins two or more paths.", "List them in nodeIds.");
+  }
+  const parent = lookup(doc, front.parentId as string, "nodeIds");
+  const back = invert(worldTransform(doc, parent));
+  const each = operands.map((n) =>
+    transformSegments(shapeSegments(n), multiply(back, worldTransform(doc, n))),
+  );
+  const fillRule = backmost.type === "path" ? backmost.fillRule : "nonzero";
+  // Illustrator reverses the backmost, whole, so its own holes stay holes.
+  const d = each.flatMap((s, k) => (k === 0 && fillRule === "nonzero" ? reversed(s) : s));
+  const { visible, locked, opacity, blendMode, tags, meta } = backmost;
+  const result: PathNode = {
+    ...{ id: newId(), name: "", parentId: front.parentId, index: front.index, visible, locked },
+    opacity,
+    ...{ blendMode, tags, meta, type: "path", transform: IDENTITY, fillRule },
+    appearance: bake(backmost.appearance, multiply(back, worldTransform(doc, backmost))),
+    d: formatPath(d),
+  };
+  const deletedIds = operands.map((n) => n.id);
+  for (const id of deletedIds) doc.nodes.delete(id);
+  doc.nodes.set(result.id, result);
+  return { created: [result], updated: [], deletedIds, warnings: [] };
+}
+
+/**
+ * `path_op release_compound_path` (ADR-0107): each Compound Path in `nodeIds` becomes one path per
+ * subpath in its place, the first subpath backmost, each with all of its attributes but its name,
+ * as Illustrator names each `<Path>`.
+ */
+function releaseCompoundPath(doc: Document, nodeIds: string[]): PathOpResult {
+  const split = eachNamed(doc, nodeIds).map(({ node, at }) => {
+    const what =
+      node.type !== "path"
+        ? article(node.type)
+        : (notOperandLeaf(node) ?? (isCompoundPath(node) ? null : "A path with one subpath"));
+    if (what !== null || node.type !== "path") {
+      throw invalid(
+        at,
+        `${what} is not a Compound Path.`,
+        "Name a path whose d has two or more subpaths.",
+      );
+    }
+    return { node, subpaths: splitSubpaths(parsePath(node.d, "d")) };
+  });
+  const created: PathNode[] = [];
+  for (const { node, subpaths } of split) {
+    const siblings = childrenOf(doc, node.parentId);
+    const below = siblings.findLast((n) => n.index < node.index);
+    const above = siblings.find((n) => n.index > node.index);
+    const keys = generateNKeysBetween(below?.index ?? null, above?.index ?? null, subpaths.length);
+    doc.nodes.delete(node.id);
+    for (const [k, s] of subpaths.entries()) {
+      const index = keys[k] as string;
+      const path: PathNode = { ...node, id: newId(), name: "", index, d: formatPath(s) };
+      doc.nodes.set(path.id, path);
+      created.push(path);
+    }
+  }
+  return { created, updated: [], deletedIds: split.map((c) => c.node.id), warnings: [] };
 }
 
 /**
@@ -936,6 +1069,8 @@ export function pathOp(doc: Document, raw: PathOpInput, geometry?: Geometry): Pa
     if (!geometry) throw new Error(`${op} needs the path geometry (ADR-0034).`);
     return shapeMode(doc, nodeIds, op, geometry);
   }
+  if (op === "make_compound_path") return makeCompoundPath(doc, nodeIds);
+  if (op === "release_compound_path") return releaseCompoundPath(doc, nodeIds);
   if (op === "split_into_grid") return splitIntoGrid(doc, input);
   if (op === "join") return join(doc, input);
   if (op === "average") return average(doc, input);

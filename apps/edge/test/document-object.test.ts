@@ -682,6 +682,39 @@ it("runs a Shape Mode on PathKit as one Transaction that one undo takes back, id
   expect(ok(await s.info())).toMatchObject({ rev: 5 });
 });
 
+it("makes and releases a Compound Path as one Transaction each, that one undo takes back", async () => {
+  const { s, defaultLayerId, rectId } = await withRect("compound1");
+  const [innerId = ""] = ok(
+    await s.createNodes(
+      [{ ...rect, parentId: defaultLayerId, x: 2, y: 2, width: 4, height: 4 }],
+      "agent-a",
+    ),
+  ).createdIds;
+  const made = ok(
+    await s.pathOp({ nodeIds: [rectId, innerId], op: "make_compound_path" }, "agent-a"),
+  );
+  const [ringId = ""] = made.createdIds;
+  expect(made).toMatchObject({ rev: 4, deletedIds: expect.arrayContaining([rectId, innerId]) });
+  expect(await layerChildren(s)).toEqual([ringId]);
+  const released = ok(
+    await s.pathOp({ nodeIds: [ringId], op: "release_compound_path" }, "agent-a"),
+  );
+  expect(released).toMatchObject({ rev: 5, deletedIds: [ringId] });
+  expect(await layerChildren(s)).toEqual(released.createdIds);
+  expect(ok(await s.changes(3)).changes.map((c) => c.summary)).toEqual([
+    "Make Compound Path",
+    "Release Compound Path",
+  ]);
+  ok(await s.undo("agent-a"));
+  expect(await layerChildren(s)).toEqual([ringId]);
+  ok(await s.undo("agent-a"));
+  expect(await layerChildren(s)).toEqual([rectId, innerId]);
+  expect(
+    await s.pathOp({ nodeIds: [rectId], op: "release_compound_path" }, "agent-a"),
+  ).toMatchObject({ error: { code: "INVALID_PATH", path: "nodeIds[0]" } });
+  expect(ok(await s.info())).toMatchObject({ rev: 7 });
+});
+
 it("creates a Column Graph as one Transaction that one undo takes back whole", async () => {
   const { s, defaultLayerId, rectId } = await withRect("chart1");
   const { node } = columnChart({

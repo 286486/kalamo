@@ -6,6 +6,8 @@ import {
   type Item,
   keysOf,
   type Menu,
+  makeTargets,
+  releaseTargets,
   shapeModeTargets,
   shortcut,
 } from "./menu.ts";
@@ -36,6 +38,11 @@ it("names a key press in Illustrator's Windows notation, Cmd as Ctrl", () => {
     "Shift+Ctrl+]",
   );
   expect(keysOf(press("{", { metaKey: true, shiftKey: true }, "BracketLeft"))).toBe("Shift+Ctrl+[");
+  const shifted8 = { altKey: true, shiftKey: true, ctrlKey: true };
+  expect(keysOf(press("*", shifted8, "Digit8"))).toBe("Alt+Shift+Ctrl+8");
+  // AZERTY types - on Digit6, and Swiss German + on Shift+Digit1.
+  expect(keysOf(press("-", { ctrlKey: true }, "Digit6"))).toBe("Ctrl+-");
+  expect(keysOf(press("+", { ctrlKey: true, shiftKey: true }, "Digit1"))).toBe("Ctrl+=");
 });
 
 it("shows a shortcut as the platform's menus do", () => {
@@ -68,6 +75,11 @@ it("finds the Menu Item a shortcut runs", () => {
   expect(findByKeys(menus, "Shift+Ctrl+A")?.label).toBe("Deselect");
   expect(findByKeys(menus, "Ctrl+7")?.label).toBe("Make");
   expect(findByKeys(menus, "Alt+Ctrl+7")?.label).toBe("Release");
+  expect(findByKeys(menus, "Ctrl+8")?.run).toBeDefined();
+  const compound = (menus[2] as Menu).items.find(
+    (i): i is Menu => i !== "-" && i.label === "Compound Path",
+  );
+  expect(leaves(compound?.items ?? []).map((i) => i.keys)).toEqual(["Ctrl+8", "Alt+Shift+Ctrl+8"]);
   expect(findByKeys(menus, "Shift+Ctrl+]")?.label).toBe("Bring to Front");
   expect(findByKeys(menus, "Ctrl+]")?.label).toBe("Bring Forward");
   expect(findByKeys(menus, "Ctrl+[")?.label).toBe("Send Backward");
@@ -273,4 +285,60 @@ it("runs a Shape Mode on two or more editable Nodes, a Group as one, never for a
   expect(targets(["inside", "a"])).toEqual([]);
   expect(targets(["a", "b"], "viewer")).toEqual([]);
   expect(findByKeys(menus, "Shift+Ctrl+F9")?.label).toBe("Pathfinder");
+});
+
+it("makes a Compound Path of the editable paths and Live Shapes, those in Groups too, never a mask's", () => {
+  const { doc, defaultLayerId: parentId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 200, height: 100 }],
+  });
+  const leaf = { type: "rect", x: 0, y: 0, width: 10, height: 10 } as const;
+  const rect = { ...leaf, parentId };
+  const { keyMap } = createNodes(doc, [
+    { ...rect, clientKey: "a" },
+    { ...rect, clientKey: "b" },
+    { ...rect, clientKey: "locked" },
+    { ...rect, clientKey: "hidden" },
+    { type: "text", clientKey: "t", parentId, x: 0, y: 0, content: "Hi" },
+    { type: "path", clientKey: "ring", parentId, d: "M0 0 L9 0 L9 9 Z M1 1 L2 1 L2 2 Z" },
+    {
+      type: "group",
+      clientKey: "g",
+      parentId,
+      children: [
+        { ...leaf, clientKey: "g1" },
+        { ...leaf, clientKey: "gLocked" },
+        { type: "group", clientKey: "mask", children: [{ ...leaf, clientKey: "m1" }] },
+      ],
+    },
+    {
+      type: "group",
+      clientKey: "ringGroup",
+      parentId,
+      children: [{ type: "path", clientKey: "gRing", d: "M0 0 L9 0 L9 9 Z M1 1 L2 1 L2 2 Z" }],
+    },
+  ]);
+  const id = (k: string) => keyMap[k] as string;
+  for (const [k, patch] of [
+    ["locked", { locked: true }],
+    ["gLocked", { locked: true }],
+    ["hidden", { visible: false }],
+    ["mask", { opacityMask: { clip: true, invert: false, link: true } }],
+  ] as const) {
+    doc.nodes.set(id(k), { ...(doc.nodes.get(id(k)) as Node), ...patch } as Node);
+  }
+  const make = (keys: string[]) => makeTargets({ doc, selection: keys.map(id) });
+  const release = (keys: string[]) => releaseTargets({ doc, selection: keys.map(id) });
+  expect(make(["a", "b"])).toEqual([id("a"), id("b")]);
+  expect(make(["a"])).toEqual([]);
+  expect(make(["a", "t"])).toEqual([]);
+  expect(make(["a", "t", "b"])).toEqual([id("a"), id("b")]);
+  expect(make(["a", "locked"])).toEqual([]);
+  expect(make(["a", "hidden"])).toEqual([]);
+  expect(make(["g", "a"])).toEqual([id("g1"), id("a")]);
+  expect(make(["g"])).toEqual([]);
+  expect(release(["ring", "a", "t"])).toEqual([id("ring")]);
+  expect(release(["a", "g"])).toEqual([]);
+  expect(release(["ringGroup"])).toEqual([id("gRing")]);
 });

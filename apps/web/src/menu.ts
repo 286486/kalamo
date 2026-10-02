@@ -2,7 +2,9 @@ import {
   ARRANGE,
   type Combining,
   type Document,
+  isCompoundPath,
   type Node,
+  operandLeaves,
   PATH_OP_TEXT,
   type PathOpInput,
   type ReorderOp,
@@ -137,9 +139,8 @@ export const shapeModeTargets = (s: Pick<State, "doc" | "selection" | "role">) =
   return nodeIds.length >= 2 ? nodeIds : [];
 };
 
-/** Runs a Shape Mode or Pathfinder on the Selection; its result becomes the Selection, as in Illustrator. */
-export function shapeMode(op: Combining) {
-  const nodeIds = shapeModeTargets(useStore.getState());
+/** Runs `op` on `nodeIds`; the Nodes it creates become the Selection, as in Illustrator. */
+function selectingPathOp(nodeIds: string[], op: PathOpInput["op"]) {
   if (nodeIds.length === 0) return;
   const commandId = send({ type: "path_op", input: { nodeIds, op } });
   useStore.setState((s) => ({
@@ -147,6 +148,38 @@ export function shapeMode(op: Combining) {
     pending: [...s.pending, { commandId, nodes: [], select: true }],
   }));
 }
+
+/** Runs a Shape Mode or Pathfinder on the Selection. */
+export const shapeMode = (op: Combining) =>
+  selectingPathOp(shapeModeTargets(useStore.getState()), op);
+
+/**
+ * Object > Compound Path > Make's operands: the selected paths and Live Shapes, and those that paint
+ * in a selected Group, editable, two or more (ADR-0107).
+ */
+export const makeTargets = ({ doc, selection }: Pick<State, "doc" | "selection">) => {
+  const nodeIds = doc ? compoundParts(doc, selection).map((n) => n.id) : [];
+  return nodeIds.length >= 2 ? nodeIds : [];
+};
+
+/** Object > Compound Path > Release's targets: the selected paths of two or more subpaths. */
+export const releaseTargets = ({ doc, selection }: Pick<State, "doc" | "selection">) =>
+  doc
+    ? compoundParts(doc, selection)
+        .filter(isCompoundPath)
+        .map((n) => n.id)
+    : [];
+
+/** The Selection's editable leaves that core's operandLeaves takes, each once. */
+const compoundParts = (doc: Document, selection: string[]) => [
+  ...new Set(
+    selection
+      .map((id) => doc.nodes.get(id))
+      .filter((n): n is Node => editable(doc, n))
+      .flatMap((n) => operandLeaves(doc, n))
+      .filter((n) => editable(doc, n)),
+  ),
+];
 
 /** An Object > Arrange item: restacks each selected Node in its own parent (ADR-0074). */
 const arrange = (op: ReorderOp, keys: string): MenuItem => ({
@@ -497,6 +530,24 @@ export function documentMenus(tabs: {
               },
             ],
           },
+          {
+            label: "Compound Path",
+            items: [
+              {
+                label: PATH_OP_TEXT.make_compound_path.menu,
+                keys: "Ctrl+8",
+                enabled: (s) => makeTargets(s).length > 0,
+                run: () => selectingPathOp(makeTargets(useStore.getState()), "make_compound_path"),
+              },
+              {
+                label: PATH_OP_TEXT.release_compound_path.menu,
+                keys: "Alt+Shift+Ctrl+8",
+                enabled: (s) => releaseTargets(s).length > 0,
+                run: () =>
+                  selectingPathOp(releaseTargets(useStore.getState()), "release_compound_path"),
+              },
+            ],
+          },
         ]),
         // A viewer isolates as it selects (ADR-0057).
         {
@@ -622,6 +673,8 @@ export function keysOf(
   let key = e.key;
   // macOS Option types another character, such as ß for S; the physical key names it then.
   if (key.length === 1 && key > "~") key = e.code.replace(/^(Key|Digit)/, "");
+  // Shift+8 types *, and Illustrator names the digit key; + and AZERTY's unshifted - keep theirs.
+  else if (e.shiftKey && key !== "+" && /^Digit\d$/.test(e.code)) key = e.code.slice(5);
   // Ctrl++ is Shift+Ctrl+= on a US keyboard, and Ctrl+= wherever + has a key of its own.
   const plus = key === "+";
   if (plus) key = "=";

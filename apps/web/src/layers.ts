@@ -4,6 +4,7 @@ import {
   type Document,
   type DuplicateInput,
   isClippingPath,
+  isCompoundPath,
   KalamoError,
   lockedIn,
   type Node,
@@ -31,18 +32,21 @@ const AUTO_NAMES: Record<Exclude<Node["type"], "text">, string> = {
 /**
  * What the Layers panel shows for a Node whose `name` is empty, a text's content; never stored
  * (ADR-0012). A Clip Group, a Clipping Path and a linked Image take Illustrator's names
- * (ADR-0021, ADR-0042); a clipped Layer stays a Layer (ADR-0053).
+ * (ADR-0021, ADR-0042), and so does a Compound Path (ADR-0107); a clipped Layer stays a Layer
+ * (ADR-0053).
  */
 export const autoName = (doc: Document, node: Node) =>
   node.type === "group" && clippingPath(doc, node)
     ? "<Clip Group>"
     : isClippingPath(node)
       ? "<Clipping Path>"
-      : node.type === "text"
-        ? node.content.replaceAll("\n", " ")
-        : node.type === "image" && node.file !== undefined
-          ? "<Linked File>"
-          : AUTO_NAMES[node.type];
+      : isCompoundPath(node)
+        ? "<Compound Path>"
+        : node.type === "text"
+          ? node.content.replaceAll("\n", " ")
+          : node.type === "image" && node.file !== undefined
+            ? "<Linked File>"
+            : AUTO_NAMES[node.type];
 
 /** A Node's name in the Layers panel and the isolation bar: its own, else its Auto-name. */
 export const nameOf = (doc: Document, node: Node) => node.name || autoName(doc, node);
