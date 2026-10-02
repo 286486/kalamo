@@ -3,6 +3,7 @@ import { toSvg } from "@kalamo/io/write";
 import { drawDocument } from "@kalamo/render/canvas";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { AnchorsBar } from "./AnchorsBar.tsx";
+import { AttributesPanel } from "./AttributesPanel.tsx";
 import { type AreaPill, drawAreas, drawPeers, drawPending, SELECTION } from "./canvas.ts";
 import { anchorsOf, hasAnchors } from "./direct.ts";
 import { drawnLazyFamilies, loadFamily } from "./fonts.ts";
@@ -76,6 +77,7 @@ export function Viewer({ docId }: { docId: string }) {
     layersShown,
     gradientShown,
     pathfinderShown,
+    attributesShown,
     paintPreview,
     tool,
     peers,
@@ -517,8 +519,8 @@ export function Viewer({ docId }: { docId: string }) {
       <IsolationBar />
       <AnchorsBar />
       <Tools />
-      {(layersShown || gradientShown || pathfinderShown) && (
-        // Illustrator's panel dock, on the right: Gradient, Pathfinder, then Layers.
+      {(layersShown || gradientShown || pathfinderShown || attributesShown) && (
+        // Illustrator's panel dock, on the right: Gradient, Pathfinder, Attributes, then Layers.
         <div
           style={{
             position: "absolute",
@@ -535,6 +537,7 @@ export function Viewer({ docId }: { docId: string }) {
         >
           {gradientShown && <GradientPanel />}
           {pathfinderShown && <PathfinderPanel />}
+          {attributesShown && <AttributesPanel />}
           {layersShown && <Layers />}
         </div>
       )}

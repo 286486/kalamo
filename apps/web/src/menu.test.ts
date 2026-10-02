@@ -165,6 +165,7 @@ it("disables every entry that changes the Document for a viewer, and Share… fo
     "Layers",
     "Gradient",
     "Pathfinder",
+    "Attributes",
     "Isolate Selected Path",
   ];
   expect(enabled("viewer").sort()).toEqual(reading.sort());
@@ -285,6 +286,7 @@ it("runs a Shape Mode on two or more editable Nodes, a Group as one, never for a
   expect(targets(["inside", "a"])).toEqual([]);
   expect(targets(["a", "b"], "viewer")).toEqual([]);
   expect(findByKeys(menus, "Shift+Ctrl+F9")?.label).toBe("Pathfinder");
+  expect(findByKeys(menus, keysOf(press("F11", { metaKey: true })))?.label).toBe("Attributes");
 });
 
 it("makes a Compound Path of the editable paths and Live Shapes, those in Groups too, never a mask's", () => {

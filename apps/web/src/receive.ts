@@ -86,7 +86,8 @@ export interface PendingCreate {
 
 /**
  * A Direct Selection drag: one `path_edit` per path. `commandIds`, one per input, is set once they
- * are sent; each answer or rejection takes its path out, and the preview lasts until the last one.
+ * are sent; each answer or rejection takes its paths out, and the preview lasts until the last one.
+ * One command may answer several inputs, as the Attributes panel's `path_reverse` does.
  */
 export interface PathDrag {
   inputs: PathEditInput[];
@@ -388,12 +389,12 @@ export function previewOp(
   }
 }
 
-/** The drag without the path whose command `id` was answered or rejected; null once none is left. */
+/** The drag without the paths whose command `id` was answered or rejected; null once none is left. */
 function settle(edit: PathDrag | null, id: string | undefined): { edit?: PathDrag | null } {
-  const k = id && edit?.commandIds ? edit.commandIds.indexOf(id) : -1;
-  if (!edit?.commandIds || k < 0) return {};
-  const inputs = edit.inputs.filter((_, i) => i !== k);
-  const commandIds = edit.commandIds.filter((_, i) => i !== k);
+  const ids = edit?.commandIds;
+  if (!edit || !ids || !id || !ids.includes(id)) return {};
+  const inputs = edit.inputs.filter((_, i) => ids[i] !== id);
+  const commandIds = ids.filter((c) => c !== id);
   return { edit: inputs.length > 0 ? { inputs, commandIds } : null };
 }
 

@@ -1554,3 +1554,66 @@ it("writes several Nodes' paints from the Gradient panel as one Transaction and 
   expect(ok(await s.undo("user"))).toMatchObject({ rev: 4 });
   expect(await paints()).toEqual(before);
 });
+
+it("sets the Attributes panel's fill rule and subpath directions, each one Transaction and one undo step (ADR-0108)", async () => {
+  const s = stub("attributes");
+  const { defaultLayerId } = ok(
+    await s.create({ docId: "attributes", name: "Doc", artboards, actor: "user" }),
+  );
+  const square = (x: number, w: number) =>
+    `M${x} ${x} L${x + w} ${x} L${x + w} ${x + w} L${x} ${x + w} Z`;
+  const path = { type: "path" as const, parentId: defaultLayerId };
+  const { createdIds: ids } = ok(
+    await s.createNodes(
+      [
+        { ...path, d: `${square(0, 30)} ${square(10, 10)}` },
+        { ...path, d: `${square(50, 30)} ${square(60, 10)}` },
+      ],
+      "user",
+    ),
+  );
+  const [a, b] = ids as [string, string];
+  const edit = (command: object, commandId: string) =>
+    runInDurableObject(s, (instance) =>
+      (instance as unknown as { edit: (...a: unknown[]) => unknown }).edit(
+        command,
+        "user",
+        commandId,
+      ),
+    ) as Promise<{ rev: number; updatedIds: string[] } | { error: { code: string } }>;
+  const read = async () =>
+    ok(await s.get(ids, "full", "user")).nodes.map((n) => {
+      const { d, fillRule } = n as { d: string; fillRule: string };
+      return { d, fillRule };
+    });
+  const before = await read();
+  expect(await edit({ type: "fill_rule", nodeIds: ids, fillRule: "evenodd" }, "c1")).toMatchObject({
+    rev: 3,
+    updatedIds: ids,
+  });
+  expect((await read()).map((n) => n.fillRule)).toEqual(["evenodd", "evenodd"]);
+  const subpaths = [
+    { nodeId: a, subpath: 1 },
+    { nodeId: b, subpath: 0 },
+    { nodeId: b, subpath: 1 },
+  ];
+  expect(await edit({ type: "path_reverse", subpaths }, "c2")).toMatchObject({
+    rev: 4,
+    updatedIds: [a, b],
+  });
+  const reversed = await read();
+  expect(reversed.map((n) => n.d)).toEqual([
+    "M 0 0 L 30 0 L 30 30 L 0 30 Z M 10 10 L 10 20 L 20 20 L 20 10 Z",
+    "M 50 50 L 50 80 L 80 80 L 80 50 Z M 60 60 L 60 70 L 70 70 L 70 60 Z",
+  ]);
+  // A missing subpath is refused and nothing changes.
+  expect(
+    await edit({ type: "path_reverse", subpaths: [{ nodeId: a, subpath: 2 }] }, "c3"),
+  ).toMatchObject({
+    error: { code: "INVALID_PATH" },
+  });
+  expect(ok(await s.undo("user"))).toMatchObject({ rev: 5 });
+  expect((await read()).map((n) => n.d)).toEqual(before.map((n) => n.d));
+  ok(await s.undo("user"));
+  expect(await read()).toEqual(before);
+});

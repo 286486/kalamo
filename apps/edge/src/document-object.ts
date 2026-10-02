@@ -570,6 +570,35 @@ export class DocumentObject extends DurableObject<Env> {
       nodeIds: (c) => [c.input.nodeId],
       run: (c, actor, commandId) => this.pathEdit(c.input, actor, { commandId }),
     },
+    fill_rule: {
+      nodeIds: (c) => c.nodeIds,
+      run: (c, actor, commandId) =>
+        this.updateNodes(
+          c.nodeIds.map((nodeId) => ({ nodeId, patch: { fillRule: c.fillRule } })),
+          actor,
+          { commandId },
+        ),
+    },
+    path_reverse: {
+      nodeIds: (c) => c.subpaths.map((s) => s.nodeId),
+      // One path_edit per path, its subpaths' reverse ops in order.
+      run: (c, actor, commandId) =>
+        this.write(actor, { commandId }, PATH_OP_TEXT.reverse.summary, (doc) => {
+          const byNode = new Map<string, number[]>();
+          for (const { nodeId, subpath } of c.subpaths) {
+            byNode.set(nodeId, [...(byNode.get(nodeId) ?? []), subpath]);
+          }
+          const edits = [...byNode].map(([nodeId, subpaths]) =>
+            editPath(doc, { nodeId, ops: subpaths.map((subpath) => ({ op: "reverse", subpath })) }),
+          );
+          return {
+            updated: edits.map((e) => e.node),
+            warnings: edits.flatMap((e) => e.warnings),
+            failed: [],
+            summary: PATH_OP_TEXT.reverse.summary,
+          };
+        }),
+    },
     path_op: {
       nodeIds: (c) => c.input.nodeIds ?? [],
       run: (c, actor, commandId) => this.pathOp(c.input, actor, { commandId }),

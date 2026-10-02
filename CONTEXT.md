@@ -71,7 +71,7 @@ _Avoid_: Orphan point、Lone anchor
 _Avoid_: Primitive、Basic shape、Parametric shape
 
 **Compound Path（复合路径）**：
-多条子路径按同一填充规则视为一个 Path，用于挖洞。它是破坏性的：子路径不再各自独立。在模型中它就是一个 `path` Node：`d` 含多个子路径，`fillRule` 为 `nonzero`（默认）或 `evenodd`；没有单独的 `compound_path` 类型（ADR-0018）。Object > Compound Path > Make（Agent 用 `path_op make_compound_path`）把所选 Path 与 Live Shape 合成一个，取最后面对象的外观并将其反向绕行，与同向绘制的对象重叠处挖洞；Release（`release_compound_path`）按子路径拆开（ADR-0107）。Layers 面板把未命名的 Compound Path 显示为 `<Compound Path>`。
+多条子路径按同一填充规则视为一个 Path，用于挖洞。它是破坏性的：子路径不再各自独立。在模型中它就是一个 `path` Node：`d` 含多个子路径，`fillRule` 为 `nonzero`（默认）或 `evenodd`；没有单独的 `compound_path` 类型（ADR-0018）。Object > Compound Path > Make（Agent 用 `path_op make_compound_path`）把所选 Path 与 Live Shape 合成一个，取最后面对象的外观并将其反向绕行，与同向绘制的对象重叠处挖洞；Release（`release_compound_path`）按子路径拆开（ADR-0107）。Attributes 面板切换其填充规则，并设置 Direct Selection 所选子路径的方向（ADR-0108）。Layers 面板把未命名的 Compound Path 显示为 `<Compound Path>`。
 _Avoid_: Compound Shape（另一个概念）、Hole、Cutout
 
 **Compound Shape（复合形状）**：
@@ -204,6 +204,9 @@ Window > Gradient（Ctrl+F9）打开的停靠面板，编辑 Selection 中各叶
 **Pathfinder panel（路径查找器面板）**：
 Window > Pathfinder（Shift+Ctrl+F9）打开的停靠面板。目前有 Shape Modes 一行（Unite、Minus Front、Intersect、Exclude）和 Pathfinders 一行（目前只有 Minus Back；Divide、Trim、Merge、Crop、Outline 待做），对 Selection 中可编辑的 Node（选中的 Group 算一个）执行扩展后的 `path_op`，结果 Path 成为 Selection，一步撤销（ADR-0104）。
 _Avoid_: Boolean panel
+
+**Attributes panel（属性面板）**：
+Window > Attributes（Ctrl+F11）打开的停靠面板，目前有决定 Compound Path 如何填充的两行按钮：Use Non-Zero Winding Fill Rule / Use Even-Odd Fill Rule 设置所选 Path（含所选 Group 中的 Path）的 `fillRule`；Reverse Path Direction Off / On 设置 Direct Selection 所选子路径的方向（仅 nonzero 的 Compound Path；On 为屏幕上顺时针，Make 结果中最后面子路径为 Off、洞为 On）。按钮是设置而非切换，取值不一致时都不按下；每次按下一个 Transaction，值未变则不发送（ADR-0108）。
 
 **Gradient Annotator（渐变批注者）**：
 Gradient 工具（G）在画布上为一个选中叶子的渐变画出的控件：从起点到终点（径向为中心沿角度到半径）的滑条、其上的 Color Stop 与 Midpoint，径向还有虚线椭圆、长宽比手柄与焦点。拖动它们即改渐变，释放时一个 Transaction（ADR-0081）。
