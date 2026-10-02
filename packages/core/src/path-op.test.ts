@@ -1246,8 +1246,10 @@ describe("pathOp Compound Path Make and Release (ADR-0107)", () => {
       Node,
       Node,
     ];
-    const out = make(doc, [inner.id, outer.id]);
+    // A repeated id counts once.
+    const out = make(doc, [inner.id, outer.id, inner.id]);
     const [ring] = out.created as [PathNode];
+    expect(splitD(ring.d)).toHaveLength(2);
     expect(ring).toMatchObject({ type: "path", fillRule: "nonzero", transform: IDENTITY_T });
     expect(await filled(ring.d)).toEqual({ contours: 2, area: 800 });
     expect(out.deletedIds.sort()).toEqual([outer.id, inner.id].sort());
@@ -1283,26 +1285,34 @@ describe("pathOp Compound Path Make and Release (ADR-0107)", () => {
     ]).nodes as [Node, Node, Node, Node];
     const [front] = createNodes(doc, [{ ...box(0, 0, 10, 10, "#0000FF"), parentId: group.id }])
       .nodes as [Node];
-    // back scaled 2× at (100, 0); front moved by (50, 20).
-    doc.nodes.set(back.id, { ...back, opacity: 0.5, transform: [2, 0, 0, 2, 100, 0] } as Node);
-    doc.nodes.set(front.id, { ...front, transform: [1, 0, 0, 1, 50, 20] } as Node);
+    // back scaled 2× at (100, 0), its 1 pt Stroke with it; front moved by (40, 20) in a Group
+    // moved by (10, 0).
+    const stroke = { color: "#000000", width: 1, dash: [] };
+    doc.nodes.set(back.id, {
+      ...back,
+      opacity: 0.5,
+      transform: [2, 0, 0, 2, 100, 0],
+      appearance: { fills: [{ color: "#00FF00" }], strokes: [stroke] },
+    } as Node);
+    doc.nodes.set(group.id, { ...group, transform: [1, 0, 0, 1, 10, 0] } as Node);
+    doc.nodes.set(front.id, { ...front, transform: [1, 0, 0, 1, 40, 20] } as Node);
     const [made] = make(doc, [front.id, back.id]).created as [PathNode];
     expect(made).toMatchObject({
       parentId: group.id,
       index: front.index,
       opacity: 0.5,
-      appearance: { fills: [{ color: "#00FF00" }] },
+      appearance: { fills: [{ color: "#00FF00" }], strokes: [{ width: 2 }] },
     });
     expect(made.name).toBe("");
     const [a, b] = splitD(made.d);
     expect(pathBounds(parsePath(a as string, "d"))).toEqual({
-      x: 100,
+      x: 90,
       y: 0,
       width: 20,
       height: 20,
     });
     expect(pathBounds(parsePath(b as string, "d"))).toEqual({
-      x: 50,
+      x: 40,
       y: 20,
       width: 10,
       height: 10,
@@ -1331,6 +1341,7 @@ describe("pathOp Compound Path Make and Release (ADR-0107)", () => {
       box(0, 0, 5, 5),
     ]).nodes as [Node, Node, Node, Node];
     const [made] = make(doc, [a.id, b.id]).created as [PathNode];
+    doc.nodes.set(made.id, { ...made, name: "Logo" });
     const out = release(doc, [made.id]);
     const parts = out.created as [PathNode, PathNode];
     expect(out.deletedIds).toEqual([made.id]);
@@ -1339,7 +1350,11 @@ describe("pathOp Compound Path Make and Release (ADR-0107)", () => {
       { x: 40, y: 0, width: 10, height: 10 },
     ]);
     for (const p of parts) {
-      expect(p).toMatchObject({ type: "path", appearance: { fills: [{ color: "#00FF00" }] } });
+      expect(p).toMatchObject({
+        type: "path",
+        name: "",
+        appearance: { fills: [{ color: "#00FF00" }] },
+      });
     }
     expect(childrenOf(doc, layer).map((n) => n.id)).toEqual([
       under.id,
@@ -1381,6 +1396,13 @@ describe("pathOp Compound Path Make and Release (ADR-0107)", () => {
       message: "An image cannot be part of a Compound Path.",
     });
     expect(fails([a.id, a.id])).toMatchObject({ code: "INVALID_PATH", path: "nodeIds" });
+    const masked = { ...clip, id: "mask", clipping: false, opacityMask: {}, index: "a8" };
+    doc.nodes.set(masked.id, masked as unknown as Node);
+    expect(fails([a.id, masked.id])).toMatchObject({
+      path: "nodeIds[1]",
+      message: "An Opacity Mask cannot be part of a Compound Path.",
+    });
+    doc.nodes.delete(masked.id);
     expect(fails([a.id], "release_compound_path")).toMatchObject({
       code: "INVALID_PATH",
       path: "nodeIds[0]",
