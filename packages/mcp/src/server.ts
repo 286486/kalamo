@@ -625,6 +625,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         "divide_below: the one path or Live Shape in nodeIds cuts every filled path and Live Shape it overlaps below it in paint order, in any Layer or Group, and is deleted. The part outside keeps the id (updatedIds) and the part inside is a new path just above it; unfilled paths, texts and images are left as they are.",
         "split_into_grid: replaces each closed path or Live Shape with rows × cols rects over its geometric bounds, gutter apart, each in its stacking place with no transform and the topmost shape's appearance (createdIds row by row from the top left), so one rect covering a grid of equal cells becomes that grid; open paths and lines are left as they are.",
         "clean_up: removes the Stray Points, unpainted shapes and empty texts the fields choose, over the whole Document.",
+        "unite, minus_front, intersect, exclude: Pathfinder Shape Modes, expanded. Combines two or more paths, Live Shapes and Groups (each the union of its paths) in document coordinates into one new path (createdIds) and deletes them. unite, intersect and exclude take the topmost's place, appearance and name; minus_front the backmost's, minus all in front. exclude fills evenodd, the rest nonzero. Texts are not operands; an empty result fails, changing nothing. No live compound_shape yet.",
       ].join(" "),
       inputSchema: { docId, ...PathOpInput.shape, ...txWrite },
       outputSchema: WriteReceipt.shape,

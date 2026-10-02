@@ -1,5 +1,5 @@
 /// <reference path="./pathkit.d.ts" />
-import type { Filled, Geometry, OffsetStyle, Segment, StrokeStyle } from "@kalamo/core";
+import type { Filled, Geometry, OffsetStyle, Segment, ShapeMode, StrokeStyle } from "@kalamo/core";
 import { KalamoError } from "@kalamo/core";
 import type { PathKit, SkPath } from "pathkit-wasm/bin/pathkit.js";
 
@@ -8,7 +8,43 @@ export const geometryOf = (pk: PathKit): Geometry => ({
   outlineStroke: (segments, stroke) => outlineStroke(pk, segments, stroke),
   offsetPath: (segments, style) => offsetPath(pk, segments, style),
   divide: (target, cutter) => divide(pk, target, cutter),
+  combine: (op, operands) => combine(pk, op, operands),
 });
+
+const MODE_OPS = {
+  unite: "UNION",
+  minus_front: "DIFFERENCE",
+  intersect: "INTERSECT",
+  exclude: "XOR",
+} as const;
+
+/**
+ * Pathfinder Shape Modes (ADR-0104): the first operand op each next one in turn. Skia's contours
+ * never cross but fill only under evenodd, holes winding as their outlines do; a one-path union
+ * builder turns them (Skia's FixWinding), so all but exclude fill the same under nonzero.
+ */
+function combine(pk: PathKit, op: ShapeMode, operands: Filled[]): Segment[] {
+  const owned = operands.map(({ segments, fillRule }) => {
+    const path = skPath(pk, segments);
+    path.setFillType(fillRule === "evenodd" ? pk.FillType.EVENODD : pk.FillType.WINDING);
+    return path;
+  });
+  try {
+    const [acc, ...rest] = owned as [SkPath, ...SkPath[]];
+    if (!rest.every((p) => acc.op(p, pk.PathOp[MODE_OPS[op]]))) throw failed("combine");
+    if (op === "exclude") return fromCmds(acc.toCmds(), pk);
+    // ponytail: FixWinding misjudges contours that touch at a point; such holes may fill under nonzero.
+    const builder = new pk.SkOpBuilder();
+    builder.add(acc, pk.PathOp.UNION);
+    const wound = builder.resolve();
+    builder.delete();
+    if (!wound) throw failed("combine");
+    owned.push(wound);
+    return fromCmds(wound.toCmds(), pk);
+  } finally {
+    for (const p of owned) p.delete();
+  }
+}
 
 /** Object > Path > Divide Objects Below: `target`'s fill inside `cutter`'s and outside it. */
 function divide(pk: PathKit, target: Filled, cutter: Filled) {

@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { loadGeometry } from "../../geometry/src/index.ts";
 import type { PathNode } from "./anchor.ts";
 import { toAnchors } from "./anchor.ts";
 import { childrenOf, createDocument, createNodes } from "./document.ts";
 import { KalamoError } from "./errors.ts";
-import { formatPath, parsePath, type Segment, shapeSegments } from "./path.ts";
+import { formatPath, parsePath, pathBounds, type Segment, shapeSegments } from "./path.ts";
 import {
   closestEnds,
   convertToPath,
@@ -445,6 +446,7 @@ describe("pathOp outline_stroke", () => {
       },
       offsetPath: () => [],
       divide: () => ({ inside: [], outside: [] }),
+      combine: () => [],
     };
     return { calls, geometry };
   };
@@ -587,6 +589,7 @@ describe("pathOp offset", () => {
         }));
       },
       divide: () => ({ inside: [], outside: [] }),
+      combine: () => [],
     };
     return { calls, geometry };
   };
@@ -684,6 +687,7 @@ describe("pathOp divide_below", () => {
         const inner = within.includes(formatPath(target.segments));
         return { inside: cutter.segments, outside: inner ? [] : target.segments };
       },
+      combine: () => [],
     };
     return { calls, geometry };
   };
@@ -753,6 +757,182 @@ describe("pathOp divide_below", () => {
     const locked = { nodeIds: [node.id], op: "divide_below" as const };
     expect(errorOf(() => pathOp(doc, locked, geometry))).toMatchObject({ path: "nodeIds" });
     expect(doc.nodes.has(other.id)).toBe(true);
+  });
+});
+
+describe("pathOp Shape Modes, on real PathKit (ADR-0104)", () => {
+  const scene = () => {
+    const { doc, defaultLayerId: layer } = createDocument({
+      id: "d",
+      name: "Doc",
+      artboards: [{ width: 200, height: 100 }],
+    });
+    const child = (x: number, y: number, w: number, h: number, color = "#FF0000") => ({
+      type: "rect" as const,
+      ...{ x, y, width: w, height: h, appearance: { fills: [{ color }] } },
+    });
+    const box = (...args: Parameters<typeof child>) => ({ ...child(...args), parentId: layer });
+    return { doc, layer, box, child };
+  };
+  /** Each subpath's signed area, for straight-sided results. */
+  const areas = (d: string) =>
+    toAnchors(parsePath(d, "d")).map(({ anchors }) =>
+      anchors.reduce((sum, { anchor: [x, y] }, i) => {
+        const [nx, ny] = (anchors[(i + 1) % anchors.length] as (typeof anchors)[0]).anchor;
+        return sum + (x * ny - nx * y) / 2;
+      }, 0),
+    );
+  const total = (d: string) => areas(d).reduce((a, b) => a + Math.abs(b), 0);
+  const run = async (doc: ReturnType<typeof scene>["doc"], nodeIds: string[], op: string) =>
+    pathOp(doc, { nodeIds, op } as never, await loadGeometry());
+
+  it("unites, subtracts, intersects and excludes two overlapping rects", async () => {
+    const result = async (op: string) => {
+      const { doc, box } = scene();
+      const ids = createNodes(doc, [box(0, 0, 20, 20), box(10, 10, 20, 20)]).nodes.map((n) => n.id);
+      const [made] = (await run(doc, ids, op)).created as [PathNode];
+      return { ...made, bounds: pathBounds(parsePath(made.d, "d")), area: total(made.d) };
+    };
+    expect(await result("unite")).toMatchObject({
+      fillRule: "nonzero",
+      area: 700,
+      bounds: { x: 0, y: 0, width: 30, height: 30 },
+    });
+    expect(await result("minus_front")).toMatchObject({
+      area: 300,
+      bounds: { x: 0, y: 0, width: 20, height: 20 },
+    });
+    expect(await result("intersect")).toMatchObject({
+      area: 100,
+      bounds: { x: 10, y: 10, width: 10, height: 10 },
+    });
+    // The union's outline and the overlap as an evenodd hole.
+    const exclude = await result("exclude");
+    expect(exclude.fillRule).toBe("evenodd");
+    expect(
+      areas(exclude.d)
+        .map(Math.abs)
+        .sort((a, b) => a - b),
+    ).toEqual([100, 700]);
+  });
+
+  it("winds a hole against its outline, so nonzero leaves it empty", async () => {
+    const { doc, box } = scene();
+    const ids = createNodes(doc, [box(0, 0, 30, 30), box(10, 10, 10, 10)]).nodes.map((n) => n.id);
+    const [ring] = (await run(doc, ids, "minus_front")).created as [PathNode];
+    const [outer = 0, hole = 0] = areas(ring.d);
+    expect([Math.abs(outer), Math.abs(hole)]).toEqual([900, 100]);
+    expect(Math.sign(outer)).toBe(-Math.sign(hole));
+  });
+
+  it("minus_front keeps the backmost's paint, name and place, and deletes every operand", async () => {
+    const { doc, layer, box } = scene();
+    const [under, back, a, b, over] = createNodes(doc, [
+      box(0, 0, 5, 5),
+      { ...box(0, 0, 40, 20, "#00FF00"), name: "back" },
+      box(0, 0, 10, 20),
+      box(30, 0, 10, 20),
+      box(0, 0, 5, 5),
+    ]).nodes as [Node, Node, Node, Node, Node];
+    doc.nodes.set(back.id, { ...back, opacity: 0.5 });
+    const out = await run(doc, [b.id, back.id, a.id], "minus_front");
+    const [made] = out.created as [PathNode];
+    expect(made).toMatchObject({
+      name: "back",
+      opacity: 0.5,
+      parentId: layer,
+      index: back.index,
+      appearance: { fills: [{ color: "#00FF00" }] },
+    });
+    expect(total(made.d)).toBe(400);
+    expect(out.deletedIds.sort()).toEqual([back.id, a.id, b.id].sort());
+    expect(childrenOf(doc, layer).map((n) => n.id)).toEqual([under.id, made.id, over.id]);
+  });
+
+  it("unite takes the topmost's paint and place, in a Group, in its coordinates", async () => {
+    const { doc, layer, child } = scene();
+    const [group] = createNodes(doc, [
+      {
+        type: "group",
+        parentId: layer,
+        children: [child(0, 0, 10, 10), child(5, 0, 10, 10, "#0000FF")],
+      },
+    ]).nodes as [GroupNode];
+    const [a, b] = childrenOf(doc, group.id) as [Node, Node];
+    const [made] = (await run(doc, [b.id, a.id], "unite")).created as [PathNode];
+    expect(made).toMatchObject({
+      parentId: group.id,
+      index: b.index,
+      transform: [1, 0, 0, 1, 0, 0],
+    });
+    expect(made.appearance.fills).toMatchObject([{ color: "#0000FF" }]);
+    expect(pathBounds(parsePath(made.d, "d"))).toEqual({ x: 0, y: 0, width: 15, height: 10 });
+  });
+
+  it("places a rotated rect and a Live Ellipse by their transforms, baking the Stroke", async () => {
+    const { doc, layer, box } = scene();
+    // The rect on top, so the result takes its Stroke.
+    const [ellipse, rect] = createNodes(doc, [
+      { type: "ellipse", parentId: layer, x: 0, y: 0, width: 10, height: 10 },
+      { ...box(0, 0, 20, 10), appearance: { strokes: [{ color: "#000000", width: 1 }] } },
+    ]).nodes as [PathNode, PathNode];
+    // A quarter turn about the origin at twice the size, moved right: x 80..100, y 0..40.
+    doc.nodes.set(rect.id, { ...rect, transform: [0, 2, -2, 0, 100, 0] });
+    doc.nodes.set(ellipse.id, { ...ellipse, transform: [1, 0, 0, 1, 95, 15] });
+    const [made] = (await run(doc, [ellipse.id, rect.id], "intersect")).created as [PathNode];
+    const b = pathBounds(parsePath(made.d, "d"));
+    expect(b).toMatchObject({ x: 95, y: 15, width: 5 });
+    expect(b?.height).toBeCloseTo(10, 2);
+    expect(made.appearance.strokes).toMatchObject([{ width: 2 }]);
+  });
+
+  it("counts a Group as the union of its leaves", async () => {
+    const { doc, layer, box, child } = scene();
+    const [back, group] = createNodes(doc, [
+      box(0, 0, 40, 20),
+      { type: "group", parentId: layer, children: [child(0, 0, 20, 20), child(10, 0, 20, 20)] },
+    ]).nodes as [Node, GroupNode];
+    const inside = childrenOf(doc, group.id).map((n) => n.id);
+    const out = await run(doc, [back.id, group.id], "minus_front");
+    // As two operands, the leaves' overlap would come back.
+    const [made] = out.created as [PathNode];
+    expect(total(made.d)).toBe(200);
+    expect(out.deletedIds.sort()).toEqual([back.id, group.id, ...inside].sort());
+  });
+
+  it("refuses a text, one operand and an empty result, changing nothing", async () => {
+    const { doc, layer, box } = scene();
+    const [a, text, far, cover] = createNodes(doc, [
+      box(0, 0, 10, 10),
+      { type: "text", parentId: layer, x: 0, y: 0, content: "Hi" },
+      box(50, 50, 10, 10),
+      box(-5, -5, 20, 20),
+    ]).nodes as [Node, Node, Node, Node];
+    const before = structuredClone(doc.nodes);
+    const fails = async (ids: string[], op = "unite") => {
+      const geometry = await loadGeometry();
+      return errorOf(() => pathOp(doc, { nodeIds: ids, op } as never, geometry));
+    };
+    expect(await fails([a.id, text.id])).toMatchObject({
+      code: "INVALID_PATH",
+      path: "nodeIds[1]",
+      hint: expect.stringContaining("Create Outlines"),
+    });
+    expect(await fails([a.id])).toMatchObject({ code: "INVALID_PATH", path: "nodeIds" });
+    expect(await fails([a.id, a.id])).toMatchObject({ code: "INVALID_PATH", path: "nodeIds" });
+    expect(await fails([a.id, far.id], "intersect")).toMatchObject({
+      code: "INVALID_PATH",
+      message: "The objects have no area in common.",
+    });
+    expect(await fails([cover.id, a.id], "minus_front")).toMatchObject({
+      message: "The objects in front cover all of the backmost one.",
+    });
+    expect(await fails([layer, a.id])).toMatchObject({ path: "nodeIds[0]" });
+    expect(await fails([a.id, "nope"])).toMatchObject({
+      code: "NODE_NOT_FOUND",
+      path: "nodeIds[1]",
+    });
+    expect(doc.nodes).toEqual(before);
   });
 });
 

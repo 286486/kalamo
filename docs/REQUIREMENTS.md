@@ -298,7 +298,7 @@ Kalamo 要填的空位是：**每个人带自己的 AI，人和这些 Agent 共�
 
 ### 5.6 布尔运算与形状构建
 
-- **F-BOOL-01** Shape Modes：Unite / Minus Front / Intersect / Exclude。默认生成非破坏性 `compound_shape` 节点（Illustrator 中的 Alt+点击行为），按 Alt 或选项"Expand"直接固化为路径。（P0）
+- **F-BOOL-01** Shape Modes：Unite / Minus Front / Intersect / Exclude。非破坏性 `compound_shape` 节点（Illustrator 中的 Alt+点击行为）与直接固化为路径（普通点击）两种形式。（P0）现状（ADR-0104）：固化形式已实现，为 `path_op` 的 `unite` / `minus_front` / `intersect` / `exclude`，不设 `path_boolean` 工具：每个 Node 为一个操作数（Group / Layer 取其路径与 Live Shape 叶子的并集），文档坐标下按绘制次序由后往前以 Skia PathOps 合成一个新 `path`；Minus Front 取最后面操作数的外观、名称与位置并减去其前所有操作数，其余取最上面操作数的；`exclude` 填充 evenodd，其余 nonzero（洞反向绕行）；文字、Image、Clipping Path 不是操作数；结果无面积时 `INVALID_PATH` 且不改动；一个 Transaction、一个撤销步。实时 `compound_shape` 形式待做。
 - **F-BOOL-02** Pathfinders（破坏性）：Divide / Trim / Merge / Crop / Outline / Minus Back。（P0：Divide / Minus Back；P1：其余）
 - **F-BOOL-03** `compound_shape` 节点可嵌套、可 Release（还原子对象）、可 Expand；子对象仍可被 Direct Selection 编辑并实时重算。（P0）
 - **F-BOOL-04** Compound Path Make / Release（Ctrl+8 / Alt+Shift+Ctrl+8），填充规则可切换 nonzero / evenodd。Make 把所选 Path 的 `d`（各自 `transform` 并入）合成一个 `path`，Release 按子路径拆开（ADR-0018）。（P0）
@@ -606,8 +606,8 @@ flowchart LR
 | `align_distribute` | `docId`, `nodeIds[]`, `align?`（left/hcenter/right/top/vcenter/bottom）, `distribute?`（horizontal/vertical, spacing?）, `relativeTo`（selection / keyNodeId / artboardId） | 回执 | |
 | `group` / `ungroup` | `docId`, `nodeIds[]` / `groupIds[]` | 回执 | |
 | `path_edit` | `docId`, `nodeId`, `ops[]`：`move_anchor`、`set_handles`、`set_point_type`、`add_anchor(at t)`、`remove_anchor`、`close`、`open`、`reverse`、`set_d`（整体替换） | 回执 + 新 `d` | D |
-| `path_boolean` | `docId`, `nodeIds[]`, `op`（unite / subtract / intersect / exclude / divide / trim / merge / crop / outline / minus_back）, `live`（默认 true → `compound_shape` 节点；false → 直接固化） | 回执 | D（false 时删除源） |
-| `path_op` | `docId`, `nodeIds[]`, `op` + 参数：`offset{distance, join, miterLimit}`、`simplify{tolerance, cornerAngle, toLines}`、`outline_stroke`、`join{tolerance}`、`average{axis}`（两者可带 `anchors[]` 指定锚点，如 Direct Selection 所选）、`add_anchors`、`smooth{amount}`、`divide_below`、`split_into_grid{rows, cols, gutter}`、`convert_to_path`、`expand`、`expand_appearance` | 回执 | D |
+| `path_boolean` | 不设此工具（ADR-0104）：Shape Modes 的固化形式为 `path_op` 的 `unite` / `minus_front` / `intersect` / `exclude`；实时 `compound_shape` 与 Pathfinders（divide / trim / merge / crop / outline / minus_back）待做 | — | — |
+| `path_op` | `docId`, `nodeIds[]`, `op` + 参数：`offset{distance, join, miterLimit}`、`simplify{tolerance, cornerAngle, toLines}`、`outline_stroke`、`join{tolerance}`、`average{axis}`（两者可带 `anchors[]` 指定锚点，如 Direct Selection 所选）、`add_anchors`、`smooth{amount}`、`divide_below`、`split_into_grid{rows, cols, gutter}`、Shape Modes `unite` / `minus_front` / `intersect` / `exclude`（固化，ADR-0104）、`convert_to_path`、`expand`、`expand_appearance` | 回执 | D |
 | `shape_build` | `docId`, `nodeIds[]`, `regions[]`（点或区域选择）, `mode`: merge / erase | 回执 | Shape Builder 的程序化形式 |
 | `mask_make` / `mask_release` | `docId`, `clipNodeId`, `contentIds[]`, `kind`: clip / opacity, `clip?`, `invert?`（仅 opacity）；release 取 `nodeIds[]` | 回执 | clip 见 ADR-0021；opacity 见 ADR-0103 |
 | `text_edit` | `docId`, `nodeId`, `content?`（纯文本或 runs）, `range?`, `charStyle?`, `paraStyle?`, `fit?`（auto_width / auto_height / fixed） | 回执 + 溢出信息 | D |
@@ -1015,6 +1015,7 @@ kalamo/
 | 67 | 打开位图（2026-10-02） | `doc_open` 的 `content` 以 data URL 携带 PNG / JPEG / GIF（不新增工具、不收裸 base64 或 http(s) URL），新增可选 `name`；新 Document 为 (0, 0) 处像素尺寸的 `Artboard 1` 与 `Layer 1` 中铺满它的未命名嵌入 Image；以文件名去掉位图扩展名命名；浏览器原样发送字节，Worker 以开头的 `<` / `{`、UTF-8 有效性与 GIF / RIFF 签名区分文本与位图 | ADR-0098、F-IO-05、#71 |
 | 68 | Template Layer 不导出（2026-10-02） | Layer 增加可选 `template`（缺省为 false，仅 Layer 有）：`render` 与画布照常绘制，`export` SVG / PNG 与 Export As SVG 在任何 Render Scope 都不写出它及其内容，只含模板内容的 scope 得到无图稿的有效结果；io 仍是一个写出器，由调用方选择（缺省不写）；复制不变；SVG 不写 `kalamo:template`（Illustrator 不导出模板图层，Inkscape 没有）；`.kalamo.json` 保存，无需迁移；`asTemplate` 设置它；图层面板显示模板图标 | ADR-0099、F-ILL-04、#65 |
 | 69 | Opacity Mask（2026-10-02） | 不设 `mask_group` 节点类型：Opacity Mask 是含一个带 `opacityMask: {clip, invert, link}` 子节点的 `group`，蒙版保留 Appearance、可为任意非 Layer 节点；一个 Group 至多一个蒙版且不同时有 Clipping Path；亮度系数随 resvg 与 Inkscape（实测一致），不取 Illustrator 的灰度转换；Clip / Invert / Link 依 Illustrator；SVG 为 `<g mask>` 加内联 `<mask>` 与 `kalamo:mask` 标记 | ADR-0103、F-MASK-02、#55 |
+| 70 | Shape Modes 固化形式（2026-10-02） | 不设 `path_boolean` 工具：Unite / Minus Front / Intersect / Exclude 为 `path_op` 的四个 op，产出普通 `path`（Illustrator 普通点击），实时 `compound_shape`（Alt 点击）待做；操作数在文档坐标下由后往前合成；Minus Front 取最后面操作数的外观与位置，其余取最上面的；`exclude` 为 evenodd，其余 nonzero（经 Skia FixWinding 使洞反向绕行）；结果无面积则失败且不改动 | ADR-0104、F-BOOL-01、#258 |
 
 **剩余开放问题**
 
