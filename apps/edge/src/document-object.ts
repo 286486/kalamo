@@ -687,9 +687,9 @@ export class DocumentObject extends DurableObject<Env> {
       "nodes",
       opts,
       async (input, path) =>
-        (await mapImageSrc(input, path, async (src, at) =>
+        (await mapImageSrc(input, path, async (src, srcPath) =>
           typeof src === "string" && src.startsWith("data:")
-            ? hashed(readStored(src, at, opts.refusedImages), files)
+            ? hashed(readStored(src, srcPath, opts.refusedImages), files)
             : src,
         )) as NodeInput,
     );
@@ -1767,8 +1767,8 @@ export type SrcConverter = (src: unknown, path: string) => Promise<unknown>;
 
 /**
  * `input` with each Image's `src`, inline children's too, replaced by `fn`'s result for it. `path`
- * is where the Worker and this Durable Object both report that `src`, so a refusal the Worker
- * records under it (`Options.refusedImages`) is found here (ADR-0100).
+ * is where the Worker and the Document Durable Object both report that `src`, so a refusal the
+ * Worker records under it (`Options.refusedImages`) is found here (ADR-0100).
  */
 export async function mapImageSrc(
   input: unknown,
