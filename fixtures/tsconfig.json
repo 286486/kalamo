@@ -1,6 +1,6 @@
 {
   "extends": "../tsconfig.json",
-  // Fixture scripts, repo tests and the Vitest config run on Node; Node and Workers types collide.
+  // Fixture scripts, repo tests and the Vitest config run on Node; Node and Workers types collide (ADR-0096).
   "compilerOptions": { "types": ["node"] },
   "include": ["**/*.ts", "../vitest.config.ts"]
 }
