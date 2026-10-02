@@ -18,7 +18,7 @@ import {
   plus,
 } from "./direct.ts";
 import { editable } from "./selection.ts";
-import { send, useStore } from "./store.ts";
+import { send, unheld, useStore } from "./store.ts";
 import { drawing, finishPen, near } from "./tools.ts";
 
 /** The Curvature tool (research 06 §2): clicks place Anchors and the curve runs through them. */
@@ -132,7 +132,8 @@ export function curvatureDown(p: Point, tolerance: number, alt: boolean) {
       press = null;
       if (double) {
         const input = toggleInput(s.doc, key);
-        if (input) send({ type: "path_edit", input });
+        if (input)
+          send({ type: "path_edit", input }, unheld("the Curvature tool is not held yet (#276)"));
         return;
       }
       useStore.setState({ anchors: [key] });

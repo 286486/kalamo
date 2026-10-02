@@ -8,7 +8,6 @@ import {
   type NodeInput,
   outermost,
   type PathEditInput,
-  type PathOpInput,
   paintOrder,
   pathOp,
   transformNodes,
@@ -20,6 +19,7 @@ import type { PaintPreview } from "./gradient.ts";
 import { prune } from "./isolation.ts";
 import { type Areas, areasAfter, type Peers, peersAfter } from "./presence.ts";
 import { editable, objects } from "./selection.ts";
+import type { NodeOp } from "./store.ts";
 import type { Tool } from "./toolbox.ts";
 
 /**
@@ -124,7 +124,7 @@ export interface Held {
  * until the answer.
  */
 export interface PathOpPreview {
-  input: PathOpInput;
+  input: NodeOp;
   /** Simplify's Show Original Path. */
   showOriginal: boolean;
   commandId: string | null;

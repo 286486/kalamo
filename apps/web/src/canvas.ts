@@ -2,7 +2,7 @@ import { bounds, type Document, formatPath, type Rect, Shape, shapeSegments } fr
 import { forNewArt, leaving } from "./isolation.ts";
 import { colorOf, labelOf, type Peers, type visibleAreas } from "./presence.ts";
 import { copyInput, type PendingCreate } from "./receive.ts";
-import { send, useStore } from "./store.ts";
+import { send, useStore, type Waited } from "./store.ts";
 import type { ToolEvent } from "./toolbox.ts";
 import type { FillStroke } from "./tools.ts";
 
@@ -100,11 +100,11 @@ export function drawPending(
 }
 
 /** Releasing a drag commits it as one Transaction. */
-export function commitDrag() {
+export function commitDrag(w: Waited) {
   const { drag, edit } = useStore.getState();
   // One path_edit per path the drag reshaped (ADR-0032), and one transform for what moved whole.
   if (edit && edit.commandIds === null) {
-    const commandIds = edit.inputs.map((input) => send({ type: "path_edit", input }));
+    const commandIds = edit.inputs.map((input) => send({ type: "path_edit", input }, w));
     useStore.setState({ edit: { ...edit, commandIds } });
   }
   if (drag && drag.commandId === null) {

@@ -1,6 +1,5 @@
-import type { PathOpInput } from "@kalamo/core";
 import { pathTargets } from "./selection.ts";
-import { send, useStore } from "./store.ts";
+import { type NodeOp, send, useStore } from "./store.ts";
 
 /** Kept between uses as Illustrator's dialog keeps them; a blank Total is the shape's own size. */
 const settings = {
@@ -37,7 +36,7 @@ export function splitGridDialog() {
 </form>`;
   const form = dialog.querySelector("form") as HTMLFormElement;
   const field = (name: string) => form.elements.namedItem(name) as HTMLInputElement;
-  const input = (): PathOpInput => {
+  const input = (): NodeOp => {
     const { rows, cols, gutter, totalHeight, totalWidth } = settings;
     return {
       nodeIds,

@@ -1,4 +1,4 @@
-import { newId } from "@kalamo/core";
+import { newId, type PathOpInput } from "@kalamo/core";
 import {
   ACCESS_CHANGED,
   type ClientMessage,
@@ -123,10 +123,40 @@ export const pointerAt = (cursor: Pointer) => presence?.update({ cursor });
 const views = new Map<string, Pick<State, "viewport" | "selection" | "isolated" | "layerRows">>();
 
 /**
- * Sends one gesture to the Document (ADR-0010) and returns its id, which its answer carries. While
- * the socket is down it is dropped: the Document sent on reconnect clears what waited on it.
+ * Every command except those that name Anchors, Handles or segments by index: a `path_edit`, a
+ * `path_join`, or a `path_op` given `anchors`. A reverse in flight would put such a command on other
+ * points, so `send` takes it only with `Waited` (ADR-0110). A `path_reverse` names subpaths, which
+ * a reverse does not renumber.
  */
-export function send(command: Command): string {
+export type NodeCommand =
+  | Exclude<Command, { type: "path_edit" | "path_join" | "path_op" }>
+  | { type: "path_op"; input: NodeOp };
+/** A `path_op` on whole Nodes. */
+export type NodeOp = PathOpInput & { anchors?: undefined };
+
+declare const waited: unique symbol;
+/**
+ * Says that an edit by index waits for the Reverse Path Direction press in flight, as `afterReverse`
+ * hands it, or that it need not, as `unheld` does (ADR-0110).
+ */
+export type Waited = { readonly [waited]: true };
+const WAITED = {} as Waited;
+
+/**
+ * Lets an edit by index be sent at once, though a Reverse Path Direction press may be in flight.
+ * `why` says at the call site why it need not wait (ADR-0110).
+ */
+export const unheld = (_why: string): Waited => WAITED;
+
+/**
+ * Sends one gesture to the Document (ADR-0010) and returns its id, which its answer carries. While
+ * the socket is down it is dropped: the Document sent on reconnect clears what waited on it. A
+ * command that names Anchors by index needs `Waited`.
+ */
+export function send<C extends Command>(
+  command: C,
+  ..._waited: [C] extends [NodeCommand] ? [] : [Waited]
+): string {
   const id = newId();
   const msg: ClientMessage = { type: "command", id, command };
   if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(msg));
@@ -135,14 +165,15 @@ export function send(command: Command): string {
 
 /**
  * Runs a Direct Selection edit now, or once the Reverse Path Direction press in flight is answered,
- * on the Document as it is then and the keys the person had chosen, renumbered (ADR-0110).
- * `chosen` overrides the Direct Selection's keys, as a drag's own do.
+ * on the Document as it is then and the keys the person had chosen, renumbered (ADR-0110). The edit
+ * is handed the `Waited` its commands by index are sent with. `chosen` overrides the Direct
+ * Selection's keys, as a drag's own do.
  */
-export function afterReverse(edit: (s: State) => void, chosen?: Partial<Chosen>) {
+export function afterReverse(edit: (s: State, w: Waited) => void, chosen?: Partial<Chosen>) {
   const s = useStore.getState();
   const { anchors, segments, selection, tool } = { ...s, ...chosen };
   const c = { anchors, segments, selection, tool };
-  const run = (k: Chosen) => edit({ ...useStore.getState(), ...k });
+  const run = (k: Chosen) => edit({ ...useStore.getState(), ...k }, WAITED);
   if (s.reversing) useStore.setState({ held: [...s.held, { chosen: c, run }] });
   else run(c);
 }

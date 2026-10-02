@@ -12,9 +12,9 @@ import {
   type ReparentInput,
   reparentNodes,
 } from "@kalamo/core";
-import type { Command } from "@kalamo/sync";
 import { inScope, isolatable } from "./isolation.ts";
 import { editable, placeParent } from "./selection.ts";
+import type { NodeCommand } from "./store.ts";
 
 const AUTO_NAMES: Record<Exclude<Node["type"], "text">, string> = {
   rect: "<Rectangle>",
@@ -99,7 +99,7 @@ export function layerMask(
   doc: Document,
   selection: string[],
   scope: string | null,
-): { label: string; command: Command | null } {
+): { label: string; command: NodeCommand | null } {
   const target = doc.nodes.get(placeParent(doc, selection, scope) ?? "");
   const layer = target?.type === "layer" ? target : undefined;
   const clipped = !!layer && !!clippingPath(doc, layer);
@@ -107,7 +107,7 @@ export function layerMask(
   if (!layer || lockedIn(doc, layer) || childrenOf(doc, layer.id).length === 0) {
     return { label, command: null };
   }
-  const command: Command = clipped
+  const command: NodeCommand = clipped
     ? { type: "mask_release", nodeIds: [layer.id] }
     : { type: "mask_make", input: { layerId: layer.id } };
   return { label, command };

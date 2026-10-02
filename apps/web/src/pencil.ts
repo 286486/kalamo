@@ -14,7 +14,7 @@ import {
 import { anchorsOf, hasAnchors, localAnchors, nearestSegment } from "./direct.ts";
 import { editable } from "./selection.ts";
 import { getItem } from "./storage.ts";
-import { send, useStore } from "./store.ts";
+import { send, unheld, useStore } from "./store.ts";
 import { constrain, near, pathD, sendNewArt } from "./tools.ts";
 
 /** The Pencil (research 06 §3): Ink fitted on release, as one `create` or one `path_edit`. */
@@ -326,6 +326,9 @@ export function pencilMove(points: Point[], mods: { shift: boolean; alt: boolean
   }
 }
 
+/** The Pencil redraws a path from an Anchor it names by index (ADR-0110). */
+const PENCIL = "the Pencil is not held yet (#278)";
+
 export function pencilCancel() {
   ink = null;
   straight = null;
@@ -344,7 +347,7 @@ export function pencilUp(scale: number) {
   const r = pencilResult(s.doc, s.selection, done, o, scale);
   if (!r) return;
   if ("edit" in r) {
-    const commandIds = [send({ type: "path_edit", input: r.edit })];
+    const commandIds = [send({ type: "path_edit", input: r.edit }, unheld(PENCIL))];
     useStore.setState({ edit: { inputs: [r.edit], commandIds } });
     return;
   }

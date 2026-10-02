@@ -16,7 +16,7 @@ import { anchorsOf, editableShapes, hasAnchors, localAnchors } from "./direct.ts
 import { forNewArt, leaving } from "./isolation.ts";
 import { type Endpoint, type PenPath, type ShapeBox, VIEWER_TOOLS } from "./receive.ts";
 import { editable, placeParent } from "./selection.ts";
-import { canEdit, DEFAULT_FILL_STROKE, type State, send, useStore } from "./store.ts";
+import { canEdit, DEFAULT_FILL_STROKE, type State, send, unheld, useStore } from "./store.ts";
 import type { Tool, ToolEvent } from "./toolbox.ts";
 
 /** The Fill and Stroke boxes (F-DRAW-12): what new art is painted with; null is None. */
@@ -205,6 +205,9 @@ function replaceSubpath(
 /** Join's distance for the Endpoints a connection put on each other, past `d`'s rounding. */
 const COINCIDENT = 0.05;
 
+/** The Pen continues a path at an Endpoint it names by index (ADR-0110). */
+const PEN = "the Pen is not held yet (#278)";
+
 /**
  * Finishes a path the Pen continued or connected (research 06 §1): one `path_edit` on the path
  * continued, or on the one a new path connected to, which it continues backwards; continuing one
@@ -232,8 +235,8 @@ function finishEdit(doc: Document, pen: PenPath) {
           { ...to, index: to.atStart ? 0 : theirs.length - 1 },
         ].map(({ nodeId, subpath, index }) => ({ nodeId, subpath, index })),
       };
-      commandId = send({ type: "path_join", edit: input, join });
-    } else commandId = send({ type: "path_edit", input });
+      commandId = send({ type: "path_join", edit: input, join }, unheld(PEN));
+    } else commandId = send({ type: "path_edit", input }, unheld(PEN));
   } else if (to) {
     // The new path, from its last Anchor, which is on the Endpoint, continues theirs.
     const theirs = endingAt(doc, to);
@@ -245,7 +248,7 @@ function finishEdit(doc: Document, pen: PenPath) {
       ...mine.slice(1),
     ];
     input = replaceSubpath(doc, to, joined, false);
-    commandId = send({ type: "path_edit", input });
+    commandId = send({ type: "path_edit", input }, unheld(PEN));
   } else return;
   const selection = [...new Set([from?.nodeId, to?.nodeId].filter((id) => id !== undefined))];
   useStore.setState({ pen: null, selection, edit: { inputs: [input], commandIds: [commandId] } });
