@@ -900,6 +900,22 @@ describe("pathOp Shape Modes, on real PathKit (ADR-0104)", () => {
     expect(out.deletedIds.sort()).toEqual([back.id, group.id, ...inside].sort());
   });
 
+  it("fills each Group leaf by its own fill rule before the union", async () => {
+    const { doc, layer, box, child } = scene();
+    const ring = "M 0 0 L 20 0 L 20 20 L 0 20 Z M 5 5 L 15 5 L 15 15 L 5 15 Z";
+    const [back, group] = createNodes(doc, [
+      box(0, 0, 40, 20),
+      {
+        type: "group",
+        parentId: layer,
+        children: [{ type: "path", d: ring, fillRule: "evenodd" }, child(30, 0, 10, 20)],
+      },
+    ]).nodes as [Node, GroupNode];
+    const [made] = (await run(doc, [back.id, group.id], "minus_front")).created as [PathNode];
+    // The ring's hole stays in the back: 800 - 300 - 200.
+    expect(total(made.d)).toBe(300);
+  });
+
   it("leaves a Group's Opacity Mask out of its operand, area and paint", async () => {
     const result = async (op: string) => {
       const { doc, layer, box, child } = scene();
