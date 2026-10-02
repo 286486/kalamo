@@ -571,8 +571,8 @@ const drawnEdits = {
       await page.mouse.click(...at(180, 60));
       await page.keyboard.press("a");
     },
-    accepted: ["180 60", "160 60", "160 20", "120 20"],
-    rejected: ["120 20", "160 20", "160 60", "180 60"],
+    accepted: /^180 60,160 60,160 20,120 20$/,
+    rejected: /^120 20,160 20,160 60,180 60$/,
   },
   "a Pen path ending on an Endpoint": {
     run: async (page: Page, at: (x: number, y: number) => readonly [number, number]) => {
@@ -580,8 +580,8 @@ const drawnEdits = {
       await page.mouse.click(...at(180, 90));
       await page.mouse.click(...at(120, 20));
     },
-    accepted: ["160 60", "160 20", "120 20", "180 90"],
-    rejected: ["180 90", "120 20", "160 20", "160 60"],
+    accepted: /^160 60,160 20,120 20,180 90$/,
+    rejected: /^180 90,120 20,160 20,160 60$/,
   },
   "a Pencil redraw": {
     run: async (page: Page, at: (x: number, y: number) => readonly [number, number]) => {
@@ -600,8 +600,8 @@ const drawnEdits = {
       await page.mouse.up();
     },
     // The stretch from (160, 30) to (160, 50) is replaced, whichever way the subpath then runs.
-    accepted: [/^160 60,160 50,.*,160 30,160 20,120 20$/],
-    rejected: [/^120 20,160 20,160 30,.*,160 50,160 60$/],
+    accepted: /^160 60,160 50,.*,160 30,160 20,120 20$/,
+    rejected: /^120 20,160 20,160 30,.*,160 50,160 60$/,
   },
 };
 for (const outcome of ["accepted", "rejected"] as const) {
@@ -632,10 +632,7 @@ for (const outcome of ["accepted", "rejected"] as const) {
           error: { code: "INVALID_PATH", message: "Rejected for the test.", hint: "" },
         });
       }
-      const [want] = edit[outcome];
-      await expect
-        .poll(async () => anchorsIn(await d(id))[2]?.join(","))
-        .toMatch(typeof want === "string" ? edit[outcome].join(",") : (want as RegExp));
+      await expect.poll(async () => anchorsIn(await d(id))[2]?.join(",")).toMatch(edit[outcome]);
     });
   }
 }
