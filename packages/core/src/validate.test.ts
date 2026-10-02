@@ -153,6 +153,10 @@ describe("validate", () => {
       doc.nodes.set(id, { ...(doc.nodes.get(id) as Node), visible: false });
     }
     expect(issues()).toEqual([["empty_group", 2]]);
+    // Listed, a Node inside a hidden one is still skipped.
+    const inner = doc.nodes.get(ids[1] as string) as Node & { children: string[] };
+    const hiddenChild = [...doc.nodes.values()].find((n) => n.parentId === inner.id) as Node;
+    expect(issues({ scope: { nodeIds: [hiddenChild.id] } })).toEqual([]);
   });
 
   it("lists issues in drawing order, bottom first, then a Node's by rule", () => {

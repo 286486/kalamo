@@ -33,4 +33,5 @@ F-MCP-13 makes `validate` P0, and M1 lists it: an Agent should check its work af
 
 - The tool definition costs 1,679 bytes. The tool-definition total went from 104,897 to 106,576 of the 112,000-byte budget (ADR-0088), so the budget is unchanged.
 - A curve cancels only a curve traced back along the same control points: another curve of the same shape with other control points is cut into other edges. Each line scans the edges left, so a path that does cancel costs edges × lines. The code marks both with `ponytail:` comments.
+- An Opacity Mask with `clip` whose mask lies off every Artboard hides the artwork it masks, yet the artwork touches an Artboard and is not flagged. A later rule can flag artwork its mask clips away.
 - Known follow-ups from §6.4's list, each a later rule: open paths that should be closed, overlapping text, non-integer Stroke widths (F-ILL-06), unused assets, tiny objects, and empty text. `scene_describe` (F-MCP-12) is a separate ticket.
