@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { type APIRequestContext, expect, type Page, test } from "@playwright/test";
 import { call } from "./mcp.ts";
 
 // #270: Window > Attributes sets a Compound Path's fill rule and the direction of a subpath chosen
@@ -142,4 +142,177 @@ test("Ctrl+F11's Attributes panel makes and removes a ring's hole by direction a
   ]) {
     await expect(button(name)).toBeDisabled();
   }
+});
+
+/** A Compound Path at x offset `x`: a clockwise square around a counter-clockwise hole, Off. */
+const ring = (x: number) =>
+  `M${x + 20} 20 L${x + 80} 20 L${x + 80} 80 L${x + 20} 80 Z M${x + 40} 40 L${x + 40} 60 L${x + 60} 60 L${x + 60} 40 Z`;
+
+/** The Anchors of `d` as "x y". */
+const points = (d: string) =>
+  [...d.matchAll(/(-?[\d.]+) (-?[\d.]+)/g)].map((m) => `${m[1]} ${m[2]}`);
+
+async function rings(page: Page, request: APIRequestContext, xs: number[]) {
+  const { docId, defaultLayerId: parentId } = (
+    await call(request, "kalamo_doc_create", {
+      name: "Reverse rejected",
+      artboards: [{ width: 200, height: 100, background: "#FFFFFF" }],
+    })
+  ).structuredContent;
+  const fills = [{ color: "#FF0000" }];
+  const ids = (
+    await call(request, "kalamo_node_create", {
+      docId,
+      nodes: xs.map((x) => ({ type: "path", parentId, d: ring(x), appearance: { fills } })),
+    })
+  ).structuredContent.createdIds as string[];
+  /** The `path_reverse` commands held once `hold` is called, each passed on, answered or dropped. */
+  const held: { id: string; pass: () => void; answer: (m: object) => void; drop: () => void }[] =
+    [];
+  let holding = false;
+  let sockets = 0;
+  await page.routeWebSocket(/\/ws$/, (ws) => {
+    sockets += 1;
+    const server = ws.connectToServer();
+    ws.onMessage((m) => {
+      const msg = JSON.parse(String(m));
+      if (!holding || msg.command?.type !== "path_reverse") return server.send(m);
+      held.push({
+        id: msg.id,
+        pass: () => server.send(m),
+        answer: (a) => ws.send(JSON.stringify(a)),
+        drop: () => ws.close(),
+      });
+    });
+    server.onMessage((m) => ws.send(m));
+  });
+  await page.goto(`/docs/${docId}`);
+  await expect(page.getByTestId("status-bar")).toContainText(/\d+%/);
+  await page.keyboard.press("Control+1");
+  await expect(page.getByTestId("status-bar")).toContainText("100%");
+  const box = await page.getByTestId("canvas").boundingBox();
+  if (!box) throw new Error("no canvas");
+  const at = (x: number, y: number) =>
+    [box.x + box.width / 2 + x - 100, box.y + box.height / 2 + y - 50] as const;
+  const d = async (id: string) =>
+    (await call(request, "kalamo_node_get", { docId, nodeIds: [id], detail: "full" }))
+      .structuredContent.nodes[0].d as string;
+  await page.keyboard.press("Control+F11");
+  const button = (name: string) =>
+    page.getByRole("region", { name: "Attributes" }).getByRole("button", { name, exact: true });
+  return {
+    docId,
+    ids,
+    held,
+    hold: () => {
+      holding = true;
+    },
+    sockets: () => sockets,
+    at,
+    d,
+    button,
+  };
+}
+
+// #272: a rejected Reverse Path Direction press leaves the Direct Selection naming the Anchors the
+// person chose, so the next action acts on them.
+test("a rejected Reverse Path Direction press restores the chosen Anchors on both Compound Paths", async ({
+  page,
+  request,
+}) => {
+  const { ids, held, hold, at, d, button } = await rings(page, request, [0, 100]);
+  const [a, b] = ids as [string, string];
+  // Each hole's second Anchor, which a reverse renumbers to the fourth at (x + 60, 40).
+  await page.keyboard.press("a");
+  await page.mouse.click(...at(40, 60));
+  await page.keyboard.down("Shift");
+  await page.mouse.click(...at(140, 60));
+  await page.keyboard.up("Shift");
+  await expect(button("Reverse Path Direction Off")).toHaveAttribute("aria-pressed", "true");
+
+  hold();
+  await button("Reverse Path Direction On").click();
+  await expect.poll(() => held.length).toBe(1);
+  const [press] = held;
+  press?.answer({
+    type: "rejected",
+    id: press.id,
+    error: { code: "INVALID_PATH", message: "Rejected for the test.", hint: "" },
+  });
+  await expect(page.getByRole("alert")).toHaveText("Rejected for the test.");
+  await expect(button("Reverse Path Direction Off")).toHaveAttribute("aria-pressed", "true");
+  expect([points(await d(a)), points(await d(b))]).toEqual([points(ring(0)), points(ring(100))]);
+
+  // Convert makes the chosen Anchors smooth, not those the reverse would have put in their place:
+  // the segments either side of each become curves.
+  await page
+    .getByRole("toolbar", { name: "Anchors" })
+    .getByRole("button", { name: "Convert selected anchor points to smooth" })
+    .click();
+  await expect.poll(() => d(a)).toMatch(/C[^LZ]* 40 60 C/);
+  expect(await d(b)).toMatch(/C[^LZ]* 140 60 C/);
+  expect([await d(a), await d(b)]).toEqual([
+    expect.stringMatching(/L 60 40 Z$/),
+    expect.stringMatching(/L 160 40 Z$/),
+  ]);
+});
+
+// #272, ADR-0109: an Agent reverses the hole while the press is in flight; its edit clears the
+// path's Anchors, the press finds nothing to change, and the rejection brings none back.
+test("a Reverse Path Direction press an Agent raced is refused and leaves no Anchor chosen", async ({
+  page,
+  request,
+}) => {
+  const { docId, ids, held, hold, at, d, button } = await rings(page, request, [0]);
+  const [id] = ids as [string];
+  await page.keyboard.press("a");
+  await page.mouse.click(...at(40, 60));
+  await expect(button("Reverse Path Direction Off")).toHaveAttribute("aria-pressed", "true");
+
+  hold();
+  await button("Reverse Path Direction On").click();
+  await expect.poll(() => held.length).toBe(1);
+  await call(request, "kalamo_path_edit", {
+    docId,
+    nodeId: id,
+    ops: [{ op: "reverse", subpath: 1 }],
+  });
+  const raced = await d(id);
+  // The Agent's Transaction arrives first and clears the path's chosen Anchor.
+  await expect(button("Reverse Path Direction On")).toBeDisabled();
+  held[0]?.pass();
+  await expect(page.getByRole("alert")).toHaveText("Those subpaths already run that way.");
+  await expect(button("Reverse Path Direction On")).toBeDisabled();
+  await expect(button("Reverse Path Direction Off")).toBeDisabled();
+  expect(await d(id)).toBe(raced);
+});
+
+// #272: the socket drops with the press in flight, before the Document DO saw it. The Document sent
+// on reconnect still has the hole as it was, so the chosen Anchor is numbered back.
+test("a Reverse Path Direction press lost to a reconnect leaves the chosen Anchor chosen", async ({
+  page,
+  request,
+}) => {
+  const { ids, held, hold, sockets, at, d, button } = await rings(page, request, [0]);
+  const [id] = ids as [string];
+  await page.keyboard.press("a");
+  await page.mouse.click(...at(40, 60));
+  await expect(button("Reverse Path Direction Off")).toHaveAttribute("aria-pressed", "true");
+
+  hold();
+  await button("Reverse Path Direction On").focus();
+  await page.keyboard.press("Enter");
+  await expect.poll(() => held.length).toBe(1);
+  held[0]?.drop();
+  await expect.poll(sockets).toBe(2);
+  await expect(page.getByTestId("status-bar")).not.toContainText("connecting");
+  await expect(button("Reverse Path Direction Off")).toHaveAttribute("aria-pressed", "true");
+  expect(points(await d(id))).toEqual(points(ring(0)));
+
+  await page
+    .getByRole("toolbar", { name: "Anchors" })
+    .getByRole("button", { name: "Convert selected anchor points to smooth" })
+    .click();
+  await expect.poll(() => d(id)).toMatch(/C[^LZ]* 40 60 C/);
+  expect(await d(id)).toMatch(/L 60 40 Z$/);
 });

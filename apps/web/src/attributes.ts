@@ -6,7 +6,7 @@ import {
   type PathNode,
   runsClockwise,
 } from "@kalamo/core";
-import { anchorKey, localAnchors, parseKey } from "./direct.ts";
+import { parseKey, reversedKey } from "./direct.ts";
 import { compoundParts } from "./menu.ts";
 import { editable } from "./selection.ts";
 import { canEdit, type State, send, useStore } from "./store.ts";
@@ -69,7 +69,8 @@ export function directionOf(s: Selected): boolean | "mixed" | null {
  * Sets the chosen subpaths' direction as one Transaction; sends nothing when none differ. The
  * command names the direction, so a subpath someone else reverses first is left as it is
  * (ADR-0109). The selected Anchors and segments stay on the Anchors they named, renumbered as the
- * reverse renumbers them, so the panel keeps showing the direction it set.
+ * reverse renumbers them, so the panel keeps showing the direction it set; a rejection numbers them
+ * back (#272).
  */
 export function setDirection(s: Selected, on: boolean) {
   const { doc } = s;
@@ -78,22 +79,10 @@ export function setDirection(s: Selected, on: boolean) {
   const subpaths = flip.map(({ nodeId, subpath }) => ({ nodeId, subpath }));
   const commandId = send({ type: "path_reverse", subpaths, clockwise: on });
   const inputs = directionEdits(doc, subpaths, on);
-  /** Where Anchor `index`, or the segment starting there, is once its subpath is reversed. */
-  const renumber = (segment: boolean) => (key: string) => {
-    const { nodeId, subpath, index } = parseKey(key);
-    const n = doc.nodes.get(nodeId);
-    const sub = n?.type === "path" ? localAnchors(n)[subpath] : undefined;
-    if (!sub || !subpaths.some((t) => t.nodeId === nodeId && t.subpath === subpath)) return key;
-    const count = sub.anchors.length;
-    // A closed subpath keeps its first Anchor; a segment now starts at its old end.
-    const at = sub.closed
-      ? (count - index - (segment ? 1 : 0)) % count
-      : count - 1 - index - (segment ? 1 : 0);
-    return anchorKey(nodeId, subpath, at);
-  };
   useStore.setState({
     edit: { inputs, commandIds: inputs.map(() => commandId) },
-    anchors: s.anchors.map(renumber(false)),
-    segments: s.segments.map(renumber(true)),
+    reversing: { commandId, subpaths },
+    anchors: s.anchors.map(reversedKey(doc, subpaths, false)),
+    segments: s.segments.map(reversedKey(doc, subpaths, true)),
   });
 }

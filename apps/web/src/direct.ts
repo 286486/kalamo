@@ -395,6 +395,25 @@ export function inRange(doc: Document, key: string): boolean {
   return hasAnchors(n) && !!localAnchors(n)[subpath]?.anchors[index];
 }
 
+/**
+ * Where Anchor `key`, or with `segment` the segment starting there, is once its subpath is reversed,
+ * if `subpaths` names it. Reversing twice is no change, so this also numbers a key back.
+ */
+export const reversedKey =
+  (doc: Document, subpaths: { nodeId: string; subpath: number }[], segment: boolean) =>
+  (key: string) => {
+    const { nodeId, subpath, index } = parseKey(key);
+    const n = doc.nodes.get(nodeId);
+    const sub = n?.type === "path" ? localAnchors(n)[subpath] : undefined;
+    if (!sub || !subpaths.some((t) => t.nodeId === nodeId && t.subpath === subpath)) return key;
+    const count = sub.anchors.length;
+    // A closed subpath keeps its first Anchor; a segment now starts at its old end.
+    const at = sub.closed
+      ? (count - index - (segment ? 1 : 0)) % count
+      : count - 1 - index - (segment ? 1 : 0);
+    return anchorKey(nodeId, subpath, at);
+  };
+
 /** Whether `key` names a segment its Node has now. */
 export const segmentInRange = (doc: Document, key: string) => segmentHandles(doc, key).length > 0;
 

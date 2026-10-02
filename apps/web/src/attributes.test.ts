@@ -62,6 +62,22 @@ function fixture() {
 }
 const commands = () => vi.mocked(send).mock.calls.map(([c]) => c);
 
+/** Two Compound Paths, each a clockwise square with a counter-clockwise hole. */
+function rings() {
+  const { doc, defaultLayerId: parentId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 200, height: 200 }],
+  });
+  const ring = (x: number) =>
+    `M${x} 0 L${x + 30} 0 L${x + 30} 30 L${x} 30 Z M${x + 10} 10 L${x + 10} 20 L${x + 20} 20 L${x + 20} 10 Z`;
+  const [a, b] = createNodes(doc, [
+    { type: "path", parentId, d: ring(0) },
+    { type: "path", parentId, d: ring(50) },
+  ]).nodes as [Node, Node];
+  return { doc, a, b };
+}
+
 it("measures a subpath's direction on screen, y down, exactly for curves", () => {
   const [square] = toAnchors(parsePath("M0 0 L10 0 L10 10 L0 10 Z", "d"));
   expect(signedArea(square as never)).toBe(200);
@@ -171,18 +187,7 @@ it("disables both rows for a locked, hidden or locked-Group path and an Image, a
 
 it("after a press another Actor raced, names only the Anchors the Direct Selection named (ADR-0109)", () => {
   vi.mocked(send).mockClear();
-  const { doc, defaultLayerId: parentId } = createDocument({
-    id: "d",
-    name: "Doc",
-    artboards: [{ width: 200, height: 200 }],
-  });
-  // Two Compound Paths, each a clockwise square with a counter-clockwise hole.
-  const ring = (x: number) =>
-    `M${x} 0 L${x + 30} 0 L${x + 30} 30 L${x} 30 Z M${x + 10} 10 L${x + 10} 20 L${x + 20} 20 L${x + 20} 10 Z`;
-  const [a, b] = createNodes(doc, [
-    { type: "path", parentId, d: ring(0) },
-    { type: "path", parentId, d: ring(50) },
-  ]).nodes as [Node, Node];
+  const { doc, a, b } = rings();
   const at = (d: Document, key: string) => {
     const { nodeId, subpath, index } = parseKey(key);
     return localAnchors(d.nodes.get(nodeId) as PathNode)[subpath]?.anchors[index]?.anchor;
@@ -223,4 +228,118 @@ it("after a press another Actor raced, names only the Anchors the Direct Selecti
   expect(answered).toMatchObject({ edit: null, anchors: [anchorKey(b.id, 1, 3)] });
   expect(at(answered.doc as Document, anchorKey(b.id, 1, 3))).toEqual([60, 20]);
   expect(at(doc, anchorKey(b.id, 1, 1))).toEqual([60, 20]);
+});
+
+it("after a rejected press, names the Anchors and segments named before it, on both Compound Paths", () => {
+  vi.mocked(send).mockClear();
+  const { doc, a, b } = rings();
+  const before = {
+    anchors: [anchorKey(a.id, 1, 1), anchorKey(b.id, 1, 2), anchorKey(b.id, 0, 1)],
+    segments: [anchorKey(a.id, 1, 3), anchorKey(b.id, 1, 0)],
+  };
+  const state = viewState({ doc, selection: [a.id, b.id], role: "owner", ...before });
+  setDirection(state, true);
+  const { edit, reversing, anchors, segments } = useStore.getState();
+  const pressed = { ...state, edit, reversing, anchors, segments };
+  expect(pressed.anchors).not.toEqual(before.anchors);
+  const rejected = message("rejected", {
+    id: "c",
+    error: { code: "INVALID_PATH", message: "No.", hint: "" },
+  });
+  expect(stateAfter(pressed, rejected)).toMatchObject({
+    edit: null,
+    reversing: null,
+    notice: "No.",
+    ...before,
+  });
+});
+
+it("after a rejected press, names the Anchors named before it, whatever this tab did meanwhile", () => {
+  vi.mocked(send).mockClear();
+  const { doc, a } = rings();
+  const chosen = [anchorKey(a.id, 1, 1)];
+  const state = viewState({ doc, selection: [a.id], anchors: chosen, role: "owner" });
+  setDirection(state, true);
+  const { reversing, anchors, segments } = useStore.getState();
+  // A whole-path drag replaces the press's preview; its answer moves the path.
+  const pressed = {
+    ...state,
+    edit: null,
+    reversing,
+    anchors,
+    segments,
+    drag: { nodeIds: [a.id], dx: 5, dy: 0, commandId: "c3" },
+  };
+  const moved: PathNode = { ...(doc.nodes.get(a.id) as PathNode), transform: [1, 0, 0, 1, 5, 0] };
+  const dragged = message("tx", { rev: doc.rev + 1, commandId: "c3", updated: [moved] });
+  const afterDrag = { ...pressed, ...stateAfter(pressed, dragged) };
+  expect(afterDrag).toMatchObject({ edit: null, reversing, anchors });
+  // Another of this tab's commands is refused; the press is still in flight.
+  const other = message("rejected", { id: "c2" });
+  expect(stateAfter(afterDrag, other)).toMatchObject({ notice: "no" });
+  expect(stateAfter(afterDrag, other)).not.toHaveProperty("anchors");
+  const rejected = message("rejected", { id: "c" });
+  expect(stateAfter(afterDrag, rejected)).toMatchObject({ reversing: null, anchors: chosen });
+  // Accepted instead, the press keeps the renumbered Anchor though its preview went.
+  const shown = afterDrag.doc as Document;
+  const flipped = editPath(
+    { ...shown, nodes: new Map(shown.nodes) },
+    { nodeId: a.id, ops: [{ op: "reverse", subpath: 1 }] },
+  ).node;
+  const answer = message("tx", { rev: shown.rev + 1, commandId: "c", updated: [flipped] });
+  expect(stateAfter(afterDrag, answer)).toMatchObject({ reversing: null, anchors });
+});
+
+it("after a rejected press another Actor raced, leaves the raced path's Anchors cleared (ADR-0109)", () => {
+  vi.mocked(send).mockClear();
+  const { doc, a, b } = rings();
+  const state = viewState({
+    doc,
+    selection: [a.id, b.id],
+    anchors: [anchorKey(a.id, 1, 1), anchorKey(b.id, 1, 1)],
+    role: "owner",
+  });
+  setDirection(state, true);
+  const { edit, reversing, anchors, segments } = useStore.getState();
+  const pressed = { ...state, edit, reversing, anchors, segments };
+  const reversed = editPath(
+    { ...doc, nodes: new Map(doc.nodes) },
+    { nodeId: a.id, ops: [{ op: "reverse", subpath: 1 }] },
+  ).node;
+  const theirs = message("tx", { rev: doc.rev + 1, actor: "agent", updated: [reversed] });
+  const raced = { ...pressed, ...stateAfter(pressed, theirs) };
+  expect(raced.anchors).toEqual([anchorKey(b.id, 1, 3)]);
+  // The person then chooses an Anchor on a again, numbered as a now runs.
+  const chosen = { ...raced, anchors: [...raced.anchors, anchorKey(a.id, 1, 1)] };
+  const rejected = message("rejected", {
+    id: "c",
+    error: { code: "NODE_GONE", message: "Gone.", hint: "" },
+  });
+  expect(stateAfter(chosen, rejected)).toMatchObject({
+    edit: null,
+    anchors: [anchorKey(b.id, 1, 1), anchorKey(a.id, 1, 1)],
+    segments: [],
+  });
+});
+
+it("after a reconnect, numbers the keys back on a subpath the press never reached", () => {
+  vi.mocked(send).mockClear();
+  const { doc, a, b } = rings();
+  const chosen = [anchorKey(a.id, 1, 1), anchorKey(b.id, 1, 1)];
+  const state = viewState({ doc, selection: [a.id, b.id], anchors: chosen, role: "owner" });
+  setDirection(state, true);
+  const { edit, reversing, anchors, segments } = useStore.getState();
+  const pressed = { ...state, edit, reversing, anchors, segments };
+  // The press reached the Document DO for b only before the socket dropped.
+  const reversed = editPath(
+    { ...doc, nodes: new Map(doc.nodes) },
+    { nodeId: b.id, ops: [{ op: "reverse", subpath: 1 }] },
+  ).node;
+  const nodes = [...doc.nodes.values()].map((n) => (n.id === b.id ? reversed : n));
+  const snapshot = message("document", { rev: doc.rev + 1, nodes });
+  expect(stateAfter(pressed, snapshot)).toMatchObject({
+    edit: null,
+    reversing: null,
+    anchors: [anchorKey(a.id, 1, 1), anchorKey(b.id, 1, 3)],
+  });
 });

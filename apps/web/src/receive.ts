@@ -11,11 +11,12 @@ import {
   type PathOpInput,
   paintOrder,
   pathOp,
+  runsClockwise,
   transformNodes,
 } from "@kalamo/core";
 import { applyBroadcast, type Role, type ServerMessage } from "@kalamo/sync";
 import type { CurveAnchor } from "./curvature.ts";
-import { inRange, parseKey, segmentInRange } from "./direct.ts";
+import { inRange, parseKey, reversedKey, segmentInRange } from "./direct.ts";
 import type { PaintPreview } from "./gradient.ts";
 import { prune } from "./isolation.ts";
 import { type Areas, areasAfter, type Peers, peersAfter } from "./presence.ts";
@@ -95,6 +96,17 @@ export interface PathDrag {
 }
 
 /**
+ * A `path_reverse` in flight and the subpaths it renumbered the selected Anchors and segments on,
+ * ahead of its answer; a rejection numbers them back (#272). Another Actor's edit to a path clears
+ * its keys, so it takes the path out. Kept apart from `edit`, which the next Direct Selection
+ * action replaces.
+ */
+export interface Reversing {
+  commandId: string;
+  subpaths: { nodeId: string; subpath: number }[];
+}
+
+/**
  * Object > Path > Simplify or Offset Path while its bar or dialog is open: previewed in the
  * browser, then sent as one `path_op` on OK (ADR-0035); `commandId` is set then, and it is drawn
  * until the answer.
@@ -125,6 +137,7 @@ export interface ViewState {
   /** Drawn art sent and not yet answered, oldest first. */
   pending: PendingCreate[];
   edit: PathDrag | null;
+  reversing: Reversing | null;
   opPreview: PathOpPreview | null;
   /** Direct Selection's selected Anchors (direct.ts's keys): UI state, like the Selection. */
   anchors: string[];
@@ -217,7 +230,14 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     return {};
   if (msg.type === "rejected") {
     const gone = msg.error.code === "NODE_GONE";
+    const back = s.reversing?.commandId === msg.id ? s.reversing.subpaths : undefined;
     return {
+      ...(s.doc &&
+        back && {
+          anchors: s.anchors.map(reversedKey(s.doc, back, false)),
+          segments: s.segments.map(reversedKey(s.doc, back, true)),
+          reversing: null,
+        }),
       ...(s.drag?.commandId === msg.id && { drag: null }),
       ...settlePending(s.pending, msg.id),
       ...(s.opPreview?.commandId === msg.id && { opPreview: null }),
@@ -253,7 +273,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     msg.type === "tx" ? s.pending.find((p) => p.commandId === msg.commandId) : undefined;
   // Someone else's change to a path renumbers its Anchors, so its selected ones go; after our own
   // command, and on a reconnect, those it still has stay.
-  const ours = [...(s.edit?.commandIds ?? []), s.drag?.commandId];
+  const ours = [...(s.edit?.commandIds ?? []), s.drag?.commandId, s.reversing?.commandId];
   const own = msg.type === "tx" && !!msg.commandId && ours.includes(msg.commandId);
   const touched =
     msg.type === "tx" ? new Set([...msg.updated.map((n) => n.id), ...msg.deletedIds]) : null;
@@ -261,8 +281,22 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     const changed = !touched || touched.has(parseKey(key).nodeId);
     return !changed || ((own || !touched) && inRangeOf(doc, key));
   };
-  const anchors = s.anchors.filter(kept(inRange));
-  const segments = s.segments.filter(kept(segmentInRange));
+  // A reconnect loses the answer to a press in flight; a subpath that still runs as it did never got
+  // it, so its keys are numbered back.
+  const prior = s.doc;
+  const unreversed =
+    msg.type === "document" && prior && s.reversing
+      ? s.reversing.subpaths.filter((t) => direction(prior, t) === direction(doc, t))
+      : [];
+  const anchors = s.anchors.map(reversedKey(doc, unreversed, false)).filter(kept(inRange));
+  const segments = s.segments.map(reversedKey(doc, unreversed, true)).filter(kept(segmentInRange));
+  // The press's answer or a reconnect settles its renumbering.
+  const reversing =
+    !s.reversing || msg.type === "document" || msg.commandId === s.reversing.commandId
+      ? null
+      : own
+        ? s.reversing
+        : { ...s.reversing, subpaths: s.reversing.subpaths.filter((t) => !touched?.has(t.nodeId)) };
   const skipped = msg.type === "tx" ? (msg.skippedIds?.length ?? 0) : 0;
   // A selected Node that a browser's command moved into a new Group selects that Group, as Make
   // Clipping Mask does; an Agent's edit leaves the person's Selection alone.
@@ -303,6 +337,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     anchors,
     segments,
     ...(msg.type === "document" ? { edit: null } : settle(s.edit, msg.commandId)),
+    ...(reversing !== s.reversing && { reversing }),
     ...(msg.type === "document"
       ? s.pending.length > 0 && { pending: [] }
       : settlePending(s.pending, msg.commandId)),
@@ -396,6 +431,12 @@ function settle(edit: PathDrag | null, id: string | undefined): { edit?: PathDra
   const inputs = edit.inputs.filter((_, i) => ids[i] !== id);
   const commandIds = ids.filter((c) => c !== id);
   return { edit: inputs.length > 0 ? { inputs, commandIds } : null };
+}
+
+/** Which way subpath `t` runs in `doc`; undefined when it is gone. */
+function direction(doc: Document, t: { nodeId: string; subpath: number }) {
+  const n = doc.nodes.get(t.nodeId);
+  return n?.type === "path" ? runsClockwise(doc, n, t.subpath) : undefined;
 }
 
 /** The pending creates without the one whose command `id` was answered or rejected. */
