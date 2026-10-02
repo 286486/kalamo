@@ -22,6 +22,7 @@ export type ErrorCode =
   | "TX_EXPIRED"
   | "NOTHING_TO_UNDO"
   | "NOTHING_TO_REDO"
+  | "NOTHING_TO_CHANGE"
   | "BOOLEAN_FAILED";
 
 /** What an Agent sees for a failed call: enough to fix the call without a stack trace. */

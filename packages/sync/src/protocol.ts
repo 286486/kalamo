@@ -173,7 +173,8 @@ const CommandMessage = z.object({
     // Direct Selection and continuing a path with the Pen (ADR-0032).
     z.object({ type: z.literal("path_edit"), input: PathEditInput }),
     // The Attributes panel (ADR-0108): the fill rule of several paths, and the direction of
-    // several subpaths, each in one Transaction.
+    // several subpaths, each in one Transaction. `path_reverse` reverses only the subpaths that do
+    // not already run the way `clockwise` names on screen when it is applied (ADR-0109).
     z.object({
       type: z.literal("fill_rule"),
       nodeIds: z.array(z.string()).min(1),
@@ -182,6 +183,7 @@ const CommandMessage = z.object({
     z.object({
       type: z.literal("path_reverse"),
       subpaths: z.array(z.object({ nodeId: z.string(), subpath: z.number().int().min(0) })).min(1),
+      clockwise: z.boolean(),
     }),
     // Object > Shape > Expand Shape (ADR-0032).
     z.object({ type: z.literal("path_op"), input: PathOpInput }),

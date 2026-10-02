@@ -1,8 +1,20 @@
-import { createDocument, createNodes, type Node, parsePath, pathOp, toAnchors } from "@kalamo/core";
+import {
+  createDocument,
+  createNodes,
+  type Document,
+  editPath,
+  type Node,
+  type PathNode,
+  parsePath,
+  pathOp,
+  signedArea,
+  toAnchors,
+} from "@kalamo/core";
 import { expect, it, vi } from "vitest";
-import { directionOf, fillRuleOf, setDirection, setFillRule, signedArea } from "./attributes.ts";
-import { anchorKey } from "./direct.ts";
+import { directionOf, fillRuleOf, setDirection, setFillRule } from "./attributes.ts";
+import { anchorKey, localAnchors, parseKey } from "./direct.ts";
 import { send, useStore } from "./store.ts";
+import { message, stateAfter, viewState } from "./testing.ts";
 
 vi.mock("./store.ts", async (original) => ({
   ...(await original<typeof import("./store.ts")>()),
@@ -102,9 +114,13 @@ it("reads a Make result as Illustrator's, backmost Off and hole On, and sets a c
   // A straight subpath has no direction, so On could never show as set.
   const line = id("line");
   expect(directionOf({ ...s([anchorKey(line, 1, 0)]), selection: [line] })).toBeNull();
+  const both = { ...s([anchorKey(line, 0, 0), anchorKey(line, 1, 0)]), selection: [line] };
+  expect(directionOf(both)).toBe(true);
   setDirection(s([anchorKey(ring, 1, 0)]), true);
   setDirection(s([anchorKey(ring, 1, 0), anchorKey(ring, 1, 1)], [anchorKey(ring, 1, 3)]), false);
-  expect(commands()).toEqual([{ type: "path_reverse", subpaths: [{ nodeId: ring, subpath: 1 }] }]);
+  expect(commands()).toEqual([
+    { type: "path_reverse", subpaths: [{ nodeId: ring, subpath: 1 }], clockwise: false },
+  ]);
   // The chosen Anchors stay chosen, renumbered as the reverse renumbers its four: 0 stays, 1 is 3,
   // and the closing segment from 3 to 0 now runs from 0 to 1.
   expect(useStore.getState()).toMatchObject({
@@ -151,4 +167,60 @@ it("disables both rows for a locked, hidden or locked-Group path and an Image, a
     expect([fillRuleOf(one(key)), directionOf(one(key))]).toEqual([null, null]);
   }
   expect([fillRuleOf(one("plain")), directionOf(one("plain"))]).toEqual(["nonzero", null]);
+});
+
+it("after a press another Actor raced, names only the Anchors the Direct Selection named (ADR-0109)", () => {
+  vi.mocked(send).mockClear();
+  const { doc, defaultLayerId: parentId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 200, height: 200 }],
+  });
+  // Two Compound Paths, each a clockwise square with a counter-clockwise hole.
+  const ring = (x: number) =>
+    `M${x} 0 L${x + 30} 0 L${x + 30} 30 L${x} 30 Z M${x + 10} 10 L${x + 10} 20 L${x + 20} 20 L${x + 20} 10 Z`;
+  const [a, b] = createNodes(doc, [
+    { type: "path", parentId, d: ring(0) },
+    { type: "path", parentId, d: ring(50) },
+  ]).nodes as [Node, Node];
+  const at = (d: Document, key: string) => {
+    const { nodeId, subpath, index } = parseKey(key);
+    return localAnchors(d.nodes.get(nodeId) as PathNode)[subpath]?.anchors[index]?.anchor;
+  };
+  const state = viewState({
+    doc,
+    selection: [a.id, b.id],
+    anchors: [anchorKey(a.id, 1, 1), anchorKey(b.id, 1, 1)],
+    role: "owner",
+  });
+  setDirection(state, true);
+  const holes = [
+    { nodeId: a.id, subpath: 1 },
+    { nodeId: b.id, subpath: 1 },
+  ];
+  expect(commands()).toEqual([{ type: "path_reverse", subpaths: holes, clockwise: true }]);
+  const { edit, anchors, segments } = useStore.getState();
+  const pressed = { ...state, edit, anchors, segments };
+  const reversed = (d: Document, nodeId: string) =>
+    editPath({ ...d, nodes: new Map(d.nodes) }, { nodeId, ops: [{ op: "reverse", subpath: 1 }] })
+      .node;
+  // An Agent reverses a's hole first, so the answer reverses only b's.
+  const theirs = message("tx", {
+    rev: doc.rev + 1,
+    actor: "agent",
+    updated: [reversed(doc, a.id)],
+  });
+  const raced = { ...pressed, ...stateAfter(pressed, theirs) };
+  const shown = raced.doc as Document;
+  const answer = message("tx", {
+    rev: shown.rev + 1,
+    commandId: "c",
+    updated: [reversed(shown, b.id)],
+  });
+  const answered = { ...raced, ...stateAfter(raced, answer) };
+  // a's Anchor goes with the Agent's edit, as any other Actor's edit to a path clears it; b's
+  // follows the reverse to the same point.
+  expect(answered).toMatchObject({ edit: null, anchors: [anchorKey(b.id, 1, 3)] });
+  expect(at(answered.doc as Document, anchorKey(b.id, 1, 3))).toEqual([60, 20]);
+  expect(at(doc, anchorKey(b.id, 1, 1))).toEqual([60, 20]);
 });
