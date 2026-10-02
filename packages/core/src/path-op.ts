@@ -18,6 +18,7 @@ import {
   bounds,
   childrenOf,
   createNodes,
+  isCompoundPath,
   isOpacityMask,
   MAX_NODES_PER_CREATE,
   mapPaint,
@@ -813,7 +814,7 @@ function shapeMode(
       const what =
         node.type === "group" || node.type === "layer"
           ? `A ${node.type} with no path or Live Shape`
-          : notCompoundPart(node);
+          : notOperandLeaf(node);
       const hint =
         node.type === "text" ? OUTLINES_HINT : "Name paths, Live Shapes, or Groups of them.";
       throw invalid(`nodeIds[${i}]`, `${what} is not a ${PATH_OP_TEXT[op].menu} operand.`, hint);
@@ -891,8 +892,11 @@ function eachNamed(doc: Document, nodeIds: string[]): { node: Node; at: string }
   return [...found.values()];
 }
 
-/** Why `node` cannot be part of, or be, a Compound Path that Make or Release writes; else null. */
-function notCompoundPart(node: Node): string | null {
+/**
+ * What a refusal calls `node` when it is no path or Live Shape that paints, so no leaf Make, Release
+ * or a Shape Mode takes; else null.
+ */
+function notOperandLeaf(node: Node): string | null {
   if (node.type !== "path" && !isLiveShape(node)) return article(node.type);
   if (node.clipping) return "A Clipping Path";
   // A Group holds one mask (ADR-0103).
@@ -910,10 +914,6 @@ const splitSubpaths = (segments: Segment[]): Segment[][] =>
     return out;
   }, []);
 
-/** A path whose `d` has two or more subpaths (ADR-0018). */
-export const isCompoundPath = (n: Node): boolean =>
-  n.type === "path" && (n.d.match(/M/g)?.length ?? 0) >= 2;
-
 /** `segments` with every subpath drawn the other way. */
 const reversed = (segments: Segment[]) =>
   fromAnchors(editSubpaths(toAnchors(segments), { op: "reverse" }, ""));
@@ -928,7 +928,7 @@ function makeCompoundPath(doc: Document, nodeIds: string[]): PathOpResult {
   const order = paintOrder(doc);
   const operands = eachNamed(doc, nodeIds)
     .map(({ node, at }) => {
-      const what = notCompoundPart(node);
+      const what = notOperandLeaf(node);
       if (!what) return node as WithAnchors;
       const hint =
         node.type === "text"
@@ -974,7 +974,7 @@ function releaseCompoundPath(doc: Document, nodeIds: string[]): PathOpResult {
     const what =
       node.type !== "path"
         ? article(node.type)
-        : (notCompoundPart(node) ?? (isCompoundPath(node) ? null : "A path with one subpath"));
+        : (notOperandLeaf(node) ?? (isCompoundPath(node) ? null : "A path with one subpath"));
     if (what !== null || node.type !== "path") {
       throw invalid(
         at,
