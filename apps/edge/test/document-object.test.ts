@@ -638,6 +638,28 @@ it("runs a path_op as one Transaction with its PATH_OP_TEXT summary, loading Pat
   ]);
 });
 
+it("runs a Shape Mode on PathKit as one Transaction that one undo takes back, ids and all", async () => {
+  const { s, defaultLayerId, rectId } = await withRect("unite1");
+  const [otherId = ""] = ok(
+    await s.createNodes([{ ...rect, parentId: defaultLayerId, x: 5 }], "agent-a"),
+  ).createdIds;
+  const united = ok(await s.pathOp({ nodeIds: [rectId, otherId], op: "unite" }, "agent-a"));
+  const [unitedId = ""] = united.createdIds;
+  expect(united).toMatchObject({
+    rev: 4,
+    deletedIds: expect.arrayContaining([rectId, otherId]),
+    bounds: { x: 0, y: 0, width: 15, height: 10 },
+  });
+  expect(await layerChildren(s)).toEqual([unitedId]);
+  expect(ok(await s.changes(3)).changes.map((c) => c.summary)).toEqual(["Unite"]);
+  expect(ok(await s.undo("agent-a"))).toMatchObject({ rev: 5, deletedIds: [unitedId] });
+  expect(await layerChildren(s)).toEqual([rectId, otherId]);
+  expect(await s.pathOp({ nodeIds: [rectId, "nope"], op: "intersect" }, "agent-a")).toMatchObject({
+    error: { code: "NODE_NOT_FOUND", path: "nodeIds[1]" },
+  });
+  expect(ok(await s.info())).toMatchObject({ rev: 5 });
+});
+
 it("makes and releases a Clipping Mask as one Transaction each, undone and redone like any other", async () => {
   const { s, defaultLayerId, rectId } = await withRect("m1");
   const [clipId = ""] = ok(

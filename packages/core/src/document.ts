@@ -821,7 +821,8 @@ export function lineBounds(doc: Document, n: TextNode): Rect | null {
   );
 }
 
-const worldOutline = (
+/** A shape's outline in document coordinates, with the fill rule it fills by. */
+export const worldOutline = (
   doc: Document,
   n: ShapeNode,
 ): { segments: Segment[]; fillRule: FillRule } => ({

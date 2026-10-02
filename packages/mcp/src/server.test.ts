@@ -431,6 +431,28 @@ describe("write tools pass the write and its options apart", () => {
     },
   );
 
+  it("path_op: a Shape Mode passes its nodeIds through and returns the one receipt", async () => {
+    const out = { ...receipt, createdIds: ["u"], deletedIds: ["a", "b"] };
+    const { service, call, called } = await harness({ pathOp: async () => out });
+    const result = await call("kalamo_path_op", { docId: "d", nodeIds: ["a", "b"], op: "unite" });
+    expect(service.pathOp.mock.calls[0]?.[1]).toStrictEqual(
+      PathOpInput.parse({ nodeIds: ["a", "b"], op: "unite" }),
+    );
+    expect(result.structuredContent).toEqual(out);
+    const stray = { docId: "d", nodeIds: ["a", "b"], op: "minus_front", mode: "intersect" };
+    expect(errorOf(await call("kalamo_path_op", stray))).toMatchObject({
+      code: "INVALID_INPUT",
+      path: "mode",
+    });
+    const unknown = { docId: "d", nodeIds: ["a", "b"], op: "minus_back" };
+    expect(errorOf(await call("kalamo_path_op", unknown))).toMatchObject({
+      code: "INVALID_INPUT",
+      path: "op",
+    });
+    expect(called()).toEqual(["pathOp"]);
+    expect(service.pathOp).toHaveBeenCalledTimes(1);
+  });
+
   it.each(writeOptions)(
     "freehand_stroke: the fitted Ink as one path through createNodes, with %s write options as given",
     async (_, write) => {

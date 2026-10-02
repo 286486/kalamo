@@ -18,16 +18,21 @@ import {
   bounds,
   childrenOf,
   createNodes,
+  isOpacityMask,
   MAX_NODES_PER_CREATE,
+  mapPaint,
   newId,
   paintOrder,
+  worldOutline,
   worldTransform,
 } from "./document.ts";
+import { deleteNodes, lookup, outermost } from "./edit.ts";
 import { KalamoError } from "./errors.ts";
 import { simplifySubpath } from "./fit.ts";
 import { applyTo, IDENTITY, invert, multiply, scaleOf, transformSegments } from "./matrix.ts";
 import { formatPath, parsePath, pathBounds, type Segment } from "./path.ts";
 import type {
+  Appearance,
   Document,
   Fill,
   GroupNode,
@@ -41,11 +46,15 @@ import type {
 
 type Point = [number, number];
 
+/** Illustrator's Pathfinder Shape Modes, expanded (ADR-0104). */
+export const SHAPE_MODES = ["unite", "minus_front", "intersect", "exclude"] as const;
+
 /**
  * `path_op` (REQUIREMENTS §6.4) so far: convert_to_path (Object > Shape > Expand Shape), reverse
  * (Reverse Path Direction), add_anchors (Add Anchor Points), join (Join), average (Average),
  * simplify (Simplify), outline_stroke (Outline Stroke), offset (Offset Path), divide_below (Divide
- * Objects Below), split_into_grid (Split Into Grid) and clean_up (Clean Up).
+ * Objects Below), split_into_grid (Split Into Grid), clean_up (Clean Up) and the Pathfinder Shape
+ * Modes unite, minus_front, intersect and exclude (ADR-0104).
  */
 export const PathOpInput = z.strictObject({
   nodeIds: z
@@ -65,6 +74,7 @@ export const PathOpInput = z.strictObject({
     "divide_below",
     "split_into_grid",
     "clean_up",
+    ...SHAPE_MODES,
   ]),
   tolerance: z
     .number()
@@ -170,7 +180,15 @@ export const PATH_OP_TEXT: Record<PathOpInput["op"], { menu: string; summary: st
   divide_below: { menu: "Divide Objects Below", summary: "Divide Objects Below" },
   split_into_grid: { menu: "Split Into Grid…", summary: "Split Into Grid" },
   clean_up: { menu: "Clean Up…", summary: "Clean Up" },
+  unite: { menu: "Unite", summary: "Unite" },
+  minus_front: { menu: "Minus Front", summary: "Minus Front" },
+  intersect: { menu: "Intersect", summary: "Intersect" },
+  exclude: { menu: "Exclude", summary: "Exclude" },
 };
+
+export type ShapeMode = (typeof SHAPE_MODES)[number];
+const isShapeMode = (op: string): op is ShapeMode =>
+  (SHAPE_MODES as readonly string[]).includes(op);
 
 /** How a Stroke is drawn along its path, without its paint. */
 export type StrokeStyle = Pick<Stroke, "width" | "cap" | "join" | "miterLimit" | "dash">;
@@ -199,6 +217,11 @@ export interface Geometry {
   offsetPath(segments: Segment[], style: OffsetStyle): Segment[];
   /** `target`'s fill inside `cutter`'s and outside it, each no segments when empty. */
   divide(target: Filled, cutter: Filled): { inside: Segment[]; outside: Segment[] };
+  /**
+   * `operands`, back to front, combined by the Shape Mode, no segments when empty. Holes wind
+   * against their outlines, so all but exclude fill the same under nonzero.
+   */
+  combine(op: ShapeMode, operands: Filled[]): Segment[];
 }
 
 const invalid = (path: string, message: string, hint: string) =>
@@ -712,6 +735,123 @@ function divideBelow(doc: Document, nodeIds: string[], geometry: Geometry): Path
   return { created, updated, deletedIds: [cutter.id], warnings };
 }
 
+/** `appearance` as it looks drawn under `m`, for a path with no transform of its own. */
+function bake(appearance: Appearance, m: Matrix): Appearance {
+  const k = scaleOf(m);
+  return {
+    ...appearance,
+    fills: appearance.fills.map((f) => mapPaint(f, m)),
+    strokes: appearance.strokes.map((t) => ({
+      ...mapPaint(t, m),
+      width: t.width * k,
+      dash: t.dash.map((v) => v * k),
+    })),
+  };
+}
+
+const EMPTY: Record<ShapeMode, string> = {
+  unite: "The objects have no area to unite.",
+  minus_front: "The objects in front cover all of the backmost one.",
+  intersect: "The objects have no area in common.",
+  exclude: "The objects' overlaps cancel all of their area.",
+};
+
+/** A Shape Mode operand's paths and Live Shapes, back to front; no Clipping Path or mask. */
+function operandLeaves(doc: Document, n: Node): WithAnchors[] {
+  // A mask paints nothing (ADR-0103).
+  if (isOpacityMask(n)) return [];
+  if (n.type === "layer" || n.type === "group") {
+    return childrenOf(doc, n.id).flatMap((c) => operandLeaves(doc, c));
+  }
+  return (n.type === "path" || isLiveShape(n)) && !n.clipping ? [n] : [];
+}
+
+/**
+ * Pathfinder Shape Modes (ADR-0104): each Node in `nodeIds`, its path and Live Shape leaves for a
+ * Group or Layer, is one operand in document coordinates. They combine into one new path in the
+ * place, and with the paint, of the topmost operand, or the backmost for minus_front, and are
+ * deleted.
+ */
+function shapeMode(
+  doc: Document,
+  nodeIds: string[],
+  op: ShapeMode,
+  geometry: Geometry,
+): PathOpResult {
+  const order = paintOrder(doc);
+  // A Node inside another operand is already part of it, as when Illustrator selects a Group.
+  const { kept, nested } = outermost(
+    doc,
+    nodeIds.map((id, i) => lookup(doc, id, `nodeIds[${i}]`)),
+  );
+  const named = kept.map((node) => {
+    const i = nodeIds.indexOf(node.id);
+    const leaves = operandLeaves(doc, node);
+    if (leaves.length === 0) {
+      const what =
+        node.type === "group" || node.type === "layer"
+          ? `A ${node.type} with no path or Live Shape`
+          : "clipping" in node && node.clipping
+            ? "A Clipping Path"
+            : `A ${node.type}`;
+      const hint =
+        node.type === "text"
+          ? "A text has no outline until Create Outlines, still to come."
+          : "Name paths, Live Shapes, or Groups of them.";
+      throw invalid(`nodeIds[${i}]`, `${what} is not a Shape Mode operand.`, hint);
+    }
+    if (node.parentId === null) {
+      throw invalid(
+        `nodeIds[${i}]`,
+        "A top-level Layer has no parent to hold the result.",
+        "Name the objects in it, or a sublayer.",
+      );
+    }
+    return { node, leaves };
+  });
+  const operands = named.sort((a, b) => (order.get(a.node.id) ?? 0) - (order.get(b.node.id) ?? 0));
+  if (operands.length < 2) {
+    throw invalid("nodeIds", "A Shape Mode combines two or more objects.", "List them in nodeIds.");
+  }
+  const filled = operands.map(({ leaves }): Filled => {
+    const each = leaves.map((n) => worldOutline(doc, n));
+    const [only] = each;
+    if (only && each.length === 1) return only;
+    return { segments: geometry.combine("unite", each), fillRule: "nonzero" };
+  });
+  const segments = geometry.combine(op, filled);
+  if (segments.length === 0) {
+    throw invalid("nodeIds", EMPTY[op], "Overlap the objects so the result has area.");
+  }
+  const { node, leaves } = (op === "minus_front" ? operands[0] : operands.at(-1)) as {
+    node: Node;
+    leaves: WithAnchors[];
+  };
+  const leaf = leaves.at(-1) as WithAnchors;
+  const parent = lookup(doc, node.parentId as string, "nodeIds");
+  const back = invert(worldTransform(doc, parent));
+  const { name, parentId, index, visible, locked, opacity, blendMode, tags, meta } = node;
+  const result: PathNode = {
+    ...{ id: newId(), name, parentId, index, visible, locked, opacity, blendMode, tags, meta },
+    type: "path",
+    transform: IDENTITY,
+    appearance: bake(leaf.appearance, multiply(back, worldTransform(doc, leaf))),
+    d: formatPath(transformSegments(segments, back)),
+    fillRule: op === "exclude" ? "evenodd" : "nonzero",
+  };
+  const { deletedIds } = deleteNodes(
+    doc,
+    operands.map((o) => o.node.id),
+  );
+  doc.nodes.set(result.id, result);
+  const warnings = nested.map((n) => ({
+    code: "NESTED_TARGET",
+    nodeId: n.id,
+    message: "Also inside another operand, so it counted once, as part of that one.",
+  }));
+  return { created: [result], updated: [], deletedIds, warnings };
+}
+
 /**
  * `path_op clean_up` (research §5), over the whole Document: removes Stray Points, a path left
  * with none being deleted; Live Shapes and paths with no Fill and no Stroke; and texts of only
@@ -751,8 +891,8 @@ function cleanUp(doc: Document, input: z.output<typeof PathOpInput>): PathOpResu
 
 /**
  * `path_op` (REQUIREMENTS §6.4) on each path or Live Shape; every op but convert_to_path and
- * offset converts a Live Shape first (F-PATH-07), with a warning. outline_stroke, offset and
- * divide_below need `geometry`.
+ * offset converts a Live Shape first (F-PATH-07), with a warning. outline_stroke, offset,
+ * divide_below and the Shape Modes need `geometry`.
  */
 export function pathOp(doc: Document, raw: PathOpInput, geometry?: Geometry): PathOpResult {
   const input = PathOpInput.parse(raw);
@@ -775,6 +915,10 @@ export function pathOp(doc: Document, raw: PathOpInput, geometry?: Geometry): Pa
   if (op === "divide_below") {
     if (!geometry) throw new Error("divide_below needs the path geometry (ADR-0034).");
     return divideBelow(doc, nodeIds, geometry);
+  }
+  if (isShapeMode(op)) {
+    if (!geometry) throw new Error(`${op} needs the path geometry (ADR-0034).`);
+    return shapeMode(doc, nodeIds, op, geometry);
   }
   if (op === "split_into_grid") return splitIntoGrid(doc, input);
   if (op === "join") return join(doc, input);

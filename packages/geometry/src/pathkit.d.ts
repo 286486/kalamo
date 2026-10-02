@@ -17,7 +17,14 @@ declare module "pathkit-wasm/bin/pathkit.js" {
     toCmds(): number[][];
     delete(): void;
   }
+  /** Skia's SkOpBuilder; with only UNION paths, resolve also turns holes to wind as nonzero needs. */
+  export interface SkOpBuilder {
+    add(path: SkPath, op: Enum): void;
+    resolve(): SkPath | null;
+    delete(): void;
+  }
   export interface PathKit {
+    SkOpBuilder: new () => SkOpBuilder;
     FromCmds(cmds: number[][]): SkPath;
     NewPath(): SkPath;
     MOVE_VERB: number;
@@ -26,7 +33,7 @@ declare module "pathkit-wasm/bin/pathkit.js" {
     CONIC_VERB: number;
     CUBIC_VERB: number;
     CLOSE_VERB: number;
-    PathOp: { UNION: Enum; DIFFERENCE: Enum; INTERSECT: Enum };
+    PathOp: { UNION: Enum; DIFFERENCE: Enum; INTERSECT: Enum; XOR: Enum };
     StrokeJoin: { MITER: Enum; ROUND: Enum; BEVEL: Enum };
     StrokeCap: { BUTT: Enum; ROUND: Enum; SQUARE: Enum };
     FillType: { WINDING: Enum; EVENODD: Enum };
