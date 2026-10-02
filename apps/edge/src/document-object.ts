@@ -4,7 +4,6 @@ import {
   type Artboard,
   type ArtboardInput,
   bounds,
-  COMBINING,
   type ConciseView,
   commitTransaction,
   createDocument,
@@ -31,6 +30,7 @@ import {
   type Node,
   type NodeInput,
   type NodeQuery,
+  needsGeometry,
   neutraliseOrientation,
   newId,
   nodeView,
@@ -1015,9 +1015,7 @@ export class DocumentObject extends DurableObject<Env> {
     actor: string,
     opts: Options = {},
   ): Promise<Result<WriteReceipt>> {
-    const geometry = ["outline_stroke", "offset", "divide_below", ...COMBINING].includes(input.op)
-      ? await this.geometry()
-      : undefined;
+    const geometry = needsGeometry(input.op) ? await this.geometry() : undefined;
     const { summary } = PATH_OP_TEXT[input.op];
     return this.write(actor, opts, summary, (doc) => ({
       ...pathOp(doc, input, geometry),
