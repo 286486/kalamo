@@ -3,6 +3,7 @@ import {
   clippingPath,
   type Document,
   type DuplicateInput,
+  isClippingPath,
   KalamoError,
   lockedIn,
   type Node,
@@ -35,7 +36,7 @@ const AUTO_NAMES: Record<Exclude<Node["type"], "text">, string> = {
 export const autoName = (doc: Document, node: Node) =>
   node.type === "group" && clippingPath(doc, node)
     ? "<Clip Group>"
-    : "clipping" in node && node.clipping
+    : isClippingPath(node)
       ? "<Clipping Path>"
       : node.type === "text"
         ? node.content.replaceAll("\n", " ")
@@ -72,7 +73,7 @@ export function rows(doc: Document, toggled: Set<string>, scope: string | null):
       (node.type === "layer" || node.type === "group") &&
       childrenOf(doc, node.id).length > 0;
     const expanded = root || (expandable && (node.type === "layer") !== toggled.has(node.id));
-    const underlined = ("clipping" in node && !!node.clipping) || !!clippingPath(doc, node);
+    const underlined = isClippingPath(node) || !!clippingPath(doc, node);
     const dimmed = !editable(doc, node);
     const it = { node, depth, expandable, expanded, dimmed, underlined };
     return expanded ? [it, ...walk(node.id, depth + 1)] : [it];

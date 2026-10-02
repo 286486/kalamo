@@ -22,6 +22,7 @@ import {
   type ImageFile,
   type ImageInfo,
   invert,
+  isClippingPath,
   KalamoError,
   type Matrix,
   MIDPOINT_MAX,
@@ -827,7 +828,7 @@ class Reader {
     viewport: Size,
   ) {
     const read = this.nodes.slice(start);
-    const held = read.find((n) => n.parentId === groupId && "clipping" in n && n.clipping);
+    const held = read.find((n) => n.parentId === groupId && isClippingPath(n));
     const doc: Document = {
       id: "",
       name: "",
@@ -2376,7 +2377,7 @@ export function resolveLinks(
   const clipOnly = (g: string) =>
     kept.find((n) => n.id === g)?.type === "group" &&
     kept.some((c) => c.parentId === g) &&
-    kept.every((c) => c.parentId !== g || ("clipping" in c && c.clipping));
+    kept.every((c) => c.parentId !== g || isClippingPath(c));
   const emptied = new Set(
     resolved.flatMap((n) =>
       dropped.has(n.id) && n.parentId && clipOnly(n.parentId) ? [n.parentId] : [],

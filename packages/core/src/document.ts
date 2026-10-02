@@ -169,11 +169,11 @@ function consume(
       "frameNodeId names a closed Live Shape or Path: a rect, a closed ellipse, a polygon, a star or a closed path.",
     );
   }
-  if (node.clipping || node.opacityMask) {
-    const [what, mask] = node.clipping ? ["Clipping Path", "Clipping"] : ["mask", "Opacity"];
+  if (isClippingPath(node) || isOpacityMask(node)) {
+    const { what, kind } = maskRole(node);
     throw invalid(
       `A ${what} cannot be a frame.`,
-      `Release the ${mask} Mask first (mask_release), or frame the text in another shape.`,
+      `Release the ${kind} Mask first (mask_release), or frame the text in another shape.`,
     );
   }
   if (lockedIn(doc, node)) {
@@ -487,7 +487,7 @@ export function checkTree(
       siblings.add(key);
       const parentType = doc.nodes.get(parentId ?? "")?.type;
       const container = parentType === "layer" ? "Layer" : "Group";
-      if ("clipping" in n && n.clipping) {
+      if (isClippingPath(n)) {
         const hint =
           "A Clipping Path is the one clipping child of a Layer or Group, and visible (ADR-0021, ADR-0053, ADR-0103).";
         if (parentType !== "group" && parentType !== "layer") {
@@ -505,7 +505,7 @@ export function checkTree(
         if (parentType !== "group") {
           throw invalid(`${path}.opacityMask`, "A mask's parent is a Group.", hint);
         }
-        if ("clipping" in n && n.clipping)
+        if (isClippingPath(n))
           throw invalid(
             `${path}.opacityMask`,
             "A Node is a Clipping Path or a mask, not both.",
@@ -897,13 +897,10 @@ export const lockedIn = (doc: Document, node: Node | undefined): boolean =>
   !!node &&
   (node.locked || lockedIn(doc, node.parentId ? doc.nodes.get(node.parentId) : undefined));
 
-const clipAmong = (children: Node[]) =>
-  children.find((c): c is LeafNode => "clipping" in c && c.clipping === true);
-
 /** The Layer's or Group's Clipping Path, which makes it a Clipping Mask (ADR-0021, ADR-0053). */
 export function clippingPath(doc: Document, node: Node): LeafNode | undefined {
   return node.type === "layer" || node.type === "group"
-    ? clipAmong(childrenOf(doc, node.id))
+    ? childrenOf(doc, node.id).find(isClippingPath)
     : undefined;
 }
 
@@ -912,6 +909,18 @@ export type Mask = Exclude<Node, LayerNode> & { opacityMask: OpacityMask };
 
 /** Whether the Node is the mask of an Opacity Mask (ADR-0103). */
 export const isOpacityMask = (n: Node): n is Mask => "opacityMask" in n && !!n.opacityMask;
+
+/** A Clipping Path: the child that clips its Layer or Group (ADR-0021, ADR-0053). */
+export type ClippingPath = LeafNode & { clipping: true };
+
+/** Whether the Node is the Clipping Path of a Clipping Mask (ADR-0021). */
+export const isClippingPath = (n: Node): n is ClippingPath => "clipping" in n && !!n.clipping;
+
+/** What refusals call a Clipping Path or mask, and the kind of Mask it makes (ADR-0103). */
+export const maskRole = (n: ClippingPath | Mask) =>
+  isClippingPath(n)
+    ? ({ what: "Clipping Path", kind: "Clipping" } as const)
+    : ({ what: "mask", kind: "Opacity" } as const);
 
 /** The Group's mask, which makes it an Opacity Mask (ADR-0103). */
 export function opacityMaskOf(doc: Document, node: Node): Mask | undefined {
@@ -945,7 +954,7 @@ const contentOf = (doc: Document, node: Node) =>
 export function bounds(doc: Document, node: Node): Rect | null {
   if (node.type === "layer" || node.type === "group") {
     const children = contentOf(doc, node);
-    const clip = clipAmong(children);
+    const clip = children.find(isClippingPath);
     return clip ? bounds(doc, clip) : union(children.map((c) => bounds(doc, c)));
   }
   return pathBounds(worldSegments(doc, node));
@@ -960,7 +969,7 @@ export function visibleBounds(doc: Document, node: Node): Rect | null {
   if (node.type === "layer" || node.type === "group") {
     const children = contentOf(doc, node);
     // Everything else is clipped, and the Clipping Path's Strokes draw unclipped.
-    const clip = clipAmong(children);
+    const clip = children.find(isClippingPath);
     if (clip) return visibleBounds(doc, clip);
     const grow = Math.max(0, ...containerAppearance(node).strokes.map((s) => s.width)) / 2;
     // A leaf inside an inner Clipping Mask paints only within its Clipping Paths.

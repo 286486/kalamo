@@ -6,6 +6,7 @@ import {
   type Document,
   formatPath,
   type ImageNode,
+  isClippingPath,
   isLiveShape,
   type LeafClip,
   type LeafNode,
@@ -154,7 +155,7 @@ export function hitTest(
           ctx.lineWidth = tolerance;
           if (ctx.isPointInStroke(outline(doc, clip), x, y)) hit(clip);
         }
-      } else if (!("clipping" in n && n.clipping) && paintedAt(ctx, doc, n, x, y, tolerance)) {
+      } else if (!isClippingPath(n) && paintedAt(ctx, doc, n, x, y, tolerance)) {
         hit(n);
       }
     }
@@ -275,7 +276,7 @@ export function maskInput(
 export const releasable = (doc: Document, selection: string[]) =>
   selection.filter((id) => {
     const n = doc.nodes.get(id);
-    return !!n && editable(doc, n) && (("clipping" in n && n.clipping) || !!clippingPath(doc, n));
+    return !!n && editable(doc, n) && (isClippingPath(n) || !!clippingPath(doc, n));
   });
 
 /** Object > Relink… on the Selection: its one Image, however it is linked (ADR-0042). */
