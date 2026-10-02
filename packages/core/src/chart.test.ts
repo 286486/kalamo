@@ -72,6 +72,48 @@ describe("niceTicks", () => {
       ]),
     ).toEqual(["-40", "-20", "0", "20", "40", "60"]);
   });
+
+  it("draws values of 1e-300 to 1e300 in magnitude and fails INVALID_INPUT at a cell outside", () => {
+    const numbers = (n: Child): number[] =>
+      Object.values(n).flatMap((v) =>
+        typeof v === "number"
+          ? [v]
+          : Array.isArray(v)
+            ? v.flatMap((c) => (typeof c === "object" ? numbers(c) : []))
+            : [],
+      );
+    const draw = (vs: number[]) =>
+      chart({
+        data: { rows: vs.map((v, i) => ({ c: `r${i}`, v })) },
+        encoding: { x: "c", y: "v" },
+      });
+    for (const vs of [[-1e300, 1e300], [1e300], [-1e300], [1e-300], [-1e-300, 1]]) {
+      const { group, part } = draw(vs);
+      expect(numbers(group).every(Number.isFinite)).toBe(true);
+      const ticks = part("Value Axis")
+        .children?.filter((c) => c.type === "text")
+        .map((c) => Number(c.content)) as number[];
+      expect(ticks[0]).toBeLessThanOrEqual(Math.min(0, ...vs));
+      expect(ticks.at(-1)).toBeGreaterThanOrEqual(Math.max(0, ...vs));
+      const step = (ticks[1] ?? 0) - (ticks[0] ?? 0);
+      const mantissa = step / 10 ** Math.floor(Math.log10(step));
+      expect([1, 2, 5].some((m) => Math.abs(mantissa - m) < 1e-9)).toBe(true);
+    }
+    for (const [vs, at] of [
+      [[-1e308, 1e308], 0],
+      [[1.7e308], 0],
+      [[Number.MAX_VALUE], 0],
+      [[-Number.MAX_VALUE], 0],
+      [[5e-324], 0],
+      [[1, 1e-301], 1],
+    ] as const) {
+      expect(errorOf(() => draw([...vs]))).toMatchObject({
+        code: "INVALID_INPUT",
+        path: `data.rows[${at}].v`,
+        message: `Row ${at}'s v, ${vs[at]}, is outside 1e-300 to 1e+300 in magnitude.`,
+      });
+    }
+  });
 });
 
 describe("parseNumber", () => {
