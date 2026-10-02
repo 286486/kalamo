@@ -230,7 +230,6 @@ async function placeBitmap(
   return answer(async () => {
     await authorize(env, principal, docId, "write");
     const file = await bitmap(request);
-    const frame = Number.isFinite(x) && Number.isFinite(y);
     return unwrap(
       await env.DOCUMENT.get(env.DOCUMENT.idFromName(docId)).placeImage(
         // The name only titles a Template Layer, which paste and drop never make.
@@ -238,7 +237,8 @@ async function placeBitmap(
         principal.actor,
         {
           parentId: q.get("parentId") ?? "",
-          ...(frame && { frame: { x: x - file.width / 2, y: y - file.height / 2 } }),
+          // Centred by its upright size, which the Durable Object reads (ADR-0101).
+          ...(Number.isFinite(x) && Number.isFinite(y) && { position: { x, y } }),
           storage: await ownerStorage(env, docId, principal.userId),
         },
       ),

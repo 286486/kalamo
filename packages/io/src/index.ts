@@ -3,8 +3,10 @@ import {
   createNodes,
   fileTextWarnings,
   KalamoError,
+  neutraliseOrientation,
   parseDocument,
   readImage,
+  uprightSize,
 } from "@kalamo/core";
 import { type ConvertedImages, type OpenedFile, parseSvg } from "./read.ts";
 
@@ -115,12 +117,12 @@ function expandEntities(text: string): string {
 
 /**
  * A PNG, JPEG or GIF data URL as a new Document (ADR-0098): one Artboard at the origin at its pixel
- * size, and `Layer 1` holding the Image that fills it. Named by `name` without its extension, a
- * converted WebP's `.webp` included (ADR-0100).
+ * size, upright for an EXIF-oriented JPEG (ADR-0101), and `Layer 1` holding the Image that fills
+ * it. Named by `name` without its extension, a converted WebP's `.webp` included (ADR-0100).
  */
 function openImage(src: string, name = ""): OpenedFile {
-  const file = readImage(src, "content");
-  const { width, height } = file;
+  const { file, orientation } = neutraliseOrientation(readImage(src, "content"));
+  const { width, height } = uprightSize(file, orientation);
   const { doc, defaultLayerId } = createDocument({
     id: "",
     name: name.replace(/\.(png|jpe?g|gif|webp)$/i, "") || "Untitled",
@@ -129,9 +131,11 @@ function openImage(src: string, name = ""): OpenedFile {
   // resolveImages renames the key to the file's hash.
   const key = "content";
   doc.images.set(key, file);
-  createNodes(doc, [
-    { type: "image", parentId: defaultLayerId, src: key, x: 0, y: 0, width, height },
-  ]);
+  createNodes(
+    doc,
+    [{ type: "image", parentId: defaultLayerId, src: key, x: 0, y: 0, width, height }],
+    { orientations: new Map([["nodes[0]", orientation]]) },
+  );
   const { artboards, nodes } = doc;
   return {
     name: doc.name,

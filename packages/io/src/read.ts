@@ -29,9 +29,11 @@ import {
   mapGradient,
   multiply,
   type Node,
+  neutraliseOrientation,
   newId,
   normalizePath,
   type OwnAttributes,
+  orientImage,
   parseDocument,
   parseNode,
   pathBounds,
@@ -50,6 +52,7 @@ import {
   transformSegments,
   unfilledRanges,
   union,
+  uprightSize,
   visibleBounds,
   type Warning,
   withAlpha,
@@ -1966,25 +1969,39 @@ class Reader {
     }
     const converted = this.converted.get(href);
     if (converted instanceof KalamoError) return drop(converted.data.message);
-    let file: ImageFile;
+    let read: ImageFile;
     try {
-      file = converted ?? readImage(href, "src");
+      read = converted ?? readImage(href, "src");
     } catch (err) {
       if (!(err instanceof KalamoError)) throw err;
       return drop(err.data.message);
     }
-    const width = w ?? file.width;
-    const height = h ?? file.height;
+    // An EXIF-oriented JPEG is stored upright and turned into the box Inkscape draws it in (ADR-0101).
+    const { file, orientation } = neutraliseOrientation(read);
+    const upright = uprightSize(file, orientation);
+    const width = w ?? upright.width;
+    const height = h ?? upright.height;
     if (!(width > 0 && height > 0)) return null;
+    let shape = frame(width, height);
+    if (orientation !== 1) {
+      const turned = orientImage(shape, orientation, shape.preserveAspectRatio);
+      shape = {
+        ...shape,
+        ...turned.frame,
+        preserveAspectRatio: turned.preserveAspectRatio,
+        // The element's own transform applies after the orientation.
+        transform: round(multiply(shape.transform as Matrix, turned.matrix)),
+      };
+    }
     // Checked before its file is kept, which no Image would then use.
-    if (!this.holds({ ...frame(width, height), src: "-" })) return null;
+    if (!this.holds({ ...shape, src: "-" })) return null;
     let src = this.keys.get(href);
     if (src === undefined) {
       src = `pending:${this.keys.size}`;
       this.keys.set(href, src);
     }
     this.images.set(src, file);
-    return { shape: { ...frame(width, height), src } };
+    return { shape: { ...shape, src } };
   }
 
   /** A shape element's parameters in document coordinates, with the transform it keeps. */
