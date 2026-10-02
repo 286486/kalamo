@@ -327,7 +327,7 @@ export function pencilMove(points: Point[], mods: { shift: boolean; alt: boolean
 }
 
 /** The Pencil redraws a path from an Anchor it names by index (ADR-0110). */
-const PENCIL = "the Pencil is not held yet";
+const PENCIL = "the Pencil is not held yet (#278)";
 
 export function pencilCancel() {
   ink = null;

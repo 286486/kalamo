@@ -123,7 +123,7 @@ export const pointerAt = (cursor: Pointer) => presence?.update({ cursor });
 const views = new Map<string, Pick<State, "viewport" | "selection" | "isolated" | "layerRows">>();
 
 /**
- * Every command but one that names Anchors, Handles or segments by index: a `path_edit`, a
+ * Every command except those that name Anchors, Handles or segments by index: a `path_edit`, a
  * `path_join`, or a `path_op` given `anchors`. A reverse in flight would put such a command on other
  * points, so `send` takes it only with `Waited` (ADR-0110). A `path_reverse` names subpaths, which
  * a reverse does not renumber.

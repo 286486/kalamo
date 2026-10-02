@@ -206,7 +206,7 @@ function replaceSubpath(
 const COINCIDENT = 0.05;
 
 /** The Pen continues a path at an Endpoint it names by index (ADR-0110). */
-const PEN = "the Pen is not held yet";
+const PEN = "the Pen is not held yet (#278)";
 
 /**
  * Finishes a path the Pen continued or connected (research 06 §1): one `path_edit` on the path
