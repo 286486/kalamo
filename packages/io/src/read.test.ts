@@ -4,6 +4,7 @@ import {
   createDocument,
   createNodes,
   type Fill,
+  type ImageFile,
   type ImageNode,
   imageId,
   KalamoError,
@@ -29,13 +30,21 @@ import {
   GREY_5x4_GIF,
   RED_2x2_PNG,
   RGB_3x2_PNG,
-  WEBP_HEADER,
+  WEBP_LOSSY_4x3,
 } from "../../../fixtures/images.ts";
 import { MIDPOINT_STOPS } from "../../../fixtures/midpoint-edits.ts";
 import { exportedMidpointEdits } from "../../../fixtures/midpoint-export.ts";
 import reference from "../../core/src/spiral.inkscape.json" with { type: "json" };
 import { NS as DIALECT_NS } from "./dialect.ts";
-import { MAX_DEPTH, parseFile, parseSvg, resolveLinks, SVG_LIMIT, toSvg } from "./index.ts";
+import {
+  embeddedImages,
+  MAX_DEPTH,
+  parseFile,
+  parseSvg,
+  resolveLinks,
+  SVG_LIMIT,
+  toSvg,
+} from "./index.ts";
 
 const errorOf = (fn: () => unknown) => {
   try {
@@ -133,6 +142,7 @@ it.each([
   ["a.b.jpeg", "a.b"],
   ["photo.JPG", "photo"],
   ["anim.gif", "anim"],
+  ["photo.webp", "photo"],
   ["noext", "noext"],
   ["x.svg", "x.svg"],
   [undefined, "Untitled"],
@@ -144,8 +154,16 @@ it("names an SVG after its file name without .svg", () => {
   expect(parseFile(svg('width="1" height="1"'), { name: "x.svg" }).name).toBe("x");
 });
 
+// The Worker converts a WebP before parseFile reads it (ADR-0100); one that was not is refused.
+it("refuses a WebP data URL that was not converted", () => {
+  expect(errorOf(() => parseFile(WEBP_LOSSY_4x3))).toMatchObject({
+    code: "INVALID_IMAGE",
+    path: "content",
+    message: expect.stringContaining("converts a WebP to PNG on the way in"),
+  });
+});
+
 it.each([
-  [WEBP_HEADER, "INVALID_IMAGE", "Convert the image to PNG"],
   ["data:text/plain,hello", "INVALID_IMAGE", expect.any(String)],
   [
     `data:image/png;base64,${new Uint8Array(5 * 1024 * 1024 + 1).toBase64()}`,
@@ -2753,12 +2771,60 @@ describe("<image>", () => {
   it.each([
     ["a linked file without width", '<image href="photo.png" height="1"/>', "INVALID_IMAGE"],
     ["an empty href", '<image href=" " width="1" height="1"/>', "INVALID_IMAGE"],
-    ["a WebP", `<image href="${WEBP_HEADER}" width="1" height="1"/>`, "INVALID_IMAGE"],
+    [
+      "an unconverted WebP",
+      `<image href="${WEBP_LOSSY_4x3}" width="1" height="1"/>`,
+      "INVALID_IMAGE",
+    ],
   ])("drops %s with a warning", (_, body, code) => {
     const file = open(body);
     expect(images(file)).toEqual([]);
     expect(file.images.size).toBe(0);
     expect(file.warnings).toEqual([expect.objectContaining({ code })]);
+  });
+
+  describe("with the images the Worker converted (ADR-0100)", () => {
+    const converted = (body: string, file: ImageFile | KalamoError) =>
+      parseSvg(
+        svg(`width="100" height="100" ${XLINK}`, body),
+        undefined,
+        new Map([["data:x", file]]),
+      );
+    const png = readImage(RED_2x2_PNG, "src");
+
+    it("keeps the converted file, at its pixel size", () => {
+      const file = converted('<image xlink:href=" data:x "/>', png);
+      expect(images(file)).toEqual([expect.objectContaining({ width: 2, height: 2 })]);
+      expect([...file.images.values()]).toEqual([png]);
+      expect(file.warnings).toEqual([]);
+    });
+
+    it("drops one it refused with its message", () => {
+      const refusal = new KalamoError({
+        code: "INVALID_IMAGE",
+        message: "Animated.",
+        hint: "",
+        path: "src",
+      });
+      const file = converted('<image href="data:x" width="1" height="1"/>', refusal);
+      expect(images(file)).toEqual([]);
+      expect(file.warnings).toEqual([
+        { code: "INVALID_IMAGE", message: "An <image> was dropped: Animated." },
+      ]);
+    });
+  });
+
+  it("finds each embedded image's href as the parsed attribute holds it", () => {
+    const text = svg(
+      `width="100" height="100" ${XLINK}`,
+      `<image href="data:a,b&#10;c&amp;d"/><image xlink:href='\n data:e\tf '/><image href="g.png"/>`,
+    );
+    const hrefs = embeddedImages(text);
+    expect(hrefs).toEqual(["data:a,b\nc&d", "data:e f"]);
+    // Each is the key the reader looks up, so both come back as Images.
+    const png = readImage(RED_2x2_PNG, "src");
+    const file = parseSvg(text, undefined, new Map(hrefs.map((h) => [h, png])));
+    expect(images(file)).toHaveLength(2);
   });
 
   it("makes an image clipped by Inkscape's Set Clip a Clipping Mask", () => {

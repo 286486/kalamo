@@ -1,11 +1,4 @@
-import {
-  checkImage,
-  dataUrl,
-  type ErrorData,
-  IMAGE_ID,
-  KalamoError,
-  MAX_IMAGE_BYTES,
-} from "@kalamo/core";
+import { dataUrl, type ErrorData, IMAGE_ID, KalamoError, MAX_IMAGE_BYTES } from "@kalamo/core";
 import { createMcpServer } from "@kalamo/mcp";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import {
@@ -25,6 +18,7 @@ import {
 } from "./auth.ts";
 import { MAX_REQUEST_BYTES, readCapped } from "./body.ts";
 import { imageKey } from "./document-object.ts";
+import { normaliseImage } from "./normalise-image.ts";
 import { agentPrincipal, oauthProvider, oauthRoute, revokedChallenge } from "./oauth.ts";
 import { ownerStorage, QUOTAS } from "./quotas.ts";
 import { actorsRoute, authorize, listDocuments, membersRoute } from "./roles.ts";
@@ -170,7 +164,7 @@ async function openFile(request: Request, env: Env, principal: Principal): Promi
       requestTooLarge(declared, "content"),
     );
     const { docId, warnings } = await documentService(env, principal).open({
-      content: openedContent(bytes),
+      content: await openedContent(bytes),
       name,
     });
     return { docId, warnings };
@@ -179,11 +173,11 @@ async function openFile(request: Request, env: Env, principal: Principal): Promi
 
 /**
  * Open's body as `kalamo_doc_open`'s `content` (ADR-0098): text that starts as SVG or JSON does, or
- * any other UTF-8 text, as itself; anything else, a bitmap, checked as Place checks it and passed
- * as a data URL. A PNG's and a JPEG's first byte is never UTF-8; a GIF and a RIFF (WebP) file
- * start in ASCII, so they are told by their signature.
+ * any other UTF-8 text, as itself; anything else, a bitmap, checked as Place checks it, a WebP
+ * converted (ADR-0100), and passed as a data URL. A PNG's and a JPEG's first byte is never UTF-8;
+ * a GIF and a RIFF (WebP) file start in ASCII, so they are told by their signature.
  */
-function openedContent(bytes: Uint8Array<ArrayBuffer>): string {
+async function openedContent(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
   const head = new TextDecoder().decode(bytes.subarray(0, 1024));
   if (/^\uFEFF?\s*[<{]/.test(head)) return new TextDecoder().decode(bytes);
   if (!/^(GIF8|RIFF)/.test(head)) {
@@ -192,7 +186,7 @@ function openedContent(bytes: Uint8Array<ArrayBuffer>): string {
     } catch {}
   }
   // Checked before it is encoded, so a refused file is never copied.
-  return dataUrl(checkImage(bytes, "content"));
+  return dataUrl(await normaliseImage(bytes, "content"));
 }
 
 /**
@@ -271,9 +265,12 @@ const fileText = async (request: Request, path: string) =>
     await readCapped(request, MAX_REQUEST_BYTES, (declared) => requestTooLarge(declared, path)),
   );
 
-/** The body as a PNG, JPEG or GIF of at most 5 MB (ADR-0023), read no further (ADR-0049). */
+/**
+ * The body as a PNG, JPEG or GIF of at most 5 MB (ADR-0023), a WebP converted (ADR-0100), read no
+ * further (ADR-0049).
+ */
 const bitmap = async (request: Request) =>
-  checkImage(
+  normaliseImage(
     await readCapped(
       request,
       MAX_IMAGE_BYTES,

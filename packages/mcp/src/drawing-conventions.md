@@ -75,7 +75,7 @@ Read this once before your first write. Tool descriptions cover each call; this 
 
 - `kalamo_export` with `format: "kalamo_json"` returns the whole Document as `.kalamo.json` text, the file to save.
 - `kalamo_doc_open` with that text as `content` makes a new Document with its own docId; every Node and Artboard keeps its id. A file that fails validation creates nothing, and `INVALID_DOCUMENT` (or the usual colour, path or parent code) names the `path` inside the file.
-- `kalamo_doc_open` also takes SVG text, told apart by content: Kalamo's own `kalamo_export` SVG, a file saved in Inkscape, or plain SVG 1.1, at most 5 MB outside its embedded images (else `LIMIT_EXCEEDED`). Layers, pages, names, locks and `z-<id>` ids come back; units become pt, with px counting as pt. Clipping comes back as Clipping Masks, and embedded PNG, JPEG and GIF images as Images. Linear and radial gradients come back as gradients. What Kalamo cannot hold yet (a clip it cannot hold, masks, filters, linked or WebP images and `<use>` are dropped) is listed once per kind in `warnings`; it never fails the open.
+- `kalamo_doc_open` also takes SVG text, told apart by content: Kalamo's own `kalamo_export` SVG, a file saved in Inkscape, or plain SVG 1.1, at most 5 MB outside its embedded images (else `LIMIT_EXCEEDED`). Layers, pages, names, locks and `z-<id>` ids come back; units become pt, with px counting as pt. Clipping comes back as Clipping Masks, and embedded PNG, JPEG, GIF and WebP images as Images (a WebP stored as a PNG). Linear and radial gradients come back as gradients. What Kalamo cannot hold yet (a clip it cannot hold, masks, filters, linked images and `<use>` are dropped) is listed once per kind in `warnings`; it never fails the open.
 - A file edited elsewhere, such as an export saved in Inkscape, comes back with `kalamo_doc_open` as a new Document; keep working in it, or move Nodes into the original with `kalamo_export` (`format: "svg"`, `scope: {nodeIds}`) and `kalamo_svg_import`.
 - To add an SVG to a Document you are working on, use `kalamo_svg_import`: it places the file as one new Group under the Layer or Group you name, with its layers as Groups and every id new, centred on the parent's Artboard or on `position`, and scaled to fit that Artboard with `fit: true`.
 
@@ -97,7 +97,7 @@ Read this once before your first write. Tool descriptions cover each call; this 
 
 ## Images
 
-- Place a PNG, JPEG or GIF with `kalamo_node_create` `{type: "image", src, x, y}`, `src` being a `data:` URL of the file. A GIF shows its first frame. WebP is refused with `INVALID_IMAGE`: convert it to PNG first. A file is at most 5 MB.
+- Place a PNG, JPEG, GIF or WebP with `kalamo_node_create` `{type: "image", src, x, y}`, `src` being a `data:` URL of the file. A GIF shows its first frame. A WebP is stored as a PNG of the same pixels, so `node_get` reports `image/png`; an animated one is refused. A file is at most 5 MB.
 - For a file on the web, `kalamo_image_place` with its http(s) URL fetches it on the server, so the bytes never cost you tokens. It centres the Image on the parent's Artboard unless you give `frame`.
 - To trace a reference, place it with `asTemplate: true`: a locked Template Layer beneath your Layer, the Image at 50% opacity. Draw on your own Layer above it. It still renders and exports: hide or delete the Template Layer before `kalamo_export`.
 - The receipt and `kalamo_node_get` give the Image's `src` as an id, the file's SHA-256, never the bytes. Pass that id as `src` to place the same file again without resending it.

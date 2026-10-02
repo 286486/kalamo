@@ -5,13 +5,14 @@ export interface Image {
 }
 
 /**
- * Decodes an RGBA8 non-interlaced PNG, what resvg writes and Inkscape does with RGBA_8. Web
- * standard, so it runs in Node and in workerd alike.
+ * Decodes an RGBA8 or RGB8 non-interlaced PNG, what resvg writes, Inkscape does with RGBA_8 and
+ * a converted WebP is (ADR-0100), into RGBA8. Web standard, so it runs in Node and in workerd alike.
  */
 export async function decodePng(png: Uint8Array): Promise<Image> {
   const view = new DataView(png.buffer, png.byteOffset, png.byteLength);
   let width = 0;
   let height = 0;
+  let bpp = 4;
   const idat: Uint8Array[] = [];
   for (let pos = 8; pos < png.length; pos += 12 + view.getUint32(pos)) {
     const type = String.fromCharCode(...png.subarray(pos + 4, pos + 8));
@@ -19,24 +20,25 @@ export async function decodePng(png: Uint8Array): Promise<Image> {
     if (type === "IHDR") {
       width = view.getUint32(pos + 8);
       height = view.getUint32(pos + 12);
-      if (data[8] !== 8 || data[9] !== 6 || data[12] !== 0)
+      if (data[8] !== 8 || (data[9] !== 6 && data[9] !== 2) || data[12] !== 0)
         throw new Error(
-          `PNG is not RGBA8: depth ${data[8]}, colour ${data[9]}, interlace ${data[12]}`,
+          `PNG is not RGBA8 or RGB8: depth ${data[8]}, colour ${data[9]}, interlace ${data[12]}`,
         );
+      bpp = data[9] === 6 ? 4 : 3;
     } else if (type === "IDAT") idat.push(data);
   }
   const inflated = new Blob(idat).stream().pipeThrough(new DecompressionStream("deflate"));
   const raw = new Uint8Array(await new Response(inflated).arrayBuffer());
-  const stride = width * 4;
+  const stride = width * bpp;
   const out = new Uint8Array(height * stride);
   for (let y = 0; y < height; y++) {
     const filter = raw[y * (stride + 1)];
     const src = raw.subarray(y * (stride + 1) + 1);
     const row = y * stride;
     for (let i = 0; i < stride; i++) {
-      const a = i >= 4 ? (out[row + i - 4] ?? 0) : 0;
+      const a = i >= bpp ? (out[row + i - bpp] ?? 0) : 0;
       const b = y ? (out[row - stride + i] ?? 0) : 0;
-      const c = i >= 4 && y ? (out[row - stride + i - 4] ?? 0) : 0;
+      const c = i >= bpp && y ? (out[row - stride + i - bpp] ?? 0) : 0;
       const p = a + b - c;
       const paeth =
         Math.abs(p - a) <= Math.abs(p - b) && Math.abs(p - a) <= Math.abs(p - c)
@@ -48,7 +50,10 @@ export async function decodePng(png: Uint8Array): Promise<Image> {
       out[row + i] = ((src[i] ?? 0) + predictor) & 255;
     }
   }
-  return { width, height, data: out };
+  if (bpp === 4) return { width, height, data: out };
+  const rgba = new Uint8Array(width * height * 4).fill(255);
+  for (let i = 0, o = 0; i < out.length; i += 3, o += 4) rgba.set(out.subarray(i, i + 3), o);
+  return { width, height, data: rgba };
 }
 
 /** A pixel differs when a channel, the alpha included, is off by more than this (ADR-0017). */

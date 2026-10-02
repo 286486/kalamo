@@ -55,11 +55,12 @@ export function fileProblem(file: string): string | undefined {
 export type ImageSource = (id: string) => string | undefined;
 
 const HINT =
-  "src is a data: URL of a PNG, JPEG or GIF, or the id of an image already in the Document; WebP is not drawn yet, convert it to PNG.";
+  "src is a data: URL of a PNG, JPEG, GIF or WebP (stored as PNG), or the id of an image already in the Document.";
 const invalid = (message: string, path: string, hint = HINT) =>
   new KalamoError({ code: "INVALID_IMAGE", message, hint, path });
 
-function decode(src: string, path: string): Uint8Array<ArrayBuffer> {
+/** A data URL's bytes, base64 or percent-encoded. */
+export function dataUrlBytes(src: string, path: string): Uint8Array<ArrayBuffer> {
   const match = /^data:([^,]*),/.exec(src);
   if (!match) throw invalid("An image's src is not a data: URL.", path);
   const body = src.slice(match[0].length);
@@ -107,7 +108,7 @@ function sniff(b: Uint8Array): ImageInfo | undefined {
 
 /** A PNG, JPEG or GIF from a data URL, typed by its bytes, never by the URL (ADR-0023). */
 export const readImage = (src: string, path: string): ImageFile =>
-  checkImage(decode(src, path), path);
+  checkImage(dataUrlBytes(src, path), path);
 
 /** A PNG, JPEG or GIF of at most 5 MB, typed by its bytes (ADR-0023). */
 export function checkImage(bytes: Uint8Array<ArrayBuffer>, path: string): ImageFile {
@@ -121,15 +122,18 @@ export function checkImage(bytes: Uint8Array<ArrayBuffer>, path: string): ImageF
   }
   const info = sniff(bytes);
   if (info && info.width > 0 && info.height > 0) return { ...info, bytes };
-  const webp = String.fromCharCode(...bytes.slice(0, 4), ...bytes.slice(8, 12)) === "RIFFWEBP";
-  throw webp
+  throw isWebp(bytes)
     ? invalid(
-        "WebP is not drawn by resvg or Inkscape 1.2 yet.",
+        "The image is a WebP, which no Kalamo file holds: Kalamo converts a WebP to PNG on the way in (ADR-0100).",
         path,
-        "Convert the image to PNG and place that.",
+        "Place or open the WebP file itself, and Kalamo stores it as a PNG.",
       )
-    : invalid("The image is not a PNG, JPEG or GIF, or its header is damaged.", path);
+    : invalid("The image is not a PNG, JPEG, GIF or WebP, or its header is damaged.", path);
 }
+
+/** Whether the bytes start as a WebP does, `RIFF....WEBP` (ADR-0023: by bytes, never by name). */
+export const isWebp = (b: Uint8Array) =>
+  String.fromCharCode(...b.subarray(0, 4), ...b.subarray(8, 12)) === "RIFFWEBP";
 
 export async function imageId(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
   const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));

@@ -119,7 +119,7 @@ _Avoid_: Run、Span
 ## 图像
 
 **Image（图像）**：
-置入的位图 Node，`type: "image"`：一个框 `x, y, width, height`、`preserveAspectRatio`（缺省 `none`，即拉伸到框），以及 `src`，即图像文件字节的 SHA-256。同一文件在 Document 中按 `src` 只存一份，Node 里只有这个 id。支持 PNG、JPEG、GIF（首帧）。裁切就是以它为内容的 Clipping Mask（ADR-0023）。Image 分嵌入与链接两种（ADR-0042）：
+置入的位图 Node，`type: "image"`：一个框 `x, y, width, height`、`preserveAspectRatio`（缺省 `none`，即拉伸到框），以及 `src`，即图像文件字节的 SHA-256。同一文件在 Document 中按 `src` 只存一份，Node 里只有这个 id。存储的格式为 PNG、JPEG、GIF（首帧）；WebP 进入时在 Worker 中转为同像素的 PNG，Document 从不存 WebP（ADR-0100）。裁切就是以它为内容的 Clipping Mask（ADR-0023）。Image 分嵌入与链接两种（ADR-0042）：
 
 - **嵌入（embedded）**：没有 `file`，像素就是 `src`。
 - **链接（linked）**：有 `file`，即 SVG 引用该文件所写的路径或 URL，对应 Illustrator PlacedItem 的 `file`；可以同时有 `src`，即 Document 存下的一份像素。导出 SVG 写 `xlink:href="<file>"`，不写像素。
@@ -327,7 +327,7 @@ Document 导出为 SVG、在 Inkscape 中编辑、再在 Kalamo 中打开为一�
 _Avoid_: Sync、Roundtrip conversion
 
 **Open（打开）**：
-把一个文件（`.kalamo.json`、SVG，或 PNG / JPEG / GIF 位图）变成一个新 Document，在浏览器中新开一个 Document Tab 显示，对应 Illustrator 的 File > Open。位图打开为一个位于 (0, 0)、与图像像素同尺寸的 Artboard，加 `Layer 1` 中铺满它的一个嵌入 Image，Document 以文件名去掉扩展名命名（ADR-0098）。导入一个编辑过的文件就是 Open；Kalamo 不把文件合并回已有 Document（ADR-0030 删除了 Replace）。
+把一个文件（`.kalamo.json`、SVG，或 PNG / JPEG / GIF / WebP 位图，WebP 存为 PNG）变成一个新 Document，在浏览器中新开一个 Document Tab 显示，对应 Illustrator 的 File > Open。位图打开为一个位于 (0, 0)、与图像像素同尺寸的 Artboard，加 `Layer 1` 中铺满它的一个嵌入 Image，Document 以文件名去掉扩展名命名（ADR-0098）。导入一个编辑过的文件就是 Open；Kalamo 不把文件合并回已有 Document（ADR-0030 删除了 Replace）。
 _Avoid_: Load、Import（泛指时）、Replace、Update from file
 
 **Document Tab（文档标签页）**：

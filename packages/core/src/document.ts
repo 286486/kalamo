@@ -515,7 +515,7 @@ export function imageInfo(doc: Document, src: string, path: string) {
     message: src.startsWith("data:")
       ? "The image's data: URL was not read into the Document."
       : `No image with id ${src} in the Document.`,
-    hint: "src is a data: URL of a PNG, JPEG or GIF, or the id of an image already in the Document; node_get shows an Image's src id.",
+    hint: "src is a data: URL of a PNG, JPEG, GIF or WebP (stored as PNG), or the id of an image already in the Document; node_get shows an Image's src id.",
     path,
   });
 }

@@ -228,17 +228,19 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
     {
       title: "Open Document",
       description: [
-        "Make a new Document from a file, as Illustrator's File > Open: .kalamo.json as kalamo_export returns it with format kalamo_json, SVG (Inkscape, Kalamo's own export or plain SVG 1.1, at most 5 MB outside its embedded images, each image at most 5 MB), or a data: URL of a PNG, JPEG or GIF, told apart by content. Pass the file's content, not a path or an http(s) URL.",
-        'A bitmap (at most 5 MB, else LIMIT_EXCEEDED; a GIF\'s first frame; WebP fails INVALID_IMAGE, convert it to PNG) opens as one Artboard "Artboard 1" at 0, 0 of its pixel size, one pt per pixel, and Layer "Layer 1" holding one unnamed embedded Image filling it.',
-        "name is the file's name: the Document is named by it without .svg, .kalamo.json, .png, .jpg, .jpeg or .gif; an SVG without it falls back to its sodipodi:docname or <title>, a .kalamo.json keeps its own name, and the rest are Untitled.",
+        "Make a new Document from a file, as Illustrator's File > Open: .kalamo.json as kalamo_export returns it with format kalamo_json, SVG (Inkscape, Kalamo's own export or plain SVG 1.1, at most 5 MB outside its embedded images, each image at most 5 MB), or a data: URL of a PNG, JPEG, GIF or WebP (stored as PNG), told apart by content. Pass the file's content, not a path or an http(s) URL.",
+        'A bitmap (at most 5 MB, else LIMIT_EXCEEDED; a GIF\'s first frame; a WebP is stored as a PNG, an animated one fails INVALID_IMAGE) opens as one Artboard "Artboard 1" at 0, 0 of its pixel size, one pt per pixel, and Layer "Layer 1" holding one unnamed embedded Image filling it.',
+        "name is the file's name: the Document is named by it without .svg, .kalamo.json, .png, .jpg, .jpeg, .gif or .webp; an SVG without it falls back to its sodipodi:docname or <title>, a .kalamo.json keeps its own name, and the rest are Untitled.",
         "The new Document gets its own docId and starts at rev 1. Ids from .kalamo.json, and z-<id> ids from SVG, are kept; SVG layers and pages become Layers and Artboards, units become pt (px counts as pt). nodes is its Layer list, as kalamo_doc_outline returns it at depth 1.",
-        "Embedded PNG, JPEG and GIF images come back as Images. A linked image (an href that is not a data: URL) comes back as a linked Image with file set to the href and no pixels, a missing link, and warnings says IMAGE_LINK_MISSING; nothing is fetched. One without width or height is dropped with INVALID_IMAGE, since nothing gives its size. SVG content Kalamo cannot hold yet (patterns, mesh gradients, filters, masks, WebP) imports as close as it can, or is dropped, and warnings lists each kind once. A Kalamo gradient whose inserted stops (kalamo:simulated) were edited, as in Inkscape, keeps the stops as drawn and warns SIMULATED_STOP_KEPT. A file that is not valid fails with a path into it and creates nothing.",
+        "Embedded PNG, JPEG, GIF and WebP images come back as Images, a WebP stored as a PNG. A linked image (an href that is not a data: URL) comes back as a linked Image with file set to the href and no pixels, a missing link, and warnings says IMAGE_LINK_MISSING; nothing is fetched. One without width or height is dropped with INVALID_IMAGE, since nothing gives its size. SVG content Kalamo cannot hold yet (patterns, mesh gradients, filters, masks) imports as close as it can, or is dropped, and warnings lists each kind once. A Kalamo gradient whose inserted stops (kalamo:simulated) were edited, as in Inkscape, keeps the stops as drawn and warns SIMULATED_STOP_KEPT. A file that is not valid fails with a path into it and creates nothing.",
       ].join(" "),
       inputSchema: {
         content: z
           .string()
           .min(1)
-          .describe("The whole .kalamo.json or .svg text, or a PNG, JPEG or GIF as a data: URL."),
+          .describe(
+            "The whole .kalamo.json or .svg text, or a PNG, JPEG, GIF or WebP (stored as PNG) as a data: URL.",
+          ),
         name: z.string().optional().describe("The file's name, such as photo.png."),
         intent,
       },
@@ -331,9 +333,9 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
     {
       title: "Place Image",
       description: [
-        "Place a PNG, JPEG or GIF as an Image, as Illustrator's File > Place, so its bytes never pass through you.",
+        "Place a PNG, JPEG, GIF or WebP (stored as PNG) as an Image, as Illustrator's File > Place, so its bytes never pass through you.",
         "src is a public http or https URL, which the server fetches: at most 10 s and 20 MB read, following at most 5 redirects; localhost and private, loopback or link-local addresses are refused, and any fetch that fails is FETCH_FAILED. src may instead be a data: URL. A local path is refused: the server cannot read your disk.",
-        "The format comes from the file's bytes, not its Content-Type; WebP is refused (convert it to PNG), and a file over 5 MB is LIMIT_EXCEEDED.",
+        "The format comes from the file's bytes, not its Content-Type; a file over 5 MB is LIMIT_EXCEEDED.",
         "frame {x, y, width, height} is as kalamo_node_create's image takes it, width and height both or neither (default the file's pixel size at 1 pt per pixel); omitted, the Image is centred on the parent's Artboard.",
         "asTemplate: true makes a Template Layer for a reference to trace: a new locked Layer named Template <file name>, directly beneath the Layer holding parentId, with the Image at 50% opacity, marked template: kalamo_render draws it, kalamo_export leaves it out.",
         "One Transaction; createdIds lists the Template Layer, if any, then the Image.",

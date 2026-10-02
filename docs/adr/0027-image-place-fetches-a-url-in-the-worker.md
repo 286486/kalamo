@@ -14,7 +14,7 @@ Since #32 an Agent places an image only through `node_create` with a data URL, p
 - **`src`** is an `http:` or `https:` URL, or a `data:` URL as `node_create` takes. A local path, or any other scheme, fails `INVALID_IMAGE` with a hint to send the file as a data URL: the Worker cannot read the Agent's disk. §6.4.3's path is dropped.
 - **`embed` is dropped.** Every Image is embedded (ADR-0023); a linked Image waits for Links.
 - **`frame`** is `{x, y, width?, height?}` in the parent's coordinates, width and height both or neither, as `node_create`'s image takes them; the size defaults to the file's pixels at 1 pt per pixel. Without `frame`, the Image is centred on the parent's Artboard, as `svg_import` places a Group (ADR-0017).
-- The file passes ADR-0023's checks: PNG, JPEG or GIF by magic bytes, never by `Content-Type`; WebP refused; at most 5 MB stored.
+- The file passes ADR-0023's checks: PNG, JPEG or GIF by magic bytes, never by `Content-Type`; WebP refused (superseded by ADR-0100: converted to PNG); at most 5 MB stored.
 - **Annotations:** `openWorldHint: true`, since the tool can reach any public host. Annotations are per tool, so it is true for a data URL too. `destructiveHint` and `idempotentHint` are false, as for `node_create`.
 - One Transaction; `createdIds` lists the Template Layer, if any, then the Image.
 

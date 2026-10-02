@@ -1,5 +1,5 @@
 import { type APIRequestContext, expect, type Page, test } from "@playwright/test";
-import { RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
+import { RED_2x2_PNG, WEBP_ANIMATED, WEBP_LOSSLESS_4x3 } from "../../../fixtures/images.ts";
 import { call } from "./mcp.ts";
 
 const SVG = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="20" height="10"/></svg>';
@@ -112,7 +112,7 @@ test("pasting a PNG places an Image at its pixel size centred in the viewport, a
   expect(changes).toMatchObject([{ actor: "user", createdIds: [image?.id] }]);
 });
 
-test("dropping a PNG places an Image; a WebP shows the Worker's hint and places nothing", async ({
+test("dropping a PNG or a WebP places an Image; an animated WebP shows the Worker's hint and places nothing", async ({
   page,
   request,
 }) => {
@@ -133,9 +133,15 @@ test("dropping a PNG places an Image; a WebP shows the Worker's hint and places 
   const [image] = await children(request, docId, defaultLayerId);
   expect(image).toMatchObject({ type: "image", bounds: { x: 99, y: 49 } });
 
-  await drop(WEBP_HEADER, "photo.webp", "image/webp");
-  await expect(page.locator("body")).toContainText("Convert the image to PNG");
-  expect(await children(request, docId, defaultLayerId)).toHaveLength(1);
+  // Stored as a PNG of its pixels (ADR-0100).
+  await drop(WEBP_LOSSLESS_4x3, "photo.webp", "image/webp");
+  await expect.poll(async () => (await children(request, docId, defaultLayerId)).length).toBe(2);
+  const [, photo] = await children(request, docId, defaultLayerId);
+  expect(photo).toMatchObject({ type: "image", bounds: { x: 98, y: 48.5, width: 4, height: 3 } });
+
+  await drop(WEBP_ANIMATED, "anim.webp", "image/webp");
+  await expect(page.locator("body")).toContainText("one frame as PNG or GIF");
+  expect(await children(request, docId, defaultLayerId)).toHaveLength(2);
 });
 
 // #136: with a leaf isolated, only a Place the Worker accepts goes up one level (ADR-0058).

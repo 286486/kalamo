@@ -156,7 +156,12 @@ type Step = { label: string; stack: "undo" | "redo"; popped?: number };
  * A browser command's write also names the command its broadcast answers. A write that may store
  * files carries its owner's storage in GitHub mode (ADR-0048).
  */
-type Options = WriteOptions & { commandId?: string; storage?: OwnerStorage };
+type Options = WriteOptions & {
+  commandId?: string;
+  storage?: OwnerStorage;
+  /** The Worker's refusals of WebP data URLs it could not convert, by path (ADR-0100). */
+  refusedImages?: Record<string, ErrorData>;
+};
 
 const ENDED = {
   committed: "committed",
@@ -681,7 +686,8 @@ export class DocumentObject extends DurableObject<Env> {
       inputs,
       "nodes",
       opts,
-      async (input, path) => (await this.ingest(input, path, files)) as NodeInput,
+      async (input, path) =>
+        (await this.ingest(input, path, files, opts.refusedImages)) as NodeInput,
     );
     if ("error" in ingested) return ingested;
     const { ready, merge } = ingested;
@@ -741,16 +747,21 @@ export class DocumentObject extends DurableObject<Env> {
   }
 
   /** `input` with each Image's data URL, inline children's too, put in `files` and replaced by its id. */
-  private async ingest(input: unknown, path: string, files: Files): Promise<unknown> {
+  private async ingest(
+    input: unknown,
+    path: string,
+    files: Files,
+    refused: Record<string, ErrorData> = {},
+  ): Promise<unknown> {
     if (typeof input !== "object" || input === null) return input;
     const item = input as { type?: unknown; src?: unknown; children?: unknown };
     if (item.type === "image" && typeof item.src === "string" && item.src.startsWith("data:")) {
-      return { ...item, src: await hashed(readImage(item.src, `${path}.src`), files) };
+      return { ...item, src: await hashed(readStored(item.src, `${path}.src`, refused), files) };
     }
     if (Array.isArray(item.children)) {
       const children = [];
       for (const [k, c] of item.children.entries()) {
-        children.push(await this.ingest(c, `${path}.children[${k}]`, files));
+        children.push(await this.ingest(c, `${path}.children[${k}]`, files, refused));
       }
       return { ...item, children };
     }
@@ -897,7 +908,7 @@ export class DocumentObject extends DurableObject<Env> {
     const ingested = await this.ingestAll(updates, "updates", opts, async (u, path) => {
       const src = (u.patch as { src?: unknown }).src;
       if (typeof src !== "string" || !src.startsWith("data:")) return u;
-      const file = readImage(src, `${path}.patch.src`);
+      const file = readStored(src, `${path}.patch.src`, opts.refusedImages);
       return { ...u, patch: { ...u.patch, src: await hashed(file, files) } };
     });
     if ("error" in ingested) return ingested;
@@ -1769,6 +1780,13 @@ const sizes = (files: Files) =>
   new Map<string, StoredImage>(
     [...files].map(([id, { bytes, ...info }]) => [id, { ...info, size: bytes.length }]),
   );
+
+/** A data URL's file, or the Worker's refusal of it, a WebP it could not convert (ADR-0100). */
+function readStored(src: string, path: string, refused: Record<string, ErrorData> = {}) {
+  const error = refused[path];
+  if (error) throw new KalamoError(error);
+  return readImage(src, path);
+}
 
 /** Puts a checked file in `files` and returns its id. */
 async function hashed(file: ImageFile, files: Files): Promise<string> {

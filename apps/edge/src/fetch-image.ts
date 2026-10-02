@@ -1,5 +1,6 @@
-import { checkImage, type ImageFile, KalamoError, readImage } from "@kalamo/core";
+import { dataUrlBytes, type ImageFile, KalamoError } from "@kalamo/core";
 import { readCapped } from "./body.ts";
+import { normaliseImage } from "./normalise-image.ts";
 
 /** §7.5's cap on what is read; the stored file stays capped at 5 MB (ADR-0027). */
 const MAX_FETCH_BYTES = 20 * 1024 * 1024;
@@ -29,11 +30,14 @@ const failed = (message: string) =>
   });
 
 /**
- * `image_place`'s `src` as a checked file and the name a Template Layer takes (ADR-0027). A URL is
- * fetched here, redirects followed by hand so every hop passes `refusedHost`.
+ * `image_place`'s `src` as a checked file, a WebP converted (ADR-0100), and the name a Template
+ * Layer takes (ADR-0027). A URL is fetched here, redirects followed by hand so every hop passes
+ * `refusedHost`.
  */
 export async function fetchImage(src: string): Promise<ImageFile & { name: string }> {
-  if (src.startsWith("data:")) return { ...readImage(src, "src"), name: "Image" };
+  if (src.startsWith("data:")) {
+    return { ...(await normaliseImage(dataUrlBytes(src, "src"), "src")), name: "Image" };
+  }
   let url = httpUrl(src);
   if (!url) throw notAUrl();
   const signal = AbortSignal.timeout(TIMEOUT_MS);
@@ -59,7 +63,7 @@ export async function fetchImage(src: string): Promise<ImageFile & { name: strin
       }
       if (!res.body) throw failed(`${url.href} answered ${res.status} with no body.`);
       const bytes = await readCapped(res, MAX_FETCH_BYTES, tooLarge);
-      return { ...checkImage(bytes, "src"), name: fileName(url) };
+      return { ...(await normaliseImage(bytes, "src")), name: fileName(url) };
     }
   } catch (e) {
     if (e instanceof KalamoError) throw e;

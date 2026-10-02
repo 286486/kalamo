@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { RGB_3x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
+import { RGB_3x2_PNG, WEBP_ANIMATED, WEBP_LOSSLESS_4x3 } from "../../../fixtures/images.ts";
 import { LEGACY_NAME } from "../../../packages/core/src/legacy.ts";
 import { call } from "./mcp.ts";
 
@@ -101,7 +101,7 @@ test("Documents open in tabs that switch in place, close, and come back on reloa
   expect(await page.evaluate(() => Object.keys(localStorage))).toEqual(["kalamo:tabs"]);
 });
 
-test("Open file and a drop on the tab bar open a PNG at its pixel size; a WebP is refused", async ({
+test("Open file and a drop on the tab bar open a PNG or a WebP at its pixel size; an animated WebP is refused", async ({
   page,
   request,
 }) => {
@@ -174,8 +174,12 @@ test("Open file and a drop on the tab bar open a PNG at its pixel size; a WebP i
   await drop([RGB_3x2_PNG, "dropped.png", "image/png"]);
   await expect(tabs(page)).toHaveText(["Host", "rgb", "dropped"]);
 
-  await drop([WEBP_HEADER, "photo.webp", "image/webp"]);
-  await expect(page.locator("body")).toContainText("Could not open photo.webp");
-  await expect(page.locator("body")).toContainText("Convert the image to PNG");
-  await expect(tabs(page)).toHaveText(["Host", "rgb", "dropped"]);
+  // A WebP opens as a PNG of its pixels (ADR-0100), named without .webp.
+  await drop([WEBP_LOSSLESS_4x3, "photo.webp", "image/webp"]);
+  await expect(tabs(page)).toHaveText(["Host", "rgb", "dropped", "photo"]);
+
+  await drop([WEBP_ANIMATED, "anim.webp", "image/webp"]);
+  await expect(page.locator("body")).toContainText("Could not open anim.webp");
+  await expect(page.locator("body")).toContainText("one frame as PNG or GIF");
+  await expect(tabs(page)).toHaveText(["Host", "rgb", "dropped", "photo"]);
 });

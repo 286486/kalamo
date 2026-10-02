@@ -10,7 +10,13 @@ import {
 } from "@kalamo/core";
 import { describe, expect, it } from "vitest";
 import exported from "../../../fixtures/documents/inkscape.svg?raw";
-import { BLUE_1x1_PNG, RED_2x2_PNG, RGB_3x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
+import {
+  BLUE_1x1_PNG,
+  RED_2x2_PNG,
+  RGB_3x2_PNG,
+  WEBP_ANIMATED,
+  WEBP_OVER_CAP,
+} from "../../../fixtures/images.ts";
 import { decodePng } from "../../../fixtures/png.ts";
 import { counted, fullKalamoFile, MiB } from "./bodies.ts";
 import { call, errorOf, rpc } from "./rpc.ts";
@@ -750,7 +756,7 @@ it("returns a non-empty hint with every error code a tool can return", async () 
     INVALID_DOCUMENT: () => call("kalamo_doc_open", { content: "{" }).then(errorOf),
     INVALID_IMAGE: () =>
       tool("kalamo_node_create", {
-        nodes: [{ type: "image", parentId: defaultLayerId, src: WEBP_HEADER, x: 0, y: 0 }],
+        nodes: [{ type: "image", parentId: defaultLayerId, src: WEBP_ANIMATED, x: 0, y: 0 }],
       }),
     FETCH_FAILED: () =>
       tool("kalamo_image_place", { src: "http://127.0.0.1/a.png", parentId: defaultLayerId }),
@@ -872,7 +878,8 @@ describe("a bitmap", () => {
 
   // Each code is io's (read.test.ts); here, that a refused file creates no Document.
   it.each([
-    [WEBP_HEADER, "INVALID_IMAGE"],
+    [WEBP_ANIMATED, "INVALID_IMAGE"],
+    [WEBP_OVER_CAP, "LIMIT_EXCEEDED"],
     ["data:text/plain,hello", "INVALID_IMAGE"],
     [`data:image/png;base64,${new Uint8Array(5 * 1024 * 1024 + 1).toBase64()}`, "LIMIT_EXCEEDED"],
   ])("refuses a data URL Place refuses, creating no Document: %#", async (content, code) => {

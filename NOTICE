@@ -18,3 +18,10 @@ used by packages/geometry)
 Copyright (c) 2011 Google Inc. All rights reserved.
 Licensed under the BSD 3-Clause License; the full text ships in the package's
 LICENSE file. Shipped unmodified.
+
+libwebp 1.6.0 (its decoder alone, built by apps/edge/src/webp/build.sh into
+apps/edge/src/webp/webp.wasm; used by apps/edge to convert WebP to PNG)
+Copyright (c) 2010, Google Inc. All rights reserved.
+Licensed under the BSD 3-Clause License; the full text is in
+apps/edge/src/webp/COPYING, and Google's patent grant in
+apps/edge/src/webp/PATENTS. Compiled from the unmodified release.

@@ -1,7 +1,14 @@
 import { readImage } from "@kalamo/core";
 import { afterEach, expect, it, vi } from "vitest";
-import { RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
+import {
+  RED_2x2_PNG,
+  WEBP_4x3_RGBA,
+  WEBP_ANIMATED,
+  WEBP_LOSSLESS_4x3,
+  WEBP_OVER_CAP,
+} from "../../../fixtures/images.ts";
 import { call, errorOf } from "./rpc.ts";
+import { servedPng } from "./served.ts";
 
 const newDoc = async () =>
   (await call("kalamo_doc_create", { name: "Doc", artboards: [{ width: 200, height: 100 }] }))
@@ -183,9 +190,44 @@ it("stops reading past 20 MB, and a file past 5 MB or not an image fails the ima
     message: expect.stringContaining(String(big.length)),
   });
 
-  replies(() => new Response(Uint8Array.fromBase64(WEBP_HEADER.split(",")[1] as string)));
+  replies(() => new Response("<svg/>"));
+  expect((await placeUrl("https://example.com/a.png")).error).toMatchObject({
+    code: "INVALID_IMAGE",
+    path: "src",
+  });
+});
+
+const webpBytes = (url: string) => Uint8Array.fromBase64(url.split(",")[1] ?? "");
+
+it.each([
+  ["URL", "https://example.com/photo.webp"],
+  ["data URL", WEBP_LOSSLESS_4x3],
+])("places a WebP from a %s as a PNG of its pixels (ADR-0100)", async (_, src) => {
+  replies(
+    () => new Response(webpBytes(WEBP_LOSSLESS_4x3), { headers: { "content-type": "image/png" } }),
+  );
+  const { docId, result, error } = await placeUrl(src);
+  expect(error).toBeNull();
+  const got = await call("kalamo_node_get", {
+    docId,
+    nodeIds: result.structuredContent.createdIds,
+    detail: "full",
+  });
+  const [node] = got.structuredContent.nodes;
+  expect(node).toMatchObject({ type: "image", width: 4, height: 3 });
+  expect(await servedPng(docId, node.src)).toEqual(WEBP_4x3_RGBA);
+});
+
+it("refuses an animated WebP and one over the pixel cap, fetched or as a data URL", async () => {
+  replies(() => new Response(webpBytes(WEBP_ANIMATED)));
   expect((await placeUrl("https://example.com/a.webp")).error).toMatchObject({
     code: "INVALID_IMAGE",
-    hint: expect.stringContaining("PNG"),
+    hint: expect.stringContaining("one frame as PNG or GIF"),
+    path: "src",
+  });
+  expect((await placeUrl(WEBP_OVER_CAP)).error).toMatchObject({
+    code: "LIMIT_EXCEEDED",
+    message: expect.stringContaining("4096 × 2049"),
+    path: "src",
   });
 });

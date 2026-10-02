@@ -630,7 +630,7 @@ export const ImageShape = z.object({
     .string()
     .optional()
     .describe(
-      "A data: URL of a PNG, JPEG or GIF file (WebP is refused: convert it to PNG), or the id of an image already in the Document, which reuses its bytes. Optional with file.",
+      "A data: URL of a PNG, JPEG, GIF or WebP (stored as PNG) file, or the id of an image already in the Document, which reuses its bytes. Optional with file.",
     ),
   file: z
     .string()
@@ -850,7 +850,7 @@ parameters.preserveAspectRatio = unwrapDefault(ImageShape.shape.preserveAspectRa
 parameters.src = ImageShape.shape.src
   .unwrap()
   .describe(
-    "An image's new pixels (Relink): a data: URL of a PNG, JPEG or GIF, or the id of an image already in the Document. The frame and preserveAspectRatio stay.",
+    "An image's new pixels (Relink): a data: URL of a PNG, JPEG, GIF or WebP (stored as PNG), or the id of an image already in the Document. The frame and preserveAspectRatio stay.",
   );
 parameters.file = ImageShape.shape.file
   .unwrap()

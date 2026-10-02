@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import fixture from "../../../fixtures/documents/inkscape.kalamo.json?raw";
-import { RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
+import { RED_2x2_PNG, WEBP_LOSSLESS_4x3 } from "../../../fixtures/images.ts";
 import { createDocument, createNodes } from "./document.ts";
 import { KalamoError } from "./errors.ts";
 import { type Migration, parseDocument, resolveImages, serializeDocument } from "./file.ts";
@@ -624,7 +624,7 @@ describe("images", () => {
       /^images\.b+$/,
     ],
     ["a key that is not an id", (raw: Raw) => (raw.images.x = RED_2x2_PNG), /^images/],
-    ["a WebP", (raw: Raw) => (raw.images[ID] = WEBP_HEADER), new RegExp(`^images\\.${ID}$`)],
+    ["a WebP", (raw: Raw) => (raw.images[ID] = WEBP_LOSSLESS_4x3), new RegExp(`^images\\.${ID}$`)],
     [
       "a file over 5 MB",
       (raw: Raw) =>
