@@ -3,6 +3,7 @@ import {
   CHART_PALETTE,
   type ChartInput,
   columnChart,
+  maxChartRows,
   niceTicks,
   parseCsv,
   parseNumber,
@@ -252,10 +253,6 @@ describe("columnChart", () => {
     expect(errorOf(() => chart({ frame: { x: 0, y: 0, width: 20, height: 20 } }))).toMatchObject({
       path: "frame",
     });
-    const thousand = Array.from({ length: 1000 }, (_, i) => ({ c: `c${i}`, v: 1 }));
-    expect(
-      errorOf(() => chart({ data: { rows: thousand }, encoding: { x: "c", y: "v" } })),
-    ).toMatchObject({ code: "LIMIT_EXCEEDED", path: "data" });
     const many = Array.from({ length: 20 }, (_, i) => `s${i}`);
     expect(
       errorOf(() =>
@@ -266,6 +263,64 @@ describe("columnChart", () => {
         }),
       ),
     ).toMatchObject({ path: "frame", message: expect.stringContaining("Legend") });
+  });
+
+  describe.each([
+    [1, 987],
+    [3, 491],
+    [50, 35],
+  ])("with %i series", (n, most) => {
+    const ys = Array.from({ length: n }, (_, j) => `s${j}`);
+    const rowsOf = (length: number, value: (i: number, j: number) => number | null) =>
+      Array.from({ length }, (_, i) =>
+        Object.fromEntries([["c", `c${i}`], ...ys.map((y, j) => [y, value(i, j)])]),
+      );
+    const input = (rows: Record<string, unknown>[]) => ({
+      parentId: "L",
+      data: { rows: rows as never },
+      encoding: { x: "c", y: n === 1 ? "s0" : ys },
+      frame: { x: 0, y: 0, width: 2000, height: 2000 },
+    });
+    // -1 to 14.8 steps by 2 from -2 to 16, the most ticks niceTicks gives.
+    const worst = (i: number) => (i === 0 ? -1 : 14.8);
+
+    it(`draws ${most} rows of the most ticks and no zeros in one createNodes`, () => {
+      expect(maxChartRows(n)).toBe(most);
+      expect(niceTicks(-1, 14.8)).toHaveLength(10);
+      const { doc, defaultLayerId } = createDocument({
+        id: "d",
+        name: "D",
+        artboards: [{ width: 2000, height: 2000 }],
+      });
+      const { node } = columnChart({ ...input(rowsOf(most, worst)), parentId: defaultLayerId });
+      // The Value Axis: its line and 10 ticks of a line and a label.
+      expect((node as Child).children?.[0]?.children).toHaveLength(21);
+      expect(() => createNodes(doc, [node])).not.toThrow();
+    });
+
+    it(`fails ${most + 1} rows at data, whatever the values`, () => {
+      const said = `${n === 1 ? "1 series fits" : `${n} series fit`} at most ${most} rows`;
+      for (const value of [worst, (i: number, j: number) => (i + j === 0 ? 1 : i % 2 ? 0 : null)]) {
+        for (const data of [
+          { rows: rowsOf(most + 1, value) },
+          {
+            csv: [
+              ["c", ...ys],
+              ...rowsOf(most + 1, value).map((r) => Object.values(r).map((v) => v ?? "")),
+            ]
+              .map((r) => r.join(","))
+              .join("\n"),
+          },
+        ]) {
+          if (n === 1 && "rows" in data) continue;
+          expect(errorOf(() => columnChart({ ...input([]), data } as never))).toMatchObject({
+            code: "LIMIT_EXCEEDED",
+            path: "data",
+            message: expect.stringContaining(said),
+          });
+        }
+      }
+    });
   });
 
   it("stays inside its frame, Strokes included", () => {

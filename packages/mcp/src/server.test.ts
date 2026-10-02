@@ -4,6 +4,7 @@ import {
   createNodes,
   KalamoError,
   LEGACY_NAME,
+  maxChartRows,
   type Node,
   nodeView,
   PathOpInput,
@@ -571,6 +572,49 @@ describe("write tools pass the write and its options apart", () => {
         path,
       });
     }
+    expect(called()).toEqual(["createNodes", "outline"]);
+  });
+
+  it("chart_create_column draws the most rows one series fits and fails one more, as rows or CSV", async () => {
+    const { call, called } = await harness({
+      createNodes: async () => ({ ...receipt, createdIds: ["g"] }),
+      outline: async () => ({ rev: 2, nodes: [] }),
+    });
+    const most = maxChartRows(1);
+    const rows = (n: number, y = ["v"]) =>
+      Array.from({ length: n }, (_, i) =>
+        Object.fromEntries([["c", `c${i}`], ...y.map((f) => [f, i + 1])]),
+      );
+    const args = (data: unknown, y: string | string[] = "v") => ({
+      docId: "d",
+      parentId: "p",
+      data,
+      encoding: { x: "c", y },
+      frame: { x: 0, y: 0, width: 2000, height: 2000 },
+    });
+    const drawn = await call("kalamo_chart_create_column", args({ rows: rows(most) }));
+    expect(drawn.structuredContent).toMatchObject({ createdIds: ["g"] });
+    const csv = (n: number) => ["c,v", ...rows(n).map((r) => `${r.c},${r.v}`)].join("\n");
+    expect(errorOf(await call("kalamo_chart_create_column", args({ csv: csv(most + 1) })))).toEqual(
+      {
+        code: "LIMIT_EXCEEDED",
+        message: `${most + 1} rows; 1 series fits at most ${most} rows in one chart of 2000 Nodes.`,
+        hint: "Chart fewer rows or series, or split the data over several charts.",
+        path: "data",
+      },
+    );
+    // More rows than one series fits is the schema's own rejection, at the same number.
+    expect(
+      errorOf(await call("kalamo_chart_create_column", args({ rows: rows(most + 1) }))),
+    ).toMatchObject({ code: "INVALID_INPUT", hint: expect.stringContaining(`at most ${most}`) });
+    const three = ["a", "b", "v"];
+    const over = rows(maxChartRows(3) + 1, three);
+    const csv3 = ["c,a,b,v", ...over.map((r) => `${r.c},${r.a},${r.b},${r.v}`)].join("\n");
+    const viaRows = errorOf(await call("kalamo_chart_create_column", args({ rows: over }, three)));
+    expect(viaRows).toMatchObject({ code: "LIMIT_EXCEEDED", path: "data" });
+    expect(errorOf(await call("kalamo_chart_create_column", args({ csv: csv3 }, three)))).toEqual(
+      viaRows,
+    );
     expect(called()).toEqual(["createNodes", "outline"]);
   });
 

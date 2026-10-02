@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { countNodes, MAX_NODES_PER_CREATE } from "./document.ts";
+import { MAX_NODES_PER_CREATE } from "./document.ts";
 import { KalamoError } from "./errors.ts";
 import type { NodeInput, Warning } from "./schema.ts";
 import { textBox } from "./text.ts";
@@ -7,6 +7,22 @@ import { textBox } from "./text.ts";
 /** A cell as `rows` give it; an empty one is a gap. */
 const Cell = z.union([z.string(), z.number(), z.null()]);
 const field = z.string().min(1);
+
+/** `niceTicks` spans less than 7.91 steps, plus a step of slack at each end: at most 10 ticks. */
+const MAX_TICKS = 10;
+
+/**
+ * The most rows a chart of `series` y fields draws whatever its values, so the chart fits one
+ * createNodes. Its Nodes are 3 for the Group, Value Axis and its line, 2 per tick, 2 for the
+ * Category Axis and its baseline, a label per row, a Group per series, a rect per value, and with
+ * two or more series the Legend and a swatch and name per series.
+ */
+// ponytail: one createNodes holds a chart to its Nodes; split the write when charts need more.
+export const maxChartRows = (series: number) =>
+  Math.floor(
+    (MAX_NODES_PER_CREATE - 5 - 2 * MAX_TICKS - series - (series > 1 ? 1 + 2 * series : 0)) /
+      (series + 1),
+  );
 
 /**
  * What every `chart_create_*` tool takes (ADR-0106, REQUIREMENTS §6.4.5): the data as rows or CSV,
@@ -16,13 +32,13 @@ export const ChartInput = z.strictObject({
   parentId: z.string().describe("A Layer or Group id to draw the chart in."),
   data: z
     .union([
-      z.strictObject({ rows: z.array(z.record(z.string(), Cell)).min(1).max(1000) }),
+      z.strictObject({ rows: z.array(z.record(z.string(), Cell)).min(1).max(maxChartRows(1)) }),
       z.strictObject({
         csv: z.string().min(1).describe("RFC 4180, the first row naming the fields."),
       }),
     ])
     .describe(
-      "At most 1000 rows. Numbers may carry thousands separators, % and a leading or trailing currency sign; an empty cell is a gap.",
+      `At most ${maxChartRows(1)} rows for 1 series, ${maxChartRows(3)} for 3, ${maxChartRows(50)} for 50; for S series ⌊(${MAX_NODES_PER_CREATE - 5 - 2 * MAX_TICKS} − S − (S > 1 ? 1 + 2S : 0)) ÷ (S + 1)⌋. Numbers may carry thousands separators, % and a leading or trailing currency sign; an empty cell is a gap.`,
     ),
   encoding: z.strictObject({
     x: field.describe("The category field: one cluster per row, labelled by it."),
@@ -135,12 +151,8 @@ function rowsOf(data: z.output<typeof ChartInput>["data"]) {
     }));
   }
   const [header = [], ...records] = parseCsv(data.csv).filter((r) => r.some((c) => c !== ""));
-  if (records.length === 0 || records.length > 1000) {
-    throw invalid(
-      "data.csv",
-      `The CSV has ${records.length} rows after its header.`,
-      "Give 1 to 1000 rows.",
-    );
+  if (records.length === 0) {
+    throw invalid("data.csv", "The CSV has no rows after its header.", "Give at least 1 row.");
   }
   return records.map((record, i) => {
     if (record.length !== header.length) {
@@ -200,6 +212,16 @@ export function columnChart(raw: ChartInput): { node: NodeInput; warnings: Warni
   const { parentId, data, encoding, frame } = ChartInput.parse(raw);
   const series = typeof encoding.y === "string" ? [encoding.y] : encoding.y;
   const rows = rowsOf(data);
+  const most = maxChartRows(series.length);
+  if (rows.length > most) {
+    const s = series.length === 1 ? "1 series fits" : `${series.length} series fit`;
+    throw new KalamoError({
+      code: "LIMIT_EXCEEDED",
+      message: `${rows.length} rows; ${s} at most ${most} rows in one chart of ${MAX_NODES_PER_CREATE} Nodes.`,
+      hint: "Chart fewer rows or series, or split the data over several charts.",
+      path: "data",
+    });
+  }
   for (const [k, f] of [encoding.x, ...series].entries()) {
     if (!rows.some(({ row }) => Object.hasOwn(row, f))) {
       const at =
@@ -363,16 +385,6 @@ export function columnChart(raw: ChartInput): { node: NodeInput; warnings: Warni
     name: "Column Graph",
     children: [valueAxis, categoryAxis, ...columns, ...(legend ? [legendGroup] : [])],
   };
-  // ponytail: one createNodes holds a chart to its Nodes; split the write when charts need more.
-  const count = countNodes([node]);
-  if (count > MAX_NODES_PER_CREATE) {
-    throw new KalamoError({
-      code: "LIMIT_EXCEEDED",
-      message: `This chart would be ${count} Nodes, a rect per value and a label per category among them; one chart holds at most ${MAX_NODES_PER_CREATE}.`,
-      hint: "Chart fewer rows or series, or split the data over several charts.",
-      path: "data",
-    });
-  }
   return { node, warnings };
 }
 
