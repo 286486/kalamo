@@ -13,8 +13,8 @@ import { boxContext } from "./boxContext.ts";
 import { editableShapes, marqueeAnchors, parseKey, pick } from "./direct.ts";
 import { exitLevel, forNewArt, goTo, inScope, isolate, levels, prune } from "./isolation.ts";
 import { layerIsolation, layerMask, rows } from "./layers.ts";
-import { receive } from "./receive.ts";
 import { hitTest, inverse, marquee, objectOf, objects, placeParent } from "./selection.ts";
+import { message, stateAfter, viewState } from "./testing.ts";
 import { endpointAt } from "./tools.ts";
 
 /** Layer 1: Clip Group outer (clip, content, Group inner (rect x)), rect bg. */
@@ -138,40 +138,15 @@ describe("prune", () => {
 
   it("runs on every incoming change, such as an undo that removes the Group", () => {
     const { doc, id } = fixture();
-    const state = {
-      doc,
-      selection: [],
-      isolated: id("inner"),
-      drag: null,
-      pen: null,
-      pending: [],
-      edit: null,
-      opPreview: null,
-      paintPreview: null,
-      anchors: [],
-      segments: [],
-      layerRows: [],
-      notice: null,
-      peers: new Map(),
-    };
-    const tx = (extra: Partial<TxMessage>): TxMessage => ({
-      type: "tx",
-      rev: doc.rev + 1,
-      txId: "t",
-      actor: "user",
-      intent: "undo",
-      created: [],
-      updated: [],
-      deletedIds: [],
-      bounds: null,
-      ...extra,
-    });
-    expect(receive(state, tx({}), "d")?.isolated).toBe(id("inner"));
-    expect(receive(state, tx({ deletedIds: [id("inner"), id("x")] }), "d")?.isolated).toBe(
+    const state = viewState({ doc, isolated: id("inner") });
+    const tx = (extra: Partial<TxMessage>) =>
+      message("tx", { rev: doc.rev + 1, actor: "user", intent: "undo", ...extra });
+    expect(stateAfter(state, tx({}))?.isolated).toBe(id("inner"));
+    expect(stateAfter(state, tx({ deletedIds: [id("inner"), id("x")] }))?.isolated).toBe(
       id("outer"),
     );
     const everything = [id("outer"), id("clip"), id("content"), id("inner"), id("x")];
-    expect(receive(state, tx({ deletedIds: everything }), "d")?.isolated).toBeNull();
+    expect(stateAfter(state, tx({ deletedIds: everything }))?.isolated).toBeNull();
   });
 });
 
@@ -378,34 +353,14 @@ describe("a sub-Layer or a single path (ADR-0058)", () => {
 
     it("runs on an undo that removes the isolated leaf", () => {
       const { doc, id } = layered();
-      const state = {
-        doc,
-        selection: [id("a")],
-        isolated: id("a"),
-        drag: null,
-        pen: null,
-        pending: [],
-        edit: null,
-        opPreview: null,
-        paintPreview: null,
-        anchors: [],
-        segments: [],
-        layerRows: [],
-        notice: null,
-        peers: new Map(),
-      };
-      const tx: TxMessage = {
-        type: "tx",
+      const state = viewState({ doc, selection: [id("a")], isolated: id("a") });
+      const tx = message("tx", {
         rev: doc.rev + 1,
-        txId: "t",
         actor: "user",
         intent: "undo",
-        created: [],
-        updated: [],
         deletedIds: [id("a")],
-        bounds: null,
-      };
-      expect(receive(state, tx, "d")?.isolated).toBe(id("S"));
+      });
+      expect(stateAfter(state, tx)?.isolated).toBe(id("S"));
     });
   });
 

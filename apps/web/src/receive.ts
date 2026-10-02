@@ -13,13 +13,14 @@ import {
   pathOp,
   transformNodes,
 } from "@kalamo/core";
-import { applyBroadcast, type ServerMessage } from "@kalamo/sync";
+import { applyBroadcast, type Role, type ServerMessage } from "@kalamo/sync";
 import type { CurveAnchor } from "./curvature.ts";
 import { inRange, parseKey, segmentInRange } from "./direct.ts";
 import type { PaintPreview } from "./gradient.ts";
 import { prune } from "./isolation.ts";
-import { type Peers, peersAfter } from "./presence.ts";
+import { type Areas, areasAfter, type Peers, peersAfter } from "./presence.ts";
 import { editable, objects } from "./selection.ts";
+import type { Tool } from "./toolbox.ts";
 
 /**
  * The Selection being dragged by (dx, dy) pt. `commandId` is set once its move has been sent. With
@@ -134,21 +135,85 @@ export interface ViewState {
   paintPreview: PaintPreview | null;
   /** The Document's other connections, whose cursors and Selections are drawn (ADR-0090). */
   peers: Peers;
+  /** False while the socket is down; the last Document stays on screen. */
+  live: boolean;
+  /** The shown Document's Role, from the socket (ADR-0047); null until it connects. */
+  role: Role | null;
+  tool: Tool;
+  /** The shown Document's Actors' names, by Actor id, from its Actor rows (ADR-0090). */
+  actorNames: ReadonlyMap<string, string>;
+  /** The Actors this socket fetched the names for, at most once each; a fetch gets them all. */
+  asked: ReadonlySet<string>;
+  /** Each Actor's last write, drawn as an Agent's Working Area (ADR-0090). */
+  areas: Areas;
 }
 
+/** The tools a viewer keeps, which change nothing; Space pans as the Hand for everyone. */
+export const VIEWER_TOOLS: readonly Tool[] = ["selection", "zoom"];
+
+/** What a server message asks of the socket, beyond its ViewState. */
+export type Effect =
+  /**
+   * A new socket is a new Peer to the others: it sends its presence in full; and so does every
+   * socket when one joins, which asks for it (ADR-0090).
+   */
+  | { type: "resend-presence" }
+  /** Fetch the Document's Actor rows, for these Actors' names. */
+  | { type: "fetch-names"; actors: string[] }
+  /** A missed `rev`: reconnect for the whole Document. */
+  | { type: "reconnect" };
+
 /**
- * The ViewState after one server message (ADR-0009, ADR-0010), or null when a `rev` was missed and
- * the browser must reconnect for the whole Document.
+ * The ViewState after one server message that arrived at `now` (ADR-0009, ADR-0010), and what it
+ * asks of the socket.
  */
 export function receive(
   s: ViewState,
   msg: ServerMessage,
   docId: string,
-): Partial<ViewState> | null {
+  now: number,
+): { state: Partial<ViewState>; effects: Effect[] } {
+  const snapshot = msg.type === "document" ? msg : null;
+  const effects: Effect[] = [];
+  if (snapshot || msg.type === "joined") effects.push({ type: "resend-presence" });
+  const unseen =
+    msg.type === "presence" || msg.type === "joined" || msg.type === "tx" || msg.type === "staged"
+      ? [msg.actor].filter((a) => !s.asked.has(a) && !s.actorNames.has(a))
+      : [];
+  // Each Document asks for every Peer's name again.
+  const actors = snapshot ? snapshot.peers.map((p) => p.actor) : unseen;
+  if (snapshot || actors.length > 0) effects.push({ type: "fetch-names", actors });
+  const asked = snapshot
+    ? { asked: new Set(actors) }
+    : actors.length > 0 && { asked: new Set([...s.asked, ...actors]) };
+  const view = viewAfter(s, msg, docId);
+  if (!view) return { state: { ...asked }, effects: [...effects, { type: "reconnect" }] };
+  const peers = peersAfter(s.peers, msg);
+  const areas = areasAfter(s.areas, msg, now);
+  const viewer = snapshot?.role === "viewer" && !VIEWER_TOOLS.includes(s.tool);
+  return {
+    state: {
+      ...view,
+      ...asked,
+      ...(peers !== s.peers && { peers }),
+      ...(areas !== s.areas && { areas }),
+      ...(snapshot && { live: true, role: snapshot.role }),
+      ...(viewer && { tool: "selection" }),
+    },
+    effects,
+  };
+}
+
+/** The Document, Selection and previews after one server message, or null after a missed `rev`. */
+function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<ViewState> | null {
   // Presence changes no Document state (ADR-0090); nor, yet, does an Agent's staged area.
-  if (msg.type === "presence" || msg.type === "joined" || msg.type === "left")
-    return { peers: peersAfter(s.peers, msg) };
-  if (msg.type === "staged") return {};
+  if (
+    msg.type === "presence" ||
+    msg.type === "joined" ||
+    msg.type === "left" ||
+    msg.type === "staged"
+  )
+    return {};
   if (msg.type === "rejected") {
     const gone = msg.error.code === "NODE_GONE";
     return {
@@ -236,9 +301,7 @@ export function receive(
     ...(answered && { drag: null }),
     anchors,
     segments,
-    ...(msg.type === "document"
-      ? { edit: null, peers: peersAfter(s.peers, msg) }
-      : settle(s.edit, msg.commandId)),
+    ...(msg.type === "document" ? { edit: null } : settle(s.edit, msg.commandId)),
     ...(msg.type === "document"
       ? s.pending.length > 0 && { pending: [] }
       : settlePending(s.pending, msg.commandId)),

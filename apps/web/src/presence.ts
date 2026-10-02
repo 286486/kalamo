@@ -1,6 +1,7 @@
 import type { Rect } from "@kalamo/core";
 import {
   type ClientMessage,
+  type Peer,
   PRESENCE_INTERVAL,
   type PresenceMessage,
   type ServerMessage,
@@ -20,12 +21,18 @@ export interface PeerView {
 export type Peers = ReadonlyMap<string, PeerView>;
 
 /**
+ * The Peers starting over: a new socket's Document lists them, and a closed socket has none until
+ * its next Document.
+ */
+export const peersFrom = (list: readonly Peer[]): Peers =>
+  new Map(list.map((p) => [p.peer, { actor: p.actor, cursor: null, selection: [] }]));
+
+/**
  * The Peers after one server message. A `document` starts over from its `peers`; a presence
  * message without a `selection` keeps the Peer's last one.
  */
 export function peersAfter(peers: Peers, msg: ServerMessage): Peers {
-  if (msg.type === "document")
-    return new Map(msg.peers.map((p) => [p.peer, { actor: p.actor, cursor: null, selection: [] }]));
+  if (msg.type === "document") return peersFrom(msg.peers);
   if (msg.type !== "presence" && msg.type !== "joined" && msg.type !== "left") return peers;
   const next = new Map(peers);
   if (msg.type === "left") next.delete(msg.peer);
