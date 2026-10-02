@@ -73,7 +73,10 @@ test("Unite replaces two selected rects with one selected path, and one Ctrl+Z r
   await page.keyboard.press("Shift+Control+F9");
   await expect(panel).toBeVisible();
   await expect(modes).toHaveText(["Unite", "Minus Front", "Intersect", "Exclude"]);
-  await expect(panel.getByRole("button")).toHaveCount(4);
+  await expect(panel.getByRole("group", { name: "Pathfinders" }).getByRole("button")).toHaveText([
+    "Minus Back",
+  ]);
+  await expect(panel.getByRole("button")).toHaveCount(5);
   await expect.poll(selected).toHaveLength(2);
 
   await panel.getByRole("button", { name: "Unite" }).click();
@@ -102,6 +105,22 @@ test("Tab and Enter run Minus Front, whose result keeps the back rect's fill", a
   await expect.poll(selected).toEqual(["Red"]);
 });
 
+test("Minus Back keeps the front rect's fill and name, and one Ctrl+Z restores both rects", async ({
+  page,
+  request,
+}) => {
+  const { ids, art, fill, panel, selected } = await setup(page, request, 40);
+  const button = panel.getByRole("button", { name: "Minus Back" });
+  await expect(button).toBeEnabled();
+  await button.click();
+  await expect.poll(art).toEqual([{ id: expect.any(String), type: "path" }]);
+  const [result] = await art();
+  expect(await fill(result?.id as string)).toBe("#0000FF");
+  await expect.poll(selected).toEqual(["Blue"]);
+  await page.keyboard.press("Control+Z");
+  await expect.poll(art).toEqual(ids.map((id) => ({ id, type: "rect" })));
+});
+
 test("Intersect on disjoint rects shows the server's message and changes nothing", async ({
   page,
   request,
@@ -119,6 +138,7 @@ test("one selected rect disables every Shape Mode", async ({ page, request }) =>
   await page.getByRole("button", { name: "Red", exact: true }).click();
   await expect.poll(selected).toEqual(["Red"]);
   for (const m of await modes.all()) await expect(m).toBeDisabled();
+  await expect(panel.getByRole("button", { name: "Minus Back" })).toBeDisabled();
   await expect(panel).toBeVisible();
 });
 

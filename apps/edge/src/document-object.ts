@@ -4,6 +4,7 @@ import {
   type Artboard,
   type ArtboardInput,
   bounds,
+  COMBINING,
   type ConciseView,
   commitTransaction,
   createDocument,
@@ -53,7 +54,6 @@ import {
   reorderNodes,
   reparentNodes,
   revert,
-  SHAPE_MODES,
   serializeDocument,
   type TransformNodesInput,
   type TxRow,
@@ -1015,7 +1015,7 @@ export class DocumentObject extends DurableObject<Env> {
     actor: string,
     opts: Options = {},
   ): Promise<Result<WriteReceipt>> {
-    const geometry = ["outline_stroke", "offset", "divide_below", ...SHAPE_MODES].includes(input.op)
+    const geometry = ["outline_stroke", "offset", "divide_below", ...COMBINING].includes(input.op)
       ? await this.geometry()
       : undefined;
     const { summary } = PATH_OP_TEXT[input.op];

@@ -1,12 +1,12 @@
 import {
   ARRANGE,
+  type Combining,
   type Document,
   type Node,
   PATH_OP_TEXT,
   type PathOpInput,
   type ReorderOp,
   reorderNodes,
-  type ShapeMode,
   serializeDocument,
 } from "@kalamo/core";
 import { toSvg } from "@kalamo/io/write";
@@ -137,8 +137,8 @@ export const shapeModeTargets = (s: Pick<State, "doc" | "selection" | "role">) =
   return nodeIds.length >= 2 ? nodeIds : [];
 };
 
-/** Runs a Shape Mode on the Selection; its result becomes the Selection, as in Illustrator. */
-export function shapeMode(op: ShapeMode) {
+/** Runs a Shape Mode or Pathfinder on the Selection; its result becomes the Selection, as in Illustrator. */
+export function shapeMode(op: Combining) {
   const nodeIds = shapeModeTargets(useStore.getState());
   if (nodeIds.length === 0) return;
   const commandId = send({ type: "path_op", input: { nodeIds, op } });

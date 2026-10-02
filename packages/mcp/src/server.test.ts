@@ -445,7 +445,7 @@ describe("write tools pass the write and its options apart", () => {
       code: "INVALID_INPUT",
       path: "mode",
     });
-    const unknown = { docId: "d", nodeIds: ["a", "b"], op: "minus_back" };
+    const unknown = { docId: "d", nodeIds: ["a", "b"], op: "divide" };
     expect(errorOf(await call("kalamo_path_op", unknown))).toMatchObject({
       code: "INVALID_INPUT",
       path: "op",
