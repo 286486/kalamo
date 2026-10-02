@@ -600,28 +600,29 @@ it("holds the Anchor Point and Curvature tools' edits for the press and puts the
 // With Handles on (20, 10), its In toward (20, 20) and its Out toward (10, 10), which the reverse
 // swaps: with (20, 10) chosen, the Anchor Point tool acts on the Handle under the pointer, and a
 // click on the Anchor retracts both.
-const handleEdits: Record<string, [(doc: Document) => void, ReturnType<typeof holeAfterSent>]> = {
+/** Each edit, and what it leaves of (20, 10) whatever the answer. */
+const handleEdits: Record<string, [(doc: Document) => void, object]> = {
   "an Anchor Point Handle drag": [
     (doc) => {
       anchorPointTool.down?.(event(doc, 15, 6));
       anchorPointTool.move?.(event(doc, 15, 2));
       anchorPointTool.up?.(event(doc, 15, 2));
     },
-    [{ at: "20 10", in: "24 15", out: expect.not.stringMatching(/^15 6$/) }],
+    { at: "20 10", in: "24 15", out: expect.not.stringMatching(/^15 6$/) },
   ],
   "an Anchor Point Handle click": [
     (doc) => {
       anchorPointTool.down?.(event(doc, 24, 15));
       anchorPointTool.up?.(event(doc, 24, 15));
     },
-    [{ at: "20 10", in: null, out: "15 6" }],
+    { at: "20 10", in: null, out: "15 6" },
   ],
   "an Anchor Point click on an Anchor": [
     (doc) => {
       anchorPointTool.down?.(event(doc, 20, 10));
       anchorPointTool.up?.(event(doc, 20, 10));
     },
-    [{ at: "20 10", in: null, out: null }],
+    { at: "20 10", in: null, out: null },
   ],
 };
 
@@ -632,7 +633,7 @@ it("holds the Anchor Point tool's Handle edits for the press and keeps them on t
       nodeId: a,
       ops: [{ op: "set_handles", subpath: 1, index: 3, handleIn: [24, 15], handleOut: [15, 6] }],
     });
-  for (const [name, [run, [last]]] of Object.entries(handleEdits)) {
+  for (const [name, [run, last]] of Object.entries(handleEdits)) {
     const [accepted, rejected_] = heldEdit(run, name, { index: 3, prep: handles });
     expect(rejected_?.[3], name).toEqual(last);
     expect(accepted, name).toEqual(rejected_);
