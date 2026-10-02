@@ -10,16 +10,18 @@ import {
   runsClockwise,
   signedArea,
   toAnchors,
+  transformNodes,
 } from "@kalamo/core";
 import { expect, it, vi } from "vitest";
 import { addAnchorTool, anchorPointTool, deleteAnchorTool } from "./anchorTools.ts";
 import { directionOf, fillRuleOf, setDirection, setFillRule } from "./attributes.ts";
+import { commitDrag } from "./canvas.ts";
 import { curvatureDown, curvatureDrag, curvatureUp } from "./curvature.ts";
 import { anchorKey, localAnchors, parseKey } from "./direct.ts";
 import { directTool } from "./directTool.ts";
 import { pencilDown, pencilMove, pencilUp } from "./pencil.ts";
 import { previewAll, previewsOf, type ViewState } from "./receive.ts";
-import { afterReverse, runHeld, send, useStore } from "./store.ts";
+import { afterReverse, runHeld, send, unheld, useStore } from "./store.ts";
 import { message, stateAfter, viewState } from "./testing.ts";
 import type { ToolEvent } from "./toolbox.ts";
 import { finishPen, penDown, penUp } from "./tools.ts";
@@ -834,6 +836,85 @@ it("drops a held Pencil redraw when another Actor edits its path before the answ
         expect(stored(q), label).toBe(moved.d);
       }
     }
+  }
+});
+
+// #284: a held Pencil redraw acts on the path it was drawn over, whatever the person does to the
+// Selection meanwhile, and its Ink moves with that path when the person moves it whole.
+
+/** This tab's own Selection tool move of `nodeId` by (dx, dy), sent and answered in the window. */
+function ownMove(nodeId: string, dx: number, dy: number) {
+  vi.mocked(send).mockReturnValueOnce("m");
+  useStore.setState({ drag: { nodeIds: [nodeId], dx, dy, commandId: null, copy: false } });
+  commitDrag(unheld("the test's Selection tool move"));
+  const { doc } = useStore.getState() as { doc: Document };
+  const { nodes } = transformNodes(structuredClone(doc), {
+    nodeIds: [nodeId],
+    translate: { x: dx, y: dy },
+  });
+  const moved = message("tx", { rev: doc.rev + 1, commandId: "m", updated: nodes });
+  useStore.setState(stateAfter(useStore.getState(), moved));
+}
+
+/** The stretch from (80, 10) to (80, 25) redrawn on p's open subpath, run as the answer left it. */
+function expectRedrawn(outcome: "accepted" | "rejected", label: string) {
+  const sent = openAfterSent();
+  expect(sent, label).toHaveLength(1);
+  const run = outcome === "accepted" ? sent[0]?.toReversed() : sent[0];
+  expect(run?.slice(0, 3), label).toEqual(["50 0", "80 0", "80 10"]);
+  expect(run?.slice(-2), label).toEqual(["80 25", "80 30"]);
+}
+
+it("redraws the path drawn over though the person changes the Selection before the answer", () => {
+  for (const outcome of ["accepted", "rejected"] as const) {
+    for (const now of ["q", "none"] as const) {
+      const label = `${outcome}, Selection ${now}`;
+      const answer = pressOnOpen();
+      drawnEdits["a Pencil redraw"]?.();
+      const [, q] = useStore.getState().selection as [string, string];
+      useStore.setState({ selection: now === "q" ? [q] : [] });
+      answer(outcome);
+      expectRedrawn(outcome, label);
+      expect(useStore.getState().notice ?? "", label).not.toMatch(/Pencil/);
+    }
+  }
+});
+
+it("moves a held Pencil redraw's Ink with its path when the person moves the path before the answer", () => {
+  for (const outcome of ["accepted", "rejected"] as const) {
+    const answer = pressOnOpen();
+    drawnEdits["a Pencil redraw"]?.();
+    const [p] = useStore.getState().selection as [string, string];
+    ownMove(p, 100, 50);
+    answer(outcome);
+    // In p's own coordinates the stretch drawn over is redrawn, and p stays where it was moved.
+    expectRedrawn(outcome, outcome);
+    const stored = (useStore.getState().doc as Document).nodes.get(p) as PathNode;
+    expect(stored.transform, outcome).toEqual([1, 0, 0, 1, 100, 50]);
+  }
+});
+
+it("tells the person a held Pencil redraw was dropped when their own edit took the path off its Ink", () => {
+  for (const outcome of ["accepted", "rejected"] as const) {
+    const answer = pressOnOpen();
+    drawnEdits["a Pencil redraw"]?.();
+    const [p] = useStore.getState().selection as [string, string];
+    // The answer to the person's Direct Selection drag sent before the press puts p's open subpath
+    // far from the Ink.
+    useStore.setState({ edit: { inputs: [], commandIds: ["e"] } });
+    const { doc } = useStore.getState() as { doc: Document };
+    const { node } = editPath(structuredClone(doc), {
+      nodeId: p,
+      ops: [{ op: "set_d", d: "M0 0 L9 0 L9 9 Z M150 150 L180 150 L180 180" }],
+    });
+    const ours = message("tx", { rev: doc.rev + 1, commandId: "e", updated: [node] });
+    useStore.setState(stateAfter(useStore.getState(), ours));
+    answer(outcome);
+    const s = useStore.getState();
+    expect(commands(), outcome).toEqual([]);
+    expect(s.notice, outcome).toMatch(/Pencil/);
+    const shown = previewAll(s.doc as Document, previewsOf(s)).nodes.get(p) as PathNode;
+    expect(shown.d, outcome).toBe(((s.doc as Document).nodes.get(p) as PathNode).d);
   }
 });
 

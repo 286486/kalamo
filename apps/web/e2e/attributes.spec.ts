@@ -709,6 +709,49 @@ for (const outcome of ["accepted", "rejected"] as const) {
     });
   }
 
+  // #284, ADR-0110: the person's own Selection tool move of the path in the window carries the
+  // held redraw's Ink with it, so the stretch drawn over is redrawn where the path now is, as
+  // Illustrator's redraw-then-move would leave it.
+  test(`a held Pencil redraw follows its path moved with the Selection tool, ${outcome}`, async ({
+    page,
+    request,
+  }) => {
+    const { docId, ids, held, hold, at, d, button } = await rings(page, request, [0], hook);
+    const [id] = ids as [string];
+    await page.keyboard.press("a");
+    await page.mouse.click(...at(120, 20));
+    await expect(button("Reverse Path Direction On")).toHaveAttribute("aria-pressed", "true");
+
+    hold();
+    await button("Reverse Path Direction Off").click();
+    await expect.poll(() => held.length).toBe(1);
+    await drawnEdits["a Pencil redraw"].run(page, at);
+    // The ring's fill, moved 30 down: the Ink then starts off the moved path.
+    await page.keyboard.press("v");
+    await page.mouse.move(...at(30, 30));
+    await page.mouse.down();
+    await page.mouse.move(...at(30, 45), { steps: 5 });
+    await page.mouse.move(...at(30, 60), { steps: 5 });
+    await page.mouse.up();
+    const transform = async () =>
+      (await call(request, "kalamo_node_get", { docId, nodeIds: [id], detail: "full" }))
+        .structuredContent.nodes[0].transform;
+    await expect.poll(transform).toEqual([1, 0, 0, 1, 0, 30]);
+    const [press] = held;
+    if (outcome === "accepted") press?.pass();
+    else {
+      press?.answer({
+        type: "rejected",
+        id: press.id,
+        error: { code: "INVALID_PATH", message: "Rejected for the test.", hint: "" },
+      });
+    }
+    await expect
+      .poll(async () => anchorsIn(await d(id))[2]?.join(","))
+      .toMatch(drawnEdits["a Pencil redraw"][outcome]);
+    expect(await transform()).toEqual([1, 0, 0, 1, 0, 30]);
+  });
+
   // #281, ADR-0109: an Agent's edit to the path drops the held redraw, so the Agent's edit is
   // stored as they made it, reversed only by an accepted press.
   test(`a held Pencil redraw is dropped when an Agent edits its path, ${outcome}`, async ({
