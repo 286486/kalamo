@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { bounds, childrenOf, createDocument, createNodes } from "./document.ts";
+import {
+  bounds,
+  childrenOf,
+  createDocument,
+  createNodes,
+  isClippingPath,
+  isOpacityMask,
+  maskRole,
+} from "./document.ts";
 import { updateNodes } from "./edit.ts";
 import { KalamoError } from "./errors.ts";
 import { makeMask, releaseMask } from "./mask.ts";
@@ -407,5 +415,21 @@ describe("makeMask on a Layer (ADR-0053)", () => {
     expect(nodes.map((n) => n.id)).toEqual([s.clip.id]);
     expect(s.doc.nodes.get(s.clip.id)).not.toHaveProperty("clipping");
     expect(bounds(s.doc, s.layer)).toEqual({ x: 0, y: 0, width: 50, height: 50 });
+  });
+});
+
+describe("maskRole", () => {
+  it("names a Clipping Path and a mask, and the kind of Mask each makes", () => {
+    const s = scene();
+    makeMask(s.doc, { clipNodeId: s.clip.id, contentIds: [s.b.id] });
+    makeMask(s.doc, { kind: "opacity", clipNodeId: s.text.id, contentIds: [s.above.id] });
+    const clip = s.doc.nodes.get(s.clip.id) as Node;
+    const mask = s.doc.nodes.get(s.text.id) as Node;
+    expect([isClippingPath(clip), isOpacityMask(clip)]).toEqual([true, false]);
+    expect([isClippingPath(mask), isOpacityMask(mask)]).toEqual([false, true]);
+    expect(isClippingPath(s.a) || isOpacityMask(s.a)).toBe(false);
+    if (!isClippingPath(clip) || !isOpacityMask(mask)) expect.unreachable();
+    expect(maskRole(clip)).toEqual({ what: "Clipping Path", kind: "Clipping" });
+    expect(maskRole(mask)).toEqual({ what: "mask", kind: "Opacity" });
   });
 });

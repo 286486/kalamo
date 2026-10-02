@@ -1,8 +1,12 @@
 import {
+  type ClippingPath,
   childrenOf,
   clippingPath,
   createNodes,
+  isClippingPath,
   isOpacityMask,
+  type Mask,
+  maskRole,
   opacityMaskOf,
   unmasked,
 } from "./document.ts";
@@ -68,7 +72,7 @@ export function makeMask(
   if (isMask(clip)) {
     throw invalid(
       "clipNodeId",
-      `The Node is already a ${isOpacityMask(clip) ? "mask" : "Clipping Path"}.`,
+      `The Node is already a ${maskRole(clip).what}.`,
       `Use mask_release on it first, or ${opacity ? "mask" : "clip"} with another Node.`,
     );
   }
@@ -99,11 +103,11 @@ export function makeMask(
       );
     }
     if (isMask(n)) {
-      const [what, mask] = isOpacityMask(n) ? ["mask", "Opacity"] : ["Clipping Path", "Clipping"];
+      const { what, kind } = maskRole(n);
       throw invalid(
         at,
         `The Node is the ${what} of its parent: a Group has at most one.`,
-        `Release its ${mask} Mask with mask_release first.`,
+        `Release its ${kind} Mask with mask_release first.`,
       );
     }
     if (n.parentId !== clip.parentId) {
@@ -181,7 +185,7 @@ function emptied(clip: LeafNode): LeafNode {
 }
 
 /** A Clipping Path or the mask of an Opacity Mask. */
-const isMask = (n: Node) => ("clipping" in n && !!n.clipping) || isOpacityMask(n);
+const isMask = (n: Node): n is ClippingPath | Mask => isClippingPath(n) || isOpacityMask(n);
 
 /**
  * Illustrator's Object > Clipping Mask > Release and the Transparency panel's Release (ADR-0103):

@@ -6,6 +6,7 @@ import {
   checkFile,
   childrenOf,
   imageInfo,
+  isClippingPath,
   isOpacityMask,
   isTopLayer,
   mapPaint,
@@ -454,7 +455,7 @@ function patched(
   let next = { ...merged, ...parsed.data } as Node;
   if (next.type === "text") next = storedText(next, at, "INVALID_PATCH");
   // SVG clips everything away through a hidden clip path; Illustrator unclips (ADR-0021).
-  if ("clipping" in next && next.clipping && !next.visible) {
+  if (isClippingPath(next) && !next.visible) {
     throw invalid(
       ".visible",
       "A Clipping Path cannot be hidden.",
