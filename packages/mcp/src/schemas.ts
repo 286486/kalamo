@@ -1,4 +1,4 @@
-import { Rect, WriteReceipt } from "@kalamo/core";
+import { Rect, ValidateRule, WriteReceipt } from "@kalamo/core";
 import { ROLES } from "@kalamo/sync";
 import { z } from "zod";
 
@@ -89,6 +89,18 @@ export const DuplicateOutput = WriteReceipt.extend({
 });
 
 export const OutlineOutput = z.object({ rev: z.number().int(), nodes: z.array(OutlineNode) });
+
+export const ValidateOutput = z.object({
+  rev: z.number().int(),
+  issues: z.array(
+    z.object({
+      rule: ValidateRule,
+      nodeId: z.string(),
+      message: z.string(),
+      hint: z.string().optional(),
+    }),
+  ),
+});
 
 const Viewport = z.object({
   docRect: Rect,

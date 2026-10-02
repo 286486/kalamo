@@ -62,6 +62,9 @@ import {
   type UpdateInput,
   union,
   updateNodes,
+  type ValidateIssue,
+  type ValidateOptions,
+  validate,
   type WriteReceipt,
 } from "@kalamo/core";
 import { loadGeometry } from "@kalamo/geometry";
@@ -1194,6 +1197,17 @@ export class DocumentObject extends DurableObject<Env> {
     return guard(() => {
       const doc = this.view(this.load(), actor, txId);
       return { rev: doc.rev, ...queryNodes(doc, q) };
+    });
+  }
+
+  validate(
+    opts: ValidateOptions,
+    actor: string,
+    txId?: string,
+  ): Result<{ rev: number; issues: ValidateIssue[] }> {
+    return guard(() => {
+      const doc = this.view(this.load(), actor, txId);
+      return { rev: doc.rev, issues: validate(doc, opts) };
     });
   }
 

@@ -22,6 +22,8 @@ import {
   TransformFields,
   TransformInput,
   UpdateInput,
+  ValidateRule,
+  ValidateScope,
   WriteReceipt,
 } from "@kalamo/core";
 import type { DocumentService, Viewport } from "@kalamo/sync";
@@ -50,6 +52,7 @@ import {
   PlacedOutput,
   RenderOutput,
   TxOutput,
+  ValidateOutput,
 } from "./schemas.ts";
 
 interface ToolConfig {
@@ -764,6 +767,27 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       });
       return image(png, viewport);
     },
+  );
+
+  tool(
+    "kalamo_validate",
+    {
+      title: "Validate",
+      description: [
+        "Check the Document for what a render can miss; call it with kalamo_render after each logical stage. issues lists each visible Node that breaks a rule, in drawing order, bottom first; Template Layers are skipped.",
+        "Rules: text_overflow, Area Type whose content does not all fit; font_missing and missing_glyphs, as a write warns them; outside_artboards, visibleBounds that touch no Artboard, so no export draws it, reported on the highest such Node; zero_area, a shape that is one point, or a closed one on one line; missing_link, a linked Image with no pixels; empty_group, a Group with no children.",
+        "scope {artboardId} checks the Nodes that touch that Artboard, so never outside_artboards; {nodeIds} those Nodes and what they contain; omitted, the whole Document. rules keeps only those rules.",
+      ].join(" "),
+      inputSchema: {
+        docId,
+        scope: ValidateScope.optional(),
+        rules: z.array(ValidateRule).min(1).optional(),
+        txId: readTxId,
+      },
+      outputSchema: ValidateOutput.shape,
+      annotations: read,
+    },
+    async ({ docId, txId, ...opts }) => json(await service.validate(docId, opts, txId)),
   );
 
   tool(

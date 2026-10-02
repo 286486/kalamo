@@ -193,6 +193,7 @@ export function documentService(env: Env, principal: Principal): DocumentService
       read(docId, (d) => d.get(nodeIds, detail, actor, txId)),
     outline: async (docId, opts, txId) => read(docId, (d) => d.outline(opts, actor, txId)),
     query: async (docId, q, txId) => read(docId, (d) => d.query(q, actor, txId)),
+    validate: async (docId, opts, txId) => read(docId, (d) => d.validate(opts, actor, txId)),
     begin: async (docId, label) => write(docId, (d) => d.begin(actor, label)),
     commitTx: async (docId, txId, opts) => write(docId, (d) => d.commitTx(txId, actor, opts)),
     rollback: async (docId, txId) => write(docId, (d) => d.rollback(txId, actor)),

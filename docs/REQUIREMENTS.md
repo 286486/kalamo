@@ -580,7 +580,7 @@ flowchart LR
 | `hit_test` | `docId`, `point` 或 `rect`, `mode`（top / all / anchors） | 命中节点 id 列表（按 z 序）、锚点索引 | R |
 | `measure` | `docId`, `nodeIds[]` 或 `points[]` | bounds、中心、面积、路径长度、两点距离与角度、两个节点的间距 | R |
 | `selection_get` / `selection_set` | `docId`, `nodeIds[]` | 当前 UI 选区 | R / 写 |
-| `validate` | `docId`, `scope`, `rules[]?` | 问题列表：开放路径、零面积对象、超出画板、文字溢出、重叠文字、非整数描边、未使用资源、极小对象、缺失字体 | R |
+| `validate` | `docId`, `scope?`（artboardId / nodeIds，默认整个文档）, `rules[]?`, `txId?` | `{rev, issues: [{rule, nodeId, message, hint?}]}`，按绘制顺序；跳过隐藏 Node 与 Template Layer。已交付规则（ADR-0105）：`text_overflow`、`font_missing`、`missing_glyphs`、`outside_artboards`、`zero_area`、`missing_link`、`empty_group`；后续规则：开放路径、重叠文字、非整数描边、未使用资源、极小对象 | R |
 
 #### 6.4.3 创建
 
@@ -715,7 +715,7 @@ flowchart LR
 - **F-MCP-10** `render` 的 `overlays` 可叠加：节点 bounds 与 ID 标签（便于 Agent 把看到的东西与 id 对上）、锚点与手柄、画板边界、网格、标尺刻度。（P0）
 - **F-MCP-11** `render` 返回 `viewport` 元数据：`{docRect, pixelSize, scale}`，Agent 可把像素坐标换算为文档坐标再 `hit_test`。（P0）
 - **F-MCP-12** `scene_describe` 输出结构化 + 自然语言两段，包括"可疑问题"（文字溢出、对象重叠、超出画板、颜色过多）。（P1）
-- **F-MCP-13** `validate` 规则可扩展；推荐工作流在 skill 中写明"每完成一个逻辑阶段调用 `render` + `validate`"。（P0）
+- **F-MCP-13** `validate` 规则可扩展；推荐工作流在 skill 中写明"每完成一个逻辑阶段调用 `render` + `validate`"。（P0）已交付 `kalamo_validate` 与七条规则：`text_overflow`、`font_missing`、`missing_glyphs`、`outside_artboards`、`zero_area`、`missing_link`、`empty_group`（ADR-0105）。
 - **F-MCP-14** 变更感知：人类的编辑以摘要形式（`{rev, txId, actor, summary:"moved 3 nodes", ids}`）出现在 `doc_changes` 中；skill 文档要求 Agent 在一轮写入前先拉一次，并对关键写入带 `ifRev`。（P0）
 
 ### 6.7 错误处理、并发与长任务

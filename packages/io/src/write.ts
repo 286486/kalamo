@@ -3,6 +3,7 @@ import {
   type Artboard,
   alphaOf,
   applyTo,
+  artboardOf,
   type CharacterRange,
   characterFamilies,
   childrenOf,
@@ -103,16 +104,7 @@ export function docRect(doc: Document): Rect {
 export function scopeRect(doc: Document, scope?: RenderScope): Rect {
   if (!scope) return docRect(doc);
   if ("rect" in scope) return scope.rect;
-  if ("artboardId" in scope) {
-    const artboard = doc.artboards.find((a) => a.id === scope.artboardId);
-    if (artboard) return artboard.frame;
-    throw new KalamoError({
-      code: "ARTBOARD_NOT_FOUND",
-      message: `No Artboard with id ${scope.artboardId}.`,
-      hint: "kalamo_doc_get_info lists the Artboards with their ids.",
-      path: "scope.artboardId",
-    });
-  }
+  if ("artboardId" in scope) return artboardOf(doc, scope.artboardId, "scope.artboardId").frame;
   const rect = union(
     scope.nodeIds.map((id, i) => visibleBounds(doc, lookup(doc, id, `scope.nodeIds[${i}]`))),
   );

@@ -77,6 +77,7 @@ it("lists the tools over HTTP (their schemas and annotations: packages/mcp serve
     "kalamo_tx_begin",
     "kalamo_tx_commit",
     "kalamo_tx_rollback",
+    "kalamo_validate",
   ]);
 });
 

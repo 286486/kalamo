@@ -21,6 +21,8 @@ import type {
   ReparentInput,
   TransformNodesInput,
   UpdateInput,
+  ValidateIssue,
+  ValidateOptions,
   WriteReceipt,
 } from "@kalamo/core";
 
@@ -199,6 +201,12 @@ export interface DocumentService {
     q: NodeQuery,
     txId?: string,
   ): Promise<{ rev: number; nodes: ConciseView[]; nextCursor: string | null }>;
+  /** The visible Nodes that break a check (ADR-0105). */
+  validate(
+    docId: string,
+    opts: ValidateOptions,
+    txId?: string,
+  ): Promise<{ rev: number; issues: ValidateIssue[] }>;
   /** A PNG of the scope, and the Viewport mapping its pixels back (ADR-0014). */
   render(docId: string, req: RasterRequest): Promise<{ png: Uint8Array; viewport: Viewport }>;
   /** `export`'s PNG: drawn as `render` draws it, but counted as an export (ADR-0048). */
