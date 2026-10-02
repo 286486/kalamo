@@ -3,7 +3,14 @@ import { ulid } from "ulid";
 import type { z } from "zod";
 import { parseColor } from "./color.ts";
 import { collect, type Failed, KalamoError } from "./errors.ts";
-import { fileProblem, MAX_FILE_LENGTH, preserveAspectRatio } from "./image.ts";
+import {
+  fileProblem,
+  MAX_FILE_LENGTH,
+  type Orientation,
+  orientImage,
+  preserveAspectRatio,
+  uprightSize,
+} from "./image.ts";
 import { applyTo, IDENTITY, multiply, scaleOf, transformSegments } from "./matrix.ts";
 import { formatPath, parsePath, pathBounds, round3, type Segment, shapeSegments } from "./path.ts";
 import {
@@ -197,12 +204,17 @@ function consume(
 /**
  * Validates every input first, then adds all Nodes, so a bad item leaves the Document unchanged.
  * Returns the new Nodes depth first in input order (a Group before its inline children), and the
- * `clientKey` → id map for the WriteReceipt.
+ * `clientKey` → id map for the WriteReceipt. `orientations` holds the EXIF orientation of an Image
+ * whose file was read for this write, under the path its errors would name, e.g.
+ * `nodes[0].children[1]` (ADR-0101).
  */
 export function createNodes(
   doc: Document,
   inputs: NodeInput[],
-  { partial = false } = {},
+  {
+    partial = false,
+    orientations,
+  }: { partial?: boolean; orientations?: ReadonlyMap<string, Orientation> } = {},
 ): { nodes: Node[]; keyMap: Record<string, string>; deletedIds: string[]; failed: Failed[] } {
   // The Nodes consumed as frames so far, so none frames two texts.
   const taken = new Set<string>();
@@ -260,7 +272,7 @@ export function createNodes(
       );
       node = { ...at, ...text, name, appearance };
     } else if (input.type === "image") {
-      node = { ...at, ...imageOf(doc, input, path), name };
+      node = { ...at, ...imageOf(doc, input, path, orientations?.get(path)), name };
     } else {
       // Parsing with the Shape schema keeps the parameters and drops clientKey, name and the rest.
       const shape = Shape.parse(input);
@@ -520,22 +532,35 @@ export function imageInfo(doc: Document, src: string, path: string) {
   });
 }
 
-/** An Image's parameters, its `src` an id the Document holds (ADR-0023, ADR-0042). */
-function imageOf(doc: Document, input: unknown, path: string) {
+/**
+ * An Image's parameters, its `src` an id the Document holds (ADR-0023, ADR-0042). With an
+ * `orientation`, the frame given or defaulted is the upright box, and the orientation turns the
+ * file into it (ADR-0101).
+ */
+function imageOf(doc: Document, input: unknown, path: string, orientation: Orientation = 1) {
   const { src, file, width, height, ...rest } = ImageShape.superRefine(imageFrame)
     .superRefine(imagePixels)
     .parse(input);
   if (file !== undefined) checkFile(file, `${path}.file`);
   const info = src === undefined ? undefined : imageInfo(doc, src, `${path}.src`);
-  return {
+  const upright = info && uprightSize(info, orientation);
+  const image = {
     ...rest,
     ...(src !== undefined && { src }),
     ...(file !== undefined && { file }),
     // imageFrame refused an Image with neither pixels nor a frame.
-    width: width ?? info?.width ?? 0,
-    height: height ?? info?.height ?? 0,
+    width: width ?? upright?.width ?? 0,
+    height: height ?? upright?.height ?? 0,
     // The schema refused anything this cannot spell.
     preserveAspectRatio: preserveAspectRatio(rest.preserveAspectRatio) ?? "none",
+  };
+  if (orientation === 1) return image;
+  const turned = orientImage(image, orientation, image.preserveAspectRatio);
+  return {
+    ...image,
+    ...turned.frame,
+    preserveAspectRatio: turned.preserveAspectRatio,
+    transform: turned.matrix,
   };
 }
 

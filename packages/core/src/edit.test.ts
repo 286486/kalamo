@@ -1049,6 +1049,93 @@ describe("an Image", () => {
     });
   });
 
+  it("takes an oriented file's upright size and box, inline children too (ADR-0101)", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const src = "a".repeat(64);
+    doc.images.set(src, { mime: "image/jpeg", width: 24, height: 16 });
+    const orientations = new Map([
+      ["nodes[0]", 6],
+      ["nodes[1].children[0]", 6],
+      ["nodes[2]", 2],
+    ] as const);
+    const nodes = createNodes(
+      doc,
+      [
+        { type: "image", parentId: defaultLayerId, src, x: 0, y: 0 },
+        {
+          type: "group",
+          parentId: defaultLayerId,
+          children: [
+            {
+              type: "image",
+              src,
+              x: 10,
+              y: 20,
+              width: 30,
+              height: 50,
+              preserveAspectRatio: "xMinYMid meet",
+            },
+          ],
+        },
+        { type: "image", parentId: defaultLayerId, src, x: 5, y: 5 },
+        // The same id with no orientation: stored pixels are upright.
+        { type: "image", parentId: defaultLayerId, src, x: 0, y: 0 },
+      ],
+      { orientations },
+    ).nodes.filter((n) => n.type === "image");
+    const [byDefault, boxed, mirrored, plain] = nodes as Node[];
+    expect(byDefault).toMatchObject({
+      x: -4,
+      y: 4,
+      width: 24,
+      height: 16,
+      transform: [0, 1, -1, 0, 20, 4],
+    });
+    expect(bounds(doc, byDefault as Node)).toEqual({ x: 0, y: 0, width: 16, height: 24 });
+    expect(boxed).toMatchObject({
+      x: 0,
+      y: 30,
+      width: 50,
+      height: 30,
+      preserveAspectRatio: "xMidYMax meet",
+    });
+    expect(bounds(doc, boxed as Node)).toEqual({ x: 10, y: 20, width: 30, height: 50 });
+    expect(mirrored).toMatchObject({
+      x: 5,
+      y: 5,
+      width: 24,
+      height: 16,
+      transform: [-1, 0, 0, 1, 34, 0],
+    });
+    expect(plain).toMatchObject({ width: 24, height: 16, transform: [1, 0, 0, 1, 0, 0] });
+  });
+
+  it("Relinks to an oriented file in the box the patch leaves, after its transform (ADR-0101)", () => {
+    const { doc, id } = withImage();
+    transformNodes(doc, { nodeIds: [id], translate: { x: 100, y: 0 } });
+    const before = doc.nodes.get(id) as Node;
+    const src = "b".repeat(64);
+    doc.images.set(src, { mime: "image/jpeg", width: 16, height: 24 });
+    const [node] = updateNodes(
+      doc,
+      [{ nodeId: id, patch: { src, width: 48, preserveAspectRatio: "xMinYMin meet" } }],
+      { orientations: new Map([["updates[0]", 6]]) },
+    ).nodes as [Node];
+    // The box: x 0, y 0, 48 × 16, moved 100 right; its centre (24, 8).
+    expect(node).toMatchObject({
+      x: 16,
+      y: -16,
+      width: 16,
+      height: 48,
+      preserveAspectRatio: "xMinYMax meet",
+      transform: [0, 1, -1, 0, 132, -16],
+    });
+    expect(bounds(doc, node)).toEqual({ ...bounds(doc, before), width: 48 });
+    // An id, or an upright file, keeps the frame and transform as before.
+    const [same] = updateNodes(doc, [{ nodeId: id, patch: { src: "a".repeat(64) } }]).nodes;
+    expect(same).toMatchObject({ x: 16, y: -16, width: 16, height: 48, transform: node.transform });
+  });
+
   it("moves by its transform, keeping its frame, with or without scaling Strokes", () => {
     for (const scaleStrokes of [true, false]) {
       const { doc, id } = withImage();

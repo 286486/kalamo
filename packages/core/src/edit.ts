@@ -15,7 +15,7 @@ import {
   union,
 } from "./document.ts";
 import { collect, type Failed, KalamoError } from "./errors.ts";
-import { preserveAspectRatio } from "./image.ts";
+import { type Orientation, orientImage, preserveAspectRatio } from "./image.ts";
 import { compose, multiply, round, scaleOf } from "./matrix.ts";
 import { formatPath, parsePath } from "./path.ts";
 import {
@@ -297,7 +297,12 @@ function converted(
 }
 
 /** Validates and merges one patch, returning the new Node without storing it. */
-function patched(doc: Document, raw: UpdateInput, i: number): { node: Node; warnings: Warning[] } {
+function patched(
+  doc: Document,
+  raw: UpdateInput,
+  i: number,
+  orientation: Orientation = 1,
+): { node: Node; warnings: Warning[] } {
   // Not parsed with NodePatch: the per-type schema below checks every value and answers with a hint.
   const { nodeId } = raw;
   let patch = raw.patch as Record<string, unknown>;
@@ -433,6 +438,14 @@ function patched(doc: Document, raw: UpdateInput, i: number): { node: Node; warn
       });
     }
     next.preserveAspectRatio = preserveAspectRatio(next.preserveAspectRatio) ?? "none";
+    // Relink to an oriented JPEG keeps the box the patch leaves, turning the new file into it.
+    if (orientation !== 1 && typeof patch.src === "string") {
+      const turned = orientImage(next, orientation, next.preserveAspectRatio);
+      Object.assign(next, turned.frame, {
+        preserveAspectRatio: turned.preserveAspectRatio,
+        transform: round(multiply(next.transform, turned.matrix)),
+      });
+    }
   } else if (isContainer(next)) {
     if (next.appearance) {
       next.appearance = paintContainer(
@@ -450,16 +463,20 @@ function patched(doc: Document, raw: UpdateInput, i: number): { node: Node; warn
 
 /**
  * Applies one merge patch per item, in order, so two patches to one Node both land. Validates every
- * item before storing any.
+ * item before storing any. `orientations` holds the EXIF orientation of a Relink's file read for
+ * this write, under its update's path, e.g. `updates[0]` (ADR-0101).
  */
 export function updateNodes(
   doc: Document,
   updates: UpdateInput[],
-  { partial = false } = {},
+  {
+    partial = false,
+    orientations,
+  }: { partial?: boolean; orientations?: ReadonlyMap<string, Orientation> } = {},
 ): { nodes: Node[]; warnings: Warning[]; failed: Failed[] } {
   const staged = { ...doc, nodes: new Map(doc.nodes) };
   const { ok, failed } = collect(updates, partial, (u, i) => {
-    const done = patched(staged, u, i);
+    const done = patched(staged, u, i, orientations?.get(`updates[${i}]`));
     staged.nodes.set(done.node.id, done.node);
     return done;
   });
