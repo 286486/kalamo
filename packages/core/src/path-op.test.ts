@@ -1037,7 +1037,14 @@ describe("pathOp Shape Modes, on real PathKit (ADR-0104)", () => {
       code: "INVALID_PATH",
       message: "The objects behind cover all of the frontmost one.",
     });
-    expect(await fails([a.id, text.id], "minus_back")).toMatchObject({ path: "nodeIds[1]" });
+    expect(await fails([a.id, text.id], "minus_back")).toMatchObject({
+      path: "nodeIds[1]",
+      message: "A text is not a Minus Back operand.",
+    });
+    expect(await fails([a.id, a.id], "minus_back")).toMatchObject({
+      path: "nodeIds",
+      message: "Minus Back combines two or more objects.",
+    });
     expect(await fails([layer, a.id])).toMatchObject({ path: "nodeIds[0]" });
     expect(await fails([a.id, "nope"])).toMatchObject({
       code: "NODE_NOT_FOUND",

@@ -192,10 +192,11 @@ export const PATH_OP_TEXT: Record<PathOpInput["op"], { menu: string; summary: st
 };
 
 export type ShapeMode = (typeof SHAPE_MODES)[number];
+/** The ops that combine their operands into one path: the Shape Modes and the Pathfinders. */
+export const COMBINING = [...SHAPE_MODES, ...PATHFINDERS] as const;
 /** A Shape Mode or a Pathfinder that combines like one. */
-export type Combining = ShapeMode | (typeof PATHFINDERS)[number];
-const isCombining = (op: string): op is Combining =>
-  ([...SHAPE_MODES, ...PATHFINDERS] as readonly string[]).includes(op);
+export type Combining = (typeof COMBINING)[number];
+const isCombining = (op: string): op is Combining => (COMBINING as readonly string[]).includes(op);
 
 /** How a Stroke is drawn along its path, without its paint. */
 export type StrokeStyle = Pick<Stroke, "width" | "cap" | "join" | "miterLimit" | "dash">;
@@ -806,7 +807,7 @@ function shapeMode(
         node.type === "text"
           ? "A text has no outline until Create Outlines, still to come."
           : "Name paths, Live Shapes, or Groups of them.";
-      throw invalid(`nodeIds[${i}]`, `${what} is not a Shape Mode operand.`, hint);
+      throw invalid(`nodeIds[${i}]`, `${what} is not a ${PATH_OP_TEXT[op].menu} operand.`, hint);
     }
     if (node.parentId === null) {
       throw invalid(
@@ -819,7 +820,11 @@ function shapeMode(
   });
   const operands = named.sort((a, b) => (order.get(a.node.id) ?? 0) - (order.get(b.node.id) ?? 0));
   if (operands.length < 2) {
-    throw invalid("nodeIds", "A Shape Mode combines two or more objects.", "List them in nodeIds.");
+    throw invalid(
+      "nodeIds",
+      `${PATH_OP_TEXT[op].menu} combines two or more objects.`,
+      "List them in nodeIds.",
+    );
   }
   const filled = operands.map(({ leaves }): Filled => {
     const each = leaves.map((n) => worldOutline(doc, n));
