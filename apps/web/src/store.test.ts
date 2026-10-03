@@ -1,7 +1,7 @@
 import type { PathEditInput } from "@kalamo/core";
 import { ACCESS_CHANGED, type Command, type ServerMessage } from "@kalamo/sync";
 import { afterEach, expect, it, vi } from "vitest";
-import { afterReverse, connect, send, unheld, useStore } from "./store.ts";
+import { afterReverse, connect, send, sendPathOp, unheld, useStore } from "./store.ts";
 import { message } from "./testing.ts";
 
 afterEach(() => {
@@ -138,6 +138,22 @@ it("sends a command that names Anchors by index, or any path_op, only once it wa
   send({ type: "path_reverse", subpaths: [{ nodeId: "p", subpath: 0 }], clockwise: true });
   send({ type: "delete", nodeIds: ["p"] });
   expect(useStore.getState().held).toEqual([]);
+});
+
+// tsc checks this test: each @ts-expect-error fails the check once its line compiles.
+it("takes no sent op preview into a held op or its send step (#306, #299)", () => {
+  const op = {
+    input: { nodeIds: [], op: "simplify" as const },
+    geometry: undefined,
+    commandId: "c1",
+  };
+  // Never called: it only has to compile, or not.
+  () => {
+    // @ts-expect-error A sent op preview never goes back into a held op.
+    afterReverse(() => {}, { op });
+    // @ts-expect-error
+    sendPathOp(op.input, op);
+  };
 });
 
 it("records a command only when it goes out on an open socket, until its answer (#288)", () => {

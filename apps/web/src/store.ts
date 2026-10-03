@@ -18,7 +18,6 @@ import {
   type Held,
   heldRan,
   joinNotices,
-  type OpPreview,
   opening,
   type Preview,
   type Probe,
@@ -237,7 +236,7 @@ export function afterReverse(
     redraw,
     pulled,
     ...chosen
-  }: Partial<Chosen> & { previewed?: true; op?: OpPreview } & Pick<
+  }: Partial<Chosen> & { previewed?: true; op?: Preview["op"] } & Pick<
       Held,
       "seed" | "redraw" | "pulled"
     > = {},
@@ -287,7 +286,7 @@ export function drawSent(p: SentPreview) {
  * `input`: the preview of `input` leaves the op-preview slot and is the op's own, held with it and
  * drawn from its send until its answer (ADR-0035, #299).
  */
-export function sendPathOp(input: NodeOp, shown?: Omit<OpPreview, "input">) {
+export function sendPathOp(input: NodeOp, shown?: Omit<NonNullable<Preview["op"]>, "input">) {
   const op = shown && { ...shown, input };
   afterReverse((_s, w) => {
     const commandId = send({ type: "path_op", input }, w);
