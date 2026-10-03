@@ -649,7 +649,7 @@ it("holds the Anchor Point tool's Handle edits for the press and keeps them on t
 // #278: the Pen and the Pencil, used while a press is in flight, wait for its answer and act on the
 // Endpoint or stretch drawn on. p's open subpath runs (50, 0), (80, 0), (80, 30); reversed,
 // (80, 30), (80, 0), (50, 0). q is an open line from (0, 100) to (20, 100).
-const drawnEdits: Record<string, () => void> = {
+const drawnEdits = {
   "a Pen continuing from an Endpoint": () => {
     penDown([80, 30], 1);
     penUp();
@@ -682,9 +682,18 @@ const drawnEdits: Record<string, () => void> = {
       pencilMove([[...p]], { shift: false, alt: false });
     pencilUp(1);
   },
-};
+  "a Pen closing the path it continues": () => {
+    penDown([80, 30], 1);
+    penUp();
+    penDown([50, 0], 1);
+    penUp();
+  },
+} satisfies Record<string, () => void>;
 
-/** Each subpath with an Anchor at (50, 0), as "x y" lists, after the commands sent. */
+/**
+ * Each subpath with an Anchor at (50, 0), as "x y" lists ending in "Z" when closed, after the
+ * commands sent.
+ */
 function openAfterSent() {
   const doc = structuredClone(useStore.getState().doc as Document);
   for (const c of commands()) {
@@ -698,7 +707,7 @@ function openAfterSent() {
   return [...doc.nodes.values()].flatMap((n) =>
     n.type === "path"
       ? localAnchors(n)
-          .map((s) => s.anchors.map((a) => r(a.anchor)))
+          .map((s) => [...s.anchors.map((a) => r(a.anchor)), ...(s.closed ? ["Z"] : [])])
           .filter((s) => s.includes("50 0"))
       : [],
   );
@@ -763,7 +772,7 @@ it("holds the Pen's and the Pencil's edits for the press and puts them on the En
       return openAfterSent();
     }),
   );
-  const [continued, ended, joined, redrawn] = results.map(([accepted, rejected_]) => ({
+  const [continued, ended, joined, redrawn, closed] = results.map(([accepted, rejected_]) => ({
     accepted,
     rejected_,
   }));
@@ -782,6 +791,9 @@ it("holds the Pen's and the Pencil's edits for the press and puts them on the En
   expect(r?.slice(0, 3)).toEqual(["50 0", "80 0", "80 10"]);
   expect(r?.slice(-2)).toEqual(["80 25", "80 30"]);
   expect(redrawn?.accepted).toEqual([r?.toReversed()]);
+  // The close joins p's two Endpoints, so p keeps its three Anchors in one closed subpath.
+  expect(closed?.rejected_).toEqual([["50 0", "80 0", "80 30", "Z"]]);
+  expect(closed?.accepted).toEqual([["80 30", "80 0", "50 0", "Z"]]);
 });
 
 it("keeps the Pen on the Endpoint it continues when the answer comes while it draws", () => {
@@ -832,7 +844,7 @@ it("after a reconnect, ends a Pen continuation only when someone else changed it
 
 it("drops a held Pen edit when another Actor edits its path before the answer (ADR-0109)", () => {
   const answer = pressOnOpen();
-  drawnEdits["a Pen continuing from an Endpoint"]?.();
+  drawnEdits["a Pen continuing from an Endpoint"]();
   theirEdit(useStore.getState().selection[0] as string, 1);
   answer("rejected");
   expect(commands()).toEqual([]);
@@ -878,7 +890,7 @@ it("drops a held Pencil redraw when another Actor edits its path before the answ
     for (const theirsOn of ["p", "q"] as const) {
       const label = `${outcome}, their edit on ${theirsOn}`;
       const answer = pressOnOpen();
-      drawnEdits["a Pencil redraw"]?.();
+      drawnEdits["a Pencil redraw"]();
       const [p, q] = useStore.getState().selection as [string, string];
       const moved = theirsOn === "p" ? theirEdit(p, 1) : theirEdit(q, 0);
       const after = useStore.getState().doc as Document;
@@ -909,29 +921,15 @@ it("drops a held Pencil redraw when another Actor edits its path before the answ
 // continuation still being drawn does (#282): what the Pen drew is gone from the screen.
 it("tells the person when another Actor's edit drops a held Pen finish", () => {
   const finishes: Record<string, [() => void, "p" | "q"]> = {
-    "continue p, their edit on p": [
-      drawnEdits["a Pen continuing from an Endpoint"] as () => void,
-      "p",
-    ],
-    "close p, their edit on p": [
-      () => {
-        penDown([80, 30], 1);
-        penUp();
-        penDown([50, 0], 1);
-        penUp();
-      },
-      "p",
-    ],
-    "end on p, their edit on p": [
-      drawnEdits["a Pen path ending on an Endpoint"] as () => void,
-      "p",
-    ],
+    "continue p, their edit on p": [drawnEdits["a Pen continuing from an Endpoint"], "p"],
+    "close p, their edit on p": [drawnEdits["a Pen closing the path it continues"], "p"],
+    "end on p, their edit on p": [drawnEdits["a Pen path ending on an Endpoint"], "p"],
     "connect q onto p, their edit on q": [
-      drawnEdits["a Pen continuing one path onto another's Endpoint"] as () => void,
+      drawnEdits["a Pen continuing one path onto another's Endpoint"],
       "q",
     ],
     "connect q onto p, their edit on p": [
-      drawnEdits["a Pen continuing one path onto another's Endpoint"] as () => void,
+      drawnEdits["a Pen continuing one path onto another's Endpoint"],
       "p",
     ],
   };
@@ -986,7 +984,7 @@ it("redraws the path drawn over though the person changes the Selection before t
     for (const now of ["q", "none"] as const) {
       const label = `${outcome}, Selection ${now}`;
       const answer = pressOnOpen();
-      drawnEdits["a Pencil redraw"]?.();
+      drawnEdits["a Pencil redraw"]();
       const [, q] = useStore.getState().selection as [string, string];
       useStore.setState({ selection: now === "q" ? [q] : [] });
       answer(outcome);
@@ -999,7 +997,7 @@ it("redraws the path drawn over though the person changes the Selection before t
 it("moves a held Pencil redraw's Ink with its path when the person moves the path before the answer", () => {
   for (const outcome of ["accepted", "rejected"] as const) {
     const answer = pressOnOpen();
-    drawnEdits["a Pencil redraw"]?.();
+    drawnEdits["a Pencil redraw"]();
     const [p] = useStore.getState().selection as [string, string];
     ownMove(p, 100, 50);
     answer(outcome);
@@ -1039,7 +1037,7 @@ it("keeps a held Pencil redraw's Ink in a rotated and scaled path's own coordina
 it("tells the person a held Pencil redraw was dropped when their own edit took the path off its Ink", () => {
   for (const outcome of ["accepted", "rejected"] as const) {
     const answer = pressOnOpen();
-    drawnEdits["a Pencil redraw"]?.();
+    drawnEdits["a Pencil redraw"]();
     const [p] = useStore.getState().selection as [string, string];
     // The answer to the person's Direct Selection drag sent before the press puts p's open subpath
     // far from the Ink.
@@ -1210,7 +1208,7 @@ it("keeps a Pencil drag in progress, and stores what it drew, when a held edit i
   for (const outcome of ["accepted", "rejected"] as const) {
     settleHeld(
       onOpen,
-      drawnEdits["a Pen continuing from an Endpoint"] as () => void,
+      drawnEdits["a Pen continuing from an Endpoint"],
       // Redraws q, the line from (0, 100) to (20, 100), from (4, 100) to (16, 100) through (10, 106).
       () => {
         const { doc } = useStore.getState() as { doc: Document };
