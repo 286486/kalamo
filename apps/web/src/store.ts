@@ -266,7 +266,7 @@ export function afterReverse(
  * answers. Every sent preview reaches `sentPreviews` through here, from a live gesture or a held
  * edit, in the order sent (#285).
  */
-export function drawSent(p: Preview) {
+export function drawSent(p: SentPreview) {
   if (!p.edit && !p.drag) return;
   useStore.setState((s) => ({ sentPreviews: [...s.sentPreviews, p] }));
 }

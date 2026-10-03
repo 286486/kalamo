@@ -12,6 +12,7 @@ import {
   previewEdit,
   previewOp,
   receive,
+  type SentPreview,
   type ViewState,
 } from "./receive.ts";
 import { message, stateAfter, viewState } from "./testing.ts";
@@ -30,22 +31,33 @@ function fixture() {
 const tx = (doc: Document, extra: Partial<TxMessage>) =>
   message("tx", { rev: doc.rev + 1, ...extra });
 
-const drag = (nodeIds: string[], commandId: string | null) => ({
-  nodeIds,
-  dx: 5,
-  dy: 0,
-  commandId,
-});
+const drag = (nodeIds: string[]) => ({ nodeIds, dx: 5, dy: 0 });
+const sentDrag = (nodeIds: string[], commandId: string) => ({ ...drag(nodeIds), commandId });
 
 /** One sent edit's preview, drawn until its answers (#285). */
-const sentPreviews = (p: Partial<Preview>) => [{ edit: null, drag: null, ...p }];
+const sentPreviews = (p: Partial<SentPreview>) => [{ edit: null, drag: null, ...p }];
+
+// tsc checks this test: each @ts-expect-error fails the check once its line compiles.
+it("keeps command ids off unsent previews and on sent ones (#306)", () => {
+  const sent: SentPreview = { edit: { inputs: [], commandIds: ["c1"] }, drag: sentDrag([], "c2") };
+  const unsent = (p: Preview) => p;
+  const settled = (p: SentPreview) => p;
+  // @ts-expect-error A sent preview never goes back on a live slot or a held edit.
+  unsent({ edit: sent.edit, drag: null });
+  // @ts-expect-error
+  unsent({ edit: null, drag: sent.drag });
+  // @ts-expect-error An unsent preview has no command ids its answers settle it by.
+  settled({ edit: { inputs: [] }, drag: null });
+  // @ts-expect-error
+  settled({ edit: null, drag: drag([]) });
+});
 
 it("keeps the drag preview until the tx answering its command arrives", () => {
   const { doc, a } = fixture();
   const state = viewState({
     doc,
     selection: [a.id],
-    sentPreviews: sentPreviews({ drag: drag([a.id], "c1") }),
+    sentPreviews: sentPreviews({ drag: sentDrag([a.id], "c1") }),
   });
   const other = { ...state, ...stateAfter(state, tx(doc, { actor: "agent-a" })) };
   expect(other.sentPreviews).toBe(state.sentPreviews);
@@ -59,7 +71,7 @@ it("snaps back and shows a notice when its command is rejected", () => {
   const state = viewState({
     doc,
     selection: [a.id],
-    sentPreviews: sentPreviews({ drag: drag([a.id], "c1") }),
+    sentPreviews: sentPreviews({ drag: sentDrag([a.id], "c1") }),
   });
   const error = { code: "NODE_GONE" as const, message: "gone", hint: "", nodeIds: [a.id] };
   const next = stateAfter(state, message("rejected", { id: "c1", error }));
@@ -92,7 +104,7 @@ it("asks to reconnect on a missed rev, and drops an unanswered drag on a new Doc
   const state = viewState({
     doc,
     selection: [a.id],
-    sentPreviews: sentPreviews({ drag: drag([a.id], "c1") }),
+    sentPreviews: sentPreviews({ drag: sentDrag([a.id], "c1") }),
     actorNames,
   });
   expect(receive(state, tx(doc, { rev: doc.rev + 2 }), "d", 0)).toEqual({
@@ -114,7 +126,7 @@ it.each([
     ["user_bob", "Bob"],
     ["agent-a", "A"],
   ]);
-  const state = viewState({ doc, selection: [a.id], drag: drag([a.id], "c1"), actorNames });
+  const state = viewState({ doc, selection: [a.id], drag: drag([a.id]), actorNames });
   const next = stateAfter(state, msg);
   expect(Object.keys(next)).toEqual(msg.type === "staged" ? ["areas"] : ["peers"]);
 });
@@ -203,7 +215,7 @@ it("goes live with the Document's Role, and takes a viewer off a tool that edits
 
 it("previews a drag as core moves it, skipping Nodes deleted meanwhile", () => {
   const { doc, a, b } = fixture();
-  const shown = preview(doc, drag([a.id, "gone"], null));
+  const shown = preview(doc, drag([a.id, "gone"]));
   expect(shown.nodes.get(a.id)?.transform).toEqual([1, 0, 0, 1, 5, 0]);
   expect(shown.nodes.get(b.id)).toBe(b);
   expect(doc.nodes.get(a.id)).toBe(a);
@@ -408,13 +420,13 @@ it("stops a tab only when the probe after an unopened socket reads 404 DOC_NOT_F
 it("previews an Alt-drag as copies above the topmost dragged Node, originals left (ADR-0076)", () => {
   const { doc, a, b } = fixture();
   const layer = a.parentId as string;
-  expect(copyInput(doc, drag([b.id, a.id], null))).toEqual({
+  expect(copyInput(doc, drag([b.id, a.id]))).toEqual({
     nodeIds: [b.id, a.id],
     offset: { x: 5, y: 0 },
     targetParentId: layer,
     after: b.id,
   });
-  const shown = preview(doc, { ...drag([a.id, b.id], null), copy: true });
+  const shown = preview(doc, { ...drag([a.id, b.id]), copy: true });
   const kids = [...shown.nodes.values()].filter((n) => n.parentId === layer);
   kids.sort((p, q) => (p.index < q.index ? -1 : 1));
   expect(kids.map((n) => n.id).slice(0, 2)).toEqual([a.id, b.id]);
@@ -435,18 +447,16 @@ it("copies the outermost Nodes a plain drag moves, and a Layer above its own ori
     },
   ]).nodes as [Node, Node];
   // A Group with its own child: the Group's parent takes the block, above the Group.
-  expect(copyInput(doc, drag([g.id, x.id], null))).toMatchObject({
+  expect(copyInput(doc, drag([g.id, x.id]))).toMatchObject({
     targetParentId: layer,
     after: g.id,
   });
-  expect(preview(doc, { ...drag([g.id, x.id], null), copy: true }).nodes.size).toBe(
-    doc.nodes.size + 2,
-  );
+  expect(preview(doc, { ...drag([g.id, x.id]), copy: true }).nodes.size).toBe(doc.nodes.size + 2);
   // A Layer with art from another Layer: each copy above its own original, the Layer's at the top level.
   const [other] = createNodes(doc, [{ type: "layer" }]).nodes as [Node];
-  const input = copyInput(doc, drag([other.id, a.id], null));
+  const input = copyInput(doc, drag([other.id, a.id]));
   expect(input).toEqual({ nodeIds: [other.id, a.id], offset: { x: 5, y: 0 } });
-  const shown = preview(doc, { ...drag([other.id, a.id], null), copy: true });
+  const shown = preview(doc, { ...drag([other.id, a.id]), copy: true });
   const layers = [...shown.nodes.values()].filter((n) => n.parentId === null);
   layers.sort((p, q) => (p.index < q.index ? -1 : 1));
   expect(layers.map((n) => n.type)).toEqual(["layer", "layer", "layer"]);
@@ -459,7 +469,7 @@ it("selects an Alt-drag's copies once its own answer creates them, and only then
   const state = viewState({
     doc,
     selection: [a.id],
-    sentPreviews: sentPreviews({ drag: { ...drag([a.id], "c1"), copy: true } }),
+    sentPreviews: sentPreviews({ drag: { ...sentDrag([a.id], "c1"), copy: true } }),
   });
   const group = { ...a, id: "g", type: "group", index: "b0" } as unknown as Node;
   const inside = { ...a, id: "x", parentId: "g" } as Node;
@@ -470,7 +480,7 @@ it("selects an Alt-drag's copies once its own answer creates them, and only then
     sentPreviews: [],
     selection: ["g"],
   });
-  const moved = { ...state, sentPreviews: sentPreviews({ drag: drag([a.id], "c1") }) };
+  const moved = { ...state, sentPreviews: sentPreviews({ drag: sentDrag([a.id], "c1") }) };
   expect(stateAfter(moved, tx(doc, { actor: "user", created, commandId: "c1" }))).toMatchObject({
     selection: [a.id],
   });

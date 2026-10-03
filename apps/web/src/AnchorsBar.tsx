@@ -6,7 +6,7 @@ import { afterReverse, type State, useStore, type Waited } from "./store.ts";
 /** One `path_edit` per path, previewed until each is answered, as a Direct Selection drag is. */
 function convert(type: Anchor["type"], { doc, anchors, segments }: State, w: Waited) {
   const inputs = doc ? convertInputs(doc, anchors, segments, type) : [];
-  if (inputs.length > 0) sendPreview({ edit: { inputs, commandIds: null } }, w);
+  if (inputs.length > 0) sendPreview({ edit: { inputs } }, w);
 }
 
 /** A Convert button's press, which waits for the person's command that may renumber a path. */

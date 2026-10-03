@@ -424,7 +424,6 @@ it("ends a continuation when another Actor edits or deletes its path, and only t
       // #292: the continued path is still drawn with the Pen's Anchors, before any further input.
       expect(s.edit, label).toEqual({
         inputs: [{ nodeId: a, ops: [{ op: "set_d", d: "M 0 0 L 10 0 L 20 10 M 0 20 L 10 20" }] }],
-        commandIds: null,
       });
       penClick([30, 10], 1);
       finishPen();
@@ -975,7 +974,7 @@ it("continues a path from the person's own held Direct Selection drag on it (#30
     nodeId: p,
     ops: [{ op: "move_anchor" as const, subpath: 0, index: 1, to: [50, 20] as Point }],
   };
-  useStore.setState({ edit: { inputs: [input], commandIds: null } });
+  useStore.setState({ edit: { inputs: [input] } });
   afterReverse(
     (_s, w) =>
       drawSent({
@@ -1128,7 +1127,7 @@ it("stores a held drag on the Anchor dragged, and the Pen continuation drawn on 
     nodeId: p,
     ops: [{ op: "move_anchor" as const, subpath: 1, index: 1, to: [120, -20] as Point }],
   };
-  useStore.setState({ edit: { inputs: [input], commandIds: null } });
+  useStore.setState({ edit: { inputs: [input] } });
   afterReverse(
     ({ anchors: [k] }, w) => {
       const [, subpath, index] = (k as string).split(" ").map(Number) as [number, number, number];

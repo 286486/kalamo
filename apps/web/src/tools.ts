@@ -241,7 +241,7 @@ function finishEdit(doc: Document, pen: PenPath) {
   useStore.setState({
     pen: null,
     selection: [...new Set(ends.map((e) => e.nodeId))],
-    edit: { inputs: [first.input], commandIds: null },
+    edit: { inputs: [first.input] },
   });
   // What it sends, on the path as its run sees it, and its preview held (#286). `held` is `keys`
   // renumbered, `from`'s first; a change to their path cleared a missing one.

@@ -1510,7 +1510,7 @@ it("tells the person when another Actor's edit drops a held Pen finish", () => {
 /** This tab's own Selection tool move of `nodeId` by (dx, dy), sent and answered in the window. */
 function ownMove(nodeId: string, dx: number, dy: number) {
   vi.mocked(send).mockReturnValueOnce("m");
-  useStore.setState({ drag: { nodeIds: [nodeId], dx, dy, commandId: null, copy: false } });
+  useStore.setState({ drag: { nodeIds: [nodeId], dx, dy, copy: false } });
   commitDrag(unheld("the test's Selection tool move"));
   const { doc } = useStore.getState() as { doc: Document };
   const { nodes } = transformNodes(structuredClone(doc), {
@@ -1592,7 +1592,7 @@ it("tells the person a held Pencil redraw was dropped when their own edit took t
     const [p] = useStore.getState().selection as [string, string];
     // The answer to the person's Direct Selection drag sent before the press puts p's open subpath
     // far from the Ink.
-    useStore.setState({ edit: { inputs: [], commandIds: ["e"] } });
+    useStore.setState({ sentPreviews: [{ edit: { inputs: [], commandIds: ["e"] }, drag: null }] });
     const { doc } = useStore.getState() as { doc: Document };
     const { node } = editPath(structuredClone(doc), {
       nodeId: p,
@@ -1603,7 +1603,10 @@ it("tells the person a held Pencil redraw was dropped when their own edit took t
     answer(outcome);
     const s = useStore.getState();
     expect(commands(), outcome).toEqual([]);
-    expect(s.notice, outcome).toMatch(/Pencil/);
+    const no = outcome === "rejected" ? " No." : "";
+    expect(s.notice, outcome).toBe(
+      `The Pencil edit was not applied; your own earlier change reshaped its path.${no}`,
+    );
     const shown = previewAll(s.doc as Document, previewsOf(s)).nodes.get(p) as PathNode;
     expect(shown.d, outcome).toBe(((s.doc as Document).nodes.get(p) as PathNode).d);
   }
@@ -1741,7 +1744,7 @@ it("drops a held Pen connection of two paths when one moved alone and its move i
       const moved = together ? [p, q] : [q];
       vi.mocked(send).mockReturnValueOnce("m");
       useStore.setState({
-        drag: { nodeIds: moved, dx: 100, dy: 50, commandId: null, copy: false },
+        drag: { nodeIds: moved, dx: 100, dy: 50, copy: false },
       });
       commitDrag(unheld("the test's Selection tool move"));
       answer(outcome);
@@ -1915,11 +1918,8 @@ it("leaves another gesture's unsent preview when a held edit runs or is dropped,
         const label = `${name}, ${outcome}${dropped ? ", dropped" : ""}`;
         // A drag of another path begun after the held edit: a Direct Selection drag's path edit,
         // and a Selection tool drag's move.
-        const edit = {
-          inputs: [{ nodeId: "other", ops: [] }],
-          commandIds: null,
-        };
-        const drag = { nodeIds: ["other"], dx: 3, dy: 0, commandId: null };
+        const edit = { inputs: [{ nodeId: "other", ops: [] }] };
+        const drag = { nodeIds: ["other"], dx: 3, dy: 0 };
         settleHeld(hold, run, () => useStore.setState({ edit, drag }), outcome, dropped);
         expect(useStore.getState().edit, label).toBe(edit);
         expect(useStore.getState().drag, label).toBe(drag);
@@ -3088,7 +3088,7 @@ it("draws the previews in the order the Document DO applies their edits (#285)",
         directTool.up?.(event(doc, 26, 10));
         expect(useStore.getState().held, label).toHaveLength(1);
         // Then a Selection tool drag of a, released and sent at once.
-        useStore.setState({ drag: { nodeIds: [a.id], dx: 100, dy: 50, commandId: null, copy } });
+        useStore.setState({ drag: { nodeIds: [a.id], dx: 100, dy: 50, copy } });
         commitDrag(unheld("the test's Selection tool drag"));
         const drawn = [shapesBut(drawnDoc(), b.id)];
         answer(outcome === "rejected");
@@ -3118,7 +3118,7 @@ it("runs the held edits after one that throws, leaves a drag in progress alone, 
     const { b, answer } = onRings();
     const doc = useStore.getState().doc as Document;
     // A held edit with a preview of its own, which throws when it runs; then one that sends.
-    const own = { inputs: [{ nodeId: b.id, ops: [] }], commandIds: null };
+    const own = { inputs: [{ nodeId: b.id, ops: [] }] };
     useStore.setState({ edit: own });
     afterReverse(
       () => {

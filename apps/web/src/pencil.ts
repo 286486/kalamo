@@ -361,7 +361,7 @@ export function pencilUp(scale: number) {
   const r = pencilResult(shown, s.selection, done, o, scale);
   if (!r) return;
   if ("edit" in r) {
-    useStore.setState({ edit: { inputs: [r.edit], commandIds: null } });
+    useStore.setState({ edit: { inputs: [r.edit] } });
     // Worked out again from the Ink once a Reverse Path Direction press in flight is answered, on
     // the paths as drawn then, so it redraws the stretch drawn over (ADR-0110). It redraws the path
     // it was drawn over, whatever the Selection is then, and keeps the Ink in that path's own

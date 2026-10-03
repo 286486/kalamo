@@ -44,19 +44,19 @@ import type { NodeOp } from "./store.ts";
 import type { Tool } from "./toolbox.ts";
 
 /**
- * The Selection being dragged by (dx, dy) pt. `commandId` is set once its move has been sent, in
- * `sentPreviews`; the live slot `drag` holds one not yet sent. With `copy`, Alt held, it leaves the
- * originals and drops copies (ADR-0076); `leave` is the Isolation move its answer makes, as a
- * PendingCreate's.
+ * The Selection being dragged by (dx, dy) pt. With `copy`, Alt held, it leaves the originals and
+ * drops copies (ADR-0076); `leave` is the Isolation move its answer makes, as a PendingCreate's.
  */
 export interface Drag {
   nodeIds: string[];
   dx: number;
   dy: number;
-  commandId: string | null;
   copy?: boolean;
   leave?: PendingCreate["leave"];
 }
+
+/** A Drag sent, in `sentPreviews`: the id of the command that moves it. */
+export type SentDrag = Drag & { commandId: string };
 
 /** An open subpath's Endpoint: its first Anchor, or its last. */
 export interface Endpoint {
@@ -136,16 +136,17 @@ export interface PendingCreate {
   leave?: { from: string; to: string | null };
 }
 
-/**
- * A Direct Selection drag: one `path_edit` per path. `commandIds`, one per input, is set once they
- * are sent, in `sentPreviews`; the live slot `edit` holds one not yet sent. Each answer or rejection
- * takes its paths out, and the preview lasts until the last one. One command may answer several
- * inputs, as the Attributes panel's `path_reverse` does.
- */
+/** A Direct Selection drag: one `path_edit` per path. */
 export interface PathDrag {
   inputs: PathEditInput[];
-  commandIds: string[] | null;
 }
+
+/**
+ * A PathDrag sent, in `sentPreviews`: the id of the command that carries each input. Each answer or
+ * rejection takes its paths out, and the preview lasts until the last one. One command may answer
+ * several inputs, as the Attributes panel's `path_reverse` does.
+ */
+export type SentPathDrag = PathDrag & { commandIds: string[] };
 
 /**
  * A `path_reverse` in flight, the subpaths it names, and its preview, drawn on the Document's
@@ -172,7 +173,7 @@ export type Chosen = Pick<ViewState, "anchors" | "segments" | "selection" | "too
   lostBy?: Cause;
 };
 
-/** One edit's preview: the paths it reshapes and the Nodes it moves whole. */
+/** One unsent edit's preview: the paths it reshapes and the Nodes it moves whole. */
 export type Preview = Pick<ViewState, "edit" | "drag">;
 
 /**
@@ -180,7 +181,7 @@ export type Preview = Pick<ViewState, "edit" | "drag">;
  * `fromHeld` marks a held edit that ran: its keys were worked out for it, not for a drag started
  * later, so its answer does not keep what that drag holds (ADR-0110).
  */
-export type SentPreview = Preview & { fromHeld?: true };
+export type SentPreview = { edit: SentPathDrag | null; drag: SentDrag | null; fromHeld?: true };
 
 /**
  * What a held `set_d` edit sends, worked out on the path as its run sees it and its keys: a Pencil
@@ -249,15 +250,16 @@ export interface ViewState {
   layerRows: string[];
   /**
    * The live gesture's unsent preview, with `edit`: the Nodes it moves whole. Once sent, it is drawn
-   * from `sentPreviews` until its answer, so a committed move does not flicker.
+   * from `sentPreviews` until its answer, so a committed move does not flicker. It and `edit` never
+   * carry command ids: a SentDrag or SentPathDrag does not fit them.
    */
-  drag: Drag | null;
+  drag: (Drag & { commandId?: never }) | null;
   pen: PenPath | null;
   penPress: PenPress | null;
   /** Drawn art sent and not yet answered, oldest first. */
   pending: PendingCreate[];
   /** The live gesture's unsent preview, with `drag`: the paths it reshapes. */
-  edit: PathDrag | null;
+  edit: (PathDrag & { commandIds?: never }) | null;
   reversing: Reversing | null;
   /**
    * The person's other commands sent and unanswered that may renumber a path's Anchors, by id, and
@@ -487,9 +489,9 @@ function classify(
   }
   const id = msg.commandId;
   const press = !!id && id === s.reversing?.commandId;
-  const answers = (previews: Preview[]) =>
+  const answers = (previews: SentPreview[]) =>
     press ||
-    (!!id && previews.some((p) => p.drag?.commandId === id || !!p.edit?.commandIds?.includes(id)));
+    (!!id && previews.some((p) => p.drag?.commandId === id || !!p.edit?.commandIds.includes(id)));
   const previewed = answers(s.sentPreviews);
   const cause = previewed || (!!id && s.sent.has(id)) ? "own" : "other";
   const numbered = id ? s.renumbering.get(id) : undefined;
@@ -801,7 +803,7 @@ export function copyInput(doc: Document, { nodeIds, dx, dy }: Drag): DuplicateIn
  * committed applies again unchanged; one core refuses, such as on a Node deleted meanwhile, is left
  * out here and rejected by the DO.
  */
-export function previewEdit(doc: Document, { inputs }: Pick<PathDrag, "inputs">): Document {
+export function previewEdit(doc: Document, { inputs }: PathDrag): Document {
   const shown = { ...doc, nodes: new Map(doc.nodes) };
   for (const input of inputs) {
     try {
@@ -819,14 +821,14 @@ export function previewEdit(doc: Document, { inputs }: Pick<PathDrag, "inputs">)
  */
 export const previewsOf = (
   s: Pick<ViewState, "sentPreviews" | "held" | "edit" | "drag">,
-): Preview[] => [
+): (Preview | SentPreview)[] => [
   ...s.sentPreviews,
   ...s.held.map((h) => h.preview),
   { edit: s.edit, drag: s.drag },
 ];
 
 /** `doc` with each preview applied in order: its Nodes moved whole, then its paths reshaped. */
-export const previewAll = (doc: Document, previews: Preview[]): Document =>
+export const previewAll = (doc: Document, previews: (Preview | SentPreview)[]): Document =>
   previews.reduce((d, { drag, edit }) => {
     const moved = drag ? preview(d, drag) : d;
     return edit ? previewEdit(moved, edit) : moved;
@@ -836,7 +838,7 @@ export const previewAll = (doc: Document, previews: Preview[]): Document =>
  * A preview the paths as drawn include, and what it waits on: a sent command's id, or a held edit's
  * token until it runs (#308).
  */
-export type DrawnOn = Preview & { on: string };
+export type DrawnOn = (Preview | SentPreview) & { on: string };
 
 /**
  * What the paths as drawn are built on, in the order the Document DO will apply it (#293, #308): the
@@ -848,9 +850,9 @@ export type DrawnOn = Preview & { on: string };
  */
 export const drawnOn = (s: Pick<ViewState, "sentPreviews" | "sent" | "held">): DrawnOn[] => [
   ...s.sentPreviews.flatMap(({ edit, drag }) => [
-    ...(drag?.commandId && !drag.copy ? [{ edit: null, drag, on: drag.commandId }] : []),
+    ...(drag && !drag.copy ? [{ edit: null, drag, on: drag.commandId }] : []),
     ...(edit?.inputs.flatMap((input, i) => {
-      const id = edit.commandIds?.[i];
+      const id = edit.commandIds[i];
       return id && s.sent.has(id)
         ? [{ edit: { inputs: [input], commandIds: [id] }, drag: null, on: id }]
         : [];
@@ -955,7 +957,7 @@ export function penState(doc: Document | null, pen: PenPath | null, edit: PathDr
     return { pen, ...(edit && { edit: null }) };
   return {
     pen,
-    edit: { inputs: [replaceSubpath(doc, from, pen.anchors, false)], commandIds: null },
+    edit: { inputs: [replaceSubpath(doc, from, pen.anchors, false)] },
   };
 }
 
@@ -1000,11 +1002,10 @@ export function previewOp(
 }
 
 /** The drag without the paths whose command `id` was answered or rejected; null once none is left. */
-function settle(edit: PathDrag | null, id: string | undefined): { edit?: PathDrag | null } {
-  const ids = edit?.commandIds;
-  if (!edit || !ids || !id || !ids.includes(id)) return {};
-  const inputs = edit.inputs.filter((_, i) => ids[i] !== id);
-  const commandIds = ids.filter((c) => c !== id);
+function settle(edit: SentPathDrag | null, id: string): { edit?: SentPathDrag | null } {
+  if (!edit?.commandIds.includes(id)) return {};
+  const inputs = edit.inputs.filter((_, i) => edit.commandIds[i] !== id);
+  const commandIds = edit.commandIds.filter((c) => c !== id);
   return { edit: inputs.length > 0 ? { inputs, commandIds } : null };
 }
 
@@ -1035,7 +1036,7 @@ function renumberPreview(
   r: Renumbering | null,
   { preview: p, pulled }: Held,
 ): Preview {
-  if (!p.edit || p.edit.commandIds !== null) return p;
+  if (!p.edit) return p;
   const inputs = p.edit.inputs
     .map((i) => renumberInput(r, turnInput(doc, turned, i, pulled)))
     .filter((i) => i !== null);
@@ -1044,7 +1045,7 @@ function renumberPreview(
 
 /** A held `set_d` edit's preview: what `Redraw` worked out, or none once it is dropped (#286). */
 const redrawn = (r: ReturnType<Redraw>): Preview => ({
-  edit: typeof r === "string" ? null : { inputs: [r.input], commandIds: null },
+  edit: typeof r === "string" ? null : { inputs: [r.input] },
   drag: null,
 });
 
@@ -1073,7 +1074,7 @@ function settleSentPreviews(
   sent: SentPreview[],
   id: string | undefined,
 ): { sentPreviews?: SentPreview[] } {
-  if (!id || !sent.some((p) => p.drag?.commandId === id || p.edit?.commandIds?.includes(id))) {
+  if (!id || !sent.some((p) => p.drag?.commandId === id || p.edit?.commandIds.includes(id))) {
     return {};
   }
   return {
