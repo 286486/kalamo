@@ -200,6 +200,23 @@ it("tells the person when an undo skipped Nodes deleted meanwhile", () => {
   expect(stateAfter(state, tx(doc, {}))).not.toHaveProperty("notice");
 });
 
+// #291: one Transaction that ends a Pen continuation and skipped Nodes says both.
+it("keeps the Pen's notice beside the Skipped one from the same Transaction", () => {
+  const { doc, a, b } = fixture();
+  const pen = {
+    anchors: [],
+    from: { nodeId: a.id, subpath: 0, atStart: false, kept: 0 },
+    closed: false,
+  };
+  const after = stateAfter(
+    viewState({ doc, pen }),
+    tx(doc, { actor: "agent", updated: [a], skippedIds: [b.id] }),
+  );
+  expect(after.pen).toBeNull();
+  expect(after.notice).toMatch(/Pen .*not applied/);
+  expect(after.notice).toMatch(/Skipped 1/);
+});
+
 it("selects the Group a selected Node was just moved into, as Make Clipping Mask leaves it", () => {
   const { doc, a, b } = fixture();
   const state = viewState({ doc, selection: [a.id, b.id] });

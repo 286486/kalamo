@@ -733,8 +733,9 @@ function pressOnOpen() {
       outcome === "accepted"
         ? message("tx", { rev: now.rev + 1, commandId: "c", updated: [reversed(now, p.id)] })
         : rejected;
-    useStore.setState(stateAfter(useStore.getState(), answered));
-    runHeld();
+    const after = stateAfter(useStore.getState(), answered);
+    useStore.setState(after);
+    runHeld(after.notice);
   };
 }
 
@@ -758,6 +759,7 @@ it("holds the Pen's and the Pencil's edits for the press and puts them on the En
       expect(commands(), name).toEqual([]);
       answer(outcome);
       expect(commands().length, name).toBeGreaterThan(0);
+      expect(useStore.getState().notice, name).toBe(outcome === "rejected" ? "No." : null);
       return openAfterSent();
     }),
   );
@@ -890,11 +892,65 @@ it("drops a held Pencil redraw when another Actor edits its path before the answ
         expect(commands(), label).toEqual([]);
         expect(stored(p), label).toBe(outcome === "accepted" ? reversed(after, p).d : moved.d);
         expect(shown(p), label).toBe(stored(p));
+        // #291: and a notice says the Pencil edit was not applied, beside the rejection's.
+        expect(s.notice, label).toMatch(/Pencil edit was not applied/);
+        expect(s.notice?.startsWith("No. "), label).toBe(outcome === "rejected");
       } else {
         // The redraw replaces the stretch from (80, 10) to (80, 25) on p as it then runs.
         expectRedrawn(outcome, label);
         expect(stored(q), label).toBe(moved.d);
+        expect(s.notice, label).toBe(outcome === "rejected" ? "No." : null);
       }
+    }
+  }
+});
+
+// #291: another Actor's edit that drops a held Pen finish tells the person, as one that ends a
+// continuation still being drawn does (#282): what the Pen drew is gone from the screen.
+it("tells the person when another Actor's edit drops a held Pen finish", () => {
+  const finishes: Record<string, [() => void, "p" | "q"]> = {
+    "continue p, their edit on p": [
+      drawnEdits["a Pen continuing from an Endpoint"] as () => void,
+      "p",
+    ],
+    "close p, their edit on p": [
+      () => {
+        penDown([80, 30], 1);
+        penUp();
+        penDown([50, 0], 1);
+        penUp();
+      },
+      "p",
+    ],
+    "end on p, their edit on p": [
+      drawnEdits["a Pen path ending on an Endpoint"] as () => void,
+      "p",
+    ],
+    "connect q onto p, their edit on q": [
+      drawnEdits["a Pen continuing one path onto another's Endpoint"] as () => void,
+      "q",
+    ],
+    "connect q onto p, their edit on p": [
+      drawnEdits["a Pen continuing one path onto another's Endpoint"] as () => void,
+      "p",
+    ],
+  };
+  for (const outcome of ["accepted", "rejected"] as const) {
+    for (const [name, [run, theirsOn]] of Object.entries(finishes)) {
+      const label = `${name}, ${outcome}`;
+      const answer = pressOnOpen();
+      const [p, q] = useStore.getState().selection as [string, string];
+      run();
+      expect(useStore.getState().held, label).toHaveLength(1);
+      if (theirsOn === "p") theirEdit(p, 1);
+      else theirEdit(q, 0);
+      answer(outcome);
+      expect(commands(), label).toEqual([]);
+      expect(useStore.getState().edit, label).toBeNull();
+      const { notice } = useStore.getState();
+      expect(notice, label).toMatch(/Pen .*not applied/);
+      // A rejection's notice comes from the same message, so it is shown too.
+      expect(notice?.startsWith("No. "), label).toBe(outcome === "rejected");
     }
   }
 });
@@ -1053,8 +1109,9 @@ const onRings = () => {
         commandId: "c",
         updated: [a, b].filter((n) => now.nodes.has(n.id)).map((n) => reversed(now, n.id)),
       });
-      useStore.setState(stateAfter(useStore.getState(), outcome === "accepted" ? tx : rejected));
-      runHeld();
+      const after = stateAfter(useStore.getState(), outcome === "accepted" ? tx : rejected);
+      useStore.setState(after);
+      runHeld(after.notice);
     },
   };
 };
@@ -1104,6 +1161,10 @@ it("leaves another gesture's unsent preview when a held edit runs or is dropped,
           label,
         ).toEqual([]);
         expect(commands().length > 0, label).toBe(!dropped);
+        // #291: only dropped drawn work, which is gone from the screen, is announced.
+        const notice = useStore.getState().notice;
+        if (dropped && name in drawnEdits) expect(notice, label).toMatch(/not applied/);
+        else expect(notice, label).toBe(outcome === "rejected" ? "No." : null);
       }
     }
   }
