@@ -19,7 +19,7 @@ import { addAnchorTool, anchorPointTool, deleteAnchorTool } from "./anchorTools.
 import { directionOf, fillRuleOf, setDirection, setFillRule } from "./attributes.ts";
 import { commitDrag } from "./canvas.ts";
 import { curvatureCancel, curvatureDown, curvatureDrag, curvatureUp } from "./curvature.ts";
-import { anchorKey, localAnchors, parseKey } from "./direct.ts";
+import { anchorKey, anchorsOf, localAnchors, parseKey } from "./direct.ts";
 import { directTool } from "./directTool.ts";
 import { documentMenus, findByKeys, type Item, type MenuItem } from "./menu.ts";
 import { pencilDown, pencilMove, pencilUp } from "./pencil.ts";
@@ -1175,6 +1175,17 @@ const drawnEdits = {
  * commands sent.
  */
 function subpathsAfterSent() {
+  return [...docAfterSent().nodes.values()].flatMap((n) =>
+    n.type === "path"
+      ? localAnchors(n)
+          .map((s) => [...s.anchors.map((a) => xy(a.anchor)), ...(s.closed ? ["Z"] : [])])
+          .filter((s) => s.includes("50 0"))
+      : [],
+  );
+}
+
+/** The Document with the path edits and Joins sent applied. */
+function docAfterSent() {
   const doc = structuredClone(useStore.getState().doc as Document);
   for (const c of commands()) {
     if (c.type === "path_edit") editPath(doc, c.input);
@@ -1183,27 +1194,26 @@ function subpathsAfterSent() {
       pathOp(doc, c.join);
     }
   }
-  const r = (p: [number, number]) => p.map((v) => Math.round(v)).join(" ");
-  return [...doc.nodes.values()].flatMap((n) =>
-    n.type === "path"
-      ? localAnchors(n)
-          .map((s) => [...s.anchors.map((a) => r(a.anchor)), ...(s.closed ? ["Z"] : [])])
-          .filter((s) => s.includes("50 0"))
-      : [],
-  );
+  return doc;
 }
 
-/** p and q selected after a press reversing p's open subpath; `answer(outcome)` settles it. */
-function pressOnOpen() {
+const xy = (p: [number, number]) => p.map((v) => Math.round(v)).join(" ");
+
+/**
+ * p and q selected after a press reversing p's open subpath, q inside a Group when `grouped`;
+ * `answer(outcome)` settles it.
+ */
+function pressOnOpen({ grouped = false } = {}) {
   const { doc, defaultLayerId: parentId } = createDocument({
     id: "d",
     name: "Doc",
     artboards: [{ width: 200, height: 200 }],
   });
+  const line = { type: "path" as const, d: "M0 100 L20 100" };
   const [p, q] = createNodes(doc, [
     { type: "path", parentId, d: "M0 0 L9 0 L9 9 Z M50 0 L80 0 L80 30" },
-    { type: "path", parentId, d: "M0 100 L20 100" },
-  ]).nodes as [PathNode, PathNode];
+    grouped ? { type: "group", parentId, children: [line] } : { ...line, parentId },
+  ]).nodes.filter((n) => n.type === "path") as [PathNode, PathNode];
   vi.mocked(send).mockClear();
   const state = viewState({
     doc,
@@ -1583,6 +1593,126 @@ it("tells the person a held Pencil redraw was dropped when their own edit took t
     expect(s.notice, outcome).toMatch(/Pencil/);
     const shown = previewAll(s.doc as Document, previewsOf(s)).nodes.get(p) as PathNode;
     expect(shown.d, outcome).toBe(((s.doc as Document).nodes.get(p) as PathNode).d);
+  }
+});
+
+// #301: a held Pen finish keeps what the person drew in the frame of the path it continues or
+// connects to, so the person's own Selection tool move in the window carries it with the path, as
+// #284 carries the held Pencil redraw.
+
+/** Node `id` after the commands sent: its subpaths, in its own coordinates, and its transform. */
+function storedAfterSent(id: string) {
+  const n = docAfterSent().nodes.get(id) as PathNode;
+  return {
+    subpaths: localAnchors(n).map((s) => s.anchors.map((a) => xy(a.anchor))),
+    transform: n.transform,
+  };
+}
+
+/** The Pen continuing q from (20, 100) to (40, 100), finished while the press is in flight. */
+function continueQ() {
+  penDown([20, 100], 1);
+  penUp();
+  penDown([40, 100], 1);
+  penUp();
+  finishPen();
+}
+
+const penSent = () => commands().filter((c) => c.type === "path_edit" || c.type === "path_join");
+const answered = (outcome: "accepted" | "rejected") => (outcome === "rejected" ? "No." : null);
+
+it("carries a held Pen continuation with its path when the person moves the path before the answer (#301)", () => {
+  for (const outcome of ["accepted", "rejected"] as const) {
+    const answer = pressOnOpen();
+    const [, q] = useStore.getState().selection as [string, string];
+    continueQ();
+    ownMove(q, 100, 50);
+    answer(outcome);
+    expect(useStore.getState().notice, outcome).toBe(answered(outcome));
+    expect(
+      penSent().map((c) => c.type),
+      outcome,
+    ).toEqual(["path_edit"]);
+    expect(storedAfterSent(q), outcome).toEqual({
+      subpaths: [["0 100", "20 100", "40 100"]],
+      transform: [1, 0, 0, 1, 100, 50],
+    });
+  }
+});
+
+it("carries a held Pen continuation with its path's Group when the person moves the Group (#301)", () => {
+  for (const outcome of ["accepted", "rejected"] as const) {
+    const answer = pressOnOpen({ grouped: true });
+    const { doc, selection } = useStore.getState() as { doc: Document; selection: string[] };
+    const q = selection[1] as string;
+    const group = doc.nodes.get(q)?.parentId as string;
+    continueQ();
+    ownMove(group, 100, 50);
+    answer(outcome);
+    expect(useStore.getState().notice, outcome).toBe(answered(outcome));
+    expect(
+      penSent().map((c) => c.type),
+      outcome,
+    ).toEqual(["path_edit"]);
+    // A Group has no matrix, so the move is q's, and none of q stays at the old place.
+    expect(storedAfterSent(q), outcome).toEqual({
+      subpaths: [["0 100", "20 100", "40 100"]],
+      transform: [1, 0, 0, 1, 100, 50],
+    });
+  }
+});
+
+it("carries a held new Pen path with the path it ends on when the person moves that path (#301)", () => {
+  for (const outcome of ["accepted", "rejected"] as const) {
+    const answer = pressOnOpen();
+    const [p] = useStore.getState().selection as [string, string];
+    drawnEdits["a Pen path ending on an Endpoint"]();
+    ownMove(p, 100, 50);
+    answer(outcome);
+    const joined = ["100 60", "50 0", "80 0", "80 30"];
+    expect(subpathsAfterSent(), outcome).toEqual([
+      outcome === "accepted" ? joined.toReversed() : joined,
+    ]);
+    expect(storedAfterSent(p).transform, outcome).toEqual([1, 0, 0, 1, 100, 50]);
+    expect(useStore.getState().notice, outcome).toBe(answered(outcome));
+  }
+});
+
+it("joins a held Pen connection of two paths moved together, and drops it when one moved alone (#301)", () => {
+  for (const outcome of ["accepted", "rejected"] as const) {
+    for (const together of [true, false]) {
+      const label = `${outcome}, ${together ? "together" : "q alone"}`;
+      const answer = pressOnOpen();
+      const [p, q] = useStore.getState().selection as [string, string];
+      drawnEdits["a Pen continuing one path onto another's Endpoint"]();
+      if (together) ownMove(p, 100, 50);
+      ownMove(q, 100, 50);
+      answer(outcome);
+      const s = useStore.getState();
+      if (together) {
+        expect(
+          penSent().map((c) => c.type),
+          label,
+        ).toEqual(["path_join"]);
+        const after = docAfterSent();
+        const [line] = [...after.nodes.values()]
+          .filter((n) => n.type === "path" && (n.id === p || n.id === q))
+          .flatMap((n) => anchorsOf(after, n as PathNode).filter((x) => !x.closed))
+          .map((x) => x.anchors.map((a) => xy(a.anchor)));
+        const moved = ["100 150", "120 150", "150 50", "180 50", "180 80"];
+        expect(line?.[0] === "100 150" ? line : line?.toReversed(), label).toEqual(moved);
+        expect(s.notice, label).toBe(answered(outcome));
+        continue;
+      }
+      expect(penSent(), label).toEqual([]);
+      expect(s.notice, label).toMatch(/moved before the connection was made/);
+      expect(s.notice, label).not.toMatch(/Someone else/);
+      const shown = previewAll(s.doc as Document, previewsOf(s));
+      for (const n of [p, q]) {
+        const d = (x: Document) => (x.nodes.get(n) as PathNode).d;
+        expect(d(shown), label).toBe(d(s.doc as Document));
+      }
+    }
   }
 });
 
@@ -2736,32 +2866,29 @@ it("after a reconnect that changes only a dragged path's Fill, keeps the drag (#
   vi.useRealTimers();
 });
 
-// #287: a held Pen finish holds the Anchors it continues where the Document showed them, so a move
-// of their path, which leaves its geometry, drops it rather than write them back over the move.
-it("after a reconnect that moves the path a held Pen finish continues, drops it (#287)", () => {
-  for (const shift of [0, 40]) {
-    pressOnOpen();
-    const [, q] = useStore.getState().selection as [string, string];
-    penDown([20, 100], 1);
-    penUp();
-    penDown([40, 100], 1);
-    penUp();
-    finishPen();
-    expect(commands(), `${shift}`).toEqual([]);
-    const now = useStore.getState().doc as Document;
-    const nodes = [...now.nodes.values()].map((n) =>
-      n.id === q ? ({ ...n, transform: [1, 0, 0, 1, 0, shift] } as Node) : n,
-    );
-    const after = stateAfter(useStore.getState(), message("document", { rev: 9, nodes }));
-    useStore.setState(after);
-    runHeld(after.notice);
-    if (shift) {
-      expect(commands(), `${shift}`).toEqual([]);
-      expect(useStore.getState().notice).toMatch(/Pen/);
-      continue;
+// #301: a reconnect that only moves the path a held Pen finish continues, alone or inside its
+// Group, keeps the finish, which goes with the path, as a held Pencil redraw does (#284).
+it("after a reconnect that only moves the path a held Pen finish continues, carries it along (#301)", () => {
+  for (const grouped of [false, true]) {
+    for (const shift of [0, 40]) {
+      const label = `${grouped ? "grouped" : "alone"}, ${shift}`;
+      pressOnOpen({ grouped });
+      const [, q] = useStore.getState().selection as [string, string];
+      continueQ();
+      expect(commands(), label).toEqual([]);
+      const now = useStore.getState().doc as Document;
+      const nodes = [...now.nodes.values()].map((n) =>
+        n.id === q ? ({ ...n, transform: [1, 0, 0, 1, 0, shift] } as Node) : n,
+      );
+      const after = stateAfter(useStore.getState(), message("document", { rev: 9, nodes }));
+      useStore.setState(after);
+      runHeld(after.notice);
+      expect(useStore.getState().notice, label).toBeNull();
+      expect(storedAfterSent(q), label).toEqual({
+        subpaths: [["0 100", "20 100", "40 100"]],
+        transform: [1, 0, 0, 1, 0, shift],
+      });
     }
-    const [c] = commands();
-    expect(c?.type === "path_edit" && c.input.nodeId).toBe(q);
   }
 });
 

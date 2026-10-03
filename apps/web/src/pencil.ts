@@ -13,7 +13,14 @@ import {
   worldTransform,
 } from "@kalamo/core";
 import { cancelDrag } from "./canvas.ts";
-import { anchorKey, anchorsOf, hasAnchors, localAnchors, nearestSegment } from "./direct.ts";
+import {
+  anchorKey,
+  anchorsOf,
+  hasAnchors,
+  localAnchors,
+  nearestSegment,
+  through,
+} from "./direct.ts";
 import { editable } from "./selection.ts";
 import { getItem } from "./storage.ts";
 import { afterReverse, send, useStore } from "./store.ts";
@@ -259,12 +266,7 @@ export function pencilEdit(
   if (!redrawn) return null;
   // Back into the path's own coordinates; its other subpaths stay as they are.
   const m = invert(worldTransform(doc, n));
-  const local = (p: Point | null) => p && applyTo(m, p[0], p[1]);
-  const anchors = redrawn.anchors.map((a) => ({
-    anchor: applyTo(m, ...a.anchor),
-    handleIn: local(a.handleIn),
-    handleOut: local(a.handleOut),
-  }));
+  const anchors = redrawn.anchors.map((a) => through(m, a));
   const all: { closed: boolean; anchors: BareAnchor[] }[] = localAnchors(n);
   all[hit.subpath] = { closed: redrawn.closed, anchors };
   return { nodeId, ops: [{ op: "set_d", d: formatPath(fromAnchors(all)) }] };

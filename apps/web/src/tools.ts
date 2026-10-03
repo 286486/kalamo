@@ -3,13 +3,19 @@ import {
   type Document,
   formatPath,
   fromAnchors,
+  invert,
+  type Matrix,
+  multiply,
+  type Node,
   type NodeInput,
+  round,
   type Shape,
+  worldTransform,
 } from "@kalamo/core";
 import { addAnchorAt, deleteAnchorAt } from "./anchorTools.ts";
 import { cancelDrag } from "./canvas.ts";
 import { curveThrough } from "./curvature.ts";
-import { anchorsOf, editableShapes, flip, hasAnchors, replaceSubpath } from "./direct.ts";
+import { anchorsOf, editableShapes, flip, hasAnchors, replaceSubpath, through } from "./direct.ts";
 import { forNewArt, leaving } from "./isolation.ts";
 import {
   disconnected,
@@ -186,12 +192,18 @@ const COINCIDENT = 0.05;
 const PEN_DROPPED =
   "Someone else changed a path the Pen was continuing or connecting to; what it drew was not applied.";
 
+/** Why a held Pen finish sent nothing: the two paths it joins moved apart, by whoever's edit. */
+const PEN_MOVED =
+  "A path the Pen was connecting to moved before the connection was made; what it drew was not applied.";
+
 /**
  * Finishes a path the Pen continued or connected (research 06 §1): one `path_edit` on the path
  * continued, or on the one a new path connected to, which it continues backwards; continuing one
  * onto another is one `path_join`, the Join deleting one of them. It is sent once a Reverse Path
  * Direction press in flight is answered, at the Endpoints chosen, as the Document then runs
- * (ADR-0110); another Actor's edit to their path meanwhile drops it (ADR-0109).
+ * (ADR-0110); another Actor's edit to their path meanwhile drops it (ADR-0109). What it drew is
+ * kept in the frame of the paths it meets, so a move of them meanwhile carries it along, as it does
+ * the held Pencil redraw (#284); a move of one of two paths it joins, but not the other, drops it.
  */
 function finishEdit(doc: Document, pen: PenPath) {
   const { from, to, anchors, closed } = pen;
@@ -205,6 +217,8 @@ function finishEdit(doc: Document, pen: PenPath) {
     return;
   }
   const keys = ends.map((e) => endKey(doc, e));
+  const frame = (d: Document, e: Endpoint) => worldTransform(d, d.nodes.get(e.nodeId) as Node);
+  const was = ends.map((e) => invert(frame(doc, e)));
   useStore.setState({
     pen: null,
     selection: [...new Set(ends.map((e) => e.nodeId))],
@@ -212,19 +226,33 @@ function finishEdit(doc: Document, pen: PenPath) {
   });
   afterReverse(
     ({ doc: now, anchors: held }, w) => {
-      // `held` is `keys` renumbered, `from`'s first; another Actor's edit cleared a missing one. The
-      // Anchors `from` keeps are where the Document showed them, so a move of its path meanwhile,
-      // which leaves the keys, drops it too rather than write them back over the move (#287).
-      const placedIn = (d: Document | null) => from && String(d?.nodes.get(from.nodeId)?.transform);
-      if (held.length < keys.length || placedIn(now) !== placedIn(doc)) {
+      // `held` is `keys` renumbered, `from`'s first; another Actor's edit cleared a missing one.
+      if (held.length < keys.length) {
         cancelDrag();
         useStore.setState({ notice: PEN_DROPPED });
         return;
       }
+      // How each path it meets moved since `doc`: moved together, what it drew goes with them;
+      // moved apart, it can meet only one (#301).
+      const [m, other] = now
+        ? ends.map((e, i) => round(multiply(frame(now, e), was[i] as Matrix)))
+        : [];
+      if (m && other && String(m) !== String(other)) {
+        cancelDrag();
+        useStore.setState({ notice: PEN_MOVED });
+        return;
+      }
       const at = held.map(endOf);
       const f = from && at.shift();
+      const placed = m ? anchors.map((a) => through(m, a)) : anchors;
       const c =
-        now && penCommand(now, { ...pen, from: from && { ...from, ...f }, to: to && at[0] });
+        now &&
+        penCommand(now, {
+          ...pen,
+          anchors: placed,
+          from: from && { ...from, ...f },
+          to: to && at[0],
+        });
       if (!c) {
         cancelDrag();
         return;

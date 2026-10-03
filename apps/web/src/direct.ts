@@ -9,6 +9,7 @@ import {
   fromAnchors,
   invert,
   isLiveShape,
+  type Matrix,
   type Node,
   type PathEditInput,
   PathOp,
@@ -53,19 +54,18 @@ export const hasAnchors = (n: Node | undefined): n is ShapeNode =>
 /** Its Anchors in its own coordinates, as `path_edit` numbers them. */
 export const localAnchors = (n: ShapeNode) => toAnchors(shapeSegments(n));
 
+/** Anchor `a`, its Handles too, through `m`. */
+export const through = <A extends BareAnchor>(m: Matrix, a: A): A => ({
+  ...a,
+  anchor: applyTo(m, ...a.anchor),
+  handleIn: a.handleIn && applyTo(m, ...a.handleIn),
+  handleOut: a.handleOut && applyTo(m, ...a.handleOut),
+});
+
 /** Its Anchors in document coordinates. */
 export function anchorsOf(doc: Document, n: ShapeNode): Subpath[] {
   const m = worldTransform(doc, n);
-  const at = (p: Point | null) => p && applyTo(m, p[0], p[1]);
-  return localAnchors(n).map((s) => ({
-    ...s,
-    anchors: s.anchors.map((a) => ({
-      ...a,
-      anchor: applyTo(m, ...a.anchor),
-      handleIn: at(a.handleIn),
-      handleOut: at(a.handleOut),
-    })),
-  }));
+  return localAnchors(n).map((s) => ({ ...s, anchors: s.anchors.map((a) => through(m, a)) }));
 }
 
 export const allKeys = (n: ShapeNode) =>
@@ -816,16 +816,11 @@ export function replaceSubpath(
   const n = doc.nodes.get(e.nodeId);
   if (!n || !hasAnchors(n)) throw new Error(`${e.nodeId} has no Anchors.`);
   const m = invert(worldTransform(doc, n));
-  const local = (p: Point | null) => p && applyTo(m, p[0], p[1]);
   const all: { closed: boolean; anchors: BareAnchor[] }[] = localAnchors(n);
   // Back in the subpath's own direction.
   all[e.subpath] = {
     closed,
-    anchors: (e.atStart ? flip(anchors) : anchors).map((a) => ({
-      anchor: applyTo(m, ...a.anchor),
-      handleIn: local(a.handleIn),
-      handleOut: local(a.handleOut),
-    })),
+    anchors: (e.atStart ? flip(anchors) : anchors).map((a) => through(m, a)),
   };
   return { nodeId: e.nodeId, ops: [{ op: "set_d", d: formatPath(fromAnchors(all)) }] };
 }
