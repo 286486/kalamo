@@ -169,9 +169,12 @@ async function rings(page: Page, request: APIRequestContext, xs: number[], shape
   ).structuredContent.createdIds as string[];
   /**
    * The commands of the types given to `hold` (`path_reverse` alone by default), held from then on in
-   * the order sent, each passed on, rejected with the test's rejection, settled by outcome
-   * (passed on if accepted, rejected if not) or dropped, or passed on with its answer lost to a
-   * dropped socket, in the order the test chooses.
+   * the order sent, each released in the order the test chooses:
+   * - `pass`: sent on to the server.
+   * - `reject`: answered with the test's rejection.
+   * - `settle`: passed on if `accepted`, rejected if `rejected`.
+   * - `drop`: the socket closes with it unsent.
+   * - `lose`: passed on, with its answer lost to a dropped socket.
    */
   const held: {
     id: string;
