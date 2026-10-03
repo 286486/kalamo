@@ -1,7 +1,6 @@
 import type { Document, PathEditInput } from "@kalamo/core";
-import { cancelDrag, commitDrag, dragged, type Press } from "./canvas.ts";
+import { cancelDrag, dragged, type Press, settleDrag } from "./canvas.ts";
 import {
-  anchorKey,
   anchorsOf,
   bendSegment,
   hasAnchors,
@@ -15,6 +14,7 @@ import {
   removeAnchorInputs,
   sameTarget,
   type Target,
+  targetKeys,
 } from "./direct.ts";
 import { directTool } from "./directTool.ts";
 import { editable } from "./selection.ts";
@@ -71,15 +71,13 @@ export function addAnchorAt(doc: Document, p: Point, tolerance: number, only?: s
   if (t <= 0 || t >= 1) return false;
   // Sent once a Reverse Path Direction press in flight is answered, on the segment chosen
   // (ADR-0110); another Actor's edit to the path meanwhile drops it (ADR-0109).
-  const key = anchorKey(nodeId, subpath, segment);
   afterReverse(
-    ({ doc: now, segments }, w) => {
-      if (!now || segments.length === 0) return;
-      const at = sameTarget({ ...hit, t }, doc, now);
+    ({ doc: now, target: at }, w) => {
+      if (!now || at?.kind !== "segment") return;
       const ops = [{ op: "add_anchor" as const, subpath, segment: at.segment, t: at.t }];
       sendAnchorEdits({ edits: [{ nodeId, ops }], deleteIds: [] }, w);
     },
-    { anchors: [], segments: [key] },
+    { target: { kind: "segment", nodeId, subpath, segment, t } },
   );
   return true;
 }
@@ -145,17 +143,12 @@ export const deleteAnchorTool: CanvasTool = {
 };
 
 /**
- * An Anchor Point tool press: on an Anchor, a Handle it shows, or a segment, as `from` numbers it;
- * `last` is its latest move.
+ * An Anchor Point tool press: on an Anchor, a Handle it shows, or a segment, its `target`, as
+ * `from` numbers it; `last` is its latest move.
  */
-let gesture: (Press & Target & { from: Document; last?: { d: Point; shift: boolean } }) | null =
-  null;
-
-/** What `t` holds, as Direct Selection keys, which a press's answer renumbers (ADR-0110). */
-const keysOf = (t: Target) =>
-  t.kind === "segment"
-    ? { anchors: [], segments: [anchorKey(t.nodeId, t.subpath, t.segment)] }
-    : { anchors: [t.key], segments: [] };
+let gesture:
+  | (Press & { target: Target; from: Document; last?: { d: Point; shift: boolean } })
+  | null = null;
 
 /** The edit dragging `t` by `d` in document coordinates makes on `doc`. */
 function dragInput(doc: Document, t: Target, [dx, dy]: Point, shift: boolean) {
@@ -233,16 +226,12 @@ export const anchorPointTool: CanvasTool = {
     });
     if (!target) return;
     e.capture();
-    const g = { start: { x: e.x, y: e.y }, moved: false, from: e.doc };
-    gesture = { ...g, ...target };
+    gesture = { start: { x: e.x, y: e.y }, moved: false, from: e.doc, target };
     // Its Handles show while they are pulled out, as Direct Selection shows a selected Anchor's
     // or segment's.
-    if (target.kind === "anchor") {
-      const { nodeId } = parseKey(target.key);
-      useStore.setState({ selection: [nodeId], anchors: [target.key], segments: [] });
-    } else if (target.kind === "segment") {
-      const key = anchorKey(target.nodeId, target.subpath, target.segment);
-      useStore.setState({ selection: [target.nodeId], anchors: [], segments: [key] });
+    if (target.kind !== "handle") {
+      const nodeId = target.kind === "segment" ? target.nodeId : parseKey(target.key).nodeId;
+      useStore.setState({ selection: [nodeId], ...targetKeys(target) });
     }
   },
   move(e) {
@@ -251,7 +240,7 @@ export const anchorPointTool: CanvasTool = {
     if (!g || !d) return;
     g.last = { d, shift: e.shift };
     // A press answered mid-drag keeps the drag on what it grabbed (ADR-0110).
-    const input = dragInput(e.doc, sameTarget(g, g.from, e.doc), d, e.shift);
+    const input = dragInput(e.doc, sameTarget(g.target, g.from, e.doc), d, e.shift);
     useStore.setState({ edit: input && { inputs: [input], commandIds: null } });
   },
   up() {
@@ -262,25 +251,18 @@ export const anchorPointTool: CanvasTool = {
     // what the gesture grabbed (ADR-0110); another Actor's edit to its path meanwhile drops it
     // (ADR-0109).
     const { last } = g;
-    const keys = keysOf(g);
+    const { doc } = useStore.getState();
     afterReverse(
-      ({ doc: now, anchors, segments }, w) => {
-        const t = now && anchors.length + segments.length > 0 ? sameTarget(g, g.from, now) : null;
+      ({ doc: now, target: t }, w) => {
         const input =
           now && t && (last ? dragInput(now, t, last.d, last.shift) : clickInput(now, t));
-        if (!input) {
-          if (last) cancelDrag();
-          return;
-        }
-        if (last) {
-          useStore.setState({ edit: { inputs: [input], commandIds: null } });
-          commitDrag(w);
-          return;
-        }
+        if (last)
+          return settleDrag(input ? { edit: { inputs: [input], commandIds: null } } : null, w);
+        if (!input) return;
         const commandIds = [send({ type: "path_edit", input }, w)];
         useStore.setState({ edit: { inputs: [input], commandIds } });
       },
-      { ...keys, previewed: true },
+      { target: doc ? sameTarget(g.target, g.from, doc) : g.target, previewed: true },
     );
   },
   cancel(redraw) {

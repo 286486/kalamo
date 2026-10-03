@@ -20,7 +20,10 @@ import {
   replaceSubpath,
   reversedKey,
   segmentInRange,
+  type Target,
+  targetKeys,
   turnedOf,
+  turnTarget,
 } from "./direct.ts";
 import type { PaintPreview } from "./gradient.ts";
 import { prune } from "./isolation.ts";
@@ -115,8 +118,14 @@ export interface Reversing {
   inputs: PathEditInput[];
 }
 
-/** What a Direct Selection edit acts on, as the person had chosen it when they made the edit. */
-export type Chosen = Pick<ViewState, "anchors" | "segments" | "selection" | "tool">;
+/**
+ * What a Direct Selection edit acts on, as the person had chosen it when they made the edit. An
+ * edit on one Anchor, Handle or segment names it as `target`, and its keys are `target`'s; held, the
+ * answer turns `target` by the rule that renumbers the keys, and it goes when they go (ADR-0110).
+ */
+export type Chosen = Pick<ViewState, "anchors" | "segments" | "selection" | "tool"> & {
+  target?: Target;
+};
 
 /** One edit's preview: the paths it reshapes and the Nodes it moves whole. */
 export type Preview = Pick<ViewState, "edit" | "drag">;
@@ -332,6 +341,14 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     segments: k.segments.map(reversedKey(doc, turned, true)).filter(kept(segmentInRange)),
   });
   const { anchors, segments } = rekey(s);
+  // A held edit's target is turned as its keys are; once a key goes, so does the target.
+  const rechosen = ({ target, ...c }: Chosen): Chosen => {
+    if (!target) return { ...c, ...rekey(c) };
+    const t = turnTarget(doc, turned)(target);
+    const k = targetKeys(t);
+    const on = k.anchors.every(kept(inRange)) && k.segments.every(kept(segmentInRange));
+    return on ? { ...c, ...k, target: t } : { ...c, anchors: [], segments: [] };
+  };
   // Someone else's change to the path the Pen continues ends the continuation and its preview, so
   // its finish never writes the Anchors it started from over theirs (ADR-0110). A change to the
   // path a press connects to drops only the connection, so the release joins nothing renumbered
@@ -398,8 +415,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
       held: s.held.map((h) => ({
         ...h,
         chosen: {
-          ...h.chosen,
-          ...rekey(h.chosen),
+          ...rechosen(h.chosen),
           selection: h.chosen.selection.filter((id) => doc.nodes.has(id)),
         },
       })),

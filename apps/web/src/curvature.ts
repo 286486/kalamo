@@ -7,7 +7,7 @@ import {
   type PathEditInput,
   type PathOp,
 } from "@kalamo/core";
-import { cancelDrag, commitDrag } from "./canvas.ts";
+import { settleDrag } from "./canvas.ts";
 import {
   anchorKey,
   anchorsOf,
@@ -191,17 +191,13 @@ export function curvatureUp() {
   if (p?.kind === "drawn" && p.close && !p.moved) finishPen(true);
   if (p?.kind !== "anchor" || !p.d) return;
   const d = p.d;
+  const { doc } = useStore.getState();
   afterReverse(
-    ({ doc: now, anchors }, w) => {
-      const input = now && anchors.length > 0 && moveInput(now, pressedKey(p, now), d);
-      if (!input) {
-        cancelDrag();
-        return;
-      }
-      useStore.setState({ edit: { inputs: [input], commandIds: null } });
-      commitDrag(w);
+    ({ doc: now, target }, w) => {
+      const input = now && target?.kind === "anchor" && moveInput(now, target.key, d);
+      settleDrag(input ? { edit: { inputs: [input], commandIds: null } } : null, w);
     },
-    { anchors: [p.key], segments: [], previewed: true },
+    { target: { kind: "anchor", key: doc ? pressedKey(p, doc) : p.key }, previewed: true },
   );
 }
 

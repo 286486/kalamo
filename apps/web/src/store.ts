@@ -8,7 +8,7 @@ import {
   TOO_MANY_CONNECTIONS,
 } from "@kalamo/sync";
 import { create } from "zustand";
-import { parseKey } from "./direct.ts";
+import { parseKey, targetKeys } from "./direct.ts";
 import type { ImageCache } from "./images.ts";
 import { type ActorKind, type Pointer, peersFrom, presenceSender } from "./presence.ts";
 import {
@@ -170,16 +170,22 @@ export function send<C extends Command>(
  * Runs a Direct Selection edit now, or once the Reverse Path Direction press in flight is answered,
  * on the Document as it is then and the keys the person had chosen, renumbered (ADR-0110). The edit
  * is handed the `Waited` its commands by index are sent with. `chosen` overrides the Direct
- * Selection's keys, as a drag's own do. With `previewed`, the unsent preview in `edit` and `drag` is
- * the edit's own: held, it goes with the edit, so the next gesture's preview leaves it on screen.
+ * Selection's keys, as a drag's own do; a `target` stands on its own keys, and the edit reads it
+ * alone, as the answer turns it. With `previewed`, the unsent preview in `edit` and `drag` is the
+ * edit's own: held, it goes with the edit, so the next gesture's preview leaves it on screen.
  */
 export function afterReverse(
-  edit: (s: State, w: Waited) => void,
+  edit: (s: State & Chosen, w: Waited) => void,
   { previewed, ...chosen }: Partial<Chosen> & { previewed?: true } = {},
 ) {
   const s = useStore.getState();
-  const { anchors, segments, selection, tool } = { ...s, ...chosen };
-  const c = { anchors, segments, selection, tool };
+  const { target } = chosen;
+  const { anchors, segments, selection, tool } = {
+    ...s,
+    ...chosen,
+    ...(target && targetKeys(target)),
+  };
+  const c = { anchors, segments, selection, tool, ...(target && { target }) };
   const run = (k: Chosen) => edit({ ...useStore.getState(), ...k }, WAITED);
   if (!s.reversing) return run(c);
   const preview: Preview = {

@@ -602,6 +602,52 @@ it("holds the Anchor Point and Curvature tools' edits for the press and puts the
   vi.useRealTimers();
 });
 
+// #280: a held edit on one Anchor, Handle or segment acts on its `target` as the answer left it,
+// with no second look at the Document: whatever the held target then names, the edit lands there.
+it("runs a held edit on its held target alone, as renumbered, kept or dropped", () => {
+  vi.useFakeTimers();
+  for (const name of ["a Curvature drag", "an Anchor Point drag out of an Anchor"]) {
+    for (const source of ["renumbered", "kept", "dropped"] as const) {
+      const label = `${name}, ${source}`;
+      const { doc, a, pressed, answer } = pressOn((a) => ({ anchors: [anchorKey(a.id, 1, 0)] }));
+      useStore.setState({ ...pressed, edit: null, drag: null, held: [] });
+      vi.advanceTimersByTime(1000);
+      vi.mocked(send).mockClear();
+      toolEdits[name]?.(doc);
+      useStore.setState(stateAfter(useStore.getState(), answer(doc, a.id)));
+      const [h] = useStore.getState().held;
+      // The answer turned a's hole, so the target on (20, 10) went from index 3 to index 1.
+      expect(h?.chosen.target, label).toEqual({ kind: "anchor", key: anchorKey(a.id, 1, 1) });
+      if (h && source !== "renumbered") {
+        const { target: _, ...chosen } = h.chosen;
+        const kept = { target: { kind: "anchor", key: anchorKey(a.id, 1, 3) } as const };
+        const next = source === "kept" ? { ...chosen, ...kept } : { ...chosen, anchors: [] };
+        useStore.setState({ held: [{ ...h, chosen: next }] });
+      }
+      const before = holeAfterSent(a.id, false);
+      runHeld();
+      if (source === "dropped") {
+        expect(commands(), label).toEqual([]);
+        expect(useStore.getState().edit, label).toBeNull();
+        continue;
+      }
+      const after = holeAfterSent(a.id, false);
+      const changed = after?.filter((x, i) => JSON.stringify(x) !== JSON.stringify(before?.[i]));
+      // Index 3 of the turned hole is (10, 20); the Curvature drag moves it, and its neighbours'
+      // Handles follow, so only the Anchor itself is checked.
+      const on = source === "renumbered" ? 1 : 3;
+      if (name === "a Curvature drag")
+        expect(after?.[on]?.at, label).toBe(on === 1 ? "25 10" : "15 20");
+      else
+        expect(
+          changed?.map((x) => x.at),
+          label,
+        ).toEqual([before?.[on]?.at]);
+    }
+  }
+  vi.useRealTimers();
+});
+
 // With Handles on (20, 10), its In toward (20, 20) and its Out toward (10, 10), which the reverse
 // swaps: with (20, 10) chosen, the Anchor Point tool acts on the Handle under the pointer, and a
 // click on the Anchor retracts both.
