@@ -1138,8 +1138,9 @@ const KEYS_KEPT = 200;
  * as it was: an Undo or Redo steps between kept geometries, as Illustrator's steps between recorded
  * states. Any other change of a path's geometry keeps its keys before and after it, each only when
  * there are some or an entry to replace, so a geometry keeps the latest keys it had. The keys before
- * the person's own edit are those it was sent with: those it dropped when sent (`keysDropped`), or,
- * on a path a later edit in flight dropped them from, that edit's.
+ * the person's own edit are those it dropped when sent (`keysDropped`); on a path a later edit in
+ * flight dropped them from, that edit's; otherwise the live keys, so keys chosen between its send and
+ * its answer count as before it (#315, an accepted limit: ADR-0112).
  */
 function chosenAgain(
   s: ViewState,
