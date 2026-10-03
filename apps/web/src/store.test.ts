@@ -92,6 +92,31 @@ it("runs what each message asks: a fetch and a full presence on a Document, a cl
   stop();
 });
 
+it("sends the Selection the person's own Undo brings back in Presence, like any other change (ADR-0090, ADR-0113)", async () => {
+  const { last } = stubSockets();
+  const { doc, defaultLayerId: parentId } = createDocument({ id: "a", name: "Doc", artboards: [] });
+  const [p] = createNodes(doc, [{ type: "path", parentId, d: "M0 0 L10 0 L10 10 Z" }]).nodes as [
+    Node,
+  ];
+  const stop = connect("a");
+  last().receive(message("document", { rev: doc.rev, nodes: [...doc.nodes.values()] }));
+  useStore.setState({ selection: [p.id] });
+  const deleted = send({ type: "delete", nodeIds: [p.id] }, unheld("a test"));
+  last().receive(message("tx", { rev: doc.rev + 1, commandId: deleted, deletedIds: [p.id] }));
+  expect(useStore.getState().selection).toEqual([]);
+  const selections = () =>
+    last()
+      .sent.map((m) => JSON.parse(m))
+      .filter((m) => m.type === "presence" && m.selection)
+      .map((m) => m.selection);
+  await vi.waitFor(() => expect(selections().at(-1)).toEqual([]));
+  const undo = send({ type: "undo" }, unheld("a test"));
+  last().receive(message("tx", { rev: doc.rev + 2, commandId: undo, created: [p] }));
+  expect(useStore.getState().selection).toEqual([p.id]);
+  await vi.waitFor(() => expect(selections().at(-1)).toEqual([p.id]));
+  stop();
+});
+
 it("stops when a socket closed for changed access fails again before a Document", () => {
   const { last } = stubSockets();
   vi.useFakeTimers();
@@ -210,19 +235,19 @@ it("records a command only when it goes out on an open socket, until its answer 
   const stop = connect("a");
   last().receive(message("document"));
   const id = send({ type: "undo" }, unheld("a test"));
-  expect(useStore.getState().sent).toEqual(new Set([id]));
+  expect(useStore.getState().sent).toEqual(new Map([[id, "undo"]]));
   last().receive(message("tx", { rev: 1, commandId: id }));
-  expect(useStore.getState().sent).toEqual(new Set());
+  expect(useStore.getState().sent).toEqual(new Map());
   const rejected = send({ type: "redo" }, unheld("a test"));
   last().receive(message("rejected", { id: rejected }));
-  expect(useStore.getState().sent).toEqual(new Set());
+  expect(useStore.getState().sent).toEqual(new Map());
   // Sent while the socket is down, it never went out, so nothing waits on its answer.
   last().readyState = 3;
   send({ type: "undo" }, unheld("a test"));
-  expect(useStore.getState().sent).toEqual(new Set());
+  expect(useStore.getState().sent).toEqual(new Map());
   last().readyState = 1;
   send({ type: "undo" }, unheld("a test"));
   last().receive(message("document", { rev: 4 }));
-  expect(useStore.getState().sent).toEqual(new Set());
+  expect(useStore.getState().sent).toEqual(new Map());
   stop();
 });

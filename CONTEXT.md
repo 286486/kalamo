@@ -29,7 +29,7 @@ _Avoid_: Reference layer、Trace layer、Background layer
 _Avoid_: Container、Frame
 
 **Selection（选区）**：
-人类用户在 UI 中当前选中的 Node 集合。它是 UI 便利，不是文档状态；Agent 操作以显式 Node ID 为准。它作为 Presence 转发给同一 Document 的其他 Peer，但从不写入 Document（ADR-0090）。
+人类用户在 UI 中当前选中的 Node 集合。它是 UI 便利，不是文档状态；Agent 操作以显式 Node ID 为准。它作为 Presence 转发给同一 Document 的其他 Peer，但从不写入 Document（ADR-0090）。本人的 Undo、Redo 选回所恢复状态下的 Selection，如 Illustrator 撤销到记录的状态（ADR-0113）。
 _Avoid_: 把 Selection 作为工具调用的隐式参数
 
 **Arrange（排列）**：

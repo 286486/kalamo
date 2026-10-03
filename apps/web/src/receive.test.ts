@@ -579,7 +579,7 @@ it("keeps keys after the person's own command that leaves a Node's geometry, and
     selection: [a.id, b.id],
     anchors,
     segments,
-    sent: new Set(["c9"]),
+    sent: new Map([["c9", "path_edit"]]),
   });
   const after = (n: Node, commandId?: string) =>
     stateAfter(state, tx(doc, { ...(commandId && { commandId }), updated: [n] }));
@@ -611,14 +611,22 @@ it("keeps keys after the person's own command that leaves a Node's geometry, and
 it("records a command until its tx or rejection answers it, and forgets every one on a Document (#288)", () => {
   const { doc, a } = fixture();
   const anchors = [anchorKey(a.id, 0, 1)];
-  const state = viewState({ doc, selection: [a.id], anchors, sent: new Set(["c1", "c2"]) });
+  const state = viewState({
+    doc,
+    selection: [a.id],
+    anchors,
+    sent: new Map([
+      ["c1", "path_edit"],
+      ["c2", "path_edit"],
+    ]),
+  });
   const answered = stateAfter(state, tx(doc, { commandId: "c1", updated: [a] }));
-  expect(answered?.sent).toEqual(new Set(["c2"]));
+  expect([...(answered?.sent?.keys() ?? [])]).toEqual(["c2"]);
   // A rejection forgets its id and changes no key.
   const rejected = stateAfter(state, message("rejected", { id: "c2" }));
-  expect(rejected?.sent).toEqual(new Set(["c1"]));
+  expect([...(rejected?.sent?.keys() ?? [])]).toEqual(["c1"]);
   expect(rejected?.anchors).toBeUndefined();
-  expect(stateAfter(state, message("document", { rev: 3 }))?.sent).toEqual(new Set());
+  expect(stateAfter(state, message("document", { rev: 3 }))?.sent).toEqual(new Map());
   // Another Actor's tx leaves the record as it is.
   expect(stateAfter(state, tx(doc, { commandId: "x", updated: [a] }))?.sent).toBeUndefined();
 });
