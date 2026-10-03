@@ -9,6 +9,7 @@ import {
 } from "@kalamo/core";
 import { sendPreview } from "./canvas.ts";
 import {
+  type AnchorEdits,
   anchorKey,
   anchorsOf,
   hasAnchors,
@@ -23,7 +24,7 @@ import {
   tagged,
 } from "./direct.ts";
 import { editable } from "./selection.ts";
-import { afterReverse, send, useStore } from "./store.ts";
+import { afterRenumbering, send, useStore } from "./store.ts";
 import { drawing, finishPen, near } from "./tools.ts";
 
 /** The Curvature tool (research 06 §2): clicks place Anchors and the curve runs through them. */
@@ -147,8 +148,8 @@ export function curvatureDown(p: Point, tolerance: number, alt: boolean) {
     if (key) {
       press = null;
       if (double) {
-        // Sent once a Reverse Path Direction press in flight is answered, on the Anchor chosen.
-        afterReverse(
+        // Sent once the person's own renumbering command is answered, on the Anchor chosen.
+        afterRenumbering(
           ({ doc: now, anchors: [held] }, w) => {
             const input = now && held && toggleInput(now, held);
             if (input) send({ type: "path_edit", input }, w);
@@ -204,8 +205,8 @@ function movePreview(doc: Document, t: Target | undefined, d: Point) {
 }
 
 /**
- * Releasing: a click on the first Anchor closes the path, and a drag of a selected path's Anchor
- * is sent once a Reverse Path Direction press in flight is answered, on the Anchor chosen, from the
+ * Releasing: a click on the first Anchor closes the path, and a drag of a selected path's Anchor is
+ * sent once the person's own renumbering command is answered, on the Anchor chosen, from the
  * Document then (ADR-0110); another Actor's edit to the path meanwhile drops it (ADR-0109).
  */
 export function curvatureUp() {
@@ -216,7 +217,7 @@ export function curvatureUp() {
   if (p?.kind === "drawn" && p.close && !p.moved) finishPen(true);
   if (p?.kind !== "anchor" || !p.d || !key) return;
   const d = p.d;
-  afterReverse(
+  afterRenumbering(
     ({ doc: now, target }, w) => {
       const input = now && target?.kind === "anchor" && moveInput(now, target.key, d);
       if (input) sendPreview({ edit: { inputs: [input] } }, w);
@@ -316,7 +317,11 @@ export function toggleInput(doc: Document, key: string): PathEditInput | null {
  * Anchor goes, and a path left with none is deleted, as are selected objects with no selected
  * Anchor, as clearInputs does.
  */
-export function curvatureClearInputs(doc: Document, selection: string[], keys: string[]) {
+export function curvatureClearInputs(
+  doc: Document,
+  selection: string[],
+  keys: string[],
+): Required<AnchorEdits> {
   const edits: PathEditInput[] = [];
   const known: Renumbering[] = [];
   const ids = new Set(keys.map((k) => parseKey(k).nodeId));

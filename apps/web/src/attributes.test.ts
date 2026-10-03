@@ -28,21 +28,31 @@ import {
 } from "./attributes.ts";
 import { commitDrag } from "./canvas.ts";
 import { curvatureCancel, curvatureDown, curvatureDrag, curvatureUp } from "./curvature.ts";
-import { allKeys, anchorKey, anchorsOf, localAnchors, parseKey } from "./direct.ts";
+import {
+  allKeys,
+  anchorKey,
+  anchorsOf,
+  localAnchors,
+  parseKey,
+  type Renumbering,
+} from "./direct.ts";
 import { directTool } from "./directTool.ts";
 import { paintUpdates, placeOn, sendPaint } from "./gradient.ts";
 import { averageAnchors, documentMenus, findByKeys, type Item, type MenuItem } from "./menu.ts";
 import { pencilDown, pencilMove, pencilUp } from "./pencil.ts";
 import { type PathDrag, previewAll, previewEdit, previewsOf, type ViewState } from "./receive.ts";
-import { afterReverse, deliver, record, runHeld, send, unheld, useStore } from "./store.ts";
-import { message, stateAfter, viewState } from "./testing.ts";
+import { afterRenumbering, deliver, record, runHeld, send, unheld, useStore } from "./store.ts";
+import { message, recordAs, stateAfter, viewState } from "./testing.ts";
 import type { ToolEvent } from "./toolbox.ts";
 import { finishPen, penDown, penUp } from "./tools.ts";
 
 // Records each id as the real `send` does, so the answers tests drive are the person's own (#288).
 vi.mock("./store.ts", async (original) => {
   const store = await original<typeof import("./store.ts")>();
-  return { ...store, send: vi.fn((c: Command) => store.record("c", c)) };
+  return {
+    ...store,
+    send: vi.fn((c: Command, _w?: unknown, known?: Renumbering) => store.record("c", c, known)),
+  };
 });
 
 /**
@@ -257,7 +267,7 @@ const rejected = message("rejected", {
 function pressOn(keys: (a: Node, b: Node) => Partial<ViewState>, hole?: string) {
   vi.mocked(send).mockClear();
   // Every command is "c" again, after `serve` numbered them.
-  vi.mocked(send).mockImplementation((c) => record("c", c));
+  vi.mocked(send).mockImplementation(recordAs("c"));
   const { doc, a, b } = rings(hole);
   const state = viewState({ doc, selection: [a.id, b.id], role: "owner", ...keys(a, b) });
   setDirection(state, true);
@@ -756,13 +766,13 @@ it("holds Direct Selection edits while a press is in flight and runs them in ord
   const ran: number[] = [];
   const inFlight = { commandId: "c", subpaths: [], clockwise: true, inputs: [] };
   useStore.setState({ reversing: inFlight });
-  afterReverse(() => ran.push(1));
+  afterRenumbering(() => ran.push(1));
   // A second press holds what comes after it.
-  afterReverse(() => {
+  afterRenumbering(() => {
     ran.push(2);
     useStore.setState({ reversing: { ...inFlight, commandId: "c2" } });
   });
-  afterReverse(() => ran.push(3));
+  afterRenumbering(() => ran.push(3));
   expect(ran).toEqual([]);
   useStore.setState({ reversing: null });
   runHeld();
@@ -770,7 +780,7 @@ it("holds Direct Selection edits while a press is in flight and runs them in ord
   useStore.setState({ reversing: null });
   runHeld();
   expect(ran).toEqual([1, 2, 3]);
-  afterReverse(() => ran.push(4));
+  afterRenumbering(() => ran.push(4));
   expect(ran).toEqual([1, 2, 3, 4]);
 });
 
@@ -843,7 +853,7 @@ it("runs a held edit on the Anchors chosen when it was made, renumbered, not on 
     }));
     useStore.setState({ ...pressed, held: [] });
     const seen: string[][] = [];
-    afterReverse((s) => seen.push(s.anchors));
+    afterRenumbering((s) => seen.push(s.anchors));
     // A click after the edit, on a's hole Anchor 3 at (20, 10), is not the edit's.
     directTool.down(event(doc, 20, 10));
     directTool.up?.(event(doc, 20, 10));
@@ -868,7 +878,7 @@ it("clears a held edit's keys on a path another Actor edits before the answer (A
   }));
   useStore.setState({ ...pressed, held: [] });
   const seen: string[][] = [];
-  afterReverse((s) => seen.push(s.anchors));
+  afterRenumbering((s) => seen.push(s.anchors));
   // a Handle drag on a's hole, held too: an Agent's edit to a drops it.
   vi.mocked(send).mockClear();
   directTool.down(event(doc, 20, 20));
@@ -2014,7 +2024,7 @@ it("keeps each held edit's preview on screen until that edit runs or is dropped"
         () => {
           // A drag of a's hole Anchor, a press on b's hole, then a Curvature drag of b's corner.
           heldOnRings["a Direct Selection drag"]?.(useStore.getState().doc as Document);
-          afterReverse(
+          afterRenumbering(
             (s) =>
               setDirection(
                 s,
@@ -2222,7 +2232,7 @@ it("lets go of a drag when the answer to the person's own held reshape of its pa
         held();
         expect(useStore.getState().held, label).toHaveLength(1);
         // Sent as "k" once the press is answered.
-        vi.mocked(send).mockImplementationOnce((c) => record("k", c));
+        vi.mocked(send).mockImplementationOnce(recordAs("k"));
       }
       const pressed = message("tx", {
         rev: doc.rev + 1,
@@ -2307,10 +2317,10 @@ function serve(doc: Document) {
   const future: Document["nodes"][] = [];
   let ids = 0;
   vi.mocked(send).mockClear();
-  vi.mocked(send).mockImplementation((command) => {
+  vi.mocked(send).mockImplementation((command: Command, _w?: unknown, known?: Renumbering) => {
     const id = `k${++ids}`;
     queue.push({ id, command });
-    return record(id, command);
+    return record(id, command, known);
   });
   /** The server's change since `before` as a Transaction, the answer to `commandId` if given. */
   const tx = (before: Document["nodes"], commandId?: string) =>
@@ -3095,7 +3105,7 @@ it("runs the held edits after one that throws, leaves a drag in progress alone, 
     // A held edit with a preview of its own, which throws when it runs; then one that sends.
     const own = { inputs: [{ nodeId: b.id, ops: [] }] };
     useStore.setState({ edit: own });
-    afterReverse(
+    afterRenumbering(
       () => {
         throw new Error("Boom.");
       },
@@ -3276,7 +3286,7 @@ it("draws an edit held behind a second press on the Anchors it sends, after the 
       const { server, answer, serveAll } = serve(doc);
       // A press on a's hole, then one on b's, held, then the edit on a's hole, held behind both.
       setDirection(useStore.getState(), true);
-      afterReverse((s) => setDirection({ ...s, anchors: [anchorKey(b.id, 1, 0)] }, true));
+      afterRenumbering((s) => setDirection({ ...s, anchors: [anchorKey(b.id, 1, 0)] }, true));
       edit(doc, a);
       answer(outcome === "rejected");
       expect(useStore.getState().reversing, label).not.toBeNull();
@@ -3319,7 +3329,7 @@ it("draws a Pen finish held behind a second press as what it sends, after the fi
         !runsClockwise(s.doc as Document, s.doc?.nodes.get(p.id) as PathNode, subpath),
       );
     press(1)(useStore.getState());
-    afterReverse(press(0));
+    afterRenumbering(press(0));
     drawnEdits["a Pen continuing from an Endpoint"]();
     answer(outcome === "rejected");
     expect(useStore.getState().reversing, outcome).not.toBeNull();

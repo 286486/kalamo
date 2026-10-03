@@ -10,13 +10,12 @@ import {
   runsClockwise,
   toAnchors,
 } from "@kalamo/core";
-import type { Command } from "@kalamo/sync";
 import { beforeEach, expect, it, vi } from "vitest";
 import { setDirection } from "./attributes.ts";
 import { pencilDown, pencilMove, pencilUp } from "./pencil.ts";
 import { previewAll, previewsOf } from "./receive.ts";
 import {
-  afterReverse,
+  afterRenumbering,
   DEFAULT_FILL_STROKE,
   drawSent,
   record,
@@ -25,7 +24,7 @@ import {
   unheld,
   useStore,
 } from "./store.ts";
-import { message, stateAfter } from "./testing.ts";
+import { message, recordAs, stateAfter } from "./testing.ts";
 import { TOOL_KEYS } from "./toolbox.ts";
 import {
   fillStrokeKey,
@@ -602,8 +601,7 @@ function onePath(d: string) {
 }
 
 /** Sends the next command as `id`, recorded as the real `send` records it. */
-const sendAs = (id: string) =>
-  vi.mocked(send).mockImplementationOnce((c: Command) => record(id, c));
+const sendAs = (id: string) => vi.mocked(send).mockImplementationOnce(recordAs(id));
 
 /** The answer to the person's own `path_edit` `id`, as the Document DO applies it. */
 function answer(id: string) {
@@ -805,7 +803,7 @@ function dragged() {
     nodeId: o.p,
     ops: [{ op: "move_anchor" as const, subpath: 0, index: 1, to: [50, 20] as Point }],
   };
-  vi.mocked(send).mockImplementationOnce((c: Command) => record("drag", c));
+  vi.mocked(send).mockImplementationOnce(recordAs("drag"));
   send({ type: "path_edit", input }, unheld("the test's drag"));
   useStore.setState({
     sentPreviews: [{ edit: { inputs: [input], commandIds: ["drag"] }, drag: null }],
@@ -998,7 +996,7 @@ it("continues a path from the person's own held Direct Selection drag on it (#30
     ops: [{ op: "move_anchor" as const, subpath: 0, index: 1, to: [50, 20] as Point }],
   };
   useStore.setState({ edit: { inputs: [input] } });
-  afterReverse(
+  afterRenumbering(
     (_s, w) =>
       drawSent({
         edit: { inputs: [input], commandIds: [send({ type: "path_edit", input }, w)] },
@@ -1151,7 +1149,7 @@ it("stores a held drag on the Anchor dragged, and the Pen continuation drawn on 
     ops: [{ op: "move_anchor" as const, subpath: 1, index: 1, to: [120, -20] as Point }],
   };
   useStore.setState({ edit: { inputs: [input] } });
-  afterReverse(
+  afterRenumbering(
     ({ anchors: [k] }, w) => {
       const [, subpath, index] = (k as string).split(" ").map(Number) as [number, number, number];
       const moved = { ...input, ops: [{ ...input.ops[0], subpath, index }] } as typeof input;
@@ -1281,7 +1279,7 @@ it("holds a Pencil redraw drawn on a held Pen finish's extension until it runs, 
   // The Pencil extends p from the held finish's Endpoint, as drawn.
   pencilFrom(p, [-50, 50], [-10, 0]);
   const [, redraw] = useStore.getState().held;
-  expect(redraw?.seed).toEqual(["first", useStore.getState().held[0]?.token]);
+  expect(redraw?.redraw?.seed).toEqual(["first", useStore.getState().held[0]?.token]);
   expect(drawnD(p)).toBe("M -100 50 L -50 50 L 0 0 L 100 0 L 150 50");
   land(answer("first"), "second");
   expect(useStore.getState().held).toHaveLength(1);

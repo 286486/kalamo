@@ -1,7 +1,9 @@
-import type { PathEditInput } from "@kalamo/core";
+import { createDocument, createNodes, type Node, type PathEditInput } from "@kalamo/core";
 import { ACCESS_CHANGED, type Command, type ServerMessage } from "@kalamo/sync";
 import { afterEach, expect, it, vi } from "vitest";
-import { afterReverse, connect, send, sendPathOp, unheld, useStore } from "./store.ts";
+import { sendAnchorEdits } from "./anchorTools.ts";
+import { anchorKey, clearInputs } from "./direct.ts";
+import { afterRenumbering, connect, send, sendPathOp, unheld, useStore } from "./store.ts";
 import { message } from "./testing.ts";
 
 afterEach(() => {
@@ -128,12 +130,14 @@ it("sends a command that names Anchors by index, or any path_op, only once it wa
   // @ts-expect-error A command that may be any of them.
   send(some);
   send({ type: "path_edit", input }, unheld("a test"));
-  afterReverse((_s, w) =>
+  // @ts-expect-error Only a path_edit's ops may leave how it renumbers to the sender.
+  send({ type: "path_op", input: { nodeIds: ["p"], op: "unite" } }, unheld("a test"), null);
+  afterRenumbering((_s, w) =>
     send({ type: "path_op", input: { nodeIds: ["p"], op: "join", anchors } }, w),
   );
   // @ts-expect-error A path_op on whole Nodes reshapes or replaces paths held edits name by index.
   send({ type: "path_op", input: { nodeIds: ["p"], op: "add_anchors" } });
-  afterReverse((_s, w) => send({ type: "path_op", input: { nodeIds: ["p"], op: "unite" } }, w));
+  afterRenumbering((_s, w) => send({ type: "path_op", input: { nodeIds: ["p"], op: "unite" } }, w));
   // A press, which names subpaths, and a delete, which waits by call-site convention (#288).
   send({ type: "path_reverse", subpaths: [{ nodeId: "p", subpath: 0 }], clockwise: true });
   send({ type: "delete", nodeIds: ["p"] });
@@ -150,10 +154,41 @@ it("takes no sent op preview into a held op or its send step (#306, #299)", () =
   // Never called: it only has to compile, or not.
   () => {
     // @ts-expect-error A sent op preview never goes back into a held op.
-    afterReverse(() => {}, { op });
+    afterRenumbering(() => {}, { op });
     // @ts-expect-error
     sendPathOp(op.input, op);
   };
+});
+
+// tsc checks this test: each @ts-expect-error fails the check once its line compiles.
+it("holds an edit on a seed only with its tool's drop notices (#300)", () => {
+  // Never called: it only has to compile, or not.
+  () => {
+    // @ts-expect-error A seed without a redraw would be dropped with no notice.
+    afterRenumbering(() => {}, { seed: ["c1"] });
+    // @ts-expect-error So would a redraw's seed without its notices.
+    afterRenumbering(() => {}, { redraw: { run: () => "", seed: ["c1"] } });
+  };
+});
+
+it("opens the window with Clear's own renumbering in the one step that sends it (#300)", () => {
+  const { last } = stubSockets();
+  const stop = connect("a");
+  const { doc, defaultLayerId: parentId } = createDocument({ id: "d", name: "Doc", artboards: [] });
+  const [rect] = createNodes(doc, [
+    { type: "rect", parentId, x: 0, y: 0, width: 10, height: 10 },
+  ] as never).nodes as [Node];
+  const edits = clearInputs(doc, [rect.id], [], [anchorKey(rect.id, 0, 3)]);
+  // Every renumbering the store held, from the Clear's send on.
+  const seen: unknown[] = [];
+  const unsubscribe = useStore.subscribe(({ renumbering }) => seen.push(...renumbering.values()));
+  sendAnchorEdits(edits, unheld("a test"));
+  unsubscribe();
+  const [sent] = last().sent.map((m) => JSON.parse(m).id as string);
+  expect(useStore.getState().renumbering).toEqual(new Map([[sent, edits.known[0]]]));
+  // Never "cannot number", which a `set_d` alone says.
+  expect(seen.every((r) => r === edits.known[0])).toBe(true);
+  stop();
 });
 
 it("records a command only when it goes out on an open socket, until its answer (#288)", () => {

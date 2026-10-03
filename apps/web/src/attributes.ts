@@ -9,7 +9,7 @@ import {
 import { parseKey } from "./direct.ts";
 import { compoundParts } from "./menu.ts";
 import { editable } from "./selection.ts";
-import { afterReverse, canEdit, type State, send, useStore } from "./store.ts";
+import { afterRenumbering, canEdit, type State, send, useStore } from "./store.ts";
 
 /** The Attributes panel's fill rule and Reverse Path Direction controls (ADR-0108). */
 
@@ -86,7 +86,7 @@ export function setDirection(s: Directed, on: boolean) {
 }
 
 /**
- * The Attributes panel's direction buttons: a second press waits for the one in flight, which the
- * store tracks alone (ADR-0110).
+ * The Attributes panel's direction buttons: a press waits for the person's own renumbering command,
+ * such as the press before it, which the store tracks alone (ADR-0110).
  */
-export const pressDirection = (on: boolean) => afterReverse((s) => setDirection(s, on));
+export const pressDirection = (on: boolean) => afterRenumbering((s) => setDirection(s, on));

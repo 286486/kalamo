@@ -676,7 +676,7 @@ export function turnInput(
 /** The path `t` is on. */
 export const targetNode = (t: Target) => (t.kind === "segment" ? t.nodeId : parseKey(t.key).nodeId);
 
-/** What `t` stands on, as Direct Selection keys, which a press's answer renumbers (ADR-0110). */
+/** What `t` stands on, as Direct Selection keys, which a renumbering command's answer renumbers. */
 export const targetKeys = (t: Target): { anchors: string[]; segments: string[] } =>
   t.kind === "segment"
     ? { anchors: [], segments: [keyOf(t)] }
@@ -684,6 +684,13 @@ export const targetKeys = (t: Target): { anchors: string[]; segments: string[] }
 
 /** Whether `key` names a segment its Node has now. */
 export const segmentInRange = (doc: Document, key: string) => segmentHandles(doc, key).length > 0;
+
+/**
+ * Edits on Anchors, as `sendAnchorEdits` sends them: one `path_edit` per path and the ids to
+ * delete. `known` says how a `set_d` among them renumbers its path, which its ops alone do not
+ * (#298).
+ */
+export type AnchorEdits = { edits: PathEditInput[]; deleteIds: string[]; known?: Renumbering[] };
 
 /**
  * Edit > Clear under Direct Selection: a `set_d` per path with selected Anchors or segments, and
@@ -695,7 +702,7 @@ export function clearInputs(
   selection: string[],
   anchors: string[],
   segments: string[] = [],
-) {
+): Required<AnchorEdits> {
   const edits: PathEditInput[] = [];
   const known: Renumbering[] = [];
   const anchorsBy = byNode(anchors);
@@ -726,7 +733,7 @@ export function clearInputs(
  * first so the indices ahead stay put, joining its neighbours. A subpath left with one Anchor, a
  * Stray Point, goes whole, and a path left with none is deleted. Keys out of range are ignored.
  */
-export function removeAnchorInputs(doc: Document, anchors: string[]) {
+export function removeAnchorInputs(doc: Document, anchors: string[]): AnchorEdits {
   const edits: PathEditInput[] = [];
   const deleteIds: string[] = [];
   for (const [nodeId, refs] of byNode(anchors)) {

@@ -1,6 +1,7 @@
 import type { Document, PathEditInput } from "@kalamo/core";
 import { cancelDrag, dragged, type Press, sendPreview } from "./canvas.ts";
 import {
+  type AnchorEdits,
   alongLine,
   anchorsOf,
   bendSegment,
@@ -12,7 +13,6 @@ import {
   parseKey,
   pick,
   plus,
-  type Renumbering,
   removeAnchorInputs,
   type Target,
   targetKeys,
@@ -20,7 +20,7 @@ import {
 } from "./direct.ts";
 import { directTool } from "./directTool.ts";
 import { editable } from "./selection.ts";
-import { afterReverse, renumbers, send, useStore, type Waited } from "./store.ts";
+import { afterRenumbering, send, useStore, type Waited } from "./store.ts";
 import type { CanvasTool, ToolEvent } from "./toolbox.ts";
 
 /** The Add, Delete and Anchor Point tools (research 06 §1), and the Pen's Auto Add/Delete. */
@@ -29,21 +29,16 @@ type Point = [number, number];
 
 /**
  * One `path_edit` per path and one `delete`, for edits on Anchors, which drop the selected Anchors
- * and segments. `known` says how a `set_d` renumbers its path, which its answer renumbers the keys
- * by (#298).
+ * and segments. Each `path_edit` opens the window with its `known` renumbering, which its answer
+ * renumbers the keys by, in its one send (#298).
  */
-export function sendAnchorEdits(
-  {
-    edits,
-    deleteIds,
-    known = [],
-  }: ReturnType<typeof removeAnchorInputs> & { known?: Renumbering[] },
-  w: Waited,
-) {
+export function sendAnchorEdits({ edits, deleteIds, known = [] }: AnchorEdits, w: Waited) {
   for (const input of edits) {
-    const id = send({ type: "path_edit", input }, w);
-    const r = known.find((k) => k.nodeId === input.nodeId);
-    if (r) renumbers(id, r);
+    send(
+      { type: "path_edit", input },
+      w,
+      known.find((k) => k.nodeId === input.nodeId),
+    );
   }
   if (deleteIds.length > 0) send({ type: "delete", nodeIds: deleteIds });
   useStore.setState({ anchors: [], segments: [] });
@@ -74,11 +69,11 @@ export function addAnchorAt(doc: Document, p: Point, tolerance: number, only?: s
     : pick(doc, { selection: [], anchors: [], x: p[0], y: p[1], tolerance, scope });
   if (hit?.kind !== "segment" || hit.t <= 0 || hit.t >= 1) return false;
   const { nodeId, subpath, segment, t } = hit;
-  // Sent once a Reverse Path Direction press in flight is answered, on the segment chosen
-  // (ADR-0110); another Actor's edit to the path meanwhile drops it (ADR-0109). The target's `t` is
-  // nearestSegment's, as every target's is, so the answer to the person's own Add Anchor click
-  // that splits the segment puts it on the half clicked (#298).
-  afterReverse(
+  // Sent once the person's own renumbering command is answered, on the segment chosen (ADR-0110);
+  // another Actor's edit to the path meanwhile drops it (ADR-0109). The target's `t` is
+  // nearestSegment's, as every target's is, so the answer to the person's own Add Anchor click that
+  // splits the segment puts it on the half clicked (#298).
+  afterRenumbering(
     ({ doc: now, target: at }, w) => {
       const n = now?.nodes.get(nodeId);
       const s = hasAnchors(n) && at?.kind === "segment" ? localAnchors(n)[at.subpath] : undefined;
@@ -115,9 +110,9 @@ export function deleteAnchorAt(
     scope: useStore.getState().isolated,
   });
   if (hit?.kind !== "anchor" || (only && !only.includes(parseKey(hit.key).nodeId))) return false;
-  // Sent once a Reverse Path Direction press in flight is answered, on the Anchor chosen, which the
+  // Sent once the person's own renumbering command is answered, on the Anchor chosen, which the
   // answer renumbers (ADR-0110); another Actor's edit to the path meanwhile drops it (ADR-0109).
-  afterReverse(
+  afterRenumbering(
     ({ doc: now, anchors }, w) => {
       if (now && anchors.length > 0) sendAnchorEdits(removeAnchorInputs(now, anchors), w);
     },
@@ -273,11 +268,11 @@ export const anchorPointTool: CanvasTool = {
     const [grabbed] = useStore.getState().grab?.targets ?? [];
     useStore.setState({ grab: null });
     if (!g || !grabbed) return;
-    // Sent once a Reverse Path Direction press in flight is answered, from the Document then, on
-    // what the gesture grabbed (ADR-0110); another Actor's edit to its path meanwhile drops it
+    // Sent once the person's own renumbering command is answered, from the Document then, on what
+    // the gesture grabbed (ADR-0110); another Actor's edit to its path meanwhile drops it
     // (ADR-0109).
     const { last } = g;
-    afterReverse(
+    afterRenumbering(
       ({ doc: now, target: t }, w) => {
         const input =
           now && t && (last ? dragInput(now, t, last.d, last.shift) : clickInput(now, t));

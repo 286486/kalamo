@@ -33,7 +33,7 @@ import {
 import { shareDialog } from "./share.ts";
 import { startSimplify } from "./simplify.ts";
 import { splitGridDialog } from "./splitGrid.ts";
-import { afterReverse, canEdit, type NodeOp, type State, send, useStore } from "./store.ts";
+import { afterRenumbering, canEdit, type NodeOp, type State, send, useStore } from "./store.ts";
 import { OPENABLE } from "./tabs.ts";
 import { drawing, undoAnchor } from "./tools.ts";
 import { artboardsRect, fit, zoomAt, zoomStep } from "./viewport.ts";
@@ -114,12 +114,12 @@ const hasPathTargets = ({ doc, selection }: State) =>
   doc !== null && pathTargets(doc, selection).length > 0;
 
 /**
- * Runs `op` on `nodeIds`, chosen now, once a Reverse Path Direction press in flight is answered: it
+ * Runs `op` on `nodeIds`, chosen now, once the person's own renumbering command is answered: it
  * reshapes or replaces paths that the edits held for it name by index (ADR-0110).
  */
 function sendOp(nodeIds: string[], op: NodeOp["op"]) {
   if (nodeIds.length === 0) return;
-  afterReverse((_s, w) => send({ type: "path_op", input: { nodeIds, op } }, w));
+  afterRenumbering((_s, w) => send({ type: "path_op", input: { nodeIds, op } }, w));
 }
 
 /** An Object > Path item that runs `op` on the Selection's paths and Live Shapes (pathTargets). */
@@ -148,13 +148,13 @@ export const shapeModeTargets = (s: Pick<State, "doc" | "selection" | "role">) =
 };
 
 /**
- * Runs `op` on `nodeIds`, chosen now, once a press in flight is answered (ADR-0110); the Nodes it
- * creates become the Selection, as in Illustrator.
+ * Runs `op` on `nodeIds`, chosen now, once the person's own renumbering command is answered
+ * (ADR-0110); the Nodes it creates become the Selection, as in Illustrator.
  */
 function selectingPathOp(nodeIds: string[], op: NodeOp["op"]) {
   if (nodeIds.length === 0) return;
   useStore.setState({ notice: null });
-  afterReverse((_s, w) => {
+  afterRenumbering((_s, w) => {
     const commandId = send({ type: "path_op", input: { nodeIds, op } }, w);
     useStore.setState((s) => ({ pending: [...s.pending, { commandId, nodes: [], select: true }] }));
   });
@@ -221,7 +221,7 @@ const AXES: Axis[] = ["horizontal", "vertical", "both"];
 
 /** Average on `axis` once the dialog's OK, on the Selection then, which may have changed meanwhile. */
 export const averageAnchors = (axis: Axis) =>
-  afterReverse((s, w) => {
+  afterRenumbering((s, w) => {
     const input = average.targets(s);
     if (input) send({ type: "path_op", input: { ...input, op: "average", axis } }, w);
   });
@@ -363,17 +363,17 @@ export function documentMenus(tabs: {
             keys: "Ctrl+Z",
             enabled: hasDoc,
             // While the Pen draws, Undo takes back its last Anchor and sends nothing (ADR-0032).
-            // Otherwise it waits for a Reverse Path Direction press in flight, so it runs after the
+            // Otherwise it waits for the person's own renumbering command, so it runs after the
             // edits made before it, in input order (ADR-0110); so does Redo.
             run: () => {
-              if (!undoAnchor()) afterReverse(() => send({ type: "undo" }));
+              if (!undoAnchor()) afterRenumbering(() => send({ type: "undo" }));
             },
           },
           {
             label: "Redo",
             keys: "Shift+Ctrl+Z",
             enabled: hasDoc,
-            run: () => afterReverse(() => send({ type: "redo" })),
+            run: () => afterRenumbering(() => send({ type: "redo" })),
           },
           "-",
           // A click is a user gesture, so execCommand fires the copy or cut event a key press would.
@@ -415,9 +415,9 @@ export function documentMenus(tabs: {
               if (s.tool === "curvature" && drawing(s)) return true;
               return doc !== null && s.selection.some((id) => editable(doc, doc.nodes.get(id)));
             },
-            // A Delete while a Reverse Path Direction press is in flight waits for it (ADR-0110).
+            // A Delete waits for the person's own renumbering command (ADR-0110).
             run: () =>
-              afterReverse(({ doc, selection, anchors, segments, tool }, w) => {
+              afterRenumbering(({ doc, selection, anchors, segments, tool }, w) => {
                 // The Curvature tool removes an Anchor and keeps the curve connected (research 06 §2).
                 if (tool === "curvature" && removeCurveAnchor()) return;
                 if (!doc) return;
@@ -461,9 +461,10 @@ export function documentMenus(tabs: {
                 label: PATH_OP_TEXT.join.menu,
                 keys: "Ctrl+J",
                 enabled: join.enabled,
-                // Join and Average name Anchors by index, so they wait for a press too (ADR-0110).
+                // Join and Average name Anchors by index, so they wait for the person's own
+                // renumbering command too (ADR-0110).
                 run: () =>
-                  afterReverse((s, w) => {
+                  afterRenumbering((s, w) => {
                     const input = join.targets(s);
                     if (input) send({ type: "path_op", input: { ...input, op: "join" } }, w);
                   }),
@@ -486,7 +487,7 @@ export function documentMenus(tabs: {
                 label: "Remove Anchor Points",
                 enabled: ({ doc, anchors }) => doc !== null && anchors.some((k) => inRange(doc, k)),
                 run: () =>
-                  afterReverse(({ doc, anchors }, w) => {
+                  afterRenumbering(({ doc, anchors }, w) => {
                     if (doc) sendAnchorEdits(removeAnchorInputs(doc, anchors), w);
                   }),
               },
