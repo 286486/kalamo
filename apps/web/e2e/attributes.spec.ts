@@ -169,14 +169,16 @@ async function rings(page: Page, request: APIRequestContext, xs: number[], shape
   ).structuredContent.createdIds as string[];
   /**
    * The commands of the types given to `hold` (`path_reverse` alone by default), held from then on in
-   * the order sent, each passed on, answered or dropped, or passed on with its answer lost to a
+   * the order sent, each passed on, rejected with the test's rejection, settled by outcome
+   * (passed on if accepted, rejected if not) or dropped, or passed on with its answer lost to a
    * dropped socket, in the order the test chooses.
    */
   const held: {
     id: string;
     type: string;
     pass: () => void;
-    answer: (m: object) => void;
+    reject: () => void;
+    settle: (outcome: "accepted" | "rejected") => void;
     drop: () => void;
     lose: () => void;
   }[] = [];
@@ -194,11 +196,21 @@ async function rings(page: Page, request: APIRequestContext, xs: number[], shape
       if (cut) return;
       const msg = JSON.parse(String(m));
       if (!holding.has(msg.command?.type)) return server.send(m);
+      const pass = () => server.send(m);
+      const reject = () =>
+        ws.send(
+          JSON.stringify({
+            type: "rejected",
+            id: msg.id,
+            error: { code: "INVALID_PATH", message: "Rejected for the test.", hint: "" },
+          }),
+        );
       held.push({
         id: msg.id,
         type: msg.command.type,
-        pass: () => server.send(m),
-        answer: (a) => ws.send(JSON.stringify(a)),
+        pass,
+        reject,
+        settle: (outcome) => (outcome === "accepted" ? pass() : reject()),
         drop: () => ws.close(),
         lose: () => {
           lost = msg.id;
@@ -225,6 +237,9 @@ async function rings(page: Page, request: APIRequestContext, xs: number[], shape
   const d = async (id: string) =>
     (await call(request, "kalamo_node_get", { docId, nodeIds: [id], detail: "full" }))
       .structuredContent.nodes[0].d as string;
+  const transform = async (id: string) =>
+    (await call(request, "kalamo_node_get", { docId, nodeIds: [id], detail: "full" }))
+      .structuredContent.nodes[0].transform;
   await page.keyboard.press("Control+F11");
   const button = (name: string) =>
     page.getByRole("region", { name: "Attributes" }).getByRole("button", { name, exact: true });
@@ -239,6 +254,7 @@ async function rings(page: Page, request: APIRequestContext, xs: number[], shape
     outage: () => outage,
     at,
     d,
+    transform,
     button,
   };
 }
@@ -263,11 +279,7 @@ test("a rejected Reverse Path Direction press restores the chosen Anchors on bot
   await button("Reverse Path Direction On").click();
   await expect.poll(() => held.length).toBe(1);
   const [press] = held;
-  press?.answer({
-    type: "rejected",
-    id: press.id,
-    error: { code: "INVALID_PATH", message: "Rejected for the test.", hint: "" },
-  });
+  press?.reject();
   await expect(page.getByRole("alert")).toHaveText("Rejected for the test.");
   await expect(button("Reverse Path Direction Off")).toHaveAttribute("aria-pressed", "true");
   expect([points(await d(a)), points(await d(b))]).toEqual([points(ring(0)), points(ring(100))]);
@@ -401,14 +413,7 @@ for (const outcome of ["accepted", "rejected"] as const) {
       await page.waitForTimeout(200);
       expect(points(await d(id))).toEqual(points(ring(0)));
       const [press] = held;
-      if (outcome === "accepted") press?.pass();
-      else {
-        press?.answer({
-          type: "rejected",
-          id: press.id,
-          error: { code: "INVALID_PATH", message: "Rejected for the test.", hint: "" },
-        });
-      }
+      press?.settle(outcome);
       const hole = edit[outcome];
       if (hole) await expect.poll(async () => points(await d(id))).toEqual([...outer, ...hole]);
       else {
@@ -484,14 +489,7 @@ for (const outcome of ["accepted", "rejected"] as const) {
       await page.waitForTimeout(200);
       expect(points(await d(id))).toEqual(points(ring(0)));
       const [press] = held;
-      if (outcome === "accepted") press?.pass();
-      else {
-        press?.answer({
-          type: "rejected",
-          id: press.id,
-          error: { code: "INVALID_PATH", message: "Rejected for the test.", hint: "" },
-        });
-      }
+      press?.settle(outcome);
       // An added Anchor lands within rounding of the click.
       const rounded = (d: string) =>
         points(d).map((p) =>
@@ -558,11 +556,7 @@ for (const outcome of ["accepted", "rejected"] as const) {
         .poll(async () => points(await d(a)).slice(4))
         .toEqual(["40 40", "60 40", "60 60", "40 60"]);
     } else {
-      press?.answer({
-        type: "rejected",
-        id: press.id,
-        error: { code: "INVALID_PATH", message: "Rejected for the test.", hint: "" },
-      });
+      press?.reject();
       await expect(page.getByRole("alert")).toHaveText("Rejected for the test.");
     }
     await page.waitForTimeout(200);
@@ -592,14 +586,7 @@ for (const outcome of ["accepted", "rejected"] as const) {
     await expect(button("Reverse Path Direction On")).toHaveAttribute("aria-pressed", "true");
     await expect(button("Reverse Path Direction Off")).toHaveAttribute("aria-pressed", "false");
     const [press] = held;
-    if (outcome === "accepted") press?.pass();
-    else {
-      press?.answer({
-        type: "rejected",
-        id: press.id,
-        error: { code: "INVALID_PATH", message: "Rejected for the test.", hint: "" },
-      });
-    }
+    press?.settle(outcome);
     const shown = outcome === "accepted" ? "On" : "Off";
     await expect(button(`Reverse Path Direction ${shown}`)).toHaveAttribute("aria-pressed", "true");
   });
@@ -708,14 +695,7 @@ for (const outcome of ["accepted", "rejected"] as const) {
       await page.waitForTimeout(200);
       expect(anchorsIn(await d(id))[2]).toEqual(["120 20", "160 20", "160 60"]);
       const [press] = held;
-      if (outcome === "accepted") press?.pass();
-      else {
-        press?.answer({
-          type: "rejected",
-          id: press.id,
-          error: { code: "INVALID_PATH", message: "Rejected for the test.", hint: "" },
-        });
-      }
+      press?.settle(outcome);
       await expect.poll(async () => anchorsIn(await d(id))[2]?.join(",")).toMatch(edit[outcome]);
     });
   }
@@ -727,7 +707,7 @@ for (const outcome of ["accepted", "rejected"] as const) {
     page,
     request,
   }) => {
-    const { docId, ids, held, hold, at, d, button } = await rings(page, request, [0], hook);
+    const { ids, held, hold, at, d, transform, button } = await rings(page, request, [0], hook);
     const [id] = ids as [string];
     await page.keyboard.press("a");
     await page.mouse.click(...at(120, 20));
@@ -744,23 +724,13 @@ for (const outcome of ["accepted", "rejected"] as const) {
     await page.mouse.move(...at(30, 45), { steps: 5 });
     await page.mouse.move(...at(30, 60), { steps: 5 });
     await page.mouse.up();
-    const transform = async () =>
-      (await call(request, "kalamo_node_get", { docId, nodeIds: [id], detail: "full" }))
-        .structuredContent.nodes[0].transform;
-    await expect.poll(transform).toEqual([1, 0, 0, 1, 0, 30]);
+    await expect.poll(() => transform(id)).toEqual([1, 0, 0, 1, 0, 30]);
     const [press] = held;
-    if (outcome === "accepted") press?.pass();
-    else {
-      press?.answer({
-        type: "rejected",
-        id: press.id,
-        error: { code: "INVALID_PATH", message: "Rejected for the test.", hint: "" },
-      });
-    }
+    press?.settle(outcome);
     await expect
       .poll(async () => anchorsIn(await d(id))[2]?.join(","))
       .toMatch(drawnEdits["a Pencil redraw"][outcome]);
-    expect(await transform()).toEqual([1, 0, 0, 1, 0, 30]);
+    expect(await transform(id)).toEqual([1, 0, 0, 1, 0, 30]);
   });
 
   // #301, ADR-0110: so does a held Pen finish: the path is stored extended where the person drew it
@@ -769,7 +739,7 @@ for (const outcome of ["accepted", "rejected"] as const) {
     page,
     request,
   }) => {
-    const { docId, ids, held, hold, at, d, button } = await rings(page, request, [0], hook);
+    const { ids, held, hold, at, d, transform, button } = await rings(page, request, [0], hook);
     const [id] = ids as [string];
     await page.keyboard.press("a");
     await page.mouse.click(...at(120, 20));
@@ -788,23 +758,13 @@ for (const outcome of ["accepted", "rejected"] as const) {
     await page.mouse.move(...at(30, 45), { steps: 5 });
     await page.mouse.move(...at(30, 60), { steps: 5 });
     await page.mouse.up();
-    const transform = async () =>
-      (await call(request, "kalamo_node_get", { docId, nodeIds: [id], detail: "full" }))
-        .structuredContent.nodes[0].transform;
-    await expect.poll(transform).toEqual([1, 0, 0, 1, 0, 30]);
+    await expect.poll(() => transform(id)).toEqual([1, 0, 0, 1, 0, 30]);
     const [press] = held;
-    if (outcome === "accepted") press?.pass();
-    else {
-      press?.answer({
-        type: "rejected",
-        id: press.id,
-        error: { code: "INVALID_PATH", message: "Rejected for the test.", hint: "" },
-      });
-    }
+    press?.settle(outcome);
     await expect
       .poll(async () => anchorsIn(await d(id))[2]?.join(","))
       .toMatch(drawnEdits["a Pen continuing from an Endpoint"][outcome]);
-    expect(await transform()).toEqual([1, 0, 0, 1, 0, 30]);
+    expect(await transform(id)).toEqual([1, 0, 0, 1, 0, 30]);
     await expect(page.getByText("what it drew was not applied")).toHaveCount(0);
   });
 
@@ -831,14 +791,7 @@ for (const outcome of ["accepted", "rejected"] as const) {
     });
     const theirs = outcome === "accepted" ? "160 60,160 20,120 10" : "120 10,160 20,160 60";
     const [press] = held;
-    if (outcome === "accepted") press?.pass();
-    else {
-      press?.answer({
-        type: "rejected",
-        id: press.id,
-        error: { code: "INVALID_PATH", message: "Rejected for the test.", hint: "" },
-      });
-    }
+    press?.settle(outcome);
     await expect.poll(async () => anchorsIn(await d(id))[2]?.join(",")).toBe(theirs);
     await expect(page.getByRole("alert")).toContainText("The Pencil edit was not applied");
     await page.waitForTimeout(300);
@@ -869,14 +822,7 @@ for (const outcome of ["accepted", "rejected"] as const) {
     const theirs = outcome === "accepted" ? "160 60,160 20,120 10" : "120 10,160 20,160 60";
     await expect.poll(async () => anchorsIn(await d(id))[2]?.join(",")).toMatch(/120 10/);
     const [press] = held;
-    if (outcome === "accepted") press?.pass();
-    else {
-      press?.answer({
-        type: "rejected",
-        id: press.id,
-        error: { code: "INVALID_PATH", message: "Rejected for the test.", hint: "" },
-      });
-    }
+    press?.settle(outcome);
     const alert = page.getByRole("alert");
     await expect(alert).toContainText("what it drew was not applied");
     if (outcome === "rejected") await expect(alert).toContainText("Rejected for the test.");
@@ -1054,13 +1000,13 @@ for (const outcome of ["accepted", "rejected"] as const) {
       page,
       request,
     }) => {
-      const { docId, ids, held, hold, at, d, button } = await rings(page, request, [0, 1], (x) =>
-        x === 0 ? hook(0) : "M20 90 L60 90",
+      const { docId, ids, held, hold, at, d, transform, button } = await rings(
+        page,
+        request,
+        [0, 1],
+        (x) => (x === 0 ? hook(0) : "M20 90 L60 90"),
       );
       const [p, q] = ids as [string, string];
-      const transform = async (id: string) =>
-        (await call(request, "kalamo_node_get", { docId, nodeIds: [id], detail: "full" }))
-          .structuredContent.nodes[0].transform;
       await page.keyboard.press("a");
       await page.mouse.click(...at(120, 20));
       await expect(button("Reverse Path Direction On")).toHaveAttribute("aria-pressed", "true");
@@ -1101,14 +1047,7 @@ for (const outcome of ["accepted", "rejected"] as const) {
       if (!together) await expect.poll(red).toBe(true);
 
       const [press] = held;
-      if (outcome === "accepted") press?.pass();
-      else {
-        press?.answer({
-          type: "rejected",
-          id: press.id,
-          error: { code: "INVALID_PATH", message: "Rejected for the test.", hint: "" },
-        });
-      }
+      press?.settle(outcome);
       const alert = page.getByRole("alert");
       if (outcome === "rejected") await expect(alert).toContainText("Rejected for the test.");
       const pOpen = outcome === "accepted" ? "160 60,160 20,120 20" : "120 20,160 20,160 60";
