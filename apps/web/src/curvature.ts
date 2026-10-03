@@ -17,7 +17,6 @@ import {
   localDelta,
   parseKey,
   plus,
-  sameTarget,
 } from "./direct.ts";
 import { editable } from "./selection.ts";
 import { afterReverse, send, useStore } from "./store.ts";
@@ -83,17 +82,19 @@ function setCurve(curve: CurveAnchor[]) {
 
 /**
  * The press: on an Anchor of the path being drawn (`index`), or on an Anchor of a selected path
- * (`key`, as `doc` numbers it), which a drag moves by `d`; `from` is where it started. Pressing the
- * first Anchor closes the path on release unless it was dragged.
+ * (`nodeId`), which the store keeps as `grabbed` (ADR-0110) and a drag moves by `d`; `from` is where
+ * it started. Pressing the first Anchor closes the path on release unless it was dragged.
  */
 let press:
   | { kind: "drawn"; index: number; from: Point; close: boolean; moved: boolean }
-  | { kind: "anchor"; key: string; from: Point; doc: Document; d?: Point }
+  | { kind: "anchor"; nodeId: string; from: Point; d?: Point }
   | null = null;
 
-/** `press`'s Anchor as `now` numbers it, for a gesture still being made (ADR-0110). */
-const pressedKey = (p: { key: string; doc: Document }, now: Document) =>
-  sameTarget({ kind: "anchor", key: p.key }, p.doc, now).key;
+/** The key of the selected path's Anchor the press grabbed, as the answer left it. */
+const grabbedKey = () => {
+  const [t] = useStore.getState().grabbed;
+  return t?.kind === "anchor" ? t.key : null;
+};
 
 /** The Anchor pressed last, which Delete removes while drawing. */
 let current: number | null = null;
@@ -152,7 +153,9 @@ export function curvatureDown(p: Point, tolerance: number, alt: boolean) {
       const { index, subpath, nodeId } = parseKey(key);
       const n = s.doc.nodes.get(nodeId);
       const at = hasAnchors(n) && anchorsOf(s.doc, n)[subpath]?.anchors[index]?.anchor;
-      if (at) press = { kind: "anchor", key, from: at, doc: s.doc };
+      if (!at) return;
+      press = { kind: "anchor", nodeId, from: at };
+      useStore.setState({ grabbed: [{ kind: "anchor", key }] });
       return;
     }
   }
@@ -171,11 +174,12 @@ export function curvatureDrag(p: Point) {
     press.moved = true;
     setCurve(curve.with(press.index, { ...q, at: p }));
   } else if (press?.kind === "anchor" && s.doc) {
-    const n = s.doc.nodes.get(parseKey(press.key).nodeId);
-    if (!n) return;
+    const n = s.doc.nodes.get(press.nodeId);
+    const key = grabbedKey();
+    if (!n || !key) return;
     const d = localDelta(s.doc, n, p[0] - press.from[0], p[1] - press.from[1]);
     press.d = d;
-    const input = moveInput(s.doc, pressedKey(press, s.doc), d);
+    const input = moveInput(s.doc, key, d);
     useStore.setState({ edit: input ? { inputs: [input], commandIds: null } : null });
   }
 }
@@ -188,21 +192,23 @@ export function curvatureDrag(p: Point) {
 export function curvatureUp() {
   const p = press;
   press = null;
+  const key = grabbedKey();
+  useStore.setState({ grabbed: [] });
   if (p?.kind === "drawn" && p.close && !p.moved) finishPen(true);
-  if (p?.kind !== "anchor" || !p.d) return;
+  if (p?.kind !== "anchor" || !p.d || !key) return;
   const d = p.d;
-  const { doc } = useStore.getState();
   afterReverse(
     ({ doc: now, target }, w) => {
       const input = now && target?.kind === "anchor" && moveInput(now, target.key, d);
       settleDrag(input ? { edit: { inputs: [input], commandIds: null } } : null, w);
     },
-    { target: { kind: "anchor", key: doc ? pressedKey(p, doc) : p.key }, previewed: true },
+    { target: { kind: "anchor", key }, previewed: true },
   );
 }
 
 export const curvatureCancel = () => {
   press = null;
+  useStore.setState({ grabbed: [] });
 };
 
 /** Delete while drawing removes the Anchor pressed last; false when not drawing. */

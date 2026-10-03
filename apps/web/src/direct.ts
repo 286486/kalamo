@@ -452,14 +452,6 @@ export const turnTarget =
     return { ...t, key, which: t.which === "handleIn" ? "handleOut" : "handleIn" };
   };
 
-/**
- * `t`, chosen in `from`, as `doc` numbers it, for a gesture still being made: turned on its subpath
- * if that runs the other way since (ADR-0110). A held edit's target is turned by the answer instead.
- */
-export function sameTarget<T extends Target>(t: T, from: Document, doc: Document): T {
-  return turnTarget(doc, turnedOf(from, doc, [parseKey(keyOf(t))]))(t);
-}
-
 /** What `t` stands on, as Direct Selection keys, which a press's answer renumbers (ADR-0110). */
 export const targetKeys = (t: Target): { anchors: string[]; segments: string[] } =>
   t.kind === "segment"

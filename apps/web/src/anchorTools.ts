@@ -12,7 +12,6 @@ import {
   pick,
   plus,
   removeAnchorInputs,
-  sameTarget,
   type Target,
   targetKeys,
 } from "./direct.ts";
@@ -143,12 +142,10 @@ export const deleteAnchorTool: CanvasTool = {
 };
 
 /**
- * An Anchor Point tool press: on an Anchor, a Handle it shows, or a segment, its `target`, as
- * `from` numbers it; `last` is its latest move.
+ * An Anchor Point tool press: on an Anchor, a Handle it shows, or a segment, which the store keeps
+ * as `grabbed` (ADR-0110); `last` is its latest move.
  */
-let gesture:
-  | (Press & { target: Target; from: Document; last?: { d: Point; shift: boolean } })
-  | null = null;
+let gesture: (Press & { last?: { d: Point; shift: boolean } }) | null = null;
 
 /** The edit dragging `t` by `d` in document coordinates makes on `doc`. */
 function dragInput(doc: Document, t: Target, [dx, dy]: Point, shift: boolean) {
@@ -226,7 +223,8 @@ export const anchorPointTool: CanvasTool = {
     });
     if (!target) return;
     e.capture();
-    gesture = { start: { x: e.x, y: e.y }, moved: false, from: e.doc, target };
+    gesture = { start: { x: e.x, y: e.y }, moved: false };
+    useStore.setState({ grabbed: [target] });
     // Its Handles show while they are pulled out, as Direct Selection shows a selected Anchor's
     // or segment's.
     if (target.kind !== "handle") {
@@ -238,20 +236,22 @@ export const anchorPointTool: CanvasTool = {
     const g = gesture;
     const d = g && dragged(g, e);
     if (!g || !d) return;
+    const [t] = useStore.getState().grabbed;
+    if (!t) return;
     g.last = { d, shift: e.shift };
-    // A press answered mid-drag keeps the drag on what it grabbed (ADR-0110).
-    const input = dragInput(e.doc, sameTarget(g.target, g.from, e.doc), d, e.shift);
+    const input = dragInput(e.doc, t, d, e.shift);
     useStore.setState({ edit: input && { inputs: [input], commandIds: null } });
   },
   up() {
     const g = gesture;
     gesture = null;
-    if (!g) return;
+    const [grabbed] = useStore.getState().grabbed;
+    useStore.setState({ grabbed: [] });
+    if (!g || !grabbed) return;
     // Sent once a Reverse Path Direction press in flight is answered, from the Document then, on
     // what the gesture grabbed (ADR-0110); another Actor's edit to its path meanwhile drops it
     // (ADR-0109).
     const { last } = g;
-    const { doc } = useStore.getState();
     afterReverse(
       ({ doc: now, target: t }, w) => {
         const input =
@@ -262,11 +262,12 @@ export const anchorPointTool: CanvasTool = {
         const commandIds = [send({ type: "path_edit", input }, w)];
         useStore.setState({ edit: { inputs: [input], commandIds } });
       },
-      { target: doc ? sameTarget(g.target, g.from, doc) : g.target, previewed: true },
+      { target: grabbed, previewed: true },
     );
   },
   cancel(redraw) {
     gesture = null;
+    useStore.setState({ grabbed: [] });
     cancelDrag();
     redraw();
   },

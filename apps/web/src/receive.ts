@@ -207,6 +207,12 @@ export interface ViewState {
   reversing: Reversing | null;
   /** Direct Selection edits waiting for `reversing`'s answer, oldest first. */
   held: Held[];
+  /**
+   * What a drag still being made holds by index: Direct Selection's Anchors, or the one Anchor,
+   * Handle or segment a tool grabbed. Only the answer to a Reverse Path Direction press renumbers
+   * it; another Actor's edit leaves its indices (ADR-0110).
+   */
+  grabbed: Target[];
   /** The previews of held edits that ran and were sent, each drawn until its answer. */
   ran: Preview[];
   opPreview: PathOpPreview | null;
@@ -444,6 +450,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     ...(settled && { reversing: null }),
     ...(pen !== s.pen && { pen }),
     ...(dropped && { ...penState(doc, dropped.pen, s.edit), penPress: dropped.penPress }),
+    ...(turned.length > 0 && { grabbed: s.grabbed.map(turnTarget(doc, turned)) }),
     ...(s.held.length > 0 && {
       held: s.held.map((h) => ({
         ...h,
