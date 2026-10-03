@@ -2,7 +2,7 @@ import { bounds, type Document, fidelityTolerance, union } from "@kalamo/core";
 import { hasAnchors, localAnchors } from "./direct.ts";
 import { previewOp } from "./receive.ts";
 import { pathTargets } from "./selection.ts";
-import { send, useStore } from "./store.ts";
+import { afterReverse, type NodeOp, send, useStore } from "./store.ts";
 
 /** The slider's middle, Auto-Simplify: within 1 screen px of the path (ADR-0035). */
 const AUTO = 50;
@@ -41,13 +41,31 @@ function takeDown() {
   was?.close();
 }
 
+/**
+ * Sends Simplify's, Offset Path's or Split Into Grid's `path_op` on OK, once a Reverse Path
+ * Direction press in flight is answered (ADR-0110). When the op was `previewed`, its preview stays
+ * drawn while it waits and until its answer, so nothing flickers (ADR-0035), unless a later op's
+ * preview takes its place: the op is sent all the same.
+ */
+export function sendPreviewedOp(input: NodeOp, previewed: boolean) {
+  const shown = useStore.getState().opPreview;
+  // With Preview off, the slot holds another op's preview, maybe a held one: it is left alone.
+  const own = previewed && shown && !shown.commandId && shown.input.op === input.op;
+  const held = own ? { ...shown, input, showOriginal: false } : null;
+  if (held) useStore.setState({ opPreview: held });
+  afterReverse((_s, w) => {
+    const commandId = send({ type: "path_op", input }, w);
+    if (held && useStore.getState().opPreview === held) {
+      useStore.setState({ opPreview: { ...held, commandId } });
+    }
+  });
+}
+
 /** OK: the preview as one `path_op` Command, drawn until its answer. */
-function commit() {
+export function commitSimplify() {
   takeDown();
   const { opPreview } = useStore.getState();
-  if (!opPreview || opPreview.commandId) return;
-  const commandId = send({ type: "path_op", input: opPreview.input });
-  useStore.setState({ opPreview: { ...opPreview, showOriginal: false, commandId } });
+  if (opPreview && !opPreview.commandId) sendPreviewedOp(opPreview.input, true);
 }
 
 function cancel() {
@@ -60,7 +78,7 @@ function cancel() {
 useStore.subscribe((s, prev) => {
   if (!open) return;
   if (!s.opPreview) takeDown();
-  else if (s.selection.join(" ") !== prev.selection.join(" ")) commit();
+  else if (s.selection.join(" ") !== prev.selection.join(" ")) commitSimplify();
   else if (s.viewport?.scale !== prev.viewport?.scale) open.update();
 });
 
@@ -121,7 +139,7 @@ export function startSimplify() {
     max,
     button("Auto-Simplify", auto),
     button("…", more, "More Options"),
-    button("OK", commit),
+    button("OK", commitSimplify),
     button("Cancel", cancel),
   );
   // Under the paths, as Illustrator shows it.
@@ -155,7 +173,7 @@ export function startSimplify() {
     if (e.key === "Enter" && e.target instanceof HTMLButtonElement) return;
     e.preventDefault();
     e.stopPropagation();
-    if (e.key === "Enter") commit();
+    if (e.key === "Enter") commitSimplify();
     else cancel();
   };
   addEventListener("keydown", onKey, true);
@@ -212,7 +230,7 @@ function moreOptions(doc: Document, nodeIds: string[], settings: Settings, updat
     const ok = dialog.returnValue === "ok";
     dialog.remove();
     if (!open) return; // A tab switch took it down.
-    if (ok) commit();
+    if (ok) commitSimplify();
     else cancel();
   };
   document.body.append(dialog);

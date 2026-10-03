@@ -1,5 +1,5 @@
 import { pathOp } from "@kalamo/core";
-import { type NodeOp, send, useStore } from "./store.ts";
+import { afterReverse, type NodeOp, send, useStore } from "./store.ts";
 
 /**
  * Object > Path > Clean Up… (research 06 §5): Stray Points, Unpainted Objects and Empty Text Paths,
@@ -20,23 +20,33 @@ ${box("strayPoints", "Stray Points")}${box("unpainted", "Unpainted Objects")}${b
   const checked = (name: string) => (form.elements.namedItem(name) as HTMLInputElement).checked;
   dialog.onclose = () => {
     dialog.remove();
-    const { doc } = useStore.getState();
-    if (dialog.returnValue !== "ok" || !doc) return;
+    if (dialog.returnValue !== "ok") return;
     const input: NodeOp = {
       op: "clean_up",
       strayPoints: checked("strayPoints"),
       unpainted: checked("unpainted"),
       emptyText: checked("emptyText"),
     };
+    cleanUp(input);
+  };
+  document.body.append(dialog);
+  dialog.showModal();
+}
+
+/**
+ * Clean Up's OK: one `path_op clean_up` once a press in flight is answered (ADR-0110), and a notice
+ * that counts what it removes from the Document then.
+ */
+export function cleanUp(input: NodeOp) {
+  afterReverse(({ doc }, w) => {
+    if (!doc) return;
     try {
       const { deletedIds, updated } = pathOp({ ...doc, nodes: new Map(doc.nodes) }, input);
-      send({ type: "path_op", input });
+      send({ type: "path_op", input }, w);
       const trimmed = updated.length > 0 ? `, and Stray Points from ${updated.length} path(s)` : "";
       useStore.setState({ notice: `Clean Up removed ${deletedIds.length} object(s)${trimmed}.` });
     } catch (e) {
       useStore.setState({ notice: e instanceof Error ? e.message : String(e) });
     }
-  };
-  document.body.append(dialog);
-  dialog.showModal();
+  });
 }
