@@ -15,7 +15,7 @@ ADR-0037 sends a Pen continuation onto another open path's Endpoint as one brows
 
 ## Decision
 
-**The browser `path_join` means "connect coincident Endpoints", not a general Join.** In the same write, after its `path_edit` applies to the Document as the command finds it, the Document DO checks that the two Endpoints the Join's `anchors` names are within the Join's tolerance in document coordinates, each path's world transform applied. Core's `endpointsMeet` is the check. Paths moved together, by one move or by equal separate moves, still meet and are joined as before.
+**The browser `path_join` means "connect coincident Endpoints", not a general Join.** In the same write, after its `path_edit` applies to the Document as the command finds it, the Document DO checks that Join would merge the two Endpoints its `anchors` names rather than add a segment: that they are within the Join's tolerance as Join measures it, in the topmost path's coordinates with the tolerance scaled to them. Core's `endpointsMeet` is the check and shares that frame with Join, so the two agree under a non-uniform scale or a skew. Paths moved together, by one move or by equal separate moves, still meet and are joined as before.
 
 **Endpoints apart reject the whole command with a new code, `ENDPOINTS_APART`.** Nothing is written, and no Transaction, `rev` or history entry is recorded, as for `NOTHING_TO_CHANGE` (ADR-0109).
 

@@ -9,6 +9,7 @@ import {
   closestEnds,
   convertToPath,
   directionEdits,
+  endpointsMeet,
   type Filled,
   GEOMETRY_OPS,
   type Geometry,
@@ -18,7 +19,7 @@ import {
   runsClockwise,
   type StrokeStyle,
 } from "./path-op.ts";
-import type { GroupNode, Node, ShapeNode } from "./schema.ts";
+import type { GroupNode, Matrix, Node, ShapeNode } from "./schema.ts";
 
 const errorOf = (fn: () => unknown) => {
   try {
@@ -298,6 +299,42 @@ describe("pathOp join", () => {
     expect(errorOf(() => pathOp(dot.doc, { nodeIds: dot.ids, op: "join" }))).toMatchObject({
       code: "INVALID_PATH",
     });
+  });
+
+  // #303: the Document DO rejects a Pen path_join whose Endpoints Join would bridge, so the check
+  // must measure as Join does, in the topmost path's coordinates, under any transform.
+  it("finds Endpoints meet exactly when Join merges them, under a non-uniform scale or a skew", () => {
+    const transforms: Matrix[] = [
+      [4, 0, 0, 1, 0, 0],
+      [1, 0, 0, 4, 0, 0],
+      [1, 0, 3, 1, 0, 0],
+    ];
+    const gaps = [
+      [0.04, 0],
+      [0, 0.04],
+      [0.08, 0],
+      [0, 0.08],
+    ];
+    for (const transform of transforms) {
+      for (const [x, y] of gaps) {
+        const { doc, ids } = paths(`M -10 0 L ${x} ${y}`, "M 0 0 L 10 0");
+        const [a, b] = ids as [string, string];
+        doc.nodes.set(b, { ...(doc.nodes.get(b) as PathNode), transform });
+        const join = {
+          nodeIds: ids,
+          op: "join" as const,
+          tolerance: 0.05,
+          anchors: [
+            { nodeId: a, subpath: 0, index: 1 },
+            { nodeId: b, subpath: 0, index: 0 },
+          ],
+        };
+        const meets = endpointsMeet(doc, join);
+        pathOp(doc, join);
+        const merged = dOf(doc, b).split(" L ").length === 3;
+        expect(meets, `${transform} gap ${x} ${y}`).toBe(merged);
+      }
+    }
   });
 
   it("refuses paths without an open subpath", () => {
