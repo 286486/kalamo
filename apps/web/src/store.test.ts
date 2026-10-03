@@ -137,3 +137,25 @@ it("sends a command that names Anchors by index only once it waited or says why 
   send({ type: "delete", nodeIds: ["p"] });
   expect(useStore.getState().held).toEqual([]);
 });
+
+it("records a command only when it goes out on an open socket, until its answer (#288)", () => {
+  const { last } = stubSockets();
+  const stop = connect("a");
+  last().receive(message("document"));
+  const id = send({ type: "undo" });
+  expect(useStore.getState().sent).toEqual(new Set([id]));
+  last().receive(message("tx", { rev: 1, commandId: id }));
+  expect(useStore.getState().sent).toEqual(new Set());
+  const rejected = send({ type: "redo" });
+  last().receive(message("rejected", { id: rejected }));
+  expect(useStore.getState().sent).toEqual(new Set());
+  // Sent while the socket is down, it never went out, so nothing waits on its answer.
+  last().readyState = 3;
+  send({ type: "undo" });
+  expect(useStore.getState().sent).toEqual(new Set());
+  last().readyState = 1;
+  send({ type: "undo" });
+  last().receive(message("document", { rev: 4 }));
+  expect(useStore.getState().sent).toEqual(new Set());
+  stop();
+});

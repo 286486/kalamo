@@ -20,17 +20,19 @@ import { commitDrag } from "./canvas.ts";
 import { curvatureCancel, curvatureDown, curvatureDrag, curvatureUp } from "./curvature.ts";
 import { anchorKey, localAnchors, parseKey } from "./direct.ts";
 import { directTool } from "./directTool.ts";
+import { documentMenus, findByKeys } from "./menu.ts";
 import { pencilDown, pencilMove, pencilUp } from "./pencil.ts";
 import { type PathDrag, previewAll, previewEdit, previewsOf, type ViewState } from "./receive.ts";
-import { afterReverse, runHeld, send, unheld, useStore } from "./store.ts";
+import { afterReverse, record, runHeld, send, unheld, useStore } from "./store.ts";
 import { message, stateAfter, viewState } from "./testing.ts";
 import type { ToolEvent } from "./toolbox.ts";
 import { finishPen, penDown, penUp } from "./tools.ts";
 
-vi.mock("./store.ts", async (original) => ({
-  ...(await original<typeof import("./store.ts")>()),
-  send: vi.fn(() => "c"),
-}));
+// Records each id as the real `send` does, so the answers tests drive are the person's own (#288).
+vi.mock("./store.ts", async (original) => {
+  const store = await original<typeof import("./store.ts")>();
+  return { ...store, send: vi.fn(() => store.record("c")) };
+});
 
 /**
  * A Make result from two concentric circles, a plain rect, a text, a path with a straight subpath
@@ -1807,4 +1809,247 @@ it("keeps each held edit's preview on screen until that edit runs or is dropped"
     }
   }
   vi.useRealTimers();
+});
+
+// #288: the answer to the person's own command that the browser did not work out keys for keeps
+// keys on a path whose geometry it left as it was, and clears them on one it reshaped.
+
+/** The person's own Transaction for command `id` on `n` as `change` leaves it, sent and answered. */
+function ownTx(id: string, n: Node, change: "paint" | "reshape") {
+  record(id);
+  const { doc } = useStore.getState() as { doc: Document };
+  const updated =
+    change === "paint"
+      ? { ...n, appearance: { fills: [], strokes: [] } }
+      : editPath(structuredClone(doc), {
+          nodeId: n.id,
+          ops: [{ op: "move_anchor", subpath: 0, index: 0, to: [n.id.length, -5] }],
+        }).node;
+  const tx = message("tx", { rev: doc.rev + 1, commandId: id, updated: [updated as Node] });
+  useStore.setState(stateAfter(useStore.getState(), tx));
+  return updated as Node;
+}
+
+it("runs a held drag past the answer to the person's own paint change, and drops it after their reshape (#288)", () => {
+  for (const outcome of ["accepted", "rejected"] as const) {
+    for (const change of ["paint", "reshape"] as const) {
+      const label = `${outcome}, ${change}`;
+      // b's hole Anchor 0 chosen; its Anchor at (70, 10) is 3, and 1 once reversed.
+      const { doc, b, pressed, answer } = pressOn((_, b) => ({ anchors: [anchorKey(b.id, 1, 0)] }));
+      useStore.setState({ ...pressed, edit: null, drag: null, held: [], ran: [] });
+      vi.mocked(send).mockClear();
+      directTool.down(event(doc, 70, 10));
+      directTool.move?.(event(doc, 75, 10));
+      directTool.up?.(event(doc, 75, 10));
+      expect(useStore.getState().held, label).toHaveLength(1);
+      // The answer to a command sent before the press, such as a Gradient panel paint or an Undo.
+      ownTx("g", b, change);
+      const now = useStore.getState().doc as Document;
+      useStore.setState(
+        stateAfter(useStore.getState(), outcome === "accepted" ? answer(now, b.id) : rejected),
+      );
+      runHeld();
+      if (change === "reshape") {
+        expect(commands(), label).toEqual([]);
+        expect(useStore.getState().notice, label).toBe(outcome === "rejected" ? "No." : null);
+        continue;
+      }
+      const index = outcome === "accepted" ? 1 : 3;
+      expect(commands(), label).toEqual([
+        {
+          type: "path_edit",
+          input: { nodeId: b.id, ops: [{ op: "move_anchor", subpath: 1, index, to: [75, 10] }] },
+        },
+      ]);
+    }
+  }
+});
+
+it("redraws a held Pencil stretch past the answer to the person's own paint change on its path (#288)", () => {
+  for (const outcome of ["accepted", "rejected"] as const) {
+    const answer = pressOnOpen();
+    drawnEdits["a Pencil redraw"]();
+    const [p] = useStore.getState().selection as [string, string];
+    ownTx("g", (useStore.getState().doc as Document).nodes.get(p) as Node, "paint");
+    answer(outcome);
+    expectRedrawn(outcome, outcome);
+  }
+});
+
+it("ends a Pen continuation on the person's own reshape of its path, not on their paint change (#288)", () => {
+  for (const outcome of ["accepted", "rejected"] as const) {
+    for (const change of ["paint", "reshape", "held edit that ran"] as const) {
+      const label = `${outcome}, ${change}`;
+      const answer = pressOnOpen();
+      const [p] = useStore.getState().selection as [string, string];
+      penDown([80, 30], 1);
+      penUp();
+      // A held edit that ran, such as a Pencil redraw, is drawn in `ran` until its answer; the Pen's
+      // Anchors predate it all the same.
+      if (change === "held edit that ran") {
+        const edit = { inputs: [], commandIds: ["u"] };
+        useStore.setState({ ran: [{ edit, drag: null, fromHeld: true }] });
+      }
+      // Their own Undo, say, reshapes p's closed subpath; a Fill change leaves p's Anchors.
+      const n = (useStore.getState().doc as Document).nodes.get(p) as Node;
+      const mine = ownTx("u", n, change === "paint" ? "paint" : "reshape");
+      expect(useStore.getState().pen === null, label).toBe(change !== "paint");
+      const after = useStore.getState().doc as Document;
+      answer(outcome);
+      penDown([100, 30], 1);
+      penUp();
+      finishPen();
+      if (change === "paint") {
+        expect(subpathsAfterSent(), label).toEqual(
+          outcome === "accepted"
+            ? [["100 30", "80 30", "80 0", "50 0"]]
+            : [["50 0", "80 0", "80 30", "100 30"]],
+        );
+        continue;
+      }
+      expect(commands(), label).toEqual([]);
+      const stored = ((useStore.getState().doc as Document).nodes.get(p) as PathNode).d;
+      expect(stored, label).toBe(
+        outcome === "accepted" ? reversed(after, p).d : (mine as PathNode).d,
+      );
+    }
+  }
+});
+
+it("sends Undo and Redo after the edits held for a press, in input order; at once with none (#288)", () => {
+  const menus = documentMenus({ open() {}, close() {} });
+  for (const keys of ["Ctrl+Z", "Shift+Ctrl+Z"]) {
+    const { doc, a, pressed, answer } = pressOn((a) => ({ anchors: [anchorKey(a.id, 1, 0)] }));
+    useStore.setState({ ...pressed, edit: null, drag: null, held: [], ran: [] });
+    vi.mocked(send).mockClear();
+    directTool.down(event(doc, 20, 10));
+    directTool.move?.(event(doc, 25, 10));
+    directTool.up?.(event(doc, 25, 10));
+    findByKeys(menus, keys)?.run();
+    expect(commands(), keys).toEqual([]);
+    useStore.setState(stateAfter(useStore.getState(), answer(doc, a.id)));
+    runHeld();
+    expect(
+      commands().map((c) => c.type),
+      keys,
+    ).toEqual(["path_edit", keys === "Ctrl+Z" ? "undo" : "redo"]);
+    // With no press in flight, it is sent at once.
+    vi.mocked(send).mockClear();
+    findByKeys(menus, keys)?.run();
+    expect(
+      commands().map((c) => c.type),
+      keys,
+    ).toEqual([keys === "Ctrl+Z" ? "undo" : "redo"]);
+  }
+});
+
+// Case 5: a's hole runs (10, 10), (10, 20), (20, 20), (20, 10). A held Pencil redraw from its bottom
+// round to its right side is drawn in `ran` once sent and renumbers its Anchors; a held Add Anchor
+// click on its left side adds one, untracked before #288. Either answer mid-drag lets go of a drag on a.
+const heldOnA = {
+  "Pencil redraw": () => {
+    pencilDown([12, 20]);
+    for (const p of [
+      [14, 28],
+      [18, 34],
+      [24, 30],
+      [26, 22],
+      [20, 16],
+    ] as const)
+      pencilMove([[...p]], { shift: false, alt: false });
+    pencilUp(1);
+  },
+  "Add Anchor click": () =>
+    addAnchorTool.down?.(event(useStore.getState().doc as Document, 10, 14)),
+};
+
+it("lets go of a drag when the answer to the person's own held reshape of its path comes mid-drag; their paint change keeps it (#288)", () => {
+  vi.useFakeTimers();
+  for (const mine of [...(Object.keys(heldOnA) as (keyof typeof heldOnA)[]), "paint" as const]) {
+    for (const [name, g] of Object.entries(grabs)) {
+      const label = `${name}, ${mine}`;
+      vi.mocked(send).mockClear();
+      const { doc, a, b } = rings(g.hole);
+      // A press reversing b's hole, in flight.
+      const on = { anchors: [anchorKey(b.id, 1, 0)] };
+      const state = viewState({ doc, selection: [b.id], role: "owner", ...on });
+      setDirection(state, true);
+      const { reversing } = useStore.getState();
+      expect(reversing?.subpaths, label).toEqual([{ nodeId: b.id, subpath: 1 }]);
+      vi.mocked(send).mockClear();
+      useStore.setState({ ...state, selection: [a.id], anchors: [], reversing, tool: "selection" });
+      vi.advanceTimersByTime(1000);
+      const held = mine === "paint" ? null : heldOnA[mine];
+      if (held) {
+        held();
+        expect(useStore.getState().held, label).toHaveLength(1);
+        // Sent as "k" once the press is answered.
+        vi.mocked(send).mockImplementationOnce(() => record("k"));
+      }
+      const pressed = message("tx", {
+        rev: doc.rev + 1,
+        commandId: "c",
+        updated: [reversed(doc, b.id)],
+      });
+      useStore.setState(stateAfter(useStore.getState(), pressed));
+      runHeld();
+      const now = useStore.getState().doc as Document;
+      useStore.setState({
+        selection: [a.id, b.id],
+        anchors: [anchorKey(a.id, 1, 0)],
+        segments: [],
+      });
+      const [x, y] = g.at;
+      g.down(now, x, y);
+      g.move(now, x + 5, y);
+      expect(firstIndex(useStore.getState().edit?.inputs[0]), label).toBe(g.index[0]);
+      let stored: Node;
+      if (held) {
+        const [edit] = commands();
+        expect(edit?.type, label).toBe("path_edit");
+        stored = editPath(structuredClone(now), (edit as { input: PathEditInput }).input).node;
+        expect(localAnchors(stored as PathNode)[1]?.anchors.length, label).toBeGreaterThan(4);
+        const msg = message("tx", { rev: now.rev + 1, commandId: "k", updated: [stored] });
+        useStore.setState(stateAfter(useStore.getState(), msg));
+      } else {
+        stored = ownTx("g", now.nodes.get(a.id) as Node, "paint");
+      }
+      const s = useStore.getState();
+      expect(s.notice, label).toBeNull();
+      const result = finish(g);
+      expect(useStore.getState().doc?.nodes.get(a.id), label).toEqual(stored);
+      if (held) {
+        // Nothing more is drawn or sent, and a is stored as the held edit left it.
+        expect(s.edit, label).toBeNull();
+        expect(result, label).toEqual({ moved: undefined, sent: [] });
+        expect(useStore.getState().held, label).toEqual([]);
+      } else {
+        expect(result.moved, label).toBe(g.index[0]);
+        expect(result.sent.length, label).toBe(1);
+      }
+    }
+  }
+  vi.useRealTimers();
+});
+
+it("lets go only of the Anchors on the path the person's own Undo reshapes, in a drag of two paths (#288)", () => {
+  vi.mocked(send).mockClear();
+  const { doc, a, b } = rings();
+  const anchors = [anchorKey(a.id, 1, 3), anchorKey(b.id, 1, 3)];
+  useStore.setState(viewState({ doc, selection: [a.id, b.id], role: "owner", anchors }));
+  const paths = () => useStore.getState().edit?.inputs.map((i) => i.nodeId);
+  directTool.down(event(doc, 20, 10));
+  directTool.move?.(event(doc, 25, 10));
+  expect(paths()).toEqual([a.id, b.id]);
+  ownTx("u", a, "reshape");
+  expect(paths()).toEqual([b.id]);
+  const now = useStore.getState().doc as Document;
+  directTool.move?.(event(now, 26, 10));
+  directTool.up?.(event(now, 26, 10));
+  expect(commands()).toEqual([
+    {
+      type: "path_edit",
+      input: { nodeId: b.id, ops: [{ op: "move_anchor", subpath: 1, index: 3, to: [76, 10] }] },
+    },
+  ]);
 });

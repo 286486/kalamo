@@ -19,7 +19,7 @@ import { AREA_SHOWN, visibleAreas } from "./presence.ts";
 import { previewAll, previewEdit, previewOp, previewsOf } from "./receive.ts";
 import { editable } from "./selection.ts";
 import { simplifyOpen } from "./simplify.ts";
-import { canEdit, connect, pointerAt, send, useStore } from "./store.ts";
+import { afterReverse, canEdit, connect, pointerAt, send, useStore } from "./store.ts";
 import { Tools } from "./Tools.tsx";
 import {
   type CanvasTool,
@@ -357,9 +357,10 @@ export function Viewer({ docId }: { docId: string }) {
       e.clipboardData.setData("text/plain", svg);
       e.clipboardData.setData("image/svg+xml", svg);
       const nodeIds = selection.filter((id) => editable(doc, doc.nodes.get(id)));
-      // A viewer's Cut copies and deletes nothing.
+      // A viewer's Cut copies and deletes nothing. The delete waits for a Reverse Path Direction
+      // press in flight, as Edit > Clear's does (ADR-0110).
       if (e.type === "cut" && nodeIds.length > 0 && canEdit(useStore.getState())) {
-        send({ type: "delete", nodeIds });
+        afterReverse(() => send({ type: "delete", nodeIds }));
       }
     };
     addEventListener("paste", onPaste);

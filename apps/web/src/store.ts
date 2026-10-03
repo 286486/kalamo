@@ -72,6 +72,7 @@ export const useStore = create<State>(() => ({
   held: [],
   grabbed: [],
   ran: [],
+  sent: new Set(),
   opPreview: null,
   anchors: [],
   segments: [],
@@ -154,9 +155,10 @@ const WAITED = {} as Waited;
 export const unheld = (_why: string): Waited => WAITED;
 
 /**
- * Sends one gesture to the Document (ADR-0010) and returns its id, which its answer carries. While
- * the socket is down it is dropped: the Document sent on reconnect clears what waited on it. A
- * command that names Anchors by index needs `Waited`.
+ * Sends one gesture to the Document (ADR-0010) and returns its id, which its answer carries, and
+ * which `sent` records until then (#288). While the socket is down it is dropped and not recorded:
+ * the Document sent on reconnect clears what waited on it. A command that names Anchors by index
+ * needs `Waited`.
  */
 export function send<C extends Command>(
   command: C,
@@ -164,7 +166,14 @@ export function send<C extends Command>(
 ): string {
   const id = newId();
   const msg: ClientMessage = { type: "command", id, command };
-  if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(msg));
+  if (socket?.readyState !== WebSocket.OPEN) return id;
+  socket.send(JSON.stringify(msg));
+  return record(id);
+}
+
+/** Records command `id` as sent and not yet answered, and returns it. */
+export function record(id: string) {
+  useStore.setState((s) => ({ sent: new Set(s.sent).add(id) }));
   return id;
 }
 
@@ -232,7 +241,9 @@ export function runHeld(said?: string | null) {
     useStore.setState({
       edit,
       drag,
-      ...((sent.edit || sent.drag) && { ran: [...after.ran, sent] }),
+      ...((sent.edit || sent.drag) && {
+        ran: [...after.ran, { ...sent, fromHeld: true as const }],
+      }),
     });
   }
   if (runs > 0) useStore.setState({ notice: joinNotices([...notices, said]) || before });
@@ -288,6 +299,7 @@ export function connect(docId: string): () => void {
     held: [],
     grabbed: [],
     ran: [],
+    sent: new Set(),
     opPreview: null,
     anchors: [],
     segments: [],
