@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { loadGeometry } from "../../geometry/src/index.ts";
 import type { PathNode } from "./anchor.ts";
-import { fromAnchors, toAnchors } from "./anchor.ts";
+import { toAnchors } from "./anchor.ts";
 import { childrenOf, createDocument, createNodes } from "./document.ts";
 import { KalamoError } from "./errors.ts";
 import { formatPath, parsePath, pathBounds, type Segment, shapeSegments } from "./path.ts";
@@ -501,9 +501,7 @@ describe("pathOp simplify", () => {
     });
 
     it("decides per subpath", () => {
-      const [first, second] = toAnchors(parsePath(simplified(`${pencil} ${hexagon}`), "d"));
-      expect(first?.anchors.length).toBeLessThan(20);
-      expect(formatPath(fromAnchors(second ? [second] : []))).toBe(hexagon);
+      expect(simplified(`${pencil} ${hexagon}`)).toBe(`${simplified(pencil)} ${hexagon}`);
     });
   });
 

@@ -227,7 +227,7 @@ export function simplifySubpath(
     const corner = Math.PI * (1 - cornerAngle / 180) - 1e-9;
     const corners = anchors.filter((a) => a.type === "corner").map((a) => a.anchor);
     const fit = fitInk(ink, tolerance, { closed, corner, corners });
-    return (toAnchors(fit)[0]?.anchors.length ?? 0) < n ? fit : null;
+    return (toAnchors(fit)[0]?.anchors.length as number) < n ? fit : null;
   }
   const kept = straighten(ink, stops, tolerance);
   if (closed) kept.pop();
