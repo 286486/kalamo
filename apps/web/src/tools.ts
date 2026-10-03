@@ -226,6 +226,10 @@ function endOf(key: string): Endpoint {
   return { nodeId, subpath, atStart: index === 0 };
 }
 
+/** Why a held Pen finish sent nothing: another Actor's edit changed a path it continued or met. */
+const PEN_DROPPED =
+  "Someone else changed a path the Pen was continuing or connecting to; what it drew was not applied.";
+
 /**
  * Finishes a path the Pen continued or connected (research 06 §1): one `path_edit` on the path
  * continued, or on the one a new path connected to, which it continues backwards; continuing one
@@ -253,12 +257,15 @@ function finishEdit(doc: Document, pen: PenPath) {
   afterReverse(
     ({ doc: now, anchors: held }, w) => {
       // `held` is `keys` renumbered, `from`'s first; another Actor's edit cleared a missing one.
+      if (held.length < keys.length) {
+        cancelDrag();
+        useStore.setState({ notice: PEN_DROPPED });
+        return;
+      }
       const at = held.map(endOf);
       const f = from && at.shift();
       const c =
-        now &&
-        held.length === keys.length &&
-        penCommand(now, { ...pen, from: from && { ...from, ...f }, to: to && at[0] });
+        now && penCommand(now, { ...pen, from: from && { ...from, ...f }, to: to && at[0] });
       if (!c) {
         cancelDrag();
         return;

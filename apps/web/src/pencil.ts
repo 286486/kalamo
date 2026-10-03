@@ -301,7 +301,10 @@ export function pencilResult(
   return sub ? { path: { anchors: sub.anchors, closed: sub.closed } } : null;
 }
 
-/** Why a held redraw sent nothing: the person's own edit in the window took its path off the Ink. */
+/**
+ * Why a held redraw sent nothing: another Actor's edit to its path, or the person's own edit in the
+ * window that took the path off the Ink.
+ */
 const DROPPED =
   "The Pencil edit was not applied; its path changed before Reverse Path Direction was answered.";
 
@@ -364,13 +367,13 @@ export function pencilUp(scale: number) {
     const own = done.map((p) => applyTo(m, ...p));
     afterReverse(
       ({ doc: now, anchors }, w) => {
-        if (!now || anchors.length === 0) {
+        if (!now) {
           cancelDrag();
           return;
         }
-        const f = frame(now);
-        const at = own.map((p) => applyTo(f, ...p));
-        const again = pencilResult(now, [nodeId], at, o, scale);
+        const f = anchors.length > 0 && frame(now);
+        const at = f && own.map((p) => applyTo(f, ...p));
+        const again = at && pencilResult(now, [nodeId], at, o, scale);
         if (!again || !("edit" in again)) {
           cancelDrag();
           useStore.setState({ notice: DROPPED });

@@ -6,6 +6,7 @@ import {
   afterProbe,
   copyInput,
   type Effect,
+  joinNotices,
   preview,
   previewEdit,
   previewOp,
@@ -198,6 +199,28 @@ it("tells the person when an undo skipped Nodes deleted meanwhile", () => {
     notice: expect.stringContaining("Skipped 1"),
   });
   expect(stateAfter(state, tx(doc, {}))).not.toHaveProperty("notice");
+});
+
+// #291: one Transaction that ends a Pen continuation and skipped Nodes says both.
+it("keeps the Pen's notice beside the Skipped one from the same Transaction", () => {
+  const { doc, a, b } = fixture();
+  const pen = {
+    anchors: [],
+    from: { nodeId: a.id, subpath: 0, atStart: false, kept: 0 },
+    closed: false,
+  };
+  const after = stateAfter(
+    viewState({ doc, pen }),
+    tx(doc, { actor: "agent", updated: [a], skippedIds: [b.id] }),
+  );
+  expect(after.pen).toBeNull();
+  // Drawn work's first.
+  expect(after.notice).toMatch(/^Someone else .*Pen .*not applied.* Skipped 1 /);
+});
+
+it("joins one message's notices in order, each once", () => {
+  expect(joinNotices(["A.", null, "B.", false, "A.", undefined])).toBe("A. B.");
+  expect(joinNotices([null, undefined])).toBe("");
 });
 
 it("selects the Group a selected Node was just moved into, as Make Clipping Mask leaves it", () => {

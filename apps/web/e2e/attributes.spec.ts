@@ -784,6 +784,47 @@ for (const outcome of ["accepted", "rejected"] as const) {
       });
     }
     await expect.poll(async () => anchorsIn(await d(id))[2]?.join(",")).toBe(theirs);
+    await expect(page.getByRole("alert")).toContainText("The Pencil edit was not applied");
+    await page.waitForTimeout(300);
+    expect(anchorsIn(await d(id))[2]?.join(",")).toBe(theirs);
+  });
+
+  // #291, ADR-0110: an Agent's edit to the path drops the held Pen finish, and a notice says what
+  // the Pen drew was not applied, beside the rejection's own.
+  test(`a held Pen finish is dropped with a notice when an Agent edits its path, ${outcome}`, async ({
+    page,
+    request,
+  }) => {
+    const { docId, ids, held, hold, at, d, button } = await rings(page, request, [0], hook);
+    const [id] = ids as [string];
+    await page.keyboard.press("a");
+    await page.mouse.click(...at(120, 20));
+    await expect(button("Reverse Path Direction On")).toHaveAttribute("aria-pressed", "true");
+
+    hold();
+    await button("Reverse Path Direction Off").click();
+    await expect.poll(() => held.length).toBe(1);
+    await drawnEdits["a Pen continuing from an Endpoint"].run(page, at);
+    await call(request, "kalamo_path_edit", {
+      docId,
+      nodeId: id,
+      ops: [{ op: "move_anchor", subpath: 2, index: 0, to: [120, 10] }],
+    });
+    const theirs = outcome === "accepted" ? "160 60,160 20,120 10" : "120 10,160 20,160 60";
+    await expect.poll(async () => anchorsIn(await d(id))[2]?.join(",")).toMatch(/120 10/);
+    const [press] = held;
+    if (outcome === "accepted") press?.pass();
+    else {
+      press?.answer({
+        type: "rejected",
+        id: press.id,
+        error: { code: "INVALID_PATH", message: "Rejected for the test.", hint: "" },
+      });
+    }
+    const alert = page.getByRole("alert");
+    await expect(alert).toContainText("what it drew was not applied");
+    if (outcome === "rejected") await expect(alert).toContainText("Rejected for the test.");
+    await expect.poll(async () => anchorsIn(await d(id))[2]?.join(",")).toBe(theirs);
     await page.waitForTimeout(300);
     expect(anchorsIn(await d(id))[2]?.join(",")).toBe(theirs);
   });

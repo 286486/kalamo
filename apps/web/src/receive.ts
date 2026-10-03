@@ -402,18 +402,21 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
       (msg.type === "document" || msg.commandId === s.paintPreview.commandId) && {
         paintPreview: null,
       }),
-    ...(skipped > 0 && {
-      notice: `Skipped ${skipped} object(s) deleted or moved since; they stay as they are.`,
-    }),
-    // Last, so its notice is the one shown: what the person drew is lost.
-    ...(reached && {
-      pen: null,
-      ...(s.edit?.commandIds === null && { edit: null }),
-      notice:
-        "Someone else changed the path the Pen was continuing; the Pen stopped, and what it drew was not applied.",
+    ...(reached && { pen: null, ...(s.edit?.commandIds === null && { edit: null }) }),
+    ...((reached || skipped > 0) && {
+      notice: joinNotices([
+        reached &&
+          "Someone else changed the path the Pen was continuing; the Pen stopped, and what it drew was not applied.",
+        skipped > 0 &&
+          `Skipped ${skipped} object(s) deleted or moved since; they stay as they are.`,
+      ]),
     }),
   };
 }
+
+/** The notices one message gives, in the order given, each once and none replacing another (#291). */
+export const joinNotices = (notices: (string | false | null | undefined)[]) =>
+  [...new Set(notices.filter(Boolean))].join(" ");
 
 /**
  * `doc` with the drag applied by core, as the Document DO will apply it. Nodes deleted meanwhile
