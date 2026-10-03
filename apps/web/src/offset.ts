@@ -65,7 +65,7 @@ export function offsetDialog() {
       useStore.setState({ opPreview: null });
       return;
     }
-    sendPreviewedOp(input());
+    sendPreviewedOp(input(), settings.preview);
   };
   document.body.append(dialog);
   dialog.showModal();

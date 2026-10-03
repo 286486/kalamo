@@ -20,7 +20,7 @@ import { anchorKey, localAnchors } from "./direct.ts";
 import { directTool } from "./directTool.ts";
 import { documentMenus, type Item, type Menu, type MenuItem, shapeMode } from "./menu.ts";
 import { commitSimplify, sendPreviewedOp } from "./simplify.ts";
-import { record, runHeld, send, useStore } from "./store.ts";
+import { type NodeOp, record, runHeld, send, useStore } from "./store.ts";
 import { message, stateAfter, viewState } from "./testing.ts";
 import type { ToolEvent } from "./toolbox.ts";
 
@@ -105,16 +105,18 @@ function apply(doc: Document, id: string, c: Command, reject: boolean): ServerMe
   });
 }
 
-/** Answers what was sent, in order, and what the answers send, as the socket does; `reject` the press. */
+/** Answers the next command sent, as the socket does, rejecting it if it is `reject`; its id. */
+function answer(server: Document, reject?: string) {
+  const { id, command } = queue.shift() as { id: string; command: Command };
+  const after = stateAfter(useStore.getState(), apply(server, id, command, id === reject));
+  useStore.setState(after);
+  runHeld(after.notice);
+  return id;
+}
+
+/** Answers what was sent, in order, and what the answers send. */
 function serve(server: Document, reject?: string) {
-  for (let next = queue.shift(); next; next = queue.shift()) {
-    const after = stateAfter(
-      useStore.getState(),
-      apply(server, next.id, next.command, next.id === reject),
-    );
-    useStore.setState(after);
-    runHeld(after.notice);
-  }
+  while (queue.length > 0) answer(server, reject);
 }
 
 /**
@@ -177,7 +179,7 @@ function menuItem(...path: string[]): MenuItem {
   throw new Error(`${path.join(" > ")} is a submenu.`);
 }
 
-const preview = (input: Parameters<typeof sendPreviewedOp>[0]) => ({
+const preview = (input: NodeOp) => ({
   input,
   showOriginal: false,
   commandId: null,
@@ -197,7 +199,7 @@ function entryPoints(p: string, q: string, r: string): Record<string, () => void
   return {
     outline_stroke: path("Outline Stroke"),
     offset: () =>
-      sendPreviewedOp({ nodeIds, op: "offset", distance: 5, join: "miter", miterLimit: 4 }),
+      sendPreviewedOp({ nodeIds, op: "offset", distance: 5, join: "miter", miterLimit: 4 }, true),
     reverse: path("Reverse Path Direction"),
     simplify: () => {
       useStore.setState({ opPreview: preview(simplify) });
@@ -206,7 +208,7 @@ function entryPoints(p: string, q: string, r: string): Record<string, () => void
     add_anchors: path("Add Anchor Points"),
     divide_below: path("Divide Objects Below"),
     split_into_grid: () =>
-      sendPreviewedOp({ nodeIds, op: "split_into_grid", rows: 2, cols: 2, gutter: 0 }),
+      sendPreviewedOp({ nodeIds, op: "split_into_grid", rows: 2, cols: 2, gutter: 0 }, true),
     clean_up: () =>
       cleanUp({ op: "clean_up", strayPoints: true, unpainted: true, emptyText: true }),
     convert_to_path: () => menuItem("Object", "Shape", "Expand Shape").run(),
@@ -227,12 +229,7 @@ it("sends every path_op on whole Nodes after the edits held for a press, in inpu
       entryPoints(p.id, q.id, r.id)[op]?.();
       const atClick = { sent: sentOps(), pending: useStore.getState().pending };
       // The press's answer alone, so what it lets go is sent and not yet answered.
-      const first = queue.shift();
-      expect(first?.id, label).toBe(press);
-      const answer = apply(server, press, first?.command as Command, outcome === "rejected");
-      const after = stateAfter(useStore.getState(), answer);
-      useStore.setState(after);
-      runHeld(after.notice);
+      expect(answer(server, outcome === "rejected" ? press : undefined), label).toBe(press);
       expect(sentOps(), label).toEqual(["path_edit", op]);
       // Nothing went out, and nothing waited on the op, until the press was answered.
       expect(atClick, label).toEqual({ sent: [], pending: [] });
@@ -262,7 +259,7 @@ it("sends every path_op on whole Nodes at once with no press in flight (#289)", 
   }
 });
 
-/** q's Anchors in `doc`, as points. */
+/** `id`'s Anchors in `doc`, as points. */
 const anchorsOf = (doc: Document, id: string) =>
   localAnchors(doc.nodes.get(id) as PathNode).flatMap((s) => s.anchors.map((a) => a.anchor));
 
@@ -317,20 +314,17 @@ it("keeps a held Simplify, Offset Path or Split Into Grid preview drawn until it
         simplify: { nodeIds, op, tolerance: 1, cornerAngle: 90, toLines: false },
         offset: { nodeIds, op, distance: 5, join: "miter", miterLimit: 4 },
         split_into_grid: { nodeIds, op, rows: 2, cols: 2, gutter: 0 },
-      }[op] as Parameters<typeof sendPreviewedOp>[0];
+      }[op] as NodeOp;
       useStore.setState({ opPreview: preview(input) });
       if (op === "simplify") commitSimplify();
-      else sendPreviewedOp(input);
+      else sendPreviewedOp(input, true);
       const held = useStore.getState().opPreview;
       expect(held, label).toMatchObject({ input, commandId: null });
       expect(commands().slice(1), label).toEqual([]);
       const next = later ? preview({ nodeIds: [s.q.id], op: "add_anchors" }) : null;
       if (next) useStore.setState({ opPreview: next });
       // The press's answer alone: the drag and then the op go out.
-      const first = queue.shift() as { id: string; command: Command };
-      const after = stateAfter(useStore.getState(), apply(server, first.id, first.command, false));
-      useStore.setState(after);
-      runHeld(after.notice);
+      answer(server);
       expect(sentOps().slice(1), label).toEqual(["path_edit", op]);
       const sent = queue[1]?.id;
       expect(useStore.getState().opPreview, label).toEqual(next ?? { ...held, commandId: sent });
@@ -359,25 +353,22 @@ it("counts Clean Up's notice on the Document it runs on, after a press (#289)", 
   expect(useStore.getState().notice).toBe("Nothing to clean up.");
 });
 
-it("leaves a held Simplify's preview to it when Offset Path is sent with Preview off (#289)", () => {
+it("leaves a held Offset Path's preview to it when Offset Path is sent again with Preview off (#289)", () => {
   const { p, server, drag } = pressed();
   drag();
-  const simplify = {
+  const offset = (distance: number): NodeOp => ({
     nodeIds: [p.id],
-    op: "simplify" as const,
-    tolerance: 1,
-    cornerAngle: 90,
-    toLines: false,
-  };
-  useStore.setState({ opPreview: preview(simplify) });
-  commitSimplify();
+    op: "offset",
+    distance,
+    join: "miter",
+    miterLimit: 4,
+  });
+  useStore.setState({ opPreview: preview(offset(5)) });
+  sendPreviewedOp(offset(5), true);
   const held = useStore.getState().opPreview;
-  sendPreviewedOp({ nodeIds: [p.id], op: "offset", distance: 5, join: "miter", miterLimit: 4 });
+  sendPreviewedOp(offset(9), false);
   expect(useStore.getState().opPreview).toBe(held);
-  const first = queue.shift() as { id: string; command: Command };
-  const after = stateAfter(useStore.getState(), apply(server, first.id, first.command, false));
-  useStore.setState(after);
-  runHeld(after.notice);
-  expect(sentOps().slice(1)).toEqual(["path_edit", "simplify", "offset"]);
+  answer(server);
+  expect(sentOps().slice(1)).toEqual(["path_edit", "offset", "offset"]);
   expect(useStore.getState().opPreview).toEqual({ ...held, commandId: queue[1]?.id });
 });

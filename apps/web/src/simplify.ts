@@ -43,14 +43,14 @@ function takeDown() {
 
 /**
  * Sends Simplify's, Offset Path's or Split Into Grid's `path_op` on OK, once a Reverse Path
- * Direction press in flight is answered (ADR-0110). The op preview on screen stays drawn while it
- * waits and until its answer, so nothing flickers (ADR-0035), unless a later op's preview takes its
- * place: the op is sent all the same.
+ * Direction press in flight is answered (ADR-0110). When the op was `previewed`, its preview stays
+ * drawn while it waits and until its answer, so nothing flickers (ADR-0035), unless a later op's
+ * preview takes its place: the op is sent all the same.
  */
-export function sendPreviewedOp(input: NodeOp) {
+export function sendPreviewedOp(input: NodeOp, previewed: boolean) {
   const shown = useStore.getState().opPreview;
-  // Only this op's own preview: Offset Path or Split Into Grid with Preview off leaves the slot alone.
-  const own = shown && !shown.commandId && shown.input.op === input.op;
+  // With Preview off, the slot holds another op's preview, maybe a held one: it is left alone.
+  const own = previewed && shown && !shown.commandId && shown.input.op === input.op;
   const held = own ? { ...shown, input, showOriginal: false } : null;
   if (held) useStore.setState({ opPreview: held });
   afterReverse((_s, w) => {
@@ -65,7 +65,7 @@ export function sendPreviewedOp(input: NodeOp) {
 export function commitSimplify() {
   takeDown();
   const { opPreview } = useStore.getState();
-  if (opPreview && !opPreview.commandId) sendPreviewedOp(opPreview.input);
+  if (opPreview && !opPreview.commandId) sendPreviewedOp(opPreview.input, true);
 }
 
 function cancel() {
