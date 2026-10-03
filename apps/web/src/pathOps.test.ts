@@ -358,3 +358,26 @@ it("counts Clean Up's notice on the Document it runs on, after a press (#289)", 
   expect(sentOps()).toEqual(["path_reverse", "path_edit"]);
   expect(useStore.getState().notice).toBe("Nothing to clean up.");
 });
+
+it("leaves a held Simplify's preview to it when Offset Path is sent with Preview off (#289)", () => {
+  const { p, server, drag } = pressed();
+  drag();
+  const simplify = {
+    nodeIds: [p.id],
+    op: "simplify" as const,
+    tolerance: 1,
+    cornerAngle: 90,
+    toLines: false,
+  };
+  useStore.setState({ opPreview: preview(simplify) });
+  commitSimplify();
+  const held = useStore.getState().opPreview;
+  sendPreviewedOp({ nodeIds: [p.id], op: "offset", distance: 5, join: "miter", miterLimit: 4 });
+  expect(useStore.getState().opPreview).toBe(held);
+  const first = queue.shift() as { id: string; command: Command };
+  const after = stateAfter(useStore.getState(), apply(server, first.id, first.command, false));
+  useStore.setState(after);
+  runHeld(after.notice);
+  expect(sentOps().slice(1)).toEqual(["path_edit", "simplify", "offset"]);
+  expect(useStore.getState().opPreview).toEqual({ ...held, commandId: queue[1]?.id });
+});

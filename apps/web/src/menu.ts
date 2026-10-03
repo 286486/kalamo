@@ -153,12 +153,10 @@ export const shapeModeTargets = (s: Pick<State, "doc" | "selection" | "role">) =
  */
 function selectingPathOp(nodeIds: string[], op: NodeOp["op"]) {
   if (nodeIds.length === 0) return;
+  useStore.setState({ notice: null });
   afterReverse((_s, w) => {
     const commandId = send({ type: "path_op", input: { nodeIds, op } }, w);
-    useStore.setState((s) => ({
-      notice: null,
-      pending: [...s.pending, { commandId, nodes: [], select: true }],
-    }));
+    useStore.setState((s) => ({ pending: [...s.pending, { commandId, nodes: [], select: true }] }));
   });
 }
 

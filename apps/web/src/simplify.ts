@@ -49,7 +49,9 @@ function takeDown() {
  */
 export function sendPreviewedOp(input: NodeOp) {
   const shown = useStore.getState().opPreview;
-  const held = shown && { ...shown, input, showOriginal: false };
+  // Only this op's own preview: Offset Path or Split Into Grid with Preview off leaves the slot alone.
+  const own = shown && !shown.commandId && shown.input.op === input.op;
+  const held = own ? { ...shown, input, showOriginal: false } : null;
   if (held) useStore.setState({ opPreview: held });
   afterReverse((_s, w) => {
     const commandId = send({ type: "path_op", input }, w);
