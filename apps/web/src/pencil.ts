@@ -302,11 +302,11 @@ export function pencilResult(
 }
 
 /**
- * Why a held redraw sent nothing: another Actor's edit to its path, or the person's own edit in the
- * window that took the path off the Ink.
+ * Why a held redraw sent nothing: another Actor's edit to its path, the answer to the person's own
+ * command that removed the Anchor it holds (#298), or their own edit that took the path off the Ink.
  */
 const DROPPED =
-  "The Pencil edit was not applied; its path changed before Reverse Path Direction was answered.";
+  "The Pencil edit was not applied; its path changed before your earlier edit was answered.";
 
 /** The Ink of the drag in progress, in document coordinates, and where a straight segment starts. */
 let ink: Point[] | null = null;
@@ -360,7 +360,8 @@ export function pencilUp(scale: number) {
     // coordinates, so the person's Selection tool move sent meanwhile carries the Ink with the path,
     // as Illustrator, which redraws before it moves, would (#284). It holds the key of the path's
     // first Anchor only so that another Actor's edit to the path, which clears it, drops the redraw
-    // (ADR-0109); which Anchor does not matter.
+    // (ADR-0109); which Anchor does not matter, but the answer to the person's own command that
+    // removes it drops the redraw too (#298).
     const { nodeId } = r.edit;
     const frame = (doc: Document) => worldTransform(doc, doc.nodes.get(nodeId) as Node);
     const m = invert(frame(s.doc));

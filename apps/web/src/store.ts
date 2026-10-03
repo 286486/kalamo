@@ -202,8 +202,9 @@ export const waiting = (s: Pick<State, "reversing" | "renumbering">) =>
   !!s.reversing || s.renumbering.size > 0;
 
 /**
- * Runs a Direct Selection edit now, or once the Reverse Path Direction press in flight is answered,
- * on the Document as it is then and the keys the person had chosen, renumbered (ADR-0110). The edit
+ * Runs a Direct Selection edit now, or once the Reverse Path Direction press in flight, or the
+ * person's other command that may renumber a path, is answered (`waiting`), on the Document as it
+ * is then and the keys the person had chosen, renumbered (ADR-0110, #298). The edit
  * is handed the `Waited` its commands by index are sent with. `chosen` overrides the Direct
  * Selection's keys, as a drag's own do; a `target` stands on its own keys, and the edit reads it
  * alone, as the answer turns it. With `previewed`, the unsent preview in `edit` and `drag` is the
@@ -235,7 +236,8 @@ export function afterReverse(
 }
 
 /**
- * Runs the held edits in order; one that presses Reverse Path Direction again holds the rest. Each
+ * Runs the held edits in order; one that sends a command that may renumber a path, such as another
+ * press, holds the rest (#298). Each
  * runs on its own preview, so it replaces or drops that one only: what it sends is drawn in `ran`
  * until answered, and the gesture's preview it set aside is put back (ADR-0110). The notices they
  * set, such as a drop of what the person drew, are shown before `said`, the notice of the message

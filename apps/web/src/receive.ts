@@ -224,7 +224,7 @@ export interface ViewState {
    * as for `reversing` (#298).
    */
   renumbering: ReadonlyMap<string, Renumbering | null>;
-  /** Direct Selection edits waiting for `reversing`'s answer, oldest first. */
+  /** Direct Selection edits waiting for the answers to `reversing` and `renumbering`, oldest first. */
   held: Held[];
   /**
    * What a drag still being made holds by index: Direct Selection's Anchors, or the one Anchor,

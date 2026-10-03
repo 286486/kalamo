@@ -207,3 +207,77 @@ test("the Anchors bar converts selected segments to smooth and corner", async ({
   await page.keyboard.press("v");
   await expect(bar).toHaveCount(0);
 });
+
+// #298, ADR-0110: a drag made before the answer to the person's own Add Anchor click waits for it,
+// and moves the Anchor pressed once the click's Anchor is in the path.
+test("a drag made before an Add Anchor click's answer moves the Anchor pressed", async ({
+  page,
+  request,
+}) => {
+  const { docId, defaultLayerId: parentId } = (
+    await call(request, "kalamo_doc_create", {
+      name: "Renumbered",
+      artboards: [{ width: 200, height: 100 }],
+    })
+  ).structuredContent;
+  // A square around a hole running (40, 40), (40, 60), (60, 60), (60, 40).
+  const [id] = (
+    await call(request, "kalamo_node_create", {
+      docId,
+      nodes: [
+        {
+          type: "path",
+          parentId,
+          d: "M20 20 L80 20 L80 80 L20 80 Z M40 40 L40 60 L60 60 L60 40 Z",
+          appearance: { fills: [{ color: "#FF0000" }] },
+        },
+      ],
+    })
+  ).structuredContent.createdIds as [string];
+  // The answer to the click, and every server message after it, wait until `release`.
+  let clickId: string | null = null;
+  let holding = true;
+  const waiting: (() => void)[] = [];
+  await page.routeWebSocket(/\/ws$/, (ws) => {
+    const server = ws.connectToServer();
+    ws.onMessage((m) => {
+      const msg = JSON.parse(String(m));
+      const ops = msg.command?.input?.ops as { op: string }[] | undefined;
+      if (ops?.some((o) => o.op === "add_anchor")) clickId = msg.id;
+      server.send(m);
+    });
+    server.onMessage((m) => {
+      const held = waiting.length > 0 || (clickId && JSON.parse(String(m)).commandId === clickId);
+      if (holding && held) waiting.push(() => ws.send(m));
+      else ws.send(m);
+    });
+  });
+  const release = () => {
+    holding = false;
+    for (const send of waiting.splice(0)) send();
+  };
+  await page.goto(`/docs/${docId}`);
+  await expect(page.getByTestId("status-bar")).toContainText(/\d+%/);
+  await page.keyboard.press("Control+1");
+  await expect(page.getByTestId("status-bar")).toContainText("100%");
+  const box = await page.getByTestId("canvas").boundingBox();
+  if (!box) throw new Error("no canvas");
+  const at = (x: number, y: number) =>
+    [box.x + box.width / 2 + x - 100, box.y + box.height / 2 + y - 50] as const;
+  const d = async () =>
+    (await call(request, "kalamo_node_get", { docId, nodeIds: [id], detail: "full" }))
+      .structuredContent.nodes[0].d as string;
+
+  await page.keyboard.press("+");
+  await page.mouse.click(...at(40, 48));
+  await expect.poll(() => clickId).not.toBeNull();
+  await page.keyboard.press("a");
+  await page.mouse.move(...at(60, 40));
+  await page.mouse.down();
+  await page.mouse.move(...at(70, 40), { steps: 5 });
+  await page.mouse.up();
+  // The click is stored; the drag waits for its answer.
+  await expect.poll(d).toMatch(/M 40 40 L 40 4\d(\.\d+)? L 40 60 L 60 60 L 60 40 Z$/);
+  release();
+  await expect.poll(d).toMatch(/M 40 40 L 40 4\d(\.\d+)? L 40 60 L 60 60 L 70 40 Z$/);
+});
