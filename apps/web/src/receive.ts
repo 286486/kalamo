@@ -44,9 +44,9 @@ import type { Tool } from "./toolbox.ts";
 
 /**
  * The Selection being dragged by (dx, dy) pt. `commandId` is set once its move has been sent, in
- * `sentPreviews`; the live slot `drag` holds one not yet sent. With
- * `copy`, Alt held, it leaves the originals and drops copies (ADR-0076); `leave` is the Isolation
- * move its answer makes, as a PendingCreate's.
+ * `sentPreviews`; the live slot `drag` holds one not yet sent. With `copy`, Alt held, it leaves the
+ * originals and drops copies (ADR-0076); `leave` is the Isolation move its answer makes, as a
+ * PendingCreate's.
  */
 export interface Drag {
   nodeIds: string[];
