@@ -366,14 +366,14 @@ export function documentMenus(tabs: {
             // Otherwise it waits for the person's own renumbering command, so it runs after the
             // edits made before it, in input order (ADR-0110); so does Redo.
             run: () => {
-              if (!undoAnchor()) afterRenumbering(() => send({ type: "undo" }));
+              if (!undoAnchor()) afterRenumbering((_s, w) => send({ type: "undo" }, w));
             },
           },
           {
             label: "Redo",
             keys: "Shift+Ctrl+Z",
             enabled: hasDoc,
-            run: () => afterRenumbering(() => send({ type: "redo" })),
+            run: () => afterRenumbering((_s, w) => send({ type: "redo" }, w)),
           },
           "-",
           // A click is a user gesture, so execCommand fires the copy or cut event a key press would.
@@ -434,7 +434,7 @@ export function documentMenus(tabs: {
                 }
                 // The answering tx prunes the Selection; a rejection keeps it for another press.
                 const nodeIds = selection.filter((id) => editable(doc, doc.nodes.get(id)));
-                if (nodeIds.length > 0) send({ type: "delete", nodeIds });
+                if (nodeIds.length > 0) send({ type: "delete", nodeIds }, w);
               }),
           },
         ]),

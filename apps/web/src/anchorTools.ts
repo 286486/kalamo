@@ -40,7 +40,7 @@ export function sendAnchorEdits({ edits, deleteIds, known = [] }: AnchorEdits, w
       known.find((k) => k.nodeId === input.nodeId),
     );
   }
-  if (deleteIds.length > 0) send({ type: "delete", nodeIds: deleteIds });
+  if (deleteIds.length > 0) send({ type: "delete", nodeIds: deleteIds }, w);
   useStore.setState({ anchors: [], segments: [] });
 }
 

@@ -361,7 +361,7 @@ export function Viewer({ docId }: { docId: string }) {
       // A viewer's Cut copies and deletes nothing. The delete waits for the person's own
       // renumbering command, as Edit > Clear's does (ADR-0110).
       if (e.type === "cut" && nodeIds.length > 0 && canEdit(useStore.getState())) {
-        afterRenumbering(() => send({ type: "delete", nodeIds }));
+        afterRenumbering((_s, w) => send({ type: "delete", nodeIds }, w));
       }
     };
     addEventListener("paste", onPaste);

@@ -134,16 +134,18 @@ export const pointerAt = (cursor: Pointer) => presence?.update({ cursor });
 const views = new Map<string, Pick<State, "viewport" | "selection" | "isolated" | "layerRows">>();
 
 /**
- * Every command except a `path_edit`, a `path_join`, a `path_op` and a `path_reverse`. The person's
- * own renumbering command, unanswered, would put one that names Anchors, Handles or segments by
- * index on other points, and a `path_op` on whole Nodes reshapes or replaces the paths that edits
- * held for it name by index, so `send` takes each only with `Waited` (ADR-0110). A `path_reverse`,
- * a Reverse Path Direction press, is the renumbering command the store tracks alone, so `send`
- * takes it only with `Answered` (#279).
+ * Every command except a `path_edit`, a `path_join`, a `path_op`, a `path_reverse`, an `undo`, a
+ * `redo` and a `delete`. The person's own renumbering command, unanswered, would put one that names
+ * Anchors, Handles or segments by index on other points, and a `path_op` on whole Nodes reshapes or
+ * replaces the paths that edits held for it name by index, so `send` takes each only with `Waited`
+ * (ADR-0110). An `undo`, a `redo` and a `delete` name no index, but must run after the edits held
+ * before them, in input order, so `send` takes them only with `Waited` too (#312). A
+ * `path_reverse`, a Reverse Path Direction press, is the renumbering command the store tracks
+ * alone, so `send` takes it only with `Answered` (#279).
  */
 export type NodeCommand = Exclude<
   Command,
-  { type: "path_edit" | "path_join" | "path_op" | "path_reverse" }
+  { type: "path_edit" | "path_join" | "path_op" | "path_reverse" | "undo" | "redo" | "delete" }
 >;
 /** A `path_op` on whole Nodes. */
 export type NodeOp = PathOpInput & { anchors?: undefined };
@@ -152,7 +154,7 @@ declare const waited: unique symbol;
 /**
  * Says that a command is sent once the person's own renumbering command is answered, as
  * `afterRenumbering` hands it, or that it need not wait, as `unheld` does: it names indices, or it
- * reshapes or replaces paths that held edits name by index (ADR-0110).
+ * reshapes or replaces paths that held edits name by index, or it must run after them (ADR-0110).
  */
 export type Waited = { readonly [waited]: true };
 
@@ -167,8 +169,8 @@ export type Answered = Waited & { readonly [answered]: true };
 const WAITED = {} as Answered;
 
 /**
- * Lets an edit by index be sent at once, though the person's own renumbering command may be
- * unanswered. `why` says at the call site why it need not wait (ADR-0110).
+ * Lets a command that needs `Waited` be sent at once, though the person's own renumbering command
+ * may be unanswered. `why` says at the call site why it need not wait (ADR-0110).
  */
 export const unheld = (_why: string): Waited => WAITED;
 
@@ -176,8 +178,9 @@ export const unheld = (_why: string): Waited => WAITED;
  * Sends one gesture to the Document (ADR-0010) and returns its id, which its answer carries, and
  * which `sent` records until then (#288). While the socket is down it is dropped and not recorded:
  * the Document sent on reconnect clears what waited on it. A command that names Anchors by index,
- * and any `path_op`, needs `Waited`; a Reverse Path Direction press needs `Answered`. `known` says
- * how a `path_edit` renumbers its path where its ops alone do not, as for Clear's `set_d` (#298).
+ * any `path_op`, an `undo`, a `redo` and a `delete` need `Waited`; a Reverse Path Direction press
+ * needs `Answered`. `known` says how a `path_edit` renumbers its path where its ops alone do not,
+ * as for Clear's `set_d` (#298).
  *
  * Tests replace `send` with a module mock (`vi.mock("./store.ts")`), which only calls from other
  * modules go through: a helper in this file would call the real `send`, which drops the command
