@@ -801,11 +801,14 @@ it("after a reconnect, renumbers the keys only on a subpath the press reached", 
   // The press reached the Document DO for b only before the socket dropped.
   const nodes = [...doc.nodes.values()].map((n) => (n.id === b.id ? reversed(doc, b.id) : n));
   const snapshot = message("document", { rev: doc.rev + 1, nodes });
-  expect(stateAfter(pressed, snapshot)).toMatchObject({
-    edit: null,
-    reversing: null,
-    anchors: [anchorKey(a.id, 1, 1), anchorKey(b.id, 1, 3)],
-  });
+  // So too with another of the person's commands unanswered, such as a delete sent unheld (#298).
+  for (const renumbering of [new Map(), new Map([["k", null]])]) {
+    expect(stateAfter({ ...pressed, renumbering }, snapshot)).toMatchObject({
+      edit: null,
+      reversing: null,
+      anchors: [anchorKey(a.id, 1, 1), anchorKey(b.id, 1, 3)],
+    });
+  }
 });
 
 // #276: on a reconnect, a winding flipped by someone else's reshape is not the press's reverse.
@@ -2321,6 +2324,16 @@ it("sends quick Add and Delete Anchor and Pen Auto Add/Delete clicks one answer 
   }
 });
 
+it("adds a quick second Add Anchor click on the half of the segment it was clicked on (#298 T4)", () => {
+  const { doc, p } = line();
+  editPath(doc, { nodeId: p.id, ops: [{ op: "set_d", d: "M 0 0 L 100 0" }] });
+  const { server, serveAll } = serve(doc);
+  for (const x of [30, 70]) addAnchorTool.down?.(event(useStore.getState().doc as Document, x, 0));
+  serveAll();
+  const anchors = toAnchors(parsePath((server.nodes.get(p.id) as PathNode).d, "d"))[0]?.anchors;
+  expect(anchors?.map((a) => Math.round(a.anchor[0]))).toEqual([0, 30, 70, 100]);
+});
+
 /** The Edit menu's Clear, or an Object > Path item by its label. */
 const menuItem = (label: string) => {
   const find = (items: Item[]): MenuItem | undefined => {
@@ -2340,6 +2353,18 @@ const onChosen =
     useStore.setState({ anchors: [anchorKey(a.id, 1, index)], segments: [], tool });
     run();
   };
+
+it("adds an Anchor clicked before a Clear's answer on the subpath the Clear renumbered (#298)", () => {
+  const { doc, a } = rings();
+  const outer = [0, 1, 2, 3].map((i) => anchorKey(a.id, 0, i));
+  useStore.setState(viewState({ doc, selection: [a.id], role: "owner", anchors: outer }));
+  const { server, serveAll } = serve(doc);
+  menuItem("Clear").run();
+  addAnchorClick(doc, a);
+  serveAll();
+  const at = (stored(server, a.id, 0) as string[]).slice(0, -1).map((s) => s.split(",")[0]);
+  expect(at).toEqual(["10 10", "10 14", "10 20", "20 20", "20 10"]);
+});
 
 // Each command that may renumber a's hole, made on its Anchor at (10, 20), or on its bottom.
 const renumbering: Record<string, Step> = {
@@ -2448,6 +2473,27 @@ it("never sends an edit made before the answer to Undo, Redo or Simplify with in
   vi.useRealTimers();
 });
 
+it("runs a drag held behind an Undo whose answer leaves its path as it was (#298 T6)", () => {
+  vi.useFakeTimers();
+  const { doc, a, b } = rings();
+  useStore.setState(viewState({ doc, selection: [a.id, b.id], role: "owner" }));
+  vi.advanceTimersByTime(1000);
+  const { server, answer, serveAll } = serve(doc);
+  // An earlier Add Anchor click on b's hole, answered, which the Undo takes back.
+  addAnchorTool.down?.(event(doc, 60, 14));
+  answer();
+  findByKeys(documentMenus({ open() {}, close() {} }), "Ctrl+Z")?.run();
+  dragAnchor(useStore.getState().doc as Document, a);
+  expect(commands().at(-1)?.type).toBe("undo");
+  serveAll();
+  expect(commands().at(-1)).toEqual({
+    type: "path_edit",
+    input: { nodeId: a.id, ops: [{ op: "move_anchor", subpath: 1, index: 3, to: [26, 10] }] },
+  });
+  expect((stored(server, a.id) as string[])[3]?.split(",")[0]).toBe("26 10");
+  vi.useRealTimers();
+});
+
 it("drops a drag held behind the person's own command when another Actor reshapes its path (#298 T8)", () => {
   vi.useFakeTimers();
   const { doc, a } = rings();
@@ -2466,10 +2512,16 @@ it("drops a drag held behind the person's own command when another Actor reshape
 });
 
 it("redraws a Pencil stretch held behind the person's own command from its Ink, or drops it with its notice (#298)", () => {
-  for (const [x, y, runs] of [
-    [9, 9, true],
-    [0, 0, false],
-  ] as const) {
+  const del = (x: number, y: number) => (doc: Document) =>
+    deleteAnchorTool.down?.(event(doc, x, y));
+  // A Delete Anchor click elsewhere, even on the path's first Anchor, leaves the stretch to redraw;
+  // Add Anchor Points reshapes the path in a way the browser cannot number.
+  const cases: [string, (doc: Document) => void, boolean][] = [
+    ["Delete Anchor (9, 9)", del(9, 9), true],
+    ["Delete Anchor (0, 0)", del(0, 0), true],
+    ["Add Anchor Points", () => menuItem("Add Anchor Points").run(), false],
+  ];
+  for (const [name, first, runs] of cases) {
     const { doc, defaultLayerId: parentId } = createDocument({
       id: "d",
       name: "Doc",
@@ -2480,19 +2532,19 @@ it("redraws a Pencil stretch held behind the person's own command from its Ink, 
     ]).nodes as [PathNode];
     useStore.setState(viewState({ doc, selection: [p.id], role: "owner", tool: "pencil" }));
     const { server, serveAll } = serve(doc);
-    deleteAnchorTool.down?.(event(doc, x, y));
+    first(doc);
     drawnEdits["a Pencil redraw"]();
-    expect(commands(), `${x}`).toHaveLength(1);
+    expect(commands(), name).toHaveLength(1);
     serveAll();
-    expect(commands(), `${x}`).toHaveLength(runs ? 2 : 1);
-    expect(useStore.getState().notice === null, `${x}`).toBe(runs);
+    expect(commands(), name).toHaveLength(runs ? 2 : 1);
+    expect(useStore.getState().notice ?? "", name).toMatch(runs ? /^$/ : /Pencil .*not applied/);
     const open = (stored(server, p.id) as string[])
       .slice(0, -1)
       .map((s) => (s.split(",")[0] as string).split(" ").map(Number).map(Math.round).join(" "));
     if (runs) {
-      expect(open.slice(0, 3)).toEqual(["50 0", "80 0", "80 10"]);
-      expect(open.slice(-2)).toEqual(["80 25", "80 30"]);
-    } else expect(open).toEqual(["50 0", "80 0", "80 30"]);
+      expect(open.slice(0, 3), name).toEqual(["50 0", "80 0", "80 10"]);
+      expect(open.slice(-2), name).toEqual(["80 25", "80 30"]);
+    } else expect(open, name).toEqual(["50 0", "65 0", "80 0", "80 15", "80 30"]);
   }
 });
 

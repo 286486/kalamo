@@ -472,14 +472,14 @@ it("renumbers keys and targets by the ops of a command the browser built, each o
   });
   expect(fits(doc, add.r)).toBe(true);
   expect(fits(add.after, add.r)).toBe(false);
-  expect(renumberKey([add.r], false)(anchorKey(curve.id, 0, 2))).toBe(anchorKey(curve.id, 0, 3));
-  expect(renumberKey([add.r], false)(anchorKey(curve.id, 0, 0))).toBe(anchorKey(curve.id, 0, 0));
-  expect(renumberKey([add.r], true)(anchorKey(curve.id, 0, 1))).toBe(anchorKey(curve.id, 0, 2));
+  expect(renumberKey(add.r, false)(anchorKey(curve.id, 0, 2))).toBe(anchorKey(curve.id, 0, 3));
+  expect(renumberKey(add.r, false)(anchorKey(curve.id, 0, 0))).toBe(anchorKey(curve.id, 0, 0));
+  expect(renumberKey(add.r, true)(anchorKey(curve.id, 0, 1))).toBe(anchorKey(curve.id, 0, 2));
   // A selected segment split in two names neither half.
-  expect(renumberKey([add.r], true)(anchorKey(curve.id, 0, 0))).toBeNull();
+  expect(renumberKey(add.r, true)(anchorKey(curve.id, 0, 0))).toBeNull();
   // A point grabbed on it is on the half it lies on, at the same place.
   for (const t of [0.25, 0.75]) {
-    const moved = renumberTarget([add.r])(seg(curve.id, 0, t));
+    const moved = renumberTarget(add.r)(seg(curve.id, 0, t));
     expect(moved).toMatchObject({ segment: t < 0.5 ? 0 : 1, t: 0.5 });
     if (moved) {
       expect(along(add.after, curve.id, 0, moved.segment, moved.t)).toEqual(
@@ -493,7 +493,7 @@ it("renumbers keys and targets by the ops of a command the browser built, each o
     ops: [{ op: "add_anchor", subpath: 0, segment: 0, t: 0.4 }],
   });
   for (const t of [0.3, 0.5]) {
-    const moved = renumberTarget([line.r])(seg(rect.id, 0, t));
+    const moved = renumberTarget(line.r)(seg(rect.id, 0, t));
     expect(moved?.segment).toBe(t < 0.45 ? 0 : 1);
     if (moved) {
       expect(along(line.after, rect.id, 0, moved.segment, moved.t)).toEqual(
@@ -507,10 +507,10 @@ it("renumbers keys and targets by the ops of a command the browser built, each o
     ops: [{ op: "remove_anchor", subpath: 0, index: 0 }],
   });
   const keys = [0, 1, 2, 3].map((i) => anchorKey(rect.id, 0, i));
-  expect(keys.map(renumberKey([gone], false))).toEqual([null, ...keys.slice(0, 3)]);
-  expect(keys.map(renumberKey([gone], true))).toEqual([null, keys[0], keys[1], null]);
+  expect(keys.map(renumberKey(gone, false))).toEqual([null, ...keys.slice(0, 3)]);
+  expect(keys.map(renumberKey(gone, true))).toEqual([null, keys[0], keys[1], null]);
   expect(
-    renumberTarget([gone])({ kind: "handle", key: keys[2] as string, which: "handleIn" }),
+    renumberTarget(gone)({ kind: "handle", key: keys[2] as string, which: "handleIn" }),
   ).toEqual({
     kind: "handle",
     key: keys[1],
@@ -519,8 +519,8 @@ it("renumbers keys and targets by the ops of a command the browser built, each o
   // Clear's `set_d` says how it numbers what it keeps: cutting the closing segment opens the rect.
   const { known } = clearInputs(doc, [rect.id], [], [anchorKey(rect.id, 0, 3)]);
   const [cut] = known;
-  expect(cut && keys.map(renumberKey([cut], true))).toEqual([...keys.slice(0, 3), null]);
-  expect(cut && keys.map(renumberKey([cut], false))).toEqual(keys);
+  expect(cut && keys.map(renumberKey(cut, true))).toEqual([...keys.slice(0, 3), null]);
+  expect(cut && keys.map(renumberKey(cut, false))).toEqual(keys);
   // Ops the browser cannot number, and ops that keep the numbering.
   expect(
     renumberingOf(doc, { nodeId: rect.id, ops: [{ op: "set_d", d: "M 0 0 L 5 5" }] }),

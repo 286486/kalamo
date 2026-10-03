@@ -394,8 +394,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
   // so each still names its point; one worked out on another numbering, which someone else's edit
   // left, cannot (#298).
   const numbered = id ? s.renumbering.get(id) : undefined;
-  const maps = numbered && fits(prior, numbered) ? [numbered] : [];
-  const mapped = new Set(maps.map((r) => r.nodeId));
+  const map = numbered && fits(prior, numbered) ? numbered : null;
   const reshapedBy = new Set(
     tracked && touched
       ? [...touched].filter((n) => geometryOf(prior, n) !== geometryOf(doc, n))
@@ -411,19 +410,23 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
   const settled =
     !!s.reversing && (msg.type === "document" || msg.commandId === s.reversing.commandId);
   // A reconnect with another renumbering command unanswered cannot say whether it was applied, so
-  // the keys stay only on a path as it was (#298).
+  // the keys stay only on a path as it was; on a path the press names, the press's rule holds (#298).
   const pressReshaped = new Set(
     msg.type === "document" && prior && s.reversing ? reshapedOf(prior, doc, s.reversing) : [],
   );
+  const pressNamed = new Set(s.reversing?.subpaths.map((t) => t.nodeId));
   const unsure = msg.type === "document" && s.renumbering.size > 0;
   const reshaped = (n: string) =>
-    pressReshaped.has(n) || (unsure && geometryOf(prior, n) !== geometryOf(doc, n));
+    pressNamed.has(n)
+      ? pressReshaped.has(n)
+      : unsure && geometryOf(prior, n) !== geometryOf(doc, n);
   const kept = (inRangeOf: typeof inRange) => (key: string) => {
     const { nodeId } = parseKey(key);
     const changed = !touched || touched.has(nodeId);
     return (
       !reshaped(nodeId) &&
-      (!changed || ((!touched || keeps(nodeId, own) || mapped.has(nodeId)) && inRangeOf(doc, key)))
+      (!changed ||
+        ((!touched || keeps(nodeId, own) || map?.nodeId === nodeId) && inRangeOf(doc, key)))
     );
   };
   const turned =
@@ -438,12 +441,12 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
   const rekey = (k: Pick<ViewState, "anchors" | "segments">) => ({
     anchors: k.anchors
       .map(reversedKey(doc, turned, false))
-      .map(renumberKey(maps, false))
+      .map(renumberKey(map, false))
       .filter(present)
       .filter(kept(inRange)),
     segments: k.segments
       .map(reversedKey(doc, turned, true))
-      .map(renumberKey(maps, true))
+      .map(renumberKey(map, true))
       .filter(present)
       .filter(kept(segmentInRange)),
   });
@@ -451,7 +454,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
   // A held edit's target is turned as its keys are; once a key goes, so does the target.
   const rechosen = ({ target, ...c }: Chosen): Chosen => {
     if (!target) return { ...c, ...rekey(c) };
-    const t = renumberTarget(maps)(turnTarget(doc, turned)(target));
+    const t = renumberTarget(map)(turnTarget(doc, turned)(target));
     const k = t && targetKeys(t);
     const on = k?.anchors.every(kept(inRange)) && k.segments.every(kept(segmentInRange));
     return t && on ? { ...c, ...k, target: t } : { ...c, anchors: [], segments: [] };
@@ -479,17 +482,19 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
   // The answer to a command the browser can number renumbers it instead, and its unsent preview with
   // it, and lets go of what the command removed (#298).
   const letGo = new Set(
-    [...new Set(s.grabbed.map(targetNode))].filter((n) => changedBut(grabOwn)(n) && !mapped.has(n)),
+    [...new Set(s.grabbed.map(targetNode))].filter(
+      (n) => changedBut(grabOwn)(n) && map?.nodeId !== n,
+    ),
   );
   const grabbed = s.grabbed
     .filter((t) => !letGo.has(targetNode(t)))
     .map(turnTarget(doc, turned))
-    .map(renumberTarget(maps))
+    .map(renumberTarget(map))
     .filter(present);
   const keptInputs =
     s.edit?.inputs
       .filter((i) => !letGo.has(i.nodeId))
-      .map((i) => renumberInput(maps, i))
+      .map((i) => renumberInput(map, i))
       .filter(present) ?? [];
   const keptIds = s.drag?.nodeIds.filter((id) => !letGo.has(id)) ?? [];
   const skipped = msg.type === "tx" ? (msg.skippedIds?.length ?? 0) : 0;
@@ -528,7 +533,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     // An unchanged Selection stays the same array, so the Layer rows stay (ADR-0076).
     selection: !tops && sameIds(next, s.selection) ? s.selection : next,
     ...(tops && { layerRows: layers }),
-    ...((letGo.size > 0 || maps.length > 0) && {
+    ...((letGo.size > 0 || !!map) && {
       ...(s.edit?.commandIds === null && {
         edit: keptInputs.length > 0 ? { ...s.edit, inputs: keptInputs } : null,
       }),
@@ -547,14 +552,14 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     ...(settled && { reversing: null }),
     ...(pen !== s.pen && { pen }),
     ...(dropped && { ...penState(doc, dropped.pen, s.edit), penPress: dropped.penPress }),
-    ...((turned.length > 0 || letGo.size > 0 || maps.length > 0) && { grabbed }),
+    ...((turned.length > 0 || letGo.size > 0 || !!map) && { grabbed }),
     ...(msg.type === "document"
       ? s.renumbering.size > 0 && { renumbering: new Map() }
       : settleRenumbering(s.renumbering, id)),
     ...(s.held.length > 0 && {
       held: s.held.map((h) => ({
         ...h,
-        ...(maps.length > 0 && { preview: renumberPreview(maps, h.preview) }),
+        ...(map && { preview: renumberPreview(map, h.preview) }),
         chosen: {
           ...rechosen(h.chosen),
           selection: h.chosen.selection.filter((id) => doc.nodes.has(id)),
@@ -758,9 +763,9 @@ function settleRenumbering(renumbering: ViewState["renumbering"], id: string | u
 }
 
 /** A held edit's unsent preview renumbered as its keys are (#298). */
-function renumberPreview(maps: Renumbering[], p: Preview): Preview {
+function renumberPreview(r: Renumbering, p: Preview): Preview {
   if (!p.edit || p.edit.commandIds !== null) return p;
-  const inputs = p.edit.inputs.map((i) => renumberInput(maps, i)).filter((i) => i !== null);
+  const inputs = p.edit.inputs.map((i) => renumberInput(r, i)).filter((i) => i !== null);
   return { ...p, edit: inputs.length > 0 ? { ...p.edit, inputs } : null };
 }
 

@@ -11,7 +11,7 @@ import {
   isLiveShape,
   type Node,
   type PathEditInput,
-  type PathOp,
+  PathOp,
   type Rect,
   runsClockwise,
   type ShapeNode,
@@ -516,14 +516,15 @@ export function renumberingOf(
   if (!hasAnchors(n) || !input.ops.every((o) => NUMBERED.has(o.op))) return null;
   try {
     const splits: Renumbering["splits"] = [];
-    const after = input.ops.reduce((s, op) => {
+    const after = input.ops.reduce((s, raw) => {
+      const op = PathOp.parse(raw);
       if (op.op === "add_anchor") {
-        const sub = s[op.subpath ?? 0];
+        const sub = s[op.subpath];
         const a = sub?.anchors[op.segment] as (Anchor & Tag) | undefined;
         const b = sub?.anchors[(op.segment + 1) % sub.anchors.length];
         if (a?.from) splits.push({ at: a.from, t: op.t, line: !a.handleOut && !b?.handleIn });
       }
-      return editSubpaths(s, op as Parameters<typeof editSubpaths>[1], "");
+      return editSubpaths(s, op, "");
     }, tagged(n));
     return renumbering(n, after, splits);
   } catch {
@@ -542,17 +543,22 @@ export function fits(doc: Document | null, r: Renumbering): boolean {
 }
 
 /**
- * `t` as the answer to a command `maps` describe numbers it (#298): an Anchor or Handle is on its
+ * How far along a line `t` is: `nearestSegment` reads a line as a cubic with its Handles on its
+ * ends, and `add_anchor`'s `t` on a line runs along it.
+ */
+export const alongLine = (t: number) => 3 * t ** 2 - 2 * t ** 3;
+
+/**
+ * `t` as the answer to the command `r` describes numbers it (#298): an Anchor or Handle is on its
  * Anchor's new index, and a segment on the segment between its two Anchors while they are still
  * next to each other; with `onSplit`, a point on a segment one `add_anchor` split is on the half it
  * lies on, at the same place. Null once the command removed the Anchor or merged the segment.
  */
 const renumber =
-  (maps: Renumbering[], onSplit: boolean) =>
+  (r: Renumbering | null, onSplit: boolean) =>
   <T extends Target>(t: T): T | null => {
     const { nodeId, subpath, index } = parseKey(keyOf(t));
-    const r = maps.find((m) => m.nodeId === nodeId);
-    if (!r) return t;
+    if (r?.nodeId !== nodeId) return t;
     const row = r.to[subpath] ?? [];
     const at = row[index];
     if (!at) return null;
@@ -568,15 +574,14 @@ const renumber =
     const split = r.splits?.filter((x) => x.at[0] === subpath && x.at[1] === index);
     const [only] = split ?? [];
     if (!onSplit || split?.length !== 1 || !only || next[1] !== after(after(at[1]))) return null;
-    // On a line, `t` is a cubic's with its Handles on its ends (`nearestSegment`); `add_anchor`'s
-    // runs along it.
-    const along = only.line ? 3 * t.t ** 2 - 2 * t.t ** 3 : t.t;
+    const along = only.line ? alongLine(t.t) : t.t;
     const first = along < only.t;
     const u = first ? along / only.t : (along - only.t) / (1 - only.t);
     return {
       ...t,
       subpath: at[0],
       segment: first ? at[1] : after(at[1]),
+      // `alongLine`'s inverse.
       t: only.line ? 0.5 - Math.sin(Math.asin(1 - 2 * u) / 3) : u,
     };
   };
@@ -586,16 +591,16 @@ const renumber =
  * `grabbed` the answer to a command the browser can number renumbers goes through this rule, and
  * every key through `renumberKey` (ADR-0110).
  */
-export const renumberTarget = (maps: Renumbering[]) => renumber(maps, true);
+export const renumberTarget = (r: Renumbering | null) => renumber(r, true);
 
 /**
  * Anchor `key`, or with `segment` the segment starting there, renumbered as `renumberTarget` does. A
  * selected segment split in two goes: it would be one half or both, which the person never chose.
  */
-export const renumberKey = (maps: Renumbering[], segment: boolean) => (key: string) => {
+export const renumberKey = (r: Renumbering | null, segment: boolean) => (key: string) => {
   const { nodeId, subpath, index } = parseKey(key);
   const t = renumber(
-    maps,
+    r,
     false,
   )<Target>(
     segment ? { kind: "segment", nodeId, subpath, segment: index, t: 0 } : { kind: "anchor", key },
@@ -607,11 +612,11 @@ export const renumberKey = (maps: Renumbering[], segment: boolean) => (key: stri
  * An unsent preview's `input` with each op's Anchor renumbered as `renumberTarget` does. An op on an
  * Anchor the command removed goes, and so does an input left with none.
  */
-export function renumberInput(maps: Renumbering[], input: PathEditInput): PathEditInput | null {
-  if (!maps.some((m) => m.nodeId === input.nodeId)) return input;
+export function renumberInput(r: Renumbering | null, input: PathEditInput): PathEditInput | null {
+  if (r?.nodeId !== input.nodeId) return input;
   const ops = input.ops.flatMap((op): PathOp[] => {
     if (!("index" in op)) return [];
-    const key = renumberKey(maps, false)(anchorKey(input.nodeId, op.subpath ?? 0, op.index));
+    const key = renumberKey(r, false)(anchorKey(input.nodeId, op.subpath ?? 0, op.index));
     if (!key) return [];
     const { subpath, index } = parseKey(key);
     return [{ ...op, subpath, index }];
