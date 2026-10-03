@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Anchor } from "./anchor.ts";
+import { type Anchor, toAnchors } from "./anchor.ts";
 import { KalamoError } from "./errors.ts";
 import { formatPath, type Segment } from "./path.ts";
 import { AppearanceInput } from "./schema.ts";
@@ -191,7 +191,8 @@ export function fitInk(ink: Point[], tolerance: number, opts: FitOptions = {}): 
 /**
  * Object > Path > Simplify (research 06 §5, ADR-0035): the subpath traced as Ink and refitted within
  * `tolerance`, keeping as corners the Corner Anchors whose angle is at most `cornerAngle` degrees (180° is
- * straight on); `toLines` fits straight segments only. Null for a subpath with no length.
+ * straight on); `toLines` fits straight segments only. Null for a subpath to keep as it is: one with no
+ * length, or, without `toLines`, one the fit cannot give fewer Anchors.
  */
 export function simplifySubpath(
   { closed, anchors }: { closed: boolean; anchors: Anchor[] },
@@ -225,7 +226,8 @@ export function simplifySubpath(
     // Only a Corner Anchor can stay a corner: Smooth ones never become one.
     const corner = Math.PI * (1 - cornerAngle / 180) - 1e-9;
     const corners = anchors.filter((a) => a.type === "corner").map((a) => a.anchor);
-    return fitInk(ink, tolerance, { closed, corner, corners });
+    const fit = fitInk(ink, tolerance, { closed, corner, corners });
+    return (toAnchors(fit)[0]?.anchors.length as number) < n ? fit : null;
   }
   const kept = straighten(ink, stops, tolerance);
   if (closed) kept.pop();

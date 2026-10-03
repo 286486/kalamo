@@ -189,7 +189,7 @@ test("Simplify's dialog recounts its Anchors when an Agent reshapes the path", a
     nodeId: id,
     ops: [{ op: "set_d", d: "M 0 50 L 100 20 L 150 80" }],
   });
-  await expect(dialog).toContainText("Original: 3 Anchors · Current: 4 Anchors");
+  await expect(dialog).toContainText("Original: 3 Anchors · Current: 3 Anchors");
 });
 
 // #88: Object > Path > Offset Path….
