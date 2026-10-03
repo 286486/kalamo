@@ -2681,6 +2681,10 @@ it("after a reconnect, drops a held edit on a path the press did not name that s
           expect(commands(), label).toEqual([]);
           expect(previewsOf(s), label).toEqual([{ edit: null, drag: null }]);
           expect(s.doc?.nodes.get(q.id), label).toEqual(agents);
+          // The live key the drag left stays: the person sees the new q before acting on it.
+          if (name === "a Direct Selection drag") {
+            expect(s.anchors, label).toContain(anchorKey(q.id, 0, 1));
+          }
           continue;
         }
         const [c] = commands();
@@ -2730,6 +2734,35 @@ it("after a reconnect that changes only a dragged path's Fill, keeps the drag (#
     }
   }
   vi.useRealTimers();
+});
+
+// #287: a held Pen finish holds the Anchors it continues where the Document showed them, so a move
+// of their path, which leaves its geometry, drops it rather than write them back over the move.
+it("after a reconnect that moves the path a held Pen finish continues, drops it (#287)", () => {
+  for (const shift of [0, 40]) {
+    pressOnOpen();
+    const [, q] = useStore.getState().selection as [string, string];
+    penDown([20, 100], 1);
+    penUp();
+    penDown([40, 100], 1);
+    penUp();
+    finishPen();
+    expect(commands(), `${shift}`).toEqual([]);
+    const now = useStore.getState().doc as Document;
+    const nodes = [...now.nodes.values()].map((n) =>
+      n.id === q ? ({ ...n, transform: [1, 0, 0, 1, 0, shift] } as Node) : n,
+    );
+    const after = stateAfter(useStore.getState(), message("document", { rev: 9, nodes }));
+    useStore.setState(after);
+    runHeld(after.notice);
+    if (shift) {
+      expect(commands(), `${shift}`).toEqual([]);
+      expect(useStore.getState().notice).toMatch(/Pen/);
+      continue;
+    }
+    const [c] = commands();
+    expect(c?.type === "path_edit" && c.input.nodeId).toBe(q);
+  }
 });
 
 // #287: so does the Pen's continuation.

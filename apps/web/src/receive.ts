@@ -375,7 +375,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     msg.type === "tx" ? s.pending.find((p) => p.commandId === msg.commandId) : undefined;
   // Someone else's change to a path renumbers its Anchors, so its selected ones go; after the
   // command the keys were worked out for, those it still has stay, and a reconnect reads geometry,
-  // as `moved` below says. After the person's other commands, they stay on a Node whose geometry
+  // as `reshaped` below says. After the person's other commands, they stay on a Node whose geometry
   // it left as it was (#288).
   const id = msg.type === "tx" ? msg.commandId : undefined;
   const pressed = !!id && id === s.reversing?.commandId;
@@ -413,7 +413,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
   // to its Appearance alone is none, since no key, drag or Pen names that (#287).
   const pressedDoc =
     msg.type === "document" && prior && s.reversing ? previewEdit(prior, s.reversing) : prior;
-  const moved = (n: string) =>
+  const reshaped = (n: string) =>
     msg.type === "document" &&
     geometryOf(prior, n) !== geometryOf(doc, n) &&
     geometryOf(pressedDoc, n) !== geometryOf(doc, n);
@@ -422,7 +422,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
   // (#298). A held edit acts without the person seeing the path again, so its keys go on any path
   // that changed; the live ones the person sees first stay elsewhere while in range (#287).
   const pressNamed = new Set(s.reversing?.subpaths.map((t) => t.nodeId));
-  const reshaped = (n: string) => moved(n) && (pressNamed.has(n) || s.renumbering.size > 0);
+  const cleared = (n: string) => reshaped(n) && (pressNamed.has(n) || s.renumbering.size > 0);
   const keptBy = (gone: (n: string) => boolean) => (inRangeOf: typeof inRange) => (key: string) => {
     const { nodeId } = parseKey(key);
     const changed = !touched || touched.has(nodeId);
@@ -432,14 +432,14 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
         ((!touched || keeps(nodeId, own) || map?.nodeId === nodeId) && inRangeOf(doc, key)))
     );
   };
-  const kept = keptBy(reshaped);
-  const heldKept = keptBy(moved);
+  const kept = keptBy(cleared);
+  const heldKept = keptBy(reshaped);
   const turned =
     settled && prior && s.reversing
       ? turnedOf(
           prior,
           doc,
-          s.reversing.subpaths.filter((t) => !reshaped(t.nodeId)),
+          s.reversing.subpaths.filter((t) => !cleared(t.nodeId)),
         )
       : [];
   const present = <K>(k: K | null): k is K => k !== null;
@@ -470,10 +470,14 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
   // or deleted (#290). The person's own command that reshapes the path does too, but the edit the
   // keys were worked out for keeps a connection, which names only an Endpoint; a continuation took
   // its Anchors from the committed Document, before every command unanswered but the press (#288).
-  // On a reconnect, a change to its geometry does, as for a held edit's keys (#287).
+  // On a reconnect, a change to its geometry does, as for a held edit's keys (#287); a continuation
+  // holds its Anchors where the Document showed them, so a move of its path ends it too.
   const changedBut = (forIt: boolean) => (n: string | undefined) =>
-    !!n && (touched ? touched.has(n) && !keeps(n, forIt) : moved(n));
-  const reached = changedBut(pressed)(s.pen?.from?.nodeId);
+    !!n && (touched ? touched.has(n) && !keeps(n, forIt) : reshaped(n));
+  const from = s.pen?.from?.nodeId;
+  const placed = (n: string) =>
+    String(prior?.nodes.get(n)?.transform) !== String(doc.nodes.get(n)?.transform);
+  const reached = changedBut(pressed)(from) || (!touched && !!from && placed(from));
   const pen = s.pen && turned.length > 0 ? turnedPen(doc, s.pen, turned) : s.pen;
   const dropped =
     !reached && pen?.to && changedBut(own)(pen.to.nodeId) ? disconnected(pen, s.penPress) : null;

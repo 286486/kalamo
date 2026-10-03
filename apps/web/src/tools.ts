@@ -212,8 +212,11 @@ function finishEdit(doc: Document, pen: PenPath) {
   });
   afterReverse(
     ({ doc: now, anchors: held }, w) => {
-      // `held` is `keys` renumbered, `from`'s first; another Actor's edit cleared a missing one.
-      if (held.length < keys.length) {
+      // `held` is `keys` renumbered, `from`'s first; another Actor's edit cleared a missing one. The
+      // Anchors `from` keeps are where the Document showed them, so a move of its path meanwhile,
+      // which leaves the keys, drops it too rather than write them back over the move (#287).
+      const placedIn = (d: Document | null) => from && String(d?.nodes.get(from.nodeId)?.transform);
+      if (held.length < keys.length || placedIn(now) !== placedIn(doc)) {
         cancelDrag();
         useStore.setState({ notice: PEN_DROPPED });
         return;

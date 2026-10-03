@@ -386,6 +386,12 @@ it("ends a continuation when another Actor edits or deletes its path, and only t
       rev: doc.rev + 1,
       nodes: nodes.map((n) => (n.id === a ? moved(a, 0) : n)),
     }),
+    // #287: the continuation holds its Anchors where the Document showed them, so a move of the
+    // path alone would have its finish write them back over the move.
+    "a reconnect after their move": message("document", {
+      rev: doc.rev + 1,
+      nodes: nodes.map((n) => (n.id === a ? { ...n, transform: [1, 0, 0, 1, 40, 0] } : n)),
+    }),
   };
   const keeps = {
     "another path": tx({ updated: [moved(b, 0)] }),
