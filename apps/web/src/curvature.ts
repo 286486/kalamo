@@ -110,7 +110,9 @@ export const curvaturePressed = () => press !== null;
  */
 export function curvatureDown(p: Point, tolerance: number, alt: boolean) {
   const time = Date.now();
-  const double = !!lastDown && time - lastDown.time < DOUBLE_MS && near(p, lastDown.at, tolerance);
+  // A clock set back since the last press reads as a new press, never a double-click.
+  const since = lastDown ? time - lastDown.time : -1;
+  const double = since >= 0 && since < DOUBLE_MS && !!lastDown && near(p, lastDown.at, tolerance);
   lastDown = double ? null : { at: p, time };
   const s = useStore.getState();
   const pen = drawing(s);

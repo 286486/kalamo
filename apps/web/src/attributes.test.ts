@@ -707,22 +707,38 @@ it("after a reconnect mid-drag, keeps the drag only on a path as it was or as th
       },
     );
   }
-  // With a press in flight, the press's reverse renumbers the drag, as its answer does (#296).
+  // With a press in flight, the press's reverse renumbers the drag, as its answer does (#296); any
+  // other reshape lets it go.
   vi.useFakeTimers();
-  for (const [name, g] of Object.entries(grabs)) {
-    const { doc, a, pressed } = pressOn((a) => ({ anchors: [anchorKey(a.id, 1, 0)] }), g.hole);
-    useStore.setState({ ...pressed, edit: null, drag: null, held: [], ran: [] });
-    vi.advanceTimersByTime(1000);
-    const [x, y] = g.at;
-    g.down(doc, x, y);
-    g.move(doc, x + 5, y);
-    const msg = snapshot(doc, (n) => (n.id === a.id ? reversed(doc, a.id) : n));
-    useStore.setState(stateAfter(useStore.getState(), msg));
-    runHeld();
-    const { moved, sent } = finish(g);
-    expect(moved, name).toBe(g.index[1]);
-    const [c] = sent;
-    expect(c?.type === "path_edit" && firstIndex(c.input), name).toBe(g.index[1]);
+  const reshapes = {
+    reversed: reversed,
+    "added Anchor": (doc: Document, id: string) =>
+      editPath(
+        { ...doc, nodes: new Map(doc.nodes) },
+        { nodeId: id, ops: [{ op: "add_anchor", subpath: 1, segment: 0, t: 0.5 }] },
+      ).node,
+  };
+  for (const [kind, reshape] of Object.entries(reshapes)) {
+    for (const [name, g] of Object.entries(grabs)) {
+      const label = `${name}, ${kind}`;
+      const { doc, a, pressed } = pressOn((a) => ({ anchors: [anchorKey(a.id, 1, 0)] }), g.hole);
+      useStore.setState({ ...pressed, edit: null, drag: null, held: [], ran: [] });
+      vi.advanceTimersByTime(1000);
+      const [x, y] = g.at;
+      g.down(doc, x, y);
+      g.move(doc, x + 5, y);
+      const msg = snapshot(doc, (n) => (n.id === a.id ? reshape(doc, a.id) : n));
+      useStore.setState(stateAfter(useStore.getState(), msg));
+      runHeld();
+      const { moved, sent } = finish(g);
+      if (kind !== "reversed") {
+        expect({ moved, sent }, label).toEqual({ moved: undefined, sent: [] });
+        continue;
+      }
+      expect(moved, label).toBe(g.index[1]);
+      const [c] = sent;
+      expect(c?.type === "path_edit" && firstIndex(c.input), label).toBe(g.index[1]);
+    }
   }
   vi.useRealTimers();
 });

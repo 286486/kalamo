@@ -152,11 +152,8 @@ export const directTool: CanvasTool = {
       e.redraw();
       return;
     }
-    const { grabbed } = useStore.getState();
-    // Another Actor's edit let go of all it grabbed (ADR-0110).
-    if (g.kind !== "move" && grabbed.length === 0) return;
     g.last = { dx, dy, alt: e.alt };
-    const drag = dragOf(g, e.doc, grabbed);
+    const drag = dragOf(g, e.doc, useStore.getState().grabbed);
     if (drag) showDrag(drag);
   },
   up(e) {
