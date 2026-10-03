@@ -404,31 +404,35 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
   // command (`forIt`) stay; after the person's other commands, only on a Node it did not reshape.
   const keeps = (n: string, forIt: boolean) => forIt || (tracked && !reshapedBy.has(n));
   // The press's answer, or the Document sent on reconnect, settles it: keys on a subpath it turned
-  // are renumbered to stay on their points (ADR-0110). On a reconnect, a path it named that is
-  // neither as it was nor as the press leaves it was reshaped by someone else, so its keys go, as
-  // for another Actor's edit (ADR-0109).
+  // are renumbered to stay on their points (ADR-0110).
   const settled =
     !!s.reversing && (msg.type === "document" || msg.commandId === s.reversing.commandId);
-  // A reconnect with another renumbering command unanswered cannot say whether it was applied, so
-  // the keys stay only on a path as it was; on a path the press names, the press's rule holds (#298).
-  const pressReshaped = new Set(
-    msg.type === "document" && prior && s.reversing ? reshapedOf(prior, doc, s.reversing) : [],
-  );
+  // The Document sent on reconnect says nothing of who changed what, so a Node changed while the
+  // socket was down when its geometry is neither as it was nor as the press leaves it; a change
+  // to its paint alone is none, since no key, drag or Pen names that (#287).
+  const pressedDoc =
+    msg.type === "document" && prior && s.reversing ? previewEdit(prior, s.reversing) : prior;
+  const moved = (n: string) =>
+    msg.type === "document" &&
+    geometryOf(prior, n) !== geometryOf(doc, n) &&
+    geometryOf(pressedDoc, n) !== geometryOf(doc, n);
+  // Its keys go, as for another Actor's edit (ADR-0109): on a path the press names (#276), and on
+  // any path with another renumbering command unanswered, which may or may not have been applied
+  // (#298). A held edit acts without the person seeing the path again, so its keys go on any path
+  // that changed; the live ones the person sees first stay elsewhere while in range (#287).
   const pressNamed = new Set(s.reversing?.subpaths.map((t) => t.nodeId));
-  const unsure = msg.type === "document" && s.renumbering.size > 0;
-  const reshaped = (n: string) =>
-    pressNamed.has(n)
-      ? pressReshaped.has(n)
-      : unsure && geometryOf(prior, n) !== geometryOf(doc, n);
-  const kept = (inRangeOf: typeof inRange) => (key: string) => {
+  const reshaped = (n: string) => moved(n) && (pressNamed.has(n) || s.renumbering.size > 0);
+  const keptBy = (gone: (n: string) => boolean) => (inRangeOf: typeof inRange) => (key: string) => {
     const { nodeId } = parseKey(key);
     const changed = !touched || touched.has(nodeId);
     return (
-      !reshaped(nodeId) &&
+      !gone(nodeId) &&
       (!changed ||
         ((!touched || keeps(nodeId, own) || map?.nodeId === nodeId) && inRangeOf(doc, key)))
     );
   };
+  const kept = keptBy(reshaped);
+  const heldKept = keptBy(moved);
   const turned =
     settled && prior && s.reversing
       ? turnedOf(
@@ -438,25 +442,25 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
         )
       : [];
   const present = <K>(k: K | null): k is K => k !== null;
-  const rekey = (k: Pick<ViewState, "anchors" | "segments">) => ({
+  const rekey = (k: Pick<ViewState, "anchors" | "segments">, keep = kept) => ({
     anchors: k.anchors
       .map(reversedKey(doc, turned, false))
       .map(renumberKey(map, false))
       .filter(present)
-      .filter(kept(inRange)),
+      .filter(keep(inRange)),
     segments: k.segments
       .map(reversedKey(doc, turned, true))
       .map(renumberKey(map, true))
       .filter(present)
-      .filter(kept(segmentInRange)),
+      .filter(keep(segmentInRange)),
   });
   const { anchors, segments } = rekey(s);
   // A held edit's target is turned as its keys are; once a key goes, so does the target.
   const rechosen = ({ target, ...c }: Chosen): Chosen => {
-    if (!target) return { ...c, ...rekey(c) };
+    if (!target) return { ...c, ...rekey(c, heldKept) };
     const t = renumberTarget(map)(turnTarget(doc, turned)(target));
     const k = t && targetKeys(t);
-    const on = k?.anchors.every(kept(inRange)) && k.segments.every(kept(segmentInRange));
+    const on = k?.anchors.every(heldKept(inRange)) && k.segments.every(heldKept(segmentInRange));
     return t && on ? { ...c, ...k, target: t } : { ...c, anchors: [], segments: [] };
   };
   // Someone else's change to the path the Pen continues ends the continuation and its preview, so
@@ -465,14 +469,9 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
   // or deleted (#290). The person's own command that reshapes the path does too, but the edit the
   // keys were worked out for keeps a connection, which names only an Endpoint; a continuation took
   // its Anchors from the committed Document, before every command unanswered but the press (#288).
-  // A reconnect does not say who changed it, so any change does but the press's own reverse.
-  const same = (n: string, x: Document | null) =>
-    JSON.stringify(x?.nodes.get(n)) === JSON.stringify(doc.nodes.get(n));
+  // On a reconnect, a change to its geometry does, as for a held edit's keys (#287).
   const changedBut = (forIt: boolean) => (n: string | undefined) =>
-    !!n &&
-    (touched
-      ? touched.has(n) && !keeps(n, forIt)
-      : !same(n, prior) && !(prior && s.reversing && same(n, previewEdit(prior, s.reversing))));
+    !!n && (touched ? touched.has(n) && !keeps(n, forIt) : moved(n));
   const reached = changedBut(pressed)(s.pen?.from?.nodeId);
   const pen = s.pen && turned.length > 0 ? turnedPen(doc, s.pen, turned) : s.pen;
   const dropped =
@@ -704,18 +703,6 @@ function turnedPen(doc: Document, pen: PenPath, turned: Reversing["subpaths"]): 
     ...(pen.from && { from: same(pen.from) }),
     ...(pen.to && { to: same(pen.to) }),
   };
-}
-
-/** The paths `reversing` names whose `d` in `doc` is neither `prior`'s nor what the press makes of it. */
-function reshapedOf(prior: Document, doc: Document, reversing: Reversing): string[] {
-  const pressed = previewEdit(prior, reversing);
-  const d = (x: Document, id: string) => {
-    const n = x.nodes.get(id);
-    return n?.type === "path" ? n.d : undefined;
-  };
-  return [...new Set(reversing.subpaths.map((t) => t.nodeId))].filter(
-    (id) => d(doc, id) !== d(prior, id) && d(doc, id) !== d(pressed, id),
-  );
 }
 
 /** `doc` with a `path_op` applied by core, or as it is when core refuses it. */

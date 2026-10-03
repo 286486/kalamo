@@ -470,6 +470,11 @@ it("drops a held connection when another Actor edits or deletes the path it conn
     "another path": tx({ updated: [reshaped(tri, "M 0 50 L 20 50 Z")] }),
     "the person's own edit": tx({ updated: [moved], commandId: "mine" }),
     "a reconnect with it unchanged": message("document", { rev: doc.rev, nodes }),
+    // #287: a reconnect reads geometry, so a change to its paint alone keeps the connection.
+    "a reconnect with only its paint changed": message("document", {
+      rev: doc.rev + 1,
+      nodes: nodes.map((n) => (n.id === b ? ({ ...n, opacity: 0.5 } as typeof n) : n)),
+    }),
   };
   const drawings = {
     "new art": {

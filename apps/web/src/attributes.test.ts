@@ -2600,3 +2600,159 @@ it("drops a drag made before the answer to a Remove Anchor Points that deletes i
   expect(useStore.getState().notice).toBeNull();
   vi.useRealTimers();
 });
+
+/** `n` with a red Fill and its geometry as it was. */
+const repainted = (n: Node) =>
+  ({ ...n, appearance: { fills: [{ type: "solid", color: "#FF0000" }], strokes: [] } }) as Node;
+
+// #287: with only a press in flight, the Document sent on reconnect drops a held edit on a path the
+// press did not name once someone else reshaped it, whether the press was applied or not; a change
+// to its paint alone, or none, leaves the edit to run.
+it("after a reconnect, drops a held edit on a path the press did not name that someone else reshaped (#287)", () => {
+  vi.useFakeTimers();
+  const edits = {
+    "a Pencil redraw": () => {
+      pencilDown([10, 100]);
+      for (const p of [
+        [15, 95],
+        [20, 90],
+        [25, 92],
+        [30, 105],
+        [30, 115],
+      ] as const)
+        pencilMove([[...p]], { shift: false, alt: false });
+      pencilUp(1);
+    },
+    "a Direct Selection drag": (doc: Document) => {
+      directTool.down(event(doc, 30, 100));
+      directTool.move?.(event(doc, 35, 100));
+      directTool.up?.(event(doc, 35, 100));
+    },
+  };
+  for (const [name, run] of Object.entries(edits)) {
+    for (const applied of [false, true]) {
+      for (const theirs of ["none", "paint", "reshape"] as const) {
+        const label = `${name}, press ${applied ? "applied" : "lost"}, their ${theirs}`;
+        const { doc, defaultLayerId: parentId } = createDocument({
+          id: "d",
+          name: "Doc",
+          artboards: [{ width: 200, height: 200 }],
+        });
+        const [p, q] = createNodes(doc, [
+          { type: "path", parentId, d: "M0 0 L9 0 L9 9 Z M50 0 L80 0 L80 30" },
+          { type: "path", parentId, d: "M0 100 L30 100 L30 130" },
+        ]).nodes as [PathNode, PathNode];
+        const state = viewState({
+          doc,
+          selection: [p.id],
+          role: "owner",
+          anchors: [anchorKey(p.id, 1, 0)],
+        });
+        setDirection(state, !runsClockwise(doc, p, 1));
+        const { reversing } = useStore.getState();
+        expect(
+          reversing?.subpaths.map((t) => t.nodeId),
+          label,
+        ).toEqual([p.id]);
+        useStore.setState({ ...state, reversing, selection: [p.id, q.id], held: [], ran: [] });
+        vi.advanceTimersByTime(1000);
+        vi.mocked(send).mockClear();
+        run(doc);
+        expect(commands(), label).toEqual([]);
+        expect(useStore.getState().held.length, label).toBe(1);
+        // The socket drops; meanwhile an Agent edits q, or not.
+        const agents = {
+          none: q,
+          paint: repainted(q),
+          reshape: editPath(structuredClone(doc), {
+            nodeId: q.id,
+            ops: [{ op: "move_anchor", subpath: 0, index: 0, to: [0, 90] }],
+          }).node,
+        }[theirs];
+        const nodes = [...doc.nodes.values()].map((n) =>
+          n.id === q.id ? agents : applied && n.id === p.id ? reversed(doc, p.id) : n,
+        );
+        const after = stateAfter(useStore.getState(), message("document", { rev: 9, nodes }));
+        useStore.setState(after);
+        runHeld(after.notice);
+        const s = useStore.getState();
+        expect(s.held, label).toEqual([]);
+        if (theirs === "reshape") {
+          expect(commands(), label).toEqual([]);
+          expect(previewsOf(s), label).toEqual([{ edit: null, drag: null }]);
+          expect(s.doc?.nodes.get(q.id), label).toEqual(agents);
+          continue;
+        }
+        const [c] = commands();
+        expect(c?.type === "path_edit" && c.input.nodeId, label).toBe(q.id);
+      }
+    }
+  }
+  vi.useRealTimers();
+});
+
+// #287: the Document sent on reconnect reads a change to the dragged path by its geometry, as it
+// does for the keys, so a change to its paint alone keeps the drag, with or without a press.
+it("after a reconnect that changes only a dragged path's paint, keeps the drag (#287)", () => {
+  const snapshot = (doc: Document, a: Node, swap: (n: Node) => Node) =>
+    message("document", {
+      rev: doc.rev + 1,
+      nodes: [...doc.nodes.values()].map((n) => (n.id === a.id ? swap(n) : n)),
+    });
+  const kept = (label: string, g: (typeof grabs)[string], index: number) => {
+    expect(useStore.getState().grabbed.length, label).toBeGreaterThan(0);
+    const { moved, sent } = finish(g);
+    expect(moved, label).toBe(index);
+    const [c] = sent;
+    expect(c?.type === "path_edit" && firstIndex(c.input), label).toBe(index);
+  };
+  dragThrough(
+    (doc, a) => snapshot(doc, a, repainted),
+    (name, g) => {
+      expect(useStore.getState().notice, name).toBeNull();
+      kept(name, g, g.index[0]);
+    },
+  );
+  vi.useFakeTimers();
+  for (const applied of [false, true]) {
+    for (const [name, g] of Object.entries(grabs)) {
+      const label = `${name}, press ${applied ? "applied" : "lost"}`;
+      const { doc, a, pressed } = pressOn((a) => ({ anchors: [anchorKey(a.id, 1, 0)] }), g.hole);
+      useStore.setState({ ...pressed, edit: null, drag: null, held: [], ran: [] });
+      vi.advanceTimersByTime(1000);
+      const [x, y] = g.at;
+      g.down(doc, x, y);
+      g.move(doc, x + 5, y);
+      const msg = snapshot(doc, a, (n) => repainted(applied ? reversed(doc, n.id) : n));
+      useStore.setState(stateAfter(useStore.getState(), msg));
+      runHeld();
+      kept(label, g, g.index[applied ? 1 : 0]);
+    }
+  }
+  vi.useRealTimers();
+});
+
+// #287: so does the Pen's continuation.
+it("after a reconnect that changes only a continued path's paint, keeps the Pen's continuation (#287)", () => {
+  for (const applied of [false, true]) {
+    pressOnOpen();
+    const [p] = useStore.getState().selection as [string];
+    penDown([80, 30], 1);
+    penUp();
+    const now = useStore.getState().doc as Document;
+    const after = repainted(applied ? reversed(now, p) : (now.nodes.get(p) as Node));
+    const nodes = [...now.nodes.values()].map((n) => (n.id === p ? after : n));
+    useStore.setState(
+      stateAfter(useStore.getState(), message("document", { rev: now.rev + 1, nodes })),
+    );
+    runHeld();
+    expect(useStore.getState().pen, `${applied}`).not.toBeNull();
+    expect(useStore.getState().notice, `${applied}`).toBeNull();
+    penDown([100, 30], 1);
+    penUp();
+    finishPen();
+    expect(subpathsAfterSent(), `${applied}`).toEqual([
+      applied ? ["100 30", "80 30", "80 0", "50 0"] : ["50 0", "80 0", "80 30", "100 30"],
+    ]);
+  }
+});

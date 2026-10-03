@@ -181,10 +181,15 @@ async function rings(page: Page, request: APIRequestContext, xs: number[], shape
   let holding = false;
   let lost: string | null = null;
   let sockets = 0;
+  /** Cuts the socket open now without the page knowing, until `close` drops it. */
+  let outage = { cut: () => {}, close: () => {} };
   await page.routeWebSocket(/\/ws$/, (ws) => {
     sockets += 1;
     const server = ws.connectToServer();
+    let cut = false;
+    outage = { cut: () => (cut = true), close: () => ws.close() };
     ws.onMessage((m) => {
+      if (cut) return;
       const msg = JSON.parse(String(m));
       if (!holding || msg.command?.type !== "path_reverse") return server.send(m);
       held.push({
@@ -199,6 +204,7 @@ async function rings(page: Page, request: APIRequestContext, xs: number[], shape
       });
     });
     server.onMessage((m) => {
+      if (cut) return;
       if (lost && JSON.parse(String(m)).commandId === lost) {
         lost = null;
         ws.close();
@@ -227,6 +233,7 @@ async function rings(page: Page, request: APIRequestContext, xs: number[], shape
       holding = true;
     },
     sockets: () => sockets,
+    outage: () => outage,
     at,
     d,
     button,
@@ -828,6 +835,58 @@ for (const outcome of ["accepted", "rejected"] as const) {
     await expect.poll(async () => anchorsIn(await d(id))[2]?.join(",")).toBe(theirs);
     await page.waitForTimeout(300);
     expect(anchorsIn(await d(id))[2]?.join(",")).toBe(theirs);
+  });
+}
+
+// #287, ADR-0110: the socket drops with a press on the ring in flight and a Pencil redraw of another
+// path, q, held behind it; an Agent edits q meanwhile. The Document sent on reconnect drops the
+// redraw, so q is stored as the Agent left it, whether the press reached the Document DO or not.
+for (const press of ["lost", "applied"] as const) {
+  test(`a held Pencil redraw is dropped when an Agent edits its path while the socket is down, press ${press}`, async ({
+    page,
+    request,
+  }) => {
+    const q = "M120 20 L160 20 L160 60";
+    const { docId, ids, held, hold, sockets, outage, at, d, button } = await rings(
+      page,
+      request,
+      [0, 1],
+      (x) => (x === 0 ? ring(0) : q),
+    );
+    const [p, qId] = ids as [string, string];
+    await page.keyboard.press("a");
+    await page.mouse.click(...at(40, 60));
+    await page.keyboard.down("Shift");
+    await page.mouse.click(...at(120, 20));
+    await page.keyboard.up("Shift");
+    await expect(button("Reverse Path Direction Off")).toHaveAttribute("aria-pressed", "true");
+
+    hold();
+    await button("Reverse Path Direction On").click();
+    await expect.poll(() => held.length).toBe(1);
+    await drawnEdits["a Pencil redraw"].run(page, at);
+    await page.waitForTimeout(200);
+    outage().cut();
+    if (press === "applied") held[0]?.pass();
+    await call(request, "kalamo_path_edit", {
+      docId,
+      nodeId: qId,
+      ops: [{ op: "move_anchor", subpath: 0, index: 0, to: [120, 10] }],
+    });
+    const ringHole = points(await d(p)).slice(4);
+    expect(ringHole).toEqual(
+      press === "applied"
+        ? ["40 40", "60 40", "60 60", "40 60"]
+        : ["40 40", "40 60", "60 60", "60 40"],
+    );
+    outage().close();
+    await expect.poll(sockets).toBe(2);
+    await expect(page.getByTestId("status-bar")).not.toContainText("connecting");
+    // Whatever the held redraw would send has arrived by now.
+    await page.waitForTimeout(500);
+    expect(anchorsIn(await d(qId))).toEqual([["120 10", "160 20", "160 60"]]);
+    expect(points(await d(p)).slice(4)).toEqual(ringHole);
+    await expect(page.getByRole("alert")).toContainText("The Pencil edit was not applied");
   });
 }
 
