@@ -9,21 +9,15 @@ import {
 import { addAnchorAt, deleteAnchorAt } from "./anchorTools.ts";
 import { cancelDrag } from "./canvas.ts";
 import { curveThrough } from "./curvature.ts";
-import {
-  anchorKey,
-  anchorsOf,
-  editableShapes,
-  flip,
-  hasAnchors,
-  localAnchors,
-  parseKey,
-  replaceSubpath,
-} from "./direct.ts";
+import { anchorsOf, editableShapes, flip, hasAnchors, replaceSubpath } from "./direct.ts";
 import { forNewArt, leaving } from "./isolation.ts";
 import {
   disconnected,
   type Endpoint,
+  endKey,
+  endOf,
   type PenPath,
+  type PenPress,
   penState,
   type ShapeBox,
   VIEWER_TOOLS,
@@ -188,19 +182,6 @@ function endingAt(doc: Document, e: Endpoint): BareAnchor[] {
 /** Join's distance for the Endpoints a connection put on each other, past `d`'s rounding. */
 const COINCIDENT = 0.05;
 
-/** `e`'s Anchor as a Direct Selection key, which a Reverse Path Direction press's answer renumbers. */
-function endKey(doc: Document, e: Endpoint) {
-  const n = doc.nodes.get(e.nodeId);
-  const count = n && hasAnchors(n) ? (localAnchors(n)[e.subpath]?.anchors.length ?? 0) : 0;
-  return anchorKey(e.nodeId, e.subpath, e.atStart ? 0 : count - 1);
-}
-
-/** The Endpoint whose Anchor `key` names. */
-function endOf(key: string): Endpoint {
-  const { nodeId, subpath, index } = parseKey(key);
-  return { nodeId, subpath, atStart: index === 0 };
-}
-
 /** Why a held Pen finish sent nothing: another Actor's edit changed a path it continued or met. */
 const PEN_DROPPED =
   "Someone else changed a path the Pen was continuing or connecting to; what it drew was not applied.";
@@ -282,10 +263,10 @@ function penCommand(doc: Document, { from, to, anchors, closed }: PenPath) {
   return { input, command: { type: "path_edit" as const, input } };
 }
 
-/** The Pen's path so far, and its preview (`penState`). */
-function setPen(pen: PenPath | null) {
+/** The Pen's path so far and its press, and its preview (`penState`). */
+function setPen(pen: PenPath | null, penPress = useStore.getState().penPress) {
   const { doc, edit } = useStore.getState();
-  useStore.setState(penState(doc, pen, edit));
+  useStore.setState({ ...penState(doc, pen, edit), penPress });
 }
 
 /**
@@ -315,20 +296,8 @@ export function endpointAt(
 /** The Pen's modifiers while its button is down. */
 export type PenMods = Pick<ToolEvent, "shift" | "alt" | "ctrl" | "space">;
 
-/**
- * The Anchor the Pen's button is down on, at `index`, and the pointer's last position. It is one
- * just placed, the last Anchor pressed again, or the first Anchor, which closes the path on release.
- * `broken` is set once Alt broke the Handles, which stay broken for the rest of the press.
- */
-let press: {
-  kind: "place" | "last" | "close" | "connect";
-  index: number;
-  at: Point;
-  broken?: boolean;
-} | null = null;
-
-export const penPressed = () => press !== null;
-export const penClosing = () => press?.kind === "close";
+export const penPressed = () => useStore.getState().penPress !== null;
+export const penClosing = () => useStore.getState().penPress?.kind === "close";
 
 export const near = (a: Point, b: Point, tolerance: number) =>
   Math.hypot(a[0] - b[0], a[1] - b[1]) <= tolerance;
@@ -347,31 +316,38 @@ export function penDown(p: Point, tolerance: number, shift = false) {
   const first = anchors[0];
   const last = anchors.at(-1);
   const end = s.doc && endpointAt(s.doc, p, tolerance, pen?.from, s.isolated);
+  const press = (kind: PenPress["kind"], index: number): PenPress => ({ kind, index, at: p });
   if (first && anchors.length >= 2 && near(p, first.anchor, tolerance)) {
-    press = { kind: "close", index: 0, at: p };
+    useStore.setState({ penPress: press("close", 0) });
   } else if (pen && last && near(p, last.anchor, tolerance)) {
-    press = { kind: "last", index: anchors.length - 1, at: p };
-    setPen({ ...pen, anchors: anchors.with(-1, { ...last, handleOut: null }) });
+    setPen(
+      { ...pen, anchors: anchors.with(-1, { ...last, handleOut: null }) },
+      press("last", anchors.length - 1),
+    );
   } else if (s.doc && end && !pen) {
     // Continuing: its Anchors, turned to end at the Endpoint pressed, are the path so far.
     const theirs = endingAt(s.doc, end);
     const at = theirs.length - 1;
-    press = { kind: "last", index: at, at: p };
     const done = theirs.with(at, { ...(theirs[at] as BareAnchor), handleOut: null });
-    setPen({
-      anchors: done,
-      closed: false,
-      from: { ...end, kept: theirs.length },
-    });
+    setPen(
+      {
+        anchors: done,
+        closed: false,
+        from: { ...end, kept: theirs.length },
+      },
+      press("last", at),
+    );
   } else if (s.doc && end && pen) {
     const theirs = endingAt(s.doc, end);
     const at = (theirs.at(-1) as BareAnchor).anchor;
-    press = { kind: "connect", index: anchors.length, at: p };
-    setPen({
-      ...pen,
-      to: end,
-      anchors: [...anchors, { anchor: at, handleIn: null, handleOut: null }],
-    });
+    setPen(
+      {
+        ...pen,
+        to: end,
+        anchors: [...anchors, { anchor: at, handleIn: null, handleOut: null }],
+      },
+      press("connect", anchors.length),
+    );
   } else if (
     s.doc &&
     !pen &&
@@ -379,14 +355,16 @@ export function penDown(p: Point, tolerance: number, shift = false) {
     (deleteAnchorAt(s.doc, p, tolerance, s.selection) ||
       addAnchorAt(s.doc, p, tolerance, s.selection))
   ) {
-    press = null;
+    useStore.setState({ penPress: null });
   } else {
-    press = { kind: "place", index: anchors.length, at: p };
     const anchor = last && shift ? constrain(last.anchor, p) : p;
-    setPen({
-      ...(pen ?? { closed: false }),
-      anchors: [...anchors, { anchor, handleIn: null, handleOut: null }],
-    });
+    setPen(
+      {
+        ...(pen ?? { closed: false }),
+        anchors: [...anchors, { anchor, handleIn: null, handleOut: null }],
+      },
+      press("place", anchors.length),
+    );
   }
 }
 
@@ -397,15 +375,13 @@ export function penDown(p: Point, tolerance: number, shift = false) {
  * outgoing Handle moves; closing, Alt leaves the outgoing one and shapes the closing segment.
  */
 export function penDrag(p: Point, mods: PenMods) {
-  const pen = drawing(useStore.getState());
+  const { pen, penPress: press } = useStore.getState();
   const a = press && pen?.anchors[press.index];
   // A connect press whose connection was dropped drags nothing (#290).
-  if (!press || !pen || !a || (press.kind === "connect" && !pen.to)) return;
+  if (!press || press.kind === "dropped" || !pen || !a) return;
   const [dx, dy] = [p[0] - press.at[0], p[1] - press.at[1]];
-  press.at = p;
   // Illustrator's documented order is to release Alt, then the button: the cusp stays.
-  press.broken ||= mods.alt;
-  const alt = press.broken;
+  const alt = !!press.broken || mods.alt;
   const [x, y] = a.anchor;
   const out = mods.shift ? constrain(a.anchor, p) : p;
   const [ox, oy] = [out[0] - x, out[1] - y];
@@ -420,31 +396,27 @@ export function penDrag(p: Point, mods: PenMods) {
     const k = Math.hypot(a.handleIn[0] - x, a.handleIn[1] - y) / (Math.hypot(ox, oy) || 1);
     next = { ...a, handleIn: [x - ox * k, y - oy * k], handleOut: out };
   } else next = { ...a, handleIn: mirror, handleOut: out };
-  setPen({ ...pen, anchors: pen.anchors.with(press.index, next) });
+  setPen(
+    { ...pen, anchors: pen.anchors.with(press.index, next) },
+    { ...press, at: p, broken: alt },
+  );
 }
-
-/**
- * The Pen's path while its press connects to an Endpoint, until Esc or another Actor's edit to
- * the path connected to drops the connection (#290).
- */
-const connecting = () => {
-  const pen = drawing(useStore.getState());
-  return press?.kind === "connect" && pen?.to ? pen : null;
-};
 
 /** Drops the press, leaving what it placed but a connection. */
 export const penCancel = () => {
-  const pen = connecting();
-  if (pen) setPen(disconnected(pen));
-  press = null;
+  const { pen, penPress } = useStore.getState();
+  if (pen && penPress?.kind === "connect") setPen(disconnected(pen, null).pen, null);
+  else useStore.setState({ penPress: null });
 };
 
-/** Releasing the Pen: a press on the first Anchor closes the path, one on an Endpoint connects. */
+/**
+ * Releasing the Pen: a press on the first Anchor closes the path, one on an Endpoint connects, unless
+ * Esc or another Actor's edit to the path connected to dropped the connection (#290).
+ */
 export function penUp() {
-  const close = press?.kind === "close";
-  const connect = !!connecting();
-  press = null;
-  if (close || connect) finishPen(close);
+  const kind = useStore.getState().penPress?.kind;
+  useStore.setState({ penPress: null });
+  if (kind === "close" || kind === "connect") finishPen(kind === "close");
 }
 
 /** Ctrl+Z while drawing removes the last Anchor locally; false when not drawing. */

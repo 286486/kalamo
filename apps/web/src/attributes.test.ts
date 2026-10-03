@@ -857,6 +857,54 @@ it("keeps the Pen on the Endpoint it continues when the answer comes while it dr
   expect(accepted).toEqual([["100 30", "80 30", "80 0", "50 0"]]);
 });
 
+// #280: one rule renumbers a Pen's Endpoints, so a continuation or a connection lands on the same
+// Endpoint whether the answer comes while the Pen draws or after its finish was held.
+it("puts the Pen on the same Endpoint whether the answer comes while it draws or once it is held", () => {
+  const pen = {
+    "a Pen continuing from an Endpoint": [
+      () => {
+        penDown([80, 30], 1);
+        penUp();
+      },
+      () => {
+        penDown([100, 30], 1);
+        penUp();
+        finishPen();
+      },
+    ],
+    "a Pen path ending on an Endpoint": [
+      () => {
+        penDown([100, 60], 1);
+        penUp();
+        penDown([50, 0], 1);
+      },
+      () => penUp(),
+    ],
+    "a Pen continuing one path onto another's Endpoint": [
+      () => {
+        penDown([20, 100], 1);
+        penUp();
+        penDown([50, 0], 1);
+      },
+      () => penUp(),
+    ],
+  } satisfies Record<string, (() => void)[]>;
+  for (const [name, [before, after]] of Object.entries(pen)) {
+    for (const outcome of ["accepted", "rejected"] as const) {
+      const [drawing, held] = [true, false].map((midway) => {
+        const answer = pressOnOpen();
+        before();
+        if (midway) answer(outcome);
+        after();
+        if (!midway) answer(outcome);
+        expect(commands().length, name).toBeGreaterThan(0);
+        return subpathsAfterSent();
+      });
+      expect(drawing, `${name}, ${outcome}`).toEqual(held);
+    }
+  }
+});
+
 // #282: the Document sent on reconnect that carries the press's reverse of the path the Pen
 // continues leaves the continuation on its Endpoint; one that also carries another Actor's reshape
 // of it ends the continuation.
