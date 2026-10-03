@@ -15,7 +15,7 @@ import {
   toAnchors,
   transformNodes,
 } from "@kalamo/core";
-import type { Command, ServerMessage } from "@kalamo/sync";
+import type { Command } from "@kalamo/sync";
 import { expect, it, vi } from "vitest";
 import { convertAnchors } from "./AnchorsBar.tsx";
 import { addAnchorTool, anchorPointTool, deleteAnchorTool } from "./anchorTools.ts";
@@ -35,7 +35,7 @@ import { averageAnchors, documentMenus, findByKeys, type Item, type MenuItem } f
 import { pencilDown, pencilMove, pencilUp } from "./pencil.ts";
 import { type PathDrag, previewAll, previewEdit, previewsOf, type ViewState } from "./receive.ts";
 import { sendPreviewedOp } from "./simplify.ts";
-import { afterReverse, record, runHeld, send, unheld, useStore } from "./store.ts";
+import { afterReverse, deliver, record, runHeld, send, unheld, useStore } from "./store.ts";
 import { message, stateAfter, viewState } from "./testing.ts";
 import type { ToolEvent } from "./toolbox.ts";
 import { finishPen, penDown, penUp } from "./tools.ts";
@@ -323,8 +323,7 @@ it("sends a drag made while the press is in flight once it is answered, on the c
     directTool.up?.(event(doc, 25, 10));
     expect(commands()).toEqual([]);
     const msg = outcome === "accepted" ? answer(doc, a.id) : rejected;
-    useStore.setState(stateAfter(useStore.getState(), msg));
-    runHeld();
+    deliver(msg, "d", 0);
     const index = outcome === "accepted" ? 1 : 3;
     expect(commands()).toEqual([
       {
@@ -339,8 +338,7 @@ it("keeps a drag on its Anchor and segment when the answer comes mid-drag", () =
   // a's hole's first Anchor, at (10, 10), which the reverse keeps first.
   const { doc, a, pressed, answer } = pressOn((a) => ({ anchors: [anchorKey(a.id, 1, 0)] }));
   const settle = () => {
-    useStore.setState(stateAfter(useStore.getState(), answer(doc, a.id)));
-    runHeld();
+    deliver(answer(doc, a.id), "d", 0);
   };
   const ops = () => useStore.getState().edit?.inputs[0]?.ops;
   // An Anchor: (20, 10) is a's hole Anchor 3, then 1.
@@ -407,7 +405,7 @@ it("keeps a Handle drag on its Handle when the answer comes mid-drag", () => {
       ...(theirs ? { actor: "agent" } : { commandId: "c" }),
       updated: [reversed(doc, ring.id)],
     });
-    useStore.setState(stateAfter(useStore.getState(), msg));
+    deliver(msg, "d", 0);
     directTool.move?.(event(useStore.getState().doc as Document, 16, 15));
     // Reversed, Anchor 0 stays first and the Handle is its in Handle.
     if (theirs) expect(ops()).toBeUndefined();
@@ -512,8 +510,7 @@ it("renumbers a drag still being made by the answer alone; another Actor's rever
           : source === "rejected"
             ? rejected
             : message("tx", { rev: doc.rev + 1, actor: "agent", updated: [reversed(doc, a.id)] });
-      useStore.setState(stateAfter(useStore.getState(), msg));
-      runHeld();
+      deliver(msg, "d", 0);
       const now = useStore.getState().doc as Document;
       if (source === "theirs") {
         // The drag lets go at once, with its preview, and shows the path as the Agent left it.
@@ -531,8 +528,7 @@ it("renumbers a drag still being made by the answer alone; another Actor's rever
         // nor brings back what the Agent's edit let go of, and nothing is sent.
         expect(commands(), label).toEqual([]);
         expect(useStore.getState().held, label).toEqual([]);
-        useStore.setState(stateAfter(useStore.getState(), answer(now, a.id)));
-        runHeld();
+        deliver(answer(now, a.id), "d", 0);
         expect(commands(), label).toEqual([]);
         expect(useStore.getState().notice, label).toBeNull();
         continue;
@@ -562,8 +558,7 @@ function dragThrough(
     g.down(doc, x, y);
     g.move(doc, x + 5, y);
     expect(firstIndex(useStore.getState().edit?.inputs[0]), name).toBe(g.index[0]);
-    useStore.setState(stateAfter(useStore.getState(), then(doc, a, b)));
-    runHeld();
+    deliver(then(doc, a, b), "d", 0);
     check(name, g, { doc, a });
   }
 }
@@ -657,7 +652,7 @@ it("keeps a drag going through the answer to the person's own earlier edit on th
       commandId: "c",
       updated: [previewEdit(doc, earlier as PathDrag).nodes.get(a.id) as Node],
     });
-    useStore.setState(stateAfter(useStore.getState(), answer));
+    deliver(answer, "d", 0);
     expect(firstIndex(useStore.getState().edit?.inputs[0]), name).toBe(g.index[0]);
     const { moved, sent } = finish(g);
     expect(moved, name).toBe(g.index[0]);
@@ -680,7 +675,7 @@ it("lets go only of the Anchors on the path another Actor edits, in a drag of tw
     actor: "agent",
     updated: [reversed(doc, a.id)],
   });
-  useStore.setState(stateAfter(useStore.getState(), theirs));
+  deliver(theirs, "d", 0);
   expect(paths()).toEqual([b.id]);
   const now = useStore.getState().doc as Document;
   directTool.move?.(event(now, 26, 10));
@@ -744,8 +739,7 @@ it("after a reconnect mid-drag, keeps the drag only on a path as it was or as th
       g.down(doc, x, y);
       g.move(doc, x + 5, y);
       const msg = snapshot(doc, (n) => (n.id === a.id ? reshape(doc, a.id) : n));
-      useStore.setState(stateAfter(useStore.getState(), msg));
-      runHeld();
+      deliver(msg, "d", 0);
       const { moved, sent } = finish(g);
       if (kind !== "reversed") {
         expect({ moved, sent }, label).toEqual({ moved: undefined, sent: [] });
@@ -856,8 +850,7 @@ it("runs a held edit on the Anchors chosen when it was made, renumbered, not on 
     directTool.up?.(event(doc, 20, 10));
     expect(useStore.getState().anchors).toEqual([anchorKey(a.id, 1, 3)]);
     const msg = outcome === "accepted" ? answer(doc, a.id, b.id) : rejected;
-    useStore.setState(stateAfter(useStore.getState(), msg));
-    runHeld();
+    deliver(msg, "d", 0);
     const [anchors] = seen as [string[]];
     expect(anchors).toEqual(
       outcome === "accepted"
@@ -887,10 +880,9 @@ it("clears a held edit's keys on a path another Actor edits before the answer (A
     actor: "agent",
     updated: [reversed(doc, a.id)],
   });
-  useStore.setState(stateAfter(useStore.getState(), theirs));
+  deliver(theirs, "d", 0);
   const shown = useStore.getState().doc as Document;
-  useStore.setState(stateAfter(useStore.getState(), answer(shown, b.id)));
-  runHeld();
+  deliver(answer(shown, b.id), "d", 0);
   expect(seen).toEqual([[anchorKey(b.id, 1, 3)]]);
   expect(commands()).toEqual([]);
 });
@@ -1245,9 +1237,7 @@ function pressOnOpen({ grouped = false } = {}) {
       outcome === "accepted"
         ? message("tx", { rev: now.rev + 1, commandId: "c", updated: [reversed(now, p.id)] })
         : rejected;
-    const after = stateAfter(useStore.getState(), answered);
-    useStore.setState(after);
-    runHeld(after.notice);
+    deliver(answered, "d", 0);
   };
 }
 
@@ -1835,9 +1825,7 @@ const onRings = () => {
         commandId: "c",
         updated: [a, b].filter((n) => now.nodes.has(n.id)).map((n) => reversed(now, n.id)),
       });
-      const after = stateAfter(useStore.getState(), outcome === "accepted" ? tx : rejected);
-      useStore.setState(after);
-      runHeld(after.notice);
+      deliver(outcome === "accepted" ? tx : rejected, "d", 0);
     },
   };
 };
@@ -1851,8 +1839,7 @@ const onOpen = () => {
       const { doc } = useStore.getState() as { doc: Document };
       if (doc.nodes.has(path) || outcome === "rejected") return answer(outcome);
       const tx = message("tx", { rev: doc.rev + 1, commandId: "c", updated: [] });
-      useStore.setState(stateAfter(useStore.getState(), tx));
-      runHeld();
+      deliver(tx, "d", 0);
     },
   };
 };
@@ -2079,7 +2066,7 @@ function ownTx(id: string, n: Node, change: "paint" | "reshape") {
           ops: [{ op: "move_anchor", subpath: 0, index: 0, to: [n.id.length, -5] }],
         }).node;
   const tx = message("tx", { rev: doc.rev + 1, commandId: id, updated: [updated as Node] });
-  useStore.setState(stateAfter(useStore.getState(), tx));
+  deliver(tx, "d", 0);
   return updated as Node;
 }
 
@@ -2180,8 +2167,7 @@ it("sends Undo and Redo after the edits held for a press, in input order; at onc
     directTool.up?.(event(doc, 25, 10));
     findByKeys(menus, keys)?.run();
     expect(commands(), keys).toEqual([]);
-    useStore.setState(stateAfter(useStore.getState(), answer(doc, a.id)));
-    runHeld();
+    deliver(answer(doc, a.id), "d", 0);
     expect(
       commands().map((c) => c.type),
       keys,
@@ -2244,8 +2230,7 @@ it("lets go of a drag when the answer to the person's own held reshape of its pa
         commandId: "c",
         updated: [reversed(doc, b.id)],
       });
-      useStore.setState(stateAfter(useStore.getState(), pressed));
-      runHeld();
+      deliver(pressed, "d", 0);
       const now = useStore.getState().doc as Document;
       useStore.setState({
         selection: [a.id, b.id],
@@ -2263,7 +2248,7 @@ it("lets go of a drag when the answer to the person's own held reshape of its pa
         stored = editPath(structuredClone(now), (edit as { input: PathEditInput }).input).node;
         expect(localAnchors(stored as PathNode)[1]?.anchors.length, label).toBeGreaterThan(4);
         const msg = message("tx", { rev: now.rev + 1, commandId: "k", updated: [stored] });
-        useStore.setState(stateAfter(useStore.getState(), msg));
+        deliver(msg, "d", 0);
       } else {
         stored = ownTx("g", now.nodes.get(a.id) as Node, "paint");
       }
@@ -2328,11 +2313,6 @@ function serve(doc: Document) {
     queue.push({ id, command });
     return record(id, command);
   });
-  const deliver = (msg: ServerMessage) => {
-    const after = stateAfter(useStore.getState(), msg);
-    useStore.setState(after);
-    runHeld(after.notice);
-  };
   /** The server's change since `before` as a Transaction, the answer to `commandId` if given. */
   const tx = (before: Document["nodes"], commandId?: string) =>
     message("tx", {
@@ -2374,21 +2354,22 @@ function serve(doc: Document) {
       } else throw new Error(`The test server does not run ${c.type}.`);
     } catch {
       server.nodes = before;
-      return deliver(no);
+      deliver(no, "d", 0);
+      return;
     }
     if (c.type !== "undo" && c.type !== "redo") {
       history.push(before);
       future.length = 0;
     }
     server.rev++;
-    deliver(tx(before, id));
+    deliver(tx(before, id), "d", 0);
   };
   /** Another Actor's edit to the server's Document, delivered at once. */
   const theirs = (change: (d: Document) => void) => {
     const before = structuredClone(server.nodes);
     change(server);
     server.rev++;
-    deliver(tx(before));
+    deliver(tx(before), "d", 0);
   };
   const serveAll = () => {
     while (queue.length > 0) answer();
@@ -2929,9 +2910,7 @@ it("after a reconnect, drops a held edit on a path the press did not name that s
         const nodes = [...doc.nodes.values()].map((n) =>
           n.id === q.id ? agents : applied && n.id === p.id ? reversed(doc, p.id) : n,
         );
-        const after = stateAfter(useStore.getState(), message("document", { rev: 9, nodes }));
-        useStore.setState(after);
-        runHeld(after.notice);
+        deliver(message("document", { rev: 9, nodes }), "d", 0);
         const s = useStore.getState();
         expect(s.held, label).toEqual([]);
         if (theirs === "reshape") {
@@ -2961,7 +2940,7 @@ it("after a reconnect that changes only a dragged path's Fill, keeps the drag (#
       nodes: [...doc.nodes.values()].map((n) => (n.id === a.id ? swap(n) : n)),
     });
   const kept = (label: string, g: (typeof grabs)[string], index: number) => {
-    expect(useStore.getState().grabbed.length, label).toBeGreaterThan(0);
+    expect(useStore.getState().grab?.targets.length ?? 0, label).toBeGreaterThan(0);
     const { moved, sent } = finish(g);
     expect(moved, label).toBe(index);
     const [c] = sent;
@@ -2985,8 +2964,7 @@ it("after a reconnect that changes only a dragged path's Fill, keeps the drag (#
       g.down(doc, x, y);
       g.move(doc, x + 5, y);
       const msg = snapshot(doc, a, (n) => refilled(applied ? reversed(doc, n.id) : n));
-      useStore.setState(stateAfter(useStore.getState(), msg));
-      runHeld();
+      deliver(msg, "d", 0);
       kept(label, g, g.index[applied ? 1 : 0]);
     }
   }
@@ -3007,9 +2985,7 @@ it("after a reconnect that only moves the path a held Pen finish continues, carr
       const nodes = [...now.nodes.values()].map((n) =>
         n.id === q ? ({ ...n, transform: [1, 0, 0, 1, 0, shift] } as Node) : n,
       );
-      const after = stateAfter(useStore.getState(), message("document", { rev: 9, nodes }));
-      useStore.setState(after);
-      runHeld(after.notice);
+      deliver(message("document", { rev: 9, nodes }), "d", 0);
       expect(useStore.getState().notice, label).toBeNull();
       expect(storedAfterSent(q), label).toEqual({
         subpaths: [["0 100", "20 100", "40 100"]],
@@ -3212,8 +3188,7 @@ it("after a reconnect, keeps drawing a drag it keeps, as its next move draws it 
       g.move(doc, x + 5, y);
       const nodes = [...doc.nodes.values()].map((n) => swap(doc, n, a));
       const snapshot = message("document", { rev: doc.rev + 1, nodes });
-      useStore.setState(stateAfter(useStore.getState(), snapshot));
-      runHeld();
+      deliver(snapshot, "d", 0);
       const now = useStore.getState().doc as Document;
       const shown = stored(drawnDoc(), a.id);
       if (kind === "reshaped, no press") {

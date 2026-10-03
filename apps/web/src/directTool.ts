@@ -37,7 +37,7 @@ const DIRECT_HIT = 2;
 
 /**
  * A press on the canvas: moving objects or drawing a marquee, as the Selection tool does, or
- * dragging Anchors, or one Handle or segment, which the store keeps as `grabbed` so a Reverse Path
+ * dragging Anchors, or one Handle or segment, which the store keeps as its `grab` so a Reverse Path
  * Direction press's answer renumbers them (ADR-0110); `last` is its latest move.
  */
 type Gesture = Press & { last?: { dx: number; dy: number; alt: boolean } } & (
@@ -140,7 +140,9 @@ export const directTool: CanvasTool = {
       gesture = { ...g, kind: "marquee", mods };
     }
     const current = gesture;
-    useStore.setState({ grabbed, regrab: (doc, held) => current && dragOf(current, doc, held) });
+    useStore.setState({
+      grab: { targets: grabbed, redraw: (doc, held) => current && dragOf(current, doc, held) },
+    });
   },
   move(e) {
     const g = gesture;
@@ -153,14 +155,14 @@ export const directTool: CanvasTool = {
       return;
     }
     g.last = { dx, dy, alt: e.alt };
-    const drag = dragOf(g, e.doc, useStore.getState().grabbed);
+    const drag = dragOf(g, e.doc, useStore.getState().grab?.targets ?? []);
     if (drag) useStore.setState(drag);
   },
   up(e) {
     const g = gesture;
     gesture = null;
-    const { grabbed } = useStore.getState();
-    useStore.setState({ grabbed: [], regrab: null });
+    const grabbed = useStore.getState().grab?.targets ?? [];
+    useStore.setState({ grab: null });
     if (g?.kind === "marquee") {
       // A marquee selects Anchors; the Selection is the paths they are on.
       const { selection, anchors, segments, isolated } = useStore.getState();
@@ -199,7 +201,7 @@ export const directTool: CanvasTool = {
   cancel(redraw) {
     gesture = null;
     marqueeRect = null;
-    useStore.setState({ grabbed: [], regrab: null });
+    useStore.setState({ grab: null });
     redraw();
     cancelDrag();
   },

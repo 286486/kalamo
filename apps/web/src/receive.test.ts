@@ -98,6 +98,18 @@ it("drops deleted Nodes from the Selection", () => {
   });
 });
 
+it("lets go of what a drag holds on a deleted path without redrawing it, which `deliver` does (#307)", () => {
+  const { doc, a, b } = fixture();
+  const redraw = () => {
+    throw new Error("receive redrew the drag");
+  };
+  const targets = [a, b].map((n) => ({ kind: "anchor" as const, key: anchorKey(n.id, 0, 0) }));
+  const state = viewState({ doc, grab: { targets, redraw } });
+  const next = stateAfter(state, tx(doc, { actor: "agent", deletedIds: [a.id] }));
+  expect(next.grab).toEqual({ targets: [targets[1]], redraw });
+  expect(next).not.toHaveProperty("edit");
+});
+
 it("asks to reconnect on a missed rev, and drops an unanswered drag on a new Document", () => {
   const { doc, a } = fixture();
   const actorNames = new Map([["agent-a", "A"]]);

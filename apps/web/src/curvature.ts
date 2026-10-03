@@ -88,7 +88,7 @@ type AnchorPress = { kind: "anchor"; nodeId: string; from: Point; d?: Point };
 
 /**
  * The press: on an Anchor of the path being drawn (`index`), or on an Anchor of a selected path
- * (`nodeId`), which the store keeps as `grabbed` (ADR-0110) and a drag moves by `d`; `from` is where
+ * (`nodeId`), which the store keeps as its `grab` (ADR-0110) and a drag moves by `d`; `from` is where
  * it started. Pressing the first Anchor closes the path on release unless it was dragged.
  */
 let press:
@@ -98,7 +98,7 @@ let press:
 
 /** The key of the selected path's Anchor the press grabbed, as the answer left it. */
 const grabbedKey = () => {
-  const [t] = useStore.getState().grabbed;
+  const [t] = useStore.getState().grab?.targets ?? [];
   return t?.kind === "anchor" ? t.key : null;
 };
 
@@ -165,8 +165,10 @@ export function curvatureDown(p: Point, tolerance: number, alt: boolean) {
       const held: AnchorPress = { kind: "anchor", nodeId, from: at };
       press = held;
       useStore.setState({
-        grabbed: [{ kind: "anchor", key }],
-        regrab: (doc, [t]) => (held.d ? movePreview(doc, t, held.d) : null),
+        grab: {
+          targets: [{ kind: "anchor", key }],
+          redraw: (doc, [t]) => (held.d ? movePreview(doc, t, held.d) : null),
+        },
       });
       return;
     }
@@ -210,7 +212,7 @@ export function curvatureUp() {
   const p = press;
   press = null;
   const key = grabbedKey();
-  useStore.setState({ grabbed: [], regrab: null });
+  useStore.setState({ grab: null });
   if (p?.kind === "drawn" && p.close && !p.moved) finishPen(true);
   if (p?.kind !== "anchor" || !p.d || !key) return;
   const d = p.d;
@@ -225,7 +227,7 @@ export function curvatureUp() {
 
 export const curvatureCancel = () => {
   press = null;
-  useStore.setState({ grabbed: [], regrab: null });
+  useStore.setState({ grab: null });
 };
 
 /** Delete while drawing removes the Anchor pressed last; false when not drawing. */

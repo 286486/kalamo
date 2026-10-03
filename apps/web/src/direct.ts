@@ -604,7 +604,7 @@ const renumber =
 
 /**
  * `t` renumbered as `renumber` does, a point on a split segment kept. Every held target and
- * `grabbed` the answer to a command the browser can number renumbers goes through this rule, and
+ * `grab` target the answer to a command the browser can number renumbers goes through this rule, and
  * every key through `renumberKey` (ADR-0110).
  */
 export const renumberTarget = (r: Renumbering | null) => renumber(r, true);

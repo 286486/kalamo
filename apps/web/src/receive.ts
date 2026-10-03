@@ -270,17 +270,16 @@ export interface ViewState {
   /** Direct Selection edits waiting for the answers to `reversing` and `renumbering`, oldest first. */
   held: Held[];
   /**
-   * What a drag still being made holds by index: Direct Selection's Anchors, or the one Anchor,
-   * Handle or segment a tool grabbed. The answer to a Reverse Path Direction press renumbers it;
-   * another Actor's edit to a path drops what it holds there (ADR-0110).
+   * The drag still being made, or null: its targets, Direct Selection's Anchors or the one Anchor,
+   * Handle or segment a tool grabbed, and `redraw`, which works out its unsent preview from a
+   * Document and those targets as its next move does. The answer to a Reverse Path Direction press
+   * renumbers the targets; another Actor's edit to a path drops those there, and the slot stays
+   * with what is left, even nothing (ADR-0110). `deliver` redraws it, not `receive` (#285, #307).
    */
-  grabbed: Target[];
-  /**
-   * The preview of the drag still being made, worked out from a Document and what it holds as its
-   * next move works it out; null while it has none. Whatever turns, renumbers or lets go of
-   * `grabbed` redraws the preview with it, so it stays the one the next move draws (#285).
-   */
-  regrab: ((doc: Document, grabbed: Target[]) => Partial<Preview> | null) | null;
+  grab: {
+    targets: Target[];
+    redraw: (doc: Document, targets: Target[]) => Partial<Preview> | null;
+  } | null;
   /**
    * Every sent edit's preview, in the order sent, each drawn until the answers to its command ids:
    * a live gesture's and a held edit's alike. A command with no preview is in `sent` only (#285).
@@ -420,13 +419,12 @@ type Fate = "keeps" | "renumbered" | "ends";
 /**
  * On one Node a message touched, whose change it was, and what it leaves of: the Direct Selection's
  * keys and a held edit's, each kept or renumbered while still in range; a held Pen finish's drawn on
- * the person's sent edits (`seeded`); what a drag still being made holds (`grabbed`); a Pen
+ * the person's sent edits (`seeded`); what a drag still being made holds (`grab`); a Pen
  * continuation; and a Pen connection.
  */
-type Fates = Record<
-  "keys" | "held" | "seeded" | "grabbed" | "continuation" | "connection",
-  Fate
-> & { cause: Cause };
+type Fates = Record<"keys" | "held" | "seeded" | "grab" | "continuation" | "connection", Fate> & {
+  cause: Cause;
+};
 
 /**
  * How the person's own command `msg` renumbers its path, and whose change it was and what it leaves
@@ -481,7 +479,7 @@ function classify(
         keys: fate(reshaped(n) && (pressNamed.has(n) || s.renumbering.size > 0)),
         held: fate(reshaped(n)),
         seeded: fate(redrawn(n)),
-        grabbed: fate(reshaped(n)),
+        grab: fate(reshaped(n)),
         continuation: fate(redrawn(n) || placed(n)),
         connection: fate(redrawn(n)),
       }),
@@ -511,7 +509,7 @@ function classify(
         keys: fate(previewed, true),
         held: fate(previewed, true),
         seeded: fate(previewed, true),
-        grabbed: fate(forDrag, true),
+        grab: fate(forDrag, true),
         continuation: fate(forPen),
         connection: fate(previewed),
       };
@@ -648,15 +646,18 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
   const dropped =
     !reached && ends(pen?.to?.nodeId, "connection") && pen ? disconnected(pen, s.penPress) : null;
   // What a drag still being made holds on a path it no longer keeps goes; the rest is turned and
-  // renumbered as the keys are (ADR-0110, #298). Its unsent preview is drawn again from what it
-  // still holds, as its next move draws it (#285).
-  const letGo = new Set(s.grabbed.map(targetNode).filter((n) => ends(n, "grabbed")));
-  const grabbed = s.grabbed
-    .filter((t) => !letGo.has(targetNode(t)))
-    .map(turnTarget(doc, turned))
-    .map(renumberTarget(map))
-    .filter(present);
-  const regrabbed = (turned.length > 0 || letGo.size > 0 || !!map) && s.regrab?.(doc, grabbed);
+  // renumbered as the keys are (ADR-0110, #298). A new slot says its targets changed, so `deliver`
+  // draws its unsent preview again from what it still holds, as its next move draws it (#285, #307).
+  const letGo = new Set(s.grab?.targets.map(targetNode).filter((n) => ends(n, "grab")));
+  const grab = (turned.length > 0 || letGo.size > 0 || !!map) &&
+    s.grab && {
+      ...s.grab,
+      targets: s.grab.targets
+        .filter((t) => !letGo.has(targetNode(t)))
+        .map(turnTarget(doc, turned))
+        .map(renumberTarget(map))
+        .filter(present),
+    };
   const skipped = msg.type === "tx" ? (msg.skippedIds?.length ?? 0) : 0;
   // A selected Node that a browser's command moved into a new Group selects that Group, as Make
   // Clipping Mask does; an Agent's edit leaves the person's Selection alone.
@@ -715,7 +716,6 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     // An unchanged Selection stays the same array, so the Layer rows stay (ADR-0076).
     selection: !tops && sameIds(next, s.selection) ? s.selection : next,
     ...(tops && { layerRows: layers }),
-    ...(regrabbed && { edit: regrabbed.edit ?? null, drag: regrabbed.drag ?? null }),
     ...(msg.type === "document" ? s.sent.size > 0 && { sent: new Set() } : settleSent(s.sent, id)),
     anchors,
     segments,
@@ -729,7 +729,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
       ...penState(asDrawn(doc, { ...s, sentPreviews: sentLeft }), dropped.pen, s.edit),
       penPress: dropped.penPress,
     }),
-    ...((turned.length > 0 || letGo.size > 0 || !!map) && { grabbed }),
+    ...(grab && { grab }),
     ...(msg.type === "document"
       ? s.renumbering.size > 0 && { renumbering: new Map() }
       : settleRenumbering(s.renumbering, id)),

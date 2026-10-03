@@ -158,7 +158,7 @@ export const deleteAnchorTool: CanvasTool = {
 
 /**
  * An Anchor Point tool press: on an Anchor, a Handle it shows, or a segment, which the store keeps
- * as `grabbed` (ADR-0110); `last` is its latest move.
+ * as its `grab` (ADR-0110); `last` is its latest move.
  */
 let gesture: (Press & { last?: { d: Point; shift: boolean } }) | null = null;
 
@@ -247,8 +247,10 @@ export const anchorPointTool: CanvasTool = {
     const g: NonNullable<typeof gesture> = { start: { x: e.x, y: e.y }, moved: false };
     gesture = g;
     useStore.setState({
-      grabbed: [target],
-      regrab: (doc, [t]) => (g.last ? dragPreview(doc, t, g.last) : null),
+      grab: {
+        targets: [target],
+        redraw: (doc, [t]) => (g.last ? dragPreview(doc, t, g.last) : null),
+      },
     });
     // Its Handles show while they are pulled out, as Direct Selection shows a selected Anchor's
     // or segment's.
@@ -260,7 +262,7 @@ export const anchorPointTool: CanvasTool = {
     const g = gesture;
     const d = g && dragged(g, e);
     if (!g || !d) return;
-    const [t] = useStore.getState().grabbed;
+    const [t] = useStore.getState().grab?.targets ?? [];
     if (!t) return;
     g.last = { d, shift: e.shift };
     useStore.setState(dragPreview(e.doc, t, g.last));
@@ -268,8 +270,8 @@ export const anchorPointTool: CanvasTool = {
   up() {
     const g = gesture;
     gesture = null;
-    const [grabbed] = useStore.getState().grabbed;
-    useStore.setState({ grabbed: [], regrab: null });
+    const [grabbed] = useStore.getState().grab?.targets ?? [];
+    useStore.setState({ grab: null });
     if (!g || !grabbed) return;
     // Sent once a Reverse Path Direction press in flight is answered, from the Document then, on
     // what the gesture grabbed (ADR-0110); another Actor's edit to its path meanwhile drops it
@@ -290,7 +292,7 @@ export const anchorPointTool: CanvasTool = {
   },
   cancel(redraw) {
     gesture = null;
-    useStore.setState({ grabbed: [], regrab: null });
+    useStore.setState({ grab: null });
     cancelDrag();
     redraw();
   },
