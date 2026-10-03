@@ -33,6 +33,7 @@ import {
   targetKeys,
   targetNode,
   turnedOf,
+  turnInput,
   turnTarget,
 } from "./direct.ts";
 import type { PaintPreview } from "./gradient.ts";
@@ -182,14 +183,24 @@ export type Preview = Pick<ViewState, "edit" | "drag">;
 export type SentPreview = Preview & { fromHeld?: true };
 
 /**
+ * What a held `set_d` edit sends, worked out on the path as its run sees it and its keys: a Pencil
+ * redraw's or a Pen finish's input, or the notice it is dropped with (#286).
+ */
+export type Redraw = (doc: Document, chosen: Chosen) => { input: PathEditInput } | string;
+
+/**
  * A Direct Selection edit made while a Reverse Path Direction press was in flight, run once it is
  * answered (ADR-0110). Its keys are renumbered and cleared as the Direct Selection's are meanwhile.
- * `preview` is its own, drawn until it runs: running or dropping it changes no other preview.
+ * `preview` is its own, drawn until it runs: running or dropping it changes no other preview. An
+ * answer that renumbers its keys moves its preview with them, or, with `redraw`, works it out again
+ * (#286).
  */
 export interface Held {
   chosen: Chosen;
   run: (chosen: Chosen) => void;
   preview: Preview;
+  /** A `set_d` edit's input, which its run sends and its preview draws (#286). */
+  redraw?: Redraw;
   /**
    * Names it in what is drawn on its preview until it runs: a seed then holds the ids it sent in its
    * place, or goes with it if it sent nothing (#308).
@@ -691,14 +702,26 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
       ? s.renumbering.size > 0 && { renumbering: new Map() }
       : settleRenumbering(s.renumbering, id)),
     ...(s.held.length > 0 && {
-      held: s.held.map((h) => ({
-        ...h,
-        ...(map && { preview: renumberPreview(map, h.preview) }),
-        chosen: {
+      // Each preview follows its keys. A `set_d` one is worked out again in run order, on what its
+      // run will see: the sent previews and the held ones before it (#286).
+      held: s.held.reduce<Held[]>((before, h) => {
+        const chosen = {
           ...rechosen(h.chosen, h.seed ? "seeded" : "held"),
           selection: h.chosen.selection.filter((id) => doc.nodes.has(id)),
-        },
-      })),
+        };
+        const moves = turned.length > 0 || !!map;
+        const preview = !moves
+          ? h.preview
+          : h.redraw
+            ? redrawn(
+                h.redraw(
+                  asDrawn(doc, { sentPreviews: sentLeft, sent: sentAfter, held: before }),
+                  chosen,
+                ),
+              )
+            : renumberPreview(doc, turned, map, h.preview);
+        return [...before, { ...h, chosen, preview }];
+      }, []),
     }),
     ...(msg.type === "document"
       ? s.pending.length > 0 && { pending: [] }
@@ -984,12 +1007,25 @@ function settleRenumbering(renumbering: ViewState["renumbering"], id: string | u
   return { renumbering: left };
 }
 
-/** A held edit's unsent preview renumbered as its keys are (#298). */
-function renumberPreview(r: Renumbering, p: Preview): Preview {
+/** A held edit's unsent preview turned and renumbered as its keys are (#286, #298). */
+function renumberPreview(
+  doc: Document,
+  turned: Reversing["subpaths"],
+  r: Renumbering | null,
+  p: Preview,
+): Preview {
   if (!p.edit || p.edit.commandIds !== null) return p;
-  const inputs = p.edit.inputs.map((i) => renumberInput(r, i)).filter((i) => i !== null);
+  const inputs = p.edit.inputs
+    .map((i) => renumberInput(r, turnInput(doc, turned, i)))
+    .filter((i) => i !== null);
   return { ...p, edit: inputs.length > 0 ? { ...p.edit, inputs } : null };
 }
+
+/** A held `set_d` edit's preview: what `Redraw` worked out, or none once it is dropped (#286). */
+const redrawn = (r: ReturnType<Redraw>): Preview => ({
+  edit: typeof r === "string" ? null : { inputs: [r.input], commandIds: null },
+  drag: null,
+});
 
 /** The record of commands in flight without command `id`, answered or rejected. */
 function settleSent(sent: ReadonlySet<string>, id: string | undefined) {

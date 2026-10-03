@@ -24,6 +24,7 @@ import {
 import { forNewArt, leaving } from "./isolation.ts";
 import {
   asDrawn,
+  type Chosen,
   disconnected,
   drawnOn,
   type Endpoint,
@@ -240,37 +241,42 @@ function finishEdit(doc: Document, pen: PenPath) {
     selection: [...new Set(ends.map((e) => e.nodeId))],
     edit: { inputs: [first.input], commandIds: null },
   });
+  // What it sends, on the path as its run sees it, and its preview held (#286). `held` is `keys`
+  // renumbered, `from`'s first; a change to their path cleared a missing one.
+  const finish = (there: Document, { anchors: held, lostBy }: Chosen) => {
+    if (held.length < keys.length) return PEN_DROPPED[lostBy ?? "other"];
+    // Moved apart, it can meet only one; moved together, what it drew goes with them (#301).
+    // Rounding leaves no move an exact identity.
+    const [one, other] = moves(there, drawn);
+    if (one && other && String(one) !== String(other)) return PEN_MOVED;
+    const at = held.map(endOf);
+    const f = from && at.shift();
+    const placed = one ? anchors.map((a) => through(one, a)) : anchors;
+    return (
+      penCommand(there, {
+        ...pen,
+        anchors: placed,
+        from: from && { ...from, ...f },
+        to: to && at[0],
+      }) ?? PEN_DROPPED.other
+    );
+  };
   afterReverse(
-    ({ doc: now, anchors: held, lostBy, ...s }, w) => {
-      // `held` is `keys` renumbered, `from`'s first; a change to their path cleared a missing one.
-      if (held.length < keys.length) {
-        useStore.setState({ notice: PEN_DROPPED[lostBy ?? "other"] });
-        return;
-      }
-      // It lands after the person's edits and moves sent before it, as they are drawn. Moved apart
-      // there, it can meet only one; moved together, what it drew goes with them (#301). Rounding
-      // leaves no move an exact identity. The edits still held run after it, so they are left out.
-      const there = now && asDrawn(now, { ...s, held: [] });
-      const [one, other] = there ? moves(there, drawn) : [];
-      if (one && other && String(one) !== String(other)) {
-        useStore.setState({ notice: PEN_MOVED });
-        return;
-      }
-      const at = held.map(endOf);
-      const f = from && at.shift();
-      const placed = one ? anchors.map((a) => through(one, a)) : anchors;
-      const c =
-        there &&
-        penCommand(there, {
-          ...pen,
-          anchors: placed,
-          from: from && { ...from, ...f },
-          to: to && at[0],
-        });
-      if (!c) return;
-      drawSent({ edit: { inputs: [c.input], commandIds: [send(c.command, w)] }, drag: null });
+    (s, w) => {
+      if (!s.doc) return;
+      // It lands after the person's edits and moves sent before it, as they are drawn. The edits
+      // still held run after it, so they are left out.
+      const c = finish(asDrawn(s.doc, { ...s, held: [] }), s);
+      if (typeof c === "string") useStore.setState({ notice: c });
+      else drawSent({ edit: { inputs: [c.input], commandIds: [send(c.command, w)] }, drag: null });
     },
-    { anchors: keys, segments: [], previewed: true, ...(seed.length > 0 && { seed }) },
+    {
+      anchors: keys,
+      segments: [],
+      previewed: true,
+      redraw: finish,
+      ...(seed.length > 0 && { seed }),
+    },
   );
 }
 

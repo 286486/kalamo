@@ -21,6 +21,7 @@ import {
   through,
   worldOf,
 } from "./direct.ts";
+import { asDrawn, type Redraw } from "./receive.ts";
 import { editable } from "./selection.ts";
 import { getItem } from "./storage.ts";
 import { afterReverse, useStore } from "./store.ts";
@@ -372,19 +373,21 @@ export function pencilUp(scale: number) {
       : [];
     const m = invert(worldOf(s.doc, nodeId));
     const own = done.map((p) => applyTo(m, ...p));
+    // One rule for what it sends and its preview held, on the path as its run sees it (#286).
+    const redraw: Redraw = (now, { anchors }) => {
+      const f = anchors.length > 0 && worldOf(now, nodeId);
+      const at = f && own.map((p) => applyTo(f, ...p));
+      const again = at && pencilResult(now, [nodeId], at, o, scale);
+      return again && "edit" in again ? { input: again.edit } : DROPPED;
+    };
     afterReverse(
-      ({ doc: now, anchors }, w) => {
-        if (!now) return;
-        const f = anchors.length > 0 && worldOf(now, nodeId);
-        const at = f && own.map((p) => applyTo(f, ...p));
-        const again = at && pencilResult(now, [nodeId], at, o, scale);
-        if (!again || !("edit" in again)) {
-          useStore.setState({ notice: DROPPED });
-          return;
-        }
-        sendPreview({ edit: { inputs: [again.edit], commandIds: null } }, w);
+      (s, w) => {
+        if (!s.doc) return;
+        const r = redraw(asDrawn(s.doc, { ...s, held: [] }), s);
+        if (typeof r === "string") useStore.setState({ notice: r });
+        else sendPreview({ edit: { inputs: [r.input], commandIds: null } }, w);
       },
-      { anchors: keys, segments: [], previewed: true },
+      { anchors: keys, segments: [], previewed: true, redraw },
     );
     return;
   }
