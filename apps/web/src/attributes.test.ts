@@ -41,7 +41,16 @@ import { paintUpdates, placeOn, sendPaint } from "./gradient.ts";
 import { averageAnchors, documentMenus, findByKeys, type Item, type MenuItem } from "./menu.ts";
 import { pencilDown, pencilMove, pencilUp } from "./pencil.ts";
 import { type PathDrag, previewAll, previewEdit, previewsOf, type ViewState } from "./receive.ts";
-import { afterRenumbering, deliver, record, runHeld, send, unheld, useStore } from "./store.ts";
+import {
+  type Answered,
+  afterRenumbering,
+  deliver,
+  record,
+  runHeld,
+  send,
+  unheld,
+  useStore,
+} from "./store.ts";
 import { message, recordAs, stateAfter, viewState } from "./testing.ts";
 import type { ToolEvent } from "./toolbox.ts";
 import { finishPen, penDown, penUp } from "./tools.ts";
@@ -188,8 +197,14 @@ it("reads a Make result as Illustrator's, backmost Off and hole On, and sets a c
   expect(directionOf({ ...s([anchorKey(line, 1, 0)]), selection: [line] })).toBeNull();
   const both = { ...s([anchorKey(line, 0, 0), anchorKey(line, 1, 0)]), selection: [line] };
   expect(directionOf(both)).toBe(true);
-  setDirection(s([anchorKey(ring, 1, 0)]), true);
-  setDirection(s([anchorKey(ring, 1, 0), anchorKey(ring, 1, 1)], [anchorKey(ring, 1, 3)]), false);
+  afterRenumbering((_s, w) => setDirection(s([anchorKey(ring, 1, 0)]), true, w));
+  afterRenumbering((_s, w) =>
+    setDirection(
+      s([anchorKey(ring, 1, 0), anchorKey(ring, 1, 1)], [anchorKey(ring, 1, 3)]),
+      false,
+      w,
+    ),
+  );
   expect(commands()).toEqual([
     { type: "path_reverse", subpaths: [{ nodeId: ring, subpath: 1 }], clockwise: false },
   ]);
@@ -270,7 +285,8 @@ function pressOn(keys: (a: Node, b: Node) => Partial<ViewState>, hole?: string) 
   vi.mocked(send).mockImplementation(recordAs("c"));
   const { doc, a, b } = rings(hole);
   const state = viewState({ doc, selection: [a.id, b.id], role: "owner", ...keys(a, b) });
-  setDirection(state, true);
+  useStore.setState(state);
+  afterRenumbering((_s, w) => setDirection(state, true, w));
   const pressed = { ...state, reversing: useStore.getState().reversing };
   /** The press's Transaction, reversing the holes of `ids` in `d`. */
   const answer = (d: Document, ...ids: string[]) =>
@@ -399,7 +415,8 @@ it("keeps a Handle drag on its Handle when the answer comes mid-drag", () => {
     role: "owner",
     anchors: [anchorKey(ring.id, 1, 0)],
   });
-  setDirection(state, true);
+  useStore.setState(state);
+  afterRenumbering((_s, w) => setDirection(state, true, w));
   const pressed = { ...state, reversing: useStore.getState().reversing, edit: null };
   const ops = () => useStore.getState().edit?.inputs[0]?.ops;
   // The answer turns the Handle held; another Actor's reverse before it lets go of the drag, so it
@@ -1236,7 +1253,8 @@ function pressOnOpen({ grouped = false } = {}) {
     tool: "pen",
     anchors: [anchorKey(p.id, 1, 0)],
   });
-  setDirection(state, !runsClockwise(doc, p, 1));
+  useStore.setState(state);
+  afterRenumbering((_s, w) => setDirection(state, !runsClockwise(doc, p, 1), w));
   useStore.setState({ ...state, reversing: useStore.getState().reversing });
   vi.mocked(send).mockClear();
   return (outcome: "accepted" | "rejected") => {
@@ -2025,10 +2043,11 @@ it("keeps each held edit's preview on screen until that edit runs or is dropped"
           // A drag of a's hole Anchor, a press on b's hole, then a Curvature drag of b's corner.
           heldOnRings["a Direct Selection drag"]?.(useStore.getState().doc as Document);
           afterRenumbering(
-            (s) =>
+            (s, w) =>
               setDirection(
                 s,
                 !runsClockwise(s.doc as Document, s.doc?.nodes.get(b) as PathNode, 1),
+                w,
               ),
             { anchors: [anchorKey(b, 1, 0)], segments: [] },
           );
@@ -2221,7 +2240,8 @@ it("lets go of a drag when the answer to the person's own held reshape of its pa
       // A press reversing b's hole, in flight.
       const on = { anchors: [anchorKey(b.id, 1, 0)] };
       const state = viewState({ doc, selection: [b.id], role: "owner", ...on });
-      setDirection(state, true);
+      useStore.setState(state);
+      afterRenumbering((_s, w) => setDirection(state, true, w));
       const { reversing } = useStore.getState();
       expect(reversing?.subpaths, label).toEqual([{ nodeId: b.id, subpath: 1 }]);
       vi.mocked(send).mockClear();
@@ -2889,7 +2909,8 @@ it("after a reconnect, drops a held edit on a path the press did not name that s
           role: "owner",
           anchors: [anchorKey(p.id, 1, 0)],
         });
-        setDirection(state, !runsClockwise(doc, p, 1));
+        useStore.setState(state);
+        afterRenumbering((_s, w) => setDirection(state, !runsClockwise(doc, p, 1), w));
         const { reversing } = useStore.getState();
         expect(
           reversing?.subpaths.map((t) => t.nodeId),
@@ -3054,7 +3075,7 @@ it("draws the previews in the order the Document DO applies their edits (#285)",
   // renumbering command (#298).
   const openers: Record<string, (b: Node) => void> = {
     "a press": (b) =>
-      setDirection({ ...useStore.getState(), anchors: [anchorKey(b.id, 1, 0)] }, true),
+      afterRenumbering((s, w) => setDirection({ ...s, anchors: [anchorKey(b.id, 1, 0)] }, true, w)),
     "an Add Anchor click": () =>
       addAnchorTool.down?.(event(useStore.getState().doc as Document, 65, 20)),
   };
@@ -3285,8 +3306,8 @@ it("draws an edit held behind a second press on the Anchors it sends, after the 
       vi.advanceTimersByTime(1000);
       const { server, answer, serveAll } = serve(doc);
       // A press on a's hole, then one on b's, held, then the edit on a's hole, held behind both.
-      setDirection(useStore.getState(), true);
-      afterRenumbering((s) => setDirection({ ...s, anchors: [anchorKey(b.id, 1, 0)] }, true));
+      afterRenumbering((s, w) => setDirection(s, true, w));
+      afterRenumbering((s, w) => setDirection({ ...s, anchors: [anchorKey(b.id, 1, 0)] }, true, w));
       edit(doc, a);
       answer(outcome === "rejected");
       expect(useStore.getState().reversing, label).not.toBeNull();
@@ -3300,6 +3321,49 @@ it("draws an edit held behind a second press on the Anchors it sends, after the 
     }
   }
   vi.useRealTimers();
+});
+
+it("sends a second press once the first is answered, and renumbers the Direct Selection for both (#279)", () => {
+  for (const outcome of ["accepted", "rejected"] as const) {
+    const { doc, a } = rings();
+    const chosen = { anchors: [anchorKey(a.id, 1, 1)], segments: [anchorKey(a.id, 1, 2)] };
+    useStore.setState(viewState({ doc, selection: [a.id], role: "owner", ...chosen }));
+    const { answer } = serve(doc);
+    /** Where the chosen Anchor is, and the chosen segment's ends, either way round. */
+    const points = () => {
+      const {
+        doc: d,
+        anchors,
+        segments,
+      } = useStore.getState() as typeof chosen & { doc: Document };
+      const ends = segments.map((k) => {
+        const { index } = parseKey(k);
+        return [index, (index + 1) % 4].map((i) => at(d, anchorKey(a.id, 1, i))).sort();
+      });
+      return { anchors: anchors.map((k) => at(d, k)), ends };
+    };
+    const chose = points();
+    // On, then Off while On is in flight: Off waits for On's answer.
+    pressDirection(true);
+    pressDirection(false);
+    expect(commands(), outcome).toEqual([expect.objectContaining({ clockwise: true })]);
+    answer(outcome === "rejected");
+    expect(points(), outcome).toEqual(chose);
+    if (outcome === "accepted") {
+      // On turned a's hole, so Off, sent now, turns it back.
+      expect(useStore.getState().anchors, outcome).not.toEqual(chosen.anchors);
+      expect(
+        commands().map((c) => c.type === "path_reverse" && c.clockwise),
+        outcome,
+      ).toEqual([true, false]);
+      answer();
+    } else {
+      // On rejected, the hole already runs Off, so Off sends nothing.
+      expect(commands(), outcome).toHaveLength(1);
+    }
+    expect(useStore.getState(), outcome).toMatchObject({ reversing: null, ...chosen });
+    expect(points(), outcome).toEqual(chose);
+  }
 });
 
 /** p, a closed subpath and an open one from (50, 0) through (80, 0) to (80, 30), and a line q. */
@@ -3323,12 +3387,13 @@ it("draws a Pen finish held behind a second press as what it sends, after the fi
     const { answer } = serve(doc);
     // A press on p's open subpath, then one on its closed one, held, then the Pen continuing the
     // open one from (80, 30), held behind both.
-    const press = (subpath: number) => (s: ViewState) =>
+    const press = (subpath: number) => (s: ViewState, w: Answered) =>
       setDirection(
         { ...s, anchors: [anchorKey(p.id, subpath, 0)] },
         !runsClockwise(s.doc as Document, s.doc?.nodes.get(p.id) as PathNode, subpath),
+        w,
       );
-    press(1)(useStore.getState());
+    afterRenumbering(press(1));
     afterRenumbering(press(0));
     drawnEdits["a Pen continuing from an Endpoint"]();
     answer(outcome === "rejected");
@@ -3377,7 +3442,7 @@ it("guards: a drag held behind two Delete Anchor clicks, or behind a press and a
   const firsts: Record<string, (b: Node) => void> = {
     "a Delete Anchor click": () => deleteAt(20, 20),
     "a press on b's hole": (b) =>
-      setDirection({ ...useStore.getState(), anchors: [anchorKey(b.id, 1, 0)] }, true),
+      afterRenumbering((s, w) => setDirection({ ...s, anchors: [anchorKey(b.id, 1, 0)] }, true, w)),
   };
   for (const [name, first] of Object.entries(firsts)) {
     const { doc, a, b } = rings();

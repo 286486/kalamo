@@ -134,13 +134,17 @@ export const pointerAt = (cursor: Pointer) => presence?.update({ cursor });
 const views = new Map<string, Pick<State, "viewport" | "selection" | "isolated" | "layerRows">>();
 
 /**
- * Every command except a `path_edit`, a `path_join` and a `path_op`. The person's own renumbering
- * command, unanswered, would put one that names Anchors, Handles or segments by index on other
- * points, and a `path_op` on whole Nodes reshapes or replaces the paths that edits held for it name
- * by index, so `send` takes each only with `Waited` (ADR-0110). A `path_reverse` names subpaths,
- * which a reverse does not renumber.
+ * Every command except a `path_edit`, a `path_join`, a `path_op` and a `path_reverse`. The person's
+ * own renumbering command, unanswered, would put one that names Anchors, Handles or segments by
+ * index on other points, and a `path_op` on whole Nodes reshapes or replaces the paths that edits
+ * held for it name by index, so `send` takes each only with `Waited` (ADR-0110). A `path_reverse`, a Reverse Path
+ * Direction press, is the renumbering command the store tracks alone, so `send` takes it only with
+ * `Answered` (#279).
  */
-export type NodeCommand = Exclude<Command, { type: "path_edit" | "path_join" | "path_op" }>;
+export type NodeCommand = Exclude<
+  Command,
+  { type: "path_edit" | "path_join" | "path_op" | "path_reverse" }
+>;
 /** A `path_op` on whole Nodes. */
 export type NodeOp = PathOpInput & { anchors?: undefined };
 
@@ -151,7 +155,15 @@ declare const waited: unique symbol;
  * reshapes or replaces paths that held edits name by index (ADR-0110).
  */
 export type Waited = { readonly [waited]: true };
-const WAITED = {} as Waited;
+
+declare const answered: unique symbol;
+/**
+ * `Waited` that only `afterRenumbering` hands, and `unheld` cannot make: the person's own renumbering
+ * command was answered. A Reverse Path Direction press needs it, since the store tracks one press in
+ * flight, and a second sent before the first is answered would replace its record (#279).
+ */
+export type Answered = Waited & { readonly [answered]: true };
+const WAITED = {} as Answered;
 
 /**
  * Lets an edit by index be sent at once, though the person's own renumbering command may be
@@ -163,8 +175,8 @@ export const unheld = (_why: string): Waited => WAITED;
  * Sends one gesture to the Document (ADR-0010) and returns its id, which its answer carries, and
  * which `sent` records until then (#288). While the socket is down it is dropped and not recorded:
  * the Document sent on reconnect clears what waited on it. A command that names Anchors by index,
- * and any `path_op`, needs `Waited`. `known` says how a `path_edit` renumbers its path where its
- * ops alone do not, as for Clear's `set_d` (#298).
+ * and any `path_op`, needs `Waited`; a Reverse Path Direction press needs `Answered`. `known` says
+ * how a `path_edit` renumbers its path where its ops alone do not, as for Clear's `set_d` (#298).
  *
  * Tests replace `send` with a module mock (`vi.mock("./store.ts")`), which only calls from other
  * modules go through: a helper in this file would call the real `send`, which drops the command
@@ -177,7 +189,9 @@ export function send<C extends Command>(
     ? []
     : [C] extends [{ type: "path_edit" }]
       ? [Waited, Renumbering?]
-      : [Waited]
+      : [Extract<C, { type: "path_reverse" }>] extends [never]
+        ? [Waited]
+        : [Answered]
 ): string {
   const id = newId();
   const msg: ClientMessage = { type: "command", id, command };
@@ -219,9 +233,9 @@ const unanswered = (s: Pick<State, "sent">, seed: string[] | undefined) =>
 /**
  * Runs a Direct Selection edit now, or once the person's own renumbering command (`waiting`) is
  * answered, on the Document as it is then and the keys the person had chosen, renumbered (ADR-0110,
- * #298). The edit is handed the `Waited` its commands by index are sent with. `chosen` overrides
- * the Direct Selection's keys, as a drag's own do; a `target` stands on its own keys, and the edit
- * reads it alone, as the answer turns it. With `previewed`, the live gesture's unsent preview in
+ * #298). The edit is handed the `Answered` its commands by index, and a press, are sent with.
+ * `chosen` overrides the Direct Selection's keys, as a drag's own do; a `target` stands on its own
+ * keys, and the edit reads it alone, as the answer turns it. With `previewed`, the live gesture's unsent preview in
  * `edit` and `drag` is the edit's own and leaves the live slots: held, it goes with the edit, so
  * the next gesture's preview leaves it on screen; run, it gives way to what the edit sends, if
  * anything. Either way the edit never sees or changes the live slots' preview (#285). An `op`, the
@@ -231,7 +245,7 @@ const unanswered = (s: Pick<State, "sent">, seed: string[] | undefined) =>
  * #308, #309). `pulled` turns its preview as an Anchor Point drag out of an Anchor sends it (#286).
  */
 export function afterRenumbering(
-  edit: (s: State & Chosen, w: Waited) => void,
+  edit: (s: State & Chosen, w: Answered) => void,
   {
     previewed,
     op,

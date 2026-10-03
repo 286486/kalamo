@@ -21,7 +21,7 @@ import { directTool } from "./directTool.ts";
 import { documentMenus, type Item, type Menu, type MenuItem, shapeMode } from "./menu.ts";
 import { previewAll, previewOp, previewsOf } from "./receive.ts";
 import { commitSimplify } from "./simplify.ts";
-import { connect, type NodeOp, runHeld, sendPathOp, useStore } from "./store.ts";
+import { afterRenumbering, connect, type NodeOp, runHeld, sendPathOp, useStore } from "./store.ts";
 import { message, stateAfter, viewState } from "./testing.ts";
 import type { ToolEvent } from "./toolbox.ts";
 
@@ -164,7 +164,7 @@ function pressed({ q: qd = undefined as string | undefined, anchor = 1, press = 
     anchors: [anchorKey(p.id, 1, 0)],
   });
   useStore.setState(state);
-  if (press) setDirection(state, !runsClockwise(doc, p, 1));
+  if (press) afterRenumbering((_s, w) => setDirection(state, !runsClockwise(doc, p, 1), w));
   const { reversing, renumbering, sent } = useStore.getState();
   expect(!!reversing).toBe(press);
   useStore.setState({

@@ -1137,9 +1137,12 @@ it("stores a held drag on the Anchor dragged, and the Pen continuation drawn on 
   useStore.setState({ selection: [p, q?.id as string] });
   // A press reversing p's U, then a Delete Anchor click on q held behind it.
   sendAs("press");
-  setDirection(
-    { ...useStore.getState(), anchors: [`${p} 1 0`] },
-    !runsClockwise(now, now.nodes.get(p) as PathNode, 1),
+  afterRenumbering((s, w) =>
+    setDirection(
+      { ...s, anchors: [`${p} 1 0`] },
+      !runsClockwise(now, now.nodes.get(p) as PathNode, 1),
+      w,
+    ),
   );
   expect(useStore.getState().reversing?.commandId).toBe("press");
   penClick([50, 300], 1);
@@ -1202,7 +1205,9 @@ function pressAfter(p: string) {
     { type: "path", parentId, d: "M 200 0 L 300 0 L 300 100 Z M 220 20 L 220 80 L 280 80 Z" },
   ]).nodes as [PathNode];
   sendAs("press");
-  setDirection({ ...useStore.getState(), anchors: [`${q.id} 1 0`] }, !runsClockwise(now, q, 1));
+  afterRenumbering((s, w) =>
+    setDirection({ ...s, anchors: [`${q.id} 1 0`] }, !runsClockwise(now, q, 1), w),
+  );
 }
 
 /** p with the drag, the redraw from (50, 20), and its untouched second subpath. */

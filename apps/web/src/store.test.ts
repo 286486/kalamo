@@ -2,6 +2,7 @@ import { createDocument, createNodes, type Node, type PathEditInput } from "@kal
 import { ACCESS_CHANGED, type Command, type ServerMessage } from "@kalamo/sync";
 import { afterEach, expect, it, vi } from "vitest";
 import { sendAnchorEdits } from "./anchorTools.ts";
+import { setDirection } from "./attributes.ts";
 import { anchorKey, clearInputs } from "./direct.ts";
 import { afterRenumbering, connect, send, sendPathOp, unheld, useStore } from "./store.ts";
 import { message } from "./testing.ts";
@@ -138,8 +139,16 @@ it("sends a command that names Anchors by index, or any path_op, only once it wa
   // @ts-expect-error A path_op on whole Nodes reshapes or replaces paths held edits name by index.
   send({ type: "path_op", input: { nodeIds: ["p"], op: "add_anchors" } });
   afterRenumbering((_s, w) => send({ type: "path_op", input: { nodeIds: ["p"], op: "unite" } }, w));
-  // A press, which names subpaths, and a delete, which waits by call-site convention (#288).
-  send({ type: "path_reverse", subpaths: [{ nodeId: "p", subpath: 0 }], clockwise: true });
+  // A press only once the press before it, which the store tracks alone, is answered (#279).
+  const subpaths = [{ nodeId: "p", subpath: 0 }];
+  // @ts-expect-error A press may be sent while another is in flight.
+  send({ type: "path_reverse", subpaths, clockwise: true });
+  // @ts-expect-error Nothing but afterRenumbering says the press before it was answered.
+  send({ type: "path_reverse", subpaths, clockwise: true }, unheld("a test"));
+  afterRenumbering((_s, w) => send({ type: "path_reverse", subpaths, clockwise: true }, w));
+  // @ts-expect-error So setDirection, which sends it, does not take unheld's either.
+  () => setDirection(useStore.getState(), true, unheld("a test"));
+  // A delete waits by call-site convention (#288).
   send({ type: "delete", nodeIds: ["p"] });
   expect(useStore.getState().held).toEqual([]);
 });

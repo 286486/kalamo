@@ -9,7 +9,7 @@ import {
 import { parseKey } from "./direct.ts";
 import { compoundParts } from "./menu.ts";
 import { editable } from "./selection.ts";
-import { afterRenumbering, canEdit, type State, send, useStore } from "./store.ts";
+import { type Answered, afterRenumbering, canEdit, type State, send, useStore } from "./store.ts";
 
 /** The Attributes panel's fill rule and Reverse Path Direction controls (ADR-0108). */
 
@@ -73,20 +73,21 @@ export function directionOf(s: Directed): boolean | "mixed" | null {
  * Sets the chosen subpaths' direction as one Transaction; sends nothing when none differ. The
  * command names the direction, so a subpath someone else reverses first is left as it is
  * (ADR-0109). The selected Anchors and segments keep their numbers until the answer renumbers
- * them, and Direct Selection edits wait for it (ADR-0110).
+ * them, and Direct Selection edits wait for it (ADR-0110). `w` says the press before it was
+ * answered, which the store tracks alone (#279).
  */
-export function setDirection(s: Directed, on: boolean) {
+export function setDirection(s: Directed, on: boolean, w: Answered) {
   const { doc } = s;
   const flip = directionTargets(s).filter((t) => t.on !== on);
   if (!doc || flip.length === 0) return;
   const subpaths = flip.map(({ nodeId, subpath }) => ({ nodeId, subpath }));
-  const commandId = send({ type: "path_reverse", subpaths, clockwise: on });
+  const commandId = send({ type: "path_reverse", subpaths, clockwise: on }, w);
   const inputs = directionEdits(doc, subpaths, on);
   useStore.setState({ reversing: { commandId, subpaths, clockwise: on, inputs } });
 }
 
 /**
  * The Attributes panel's direction buttons: a press waits for the person's own renumbering command,
- * such as the press before it, which the store tracks alone (ADR-0110).
+ * such as the press before it (ADR-0110).
  */
-export const pressDirection = (on: boolean) => afterRenumbering((s) => setDirection(s, on));
+export const pressDirection = (on: boolean) => afterRenumbering((s, w) => setDirection(s, on, w));
