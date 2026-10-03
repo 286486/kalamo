@@ -168,17 +168,19 @@ async function rings(page: Page, request: APIRequestContext, xs: number[], shape
     })
   ).structuredContent.createdIds as string[];
   /**
-   * The `path_reverse` commands held once `hold` is called, each passed on, answered or dropped, or
-   * passed on with its answer lost to a dropped socket.
+   * The commands of the types given to `hold` (`path_reverse` alone by default), held from then on in
+   * the order sent, each passed on, answered or dropped, or passed on with its answer lost to a
+   * dropped socket, in the order the test chooses.
    */
   const held: {
     id: string;
+    type: string;
     pass: () => void;
     answer: (m: object) => void;
     drop: () => void;
     lose: () => void;
   }[] = [];
-  let holding = false;
+  let holding = new Set<string>();
   let lost: string | null = null;
   let sockets = 0;
   /** Cuts the socket open now without the page knowing, until `close` drops it. */
@@ -191,9 +193,10 @@ async function rings(page: Page, request: APIRequestContext, xs: number[], shape
     ws.onMessage((m) => {
       if (cut) return;
       const msg = JSON.parse(String(m));
-      if (!holding || msg.command?.type !== "path_reverse") return server.send(m);
+      if (!holding.has(msg.command?.type)) return server.send(m);
       held.push({
         id: msg.id,
+        type: msg.command.type,
         pass: () => server.send(m),
         answer: (a) => ws.send(JSON.stringify(a)),
         drop: () => ws.close(),
@@ -229,8 +232,8 @@ async function rings(page: Page, request: APIRequestContext, xs: number[], shape
     docId,
     ids,
     held,
-    hold: () => {
-      holding = true;
+    hold: (types = ["path_reverse"]) => {
+      holding = new Set(types);
     },
     sockets: () => sockets,
     outage: () => outage,
@@ -1040,3 +1043,110 @@ test("Add Anchor Points while a Reverse Path Direction press is in flight adds t
   await expect.poll(async () => points(await d(id))).toEqual([...outerAdded, ...holeAdded]);
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
+
+// #302, ADR-0110: the press is sent before the person's Selection tool move, so its answer comes
+// while the move is still unanswered. A held Pen Join of p's open subpath and q reads the paths
+// where it lands, after that move: p moved alone, it is dropped with a notice; p and q moved
+// together, it is stored joined as drawn, moved with them.
+for (const outcome of ["accepted", "rejected"] as const) {
+  for (const together of [false, true]) {
+    test(`a held Pen Join ${together ? "is stored when both its paths moved" : "is dropped when one of its paths moved"} and the press is answered before the move, ${outcome}`, async ({
+      page,
+      request,
+    }) => {
+      const q = "M20 90 L60 90";
+      const { docId, ids, held, hold, at, d, button } = await rings(page, request, [0, 1], (x) =>
+        x === 0 ? hook(0) : q,
+      );
+      const [p, qId] = ids as [string, string];
+      const transform = async (id: string) =>
+        (await call(request, "kalamo_node_get", { docId, nodeIds: [id], detail: "full" }))
+          .structuredContent.nodes[0].transform;
+      await page.keyboard.press("a");
+      await page.mouse.click(...at(120, 20));
+      await expect(button("Reverse Path Direction On")).toHaveAttribute("aria-pressed", "true");
+
+      hold(["path_reverse", "transform", "path_edit", "path_join"]);
+      await button("Reverse Path Direction Off").click();
+      await expect.poll(() => held.length).toBe(1);
+      // q's Endpoint (60, 90) joined to p's (160, 60).
+      await page.keyboard.press("p");
+      await page.mouse.click(...at(60, 90));
+      await page.mouse.click(...at(160, 60));
+      await page.keyboard.press("Enter");
+      // The ring's fill moved 30 down, with q too when both are selected.
+      await page.keyboard.press("v");
+      if (together) await page.keyboard.press("Control+A");
+      else await page.mouse.click(...at(190, 95));
+      await page.mouse.move(...at(30, 30));
+      await page.mouse.down();
+      await page.mouse.move(...at(30, 45), { steps: 5 });
+      await page.mouse.move(...at(30, 60), { steps: 5 });
+      await page.mouse.up();
+      await expect.poll(() => held.map((h) => h.type)).toEqual(["path_reverse", "transform"]);
+
+      // The Join's preview, q drawn on to (160, 60) and filled red, at (90, 78), clear of p.
+      const [x, y] = at(90, 78);
+      const red = () =>
+        page.getByTestId("canvas").evaluate(
+          (el: HTMLCanvasElement, [px, py]: [number, number]) => {
+            const r = el.getBoundingClientRect();
+            const k = el.width / r.width;
+            const [red = 0, green = 0] =
+              el.getContext("2d")?.getImageData((px - r.left) * k, (py - r.top) * k, 1, 1).data ??
+              [];
+            return red > 200 && green < 50;
+          },
+          [x, y] as [number, number],
+        );
+      if (!together) await expect.poll(red).toBe(true);
+
+      const [press] = held;
+      if (outcome === "accepted") press?.pass();
+      else {
+        press?.answer({
+          type: "rejected",
+          id: press.id,
+          error: { code: "INVALID_PATH", message: "Rejected for the test.", hint: "" },
+        });
+      }
+      const alert = page.getByRole("alert");
+      const open = outcome === "accepted" ? "160 60,160 20,120 20" : "120 20,160 20,160 60";
+      if (together) {
+        // The Join is sent with the move still held, and goes on after it.
+        await expect
+          .poll(() => held.map((h) => h.type))
+          .toEqual(["path_reverse", "transform", "path_join"]);
+        for (const h of held.slice(1)) h.pass();
+        // p and q are one path, q, stored as drawn and moved with them.
+        await expect.poll(() => transform(qId)).toEqual([1, 0, 0, 1, 0, 30]);
+        expect(anchorsIn(await d(qId))).toEqual([
+          ["20 90", "60 90", "160 60", "160 20", "120 20"],
+          outer,
+          ["40 40", "40 60", "60 60", "60 40"],
+        ]);
+        expect((await call(request, "kalamo_node_get", { docId, nodeIds: [p] })).isError).toBe(
+          true,
+        );
+        await expect(page.getByText("moved before the connection was made")).toHaveCount(0);
+        return;
+      }
+      // Whatever the held Join sends on the answer has been sent by now, and goes on after the move,
+      // as the Document DO would apply it.
+      await page.waitForTimeout(300);
+      for (const h of held.slice(1)) h.pass();
+      await page.waitForTimeout(300);
+      // q is stored as it was, not drawn on to p's Endpoint, now 30 below where it was joined.
+      expect(anchorsIn(await d(qId))).toEqual([["20 90", "60 90"]]);
+      expect(await transform(qId)).toEqual([1, 0, 0, 1, 0, 0]);
+      expect(await transform(p)).toEqual([1, 0, 0, 1, 0, 30]);
+      expect(anchorsIn(await d(p))[2]?.join(",")).toBe(open);
+      expect(held.map((h) => h.type)).toEqual(["path_reverse", "transform"]);
+      await expect(alert).toContainText(
+        "A path the Pen was connecting to moved before the connection was made",
+      );
+      if (outcome === "rejected") await expect(alert).toContainText("Rejected for the test.");
+      await expect.poll(red).toBe(false);
+    });
+  }
+}
