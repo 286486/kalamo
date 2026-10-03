@@ -1054,9 +1054,8 @@ for (const outcome of ["accepted", "rejected"] as const) {
       page,
       request,
     }) => {
-      const qd = "M20 90 L60 90";
       const { docId, ids, held, hold, at, d, button } = await rings(page, request, [0, 1], (x) =>
-        x === 0 ? hook(0) : qd,
+        x === 0 ? hook(0) : "M20 90 L60 90",
       );
       const [p, q] = ids as [string, string];
       const transform = async (id: string) =>
@@ -1112,7 +1111,7 @@ for (const outcome of ["accepted", "rejected"] as const) {
       }
       const alert = page.getByRole("alert");
       if (outcome === "rejected") await expect(alert).toContainText("Rejected for the test.");
-      const open = outcome === "accepted" ? "160 60,160 20,120 20" : "120 20,160 20,160 60";
+      const pOpen = outcome === "accepted" ? "160 60,160 20,120 20" : "120 20,160 20,160 60";
       if (together) {
         // The Join is sent with the move still held, and goes on after it.
         await expect
@@ -1132,20 +1131,17 @@ for (const outcome of ["accepted", "rejected"] as const) {
         await expect(page.getByText("moved before the connection was made")).toHaveCount(0);
         return;
       }
-      // Whatever the held Join sends on the answer has been sent by now, and goes on after the move,
-      // as the Document DO would apply it.
-      await page.waitForTimeout(300);
-      for (const h of held.slice(1)) h.pass();
-      await page.waitForTimeout(300);
-      // q is stored as it was, not drawn on to p's Endpoint, now 30 below where it was joined.
-      expect(anchorsIn(await d(q))).toEqual([["20 90", "60 90"]]);
-      expect(await transform(q)).toEqual([1, 0, 0, 1, 0, 0]);
-      expect(await transform(p)).toEqual([1, 0, 0, 1, 0, 30]);
-      expect(anchorsIn(await d(p))[2]?.join(",")).toBe(open);
-      expect(held.map((h) => h.type)).toEqual(["path_reverse", "transform"]);
+      // The notice is set where the held Join would otherwise send, so nothing for it is sent.
       await expect(alert).toContainText(
         "A path the Pen was connecting to moved before the connection was made",
       );
+      expect(held.map((h) => h.type)).toEqual(["path_reverse", "transform"]);
+      held[1]?.pass();
+      await expect.poll(() => transform(p)).toEqual([1, 0, 0, 1, 0, 30]);
+      // q is stored as it was, not drawn on to p's Endpoint, now 30 below where it was joined.
+      expect(anchorsIn(await d(q))).toEqual([["20 90", "60 90"]]);
+      expect(await transform(q)).toEqual([1, 0, 0, 1, 0, 0]);
+      expect(anchorsIn(await d(p))[2]?.join(",")).toBe(pOpen);
       await expect.poll(red).toBe(false);
     });
   }
