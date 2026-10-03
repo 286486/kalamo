@@ -526,6 +526,7 @@ it("keeps keys after the person's own command that leaves a Node's geometry, and
   // Paint, fill rule, visibility, lock, stacking or parent: the same Anchors, so they stay.
   const unchanged: Node[] = [
     { ...a, opacity: 0.5 },
+    { ...a, fillRule: "evenodd" } as Node,
     { ...a, visible: false },
     { ...a, locked: true },
     { ...a, transform: [1, 0, 0, 1, 5, 5] },

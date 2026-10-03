@@ -1888,7 +1888,7 @@ it("ends a Pen continuation on the person's own reshape of its path, not on thei
       // Anchors predate it all the same.
       if (change === "held edit that ran") {
         const edit = { inputs: [], commandIds: ["u"] };
-        useStore.setState({ ran: [{ edit, drag: null, held: true }] });
+        useStore.setState({ ran: [{ edit, drag: null, fromHeld: true }] });
       }
       // Their own Undo, say, reshapes p's closed subpath; a Fill change leaves p's Anchors.
       const n = (useStore.getState().doc as Document).nodes.get(p) as Node;

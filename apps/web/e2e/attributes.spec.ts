@@ -891,6 +891,7 @@ test("Cut while a Reverse Path Direction press is in flight deletes after the he
   const [id] = ids as [string];
   const count = async () =>
     (await call(request, "kalamo_node_get", { docId, nodeIds: [id] })).isError ? 0 : 1;
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
   await page.keyboard.press("a");
   await page.mouse.click(...at(40, 60));
   await expect(button("Reverse Path Direction Off")).toHaveAttribute("aria-pressed", "true");
@@ -901,6 +902,8 @@ test("Cut while a Reverse Path Direction press is in flight deletes after the he
   await page.keyboard.press("Control+X");
   await page.waitForTimeout(200);
   expect(points(await d(id))).toEqual(points(ring(0)));
+  // The art is on the clipboard at once; only the delete waits.
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain("<path");
   held[0]?.pass();
   await expect.poll(count).toBe(0);
   await page.waitForTimeout(300);

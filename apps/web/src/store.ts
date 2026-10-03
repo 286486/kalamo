@@ -241,7 +241,9 @@ export function runHeld(said?: string | null) {
     useStore.setState({
       edit,
       drag,
-      ...((sent.edit || sent.drag) && { ran: [...after.ran, { ...sent, held: true as const }] }),
+      ...((sent.edit || sent.drag) && {
+        ran: [...after.ran, { ...sent, fromHeld: true as const }],
+      }),
     });
   }
   if (runs > 0) useStore.setState({ notice: joinNotices([...notices, said]) || before });

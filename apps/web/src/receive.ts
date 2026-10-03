@@ -163,10 +163,10 @@ export type Chosen = Pick<ViewState, "anchors" | "segments" | "selection" | "too
 export type Preview = Pick<ViewState, "edit" | "drag">;
 
 /**
- * A sent preview in `ran`. `held` marks a held edit that ran: its keys were worked out for it, not
+ * A sent preview in `ran`. `fromHeld` marks a held edit that ran: its keys were worked out for it, not
  * for a drag started later, so its answer does not keep what that drag holds (ADR-0110).
  */
-export type Ran = Preview & { held?: true };
+export type Ran = Preview & { fromHeld?: true };
 
 /**
  * A Direct Selection edit made while a Reverse Path Direction press was in flight, run once it is
@@ -373,7 +373,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
   const tracked = own || (!!id && s.sent.has(id));
   // A drag still being made was worked out on the path as it found it at the press: only its own
   // earlier drags and the press keep it on a reshaped path, not a held edit that ran (ADR-0110).
-  const grabOwn = answers([s, ...s.ran.filter((p) => !p.held)]);
+  const grabOwn = answers([s, ...s.ran.filter((p) => !p.fromHeld)]);
   const touched =
     msg.type === "tx" ? new Set([...msg.updated.map((n) => n.id), ...msg.deletedIds]) : null;
   const prior = s.doc;
