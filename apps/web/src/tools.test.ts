@@ -442,3 +442,104 @@ it("over a selected path the Pen deletes the Anchor or adds one, and Shift draws
   expect(sent()).toEqual([]);
   expect(pen()?.anchors).toEqual([corner(5, 50)]);
 });
+
+// #290: another Actor's edit to the path a held Pen press connects to drops only the connection,
+// so the release never joins a renumbered or deleted path (ADR-0110).
+it("drops a held connection when another Actor edits or deletes the path it connects to", () => {
+  const { d, a, b, tri } = paths();
+  // a gets a second subpath, (0, 20) to (10, 20), to connect a continuation of its first to.
+  const doc = { ...d, nodes: new Map(d.nodes) };
+  editPath(doc, { nodeId: a, ops: [{ op: "set_d", d: "M 0 0 L 10 0 M 0 20 L 10 20" }] });
+  const reshaped = (id: string, path: string) =>
+    editPath(structuredClone(doc), { nodeId: id, ops: [{ op: "set_d", d: path }] }).node;
+  const tx = (over: Partial<Parameters<typeof message<"tx">>[1]>) =>
+    message("tx", { rev: doc.rev + 1, actor: "agent", ...over });
+  const nodes = [...doc.nodes.values()];
+  const moved = reshaped(b, "M 30 5 L 40 0");
+  const drops = {
+    "an edit to it": tx({ updated: [moved] }),
+    "its deletion": tx({ deletedIds: [b] }),
+    "its deletion that skipped another object": tx({ deletedIds: [b], skippedIds: [tri] }),
+    "a subpath inserted before it": tx({ updated: [reshaped(b, "M 60 60 L 70 60 M 30 0 L 40 0")] }),
+    "a reconnect after their edit": message("document", {
+      rev: doc.rev + 1,
+      nodes: nodes.map((n) => (n.id === b ? moved : n)),
+    }),
+  };
+  const keeps = {
+    "another path": tx({ updated: [reshaped(tri, "M 0 50 L 20 50 Z")] }),
+    "the person's own edit": tx({ updated: [moved], commandId: "mine" }),
+    "a reconnect with it unchanged": message("document", { rev: doc.rev, nodes }),
+  };
+  const drawings = {
+    "new art": {
+      clicks: [
+        [0, 80],
+        [20, 80],
+      ] as Point[],
+      made: "create",
+    },
+    "a continuation": {
+      clicks: [
+        [10, 0],
+        [20, 5],
+      ] as Point[],
+      made: "path_edit",
+    },
+  };
+  for (const [art, { clicks, made }] of Object.entries(drawings)) {
+    for (const [label, msg] of [...Object.entries(drops), ...Object.entries(keeps)]) {
+      const at = `${art}, ${label}`;
+      useStore.setState({ doc, pen: null, edit: null, notice: null, drag: null });
+      vi.mocked(send).mockClear();
+      for (const p of clicks) penClick(p, 1);
+      const before = { pen: pen(), edit: useStore.getState().edit };
+      penDown([30, 0], 1);
+      expect(pen()?.to, at).toBeDefined();
+      if (label === "the person's own edit")
+        useStore.setState({ drag: { nodeIds: [], dx: 0, dy: 0, commandId: "mine" } });
+      useStore.setState(stateAfter(useStore.getState(), msg));
+      if (label in keeps) {
+        penUp();
+        expect(
+          sent().map((c) => c.type),
+          at,
+        ).toEqual([made === "create" ? "path_edit" : "path_join"]);
+        continue;
+      }
+      // At once: the Pen's path and preview are as before the press, and a notice says why.
+      const s = useStore.getState();
+      expect(s.pen, at).toEqual(before.pen);
+      expect(s.edit, at).toEqual(before.edit);
+      expect(s.notice, at).toMatch(/connecting to/);
+      if (label.includes("skipped")) expect(s.notice, at).toMatch(/Skipped 1/);
+      // The press is no longer a connection: its drag moves nothing, its release finishes nothing.
+      penDrag([35, 5], NONE);
+      penUp();
+      expect(pen(), at).toEqual(before.pen);
+      expect(sent(), at).toEqual([]);
+      // The Pen goes on drawing its path, and Enter finishes it without naming b.
+      finishPen();
+      expect(
+        sent().map((c) => c.type),
+        at,
+      ).toEqual([made]);
+      expect(JSON.stringify(sent()), at).not.toContain(b);
+    }
+  }
+  // A continuation connecting to another subpath of its own path follows #282: it ends.
+  useStore.setState({ doc, pen: null, edit: null, notice: null });
+  vi.mocked(send).mockClear();
+  penClick([10, 0], 1);
+  penClick([20, 5], 1);
+  penDown([10, 20], 1);
+  expect(pen()?.to?.nodeId).toBe(a);
+  useStore.setState(
+    stateAfter(useStore.getState(), tx({ updated: [reshaped(a, "M 0 0 L 10 0")] })),
+  );
+  expect(pen()).toBeNull();
+  expect(useStore.getState().edit).toBeNull();
+  expect(useStore.getState().notice).toMatch(/continuing/);
+  penUp();
+  expect(sent()).toEqual([]);
+});

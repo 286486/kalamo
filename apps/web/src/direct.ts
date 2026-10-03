@@ -1,6 +1,7 @@
 import {
   type Anchor,
   applyTo,
+  type BareAnchor,
   childrenOf,
   type Document,
   editSubpaths,
@@ -19,6 +20,7 @@ import {
   toAnchors,
   worldTransform,
 } from "@kalamo/core";
+import type { Endpoint, PenPath } from "./receive.ts";
 import { editable, pathTargets } from "./selection.ts";
 
 /** Direct Selection (research §4): Anchors, Handles and segments of paths and Live Shapes. */
@@ -605,3 +607,37 @@ export function convertInputs(
     return ops.length > 0 ? [{ nodeId, ops }] : [];
   });
 }
+
+/** The subpath reversed: its Anchors in the other order, each Handle swapped for the other. */
+export const flip = (anchors: BareAnchor[]) =>
+  anchors
+    .map((a): BareAnchor => ({ anchor: a.anchor, handleIn: a.handleOut, handleOut: a.handleIn }))
+    .reverse();
+
+/** A `set_d` putting `anchors`, in document coordinates and ending at `e`, in place of its subpath. */
+export function replaceSubpath(
+  doc: Document,
+  e: Endpoint,
+  anchors: BareAnchor[],
+  closed: boolean,
+): PathEditInput {
+  const n = doc.nodes.get(e.nodeId);
+  if (!n || !hasAnchors(n)) throw new Error(`${e.nodeId} has no Anchors.`);
+  const m = invert(worldTransform(doc, n));
+  const local = (p: Point | null) => p && applyTo(m, p[0], p[1]);
+  const all: { closed: boolean; anchors: BareAnchor[] }[] = localAnchors(n);
+  // Back in the subpath's own direction.
+  all[e.subpath] = {
+    closed,
+    anchors: (e.atStart ? flip(anchors) : anchors).map((a) => ({
+      anchor: applyTo(m, ...a.anchor),
+      handleIn: local(a.handleIn),
+      handleOut: local(a.handleOut),
+    })),
+  };
+  return { nodeId: e.nodeId, ops: [{ op: "set_d", d: formatPath(fromAnchors(all)) }] };
+}
+
+/** The Pen's preview of the path it continues, once it has drawn on it; null before. */
+export const penEdit = (doc: Document, { from, anchors }: PenPath) =>
+  from && anchors.length > from.kept ? replaceSubpath(doc, from, anchors, false) : null;
