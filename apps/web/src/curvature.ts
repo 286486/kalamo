@@ -198,7 +198,7 @@ export function curvatureDrag(p: Point) {
 /** The preview of moving the grabbed Anchor `t`, when given, by `d` in its path's coordinates. */
 function movePreview(doc: Document, t: Target | undefined, d: Point) {
   const input = t?.kind === "anchor" && moveInput(doc, t.key, d);
-  return { edit: input ? { inputs: [input], commandIds: null } : null };
+  return { edit: input ? { inputs: [input] } : null };
 }
 
 /**
@@ -217,7 +217,7 @@ export function curvatureUp() {
   afterReverse(
     ({ doc: now, target }, w) => {
       const input = now && target?.kind === "anchor" && moveInput(now, target.key, d);
-      if (input) sendPreview({ edit: { inputs: [input], commandIds: null } }, w);
+      if (input) sendPreview({ edit: { inputs: [input] } }, w);
     },
     { target: { kind: "anchor", key }, previewed: true },
   );

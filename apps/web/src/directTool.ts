@@ -56,7 +56,7 @@ const anchorKeys = (grabbed: Target[]) => grabbed.flatMap((t) => targetKeys(t).a
 function dragOf(g: Gesture, doc: Document, grabbed: Target[]): Partial<Preview> | null {
   if (!g.last || g.kind === "marquee") return null;
   const { dx, dy, alt } = g.last;
-  if (g.kind === "move") return { drag: { nodeIds: g.nodeIds, dx, dy, commandId: null } };
+  if (g.kind === "move") return { drag: { nodeIds: g.nodeIds, dx, dy } };
   const keys = g.kind === "anchors" ? anchorKeys(grabbed) : [];
   // Paths with every Anchor selected move whole, so a Live Shape stays live; the rest by their
   // Anchors.
@@ -73,8 +73,8 @@ function dragOf(g: Gesture, doc: Document, grabbed: Target[]): Partial<Preview> 
               : null,
         ].filter((input) => input !== null);
   return {
-    drag: whole.length > 0 ? { nodeIds: whole, dx, dy, commandId: null } : null,
-    edit: inputs.length > 0 ? { inputs, commandIds: null } : null,
+    drag: whole.length > 0 ? { nodeIds: whole, dx, dy } : null,
+    edit: inputs.length > 0 ? { inputs } : null,
   };
 }
 

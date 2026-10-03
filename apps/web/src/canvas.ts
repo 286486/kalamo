@@ -1,7 +1,7 @@
 import { bounds, type Document, formatPath, type Rect, Shape, shapeSegments } from "@kalamo/core";
 import { forNewArt, leaving } from "./isolation.ts";
 import { colorOf, labelOf, type Peers, type visibleAreas } from "./presence.ts";
-import { copyInput, type PendingCreate, type Preview } from "./receive.ts";
+import { copyInput, type PendingCreate, type Preview, type SentDrag } from "./receive.ts";
 import { drawSent, send, useStore, type Waited } from "./store.ts";
 import type { ToolEvent } from "./toolbox.ts";
 import type { FillStroke } from "./tools.ts";
@@ -111,7 +111,7 @@ export function sendPreview(p: Partial<Preview> | null, w: Waited) {
     ...edit,
     commandIds: edit.inputs.map((input) => send({ type: "path_edit", input }, w)),
   };
-  let sentDrag: Preview["drag"] = null;
+  let sentDrag: SentDrag | null = null;
   if (drag) {
     // ponytail: TransformInput takes at most 1000 nodeIds: a larger drag crashes preview() and
     // is closed with 1007 by the DO; chunk the command or lift the max when Documents grow.

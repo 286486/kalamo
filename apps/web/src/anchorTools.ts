@@ -172,7 +172,7 @@ function dragInput(doc: Document, t: Target, [dx, dy]: Point, shift: boolean) {
 /** The preview of dragging `t`, when given, by `last` on `doc`. */
 function dragPreview(doc: Document, t: Target | undefined, last: { d: Point; shift: boolean }) {
   const input = t && dragInput(doc, t, last.d, last.shift);
-  return { edit: input ? { inputs: [input], commandIds: null } : null };
+  return { edit: input ? { inputs: [input] } : null };
 }
 
 /** The edit a click on `t` makes on `doc`: an Anchor's Handles or a Handle retracted. */
@@ -279,7 +279,7 @@ export const anchorPointTool: CanvasTool = {
       ({ doc: now, target: t }, w) => {
         const input =
           now && t && (last ? dragInput(now, t, last.d, last.shift) : clickInput(now, t));
-        if (input) sendPreview({ edit: { inputs: [input], commandIds: null } }, w);
+        if (input) sendPreview({ edit: { inputs: [input] } }, w);
       },
       {
         target: grabbed,

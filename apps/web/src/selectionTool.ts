@@ -82,7 +82,7 @@ export const selectionTool: CanvasTool = {
     if (g.kind === "move") {
       if (g.nodeIds.length === 0) return;
       // Alt held copies instead (ADR-0076); the preview follows it until the release decides.
-      const drag = { nodeIds: g.nodeIds, dx: d[0], dy: d[1], commandId: null, copy: e.alt };
+      const drag = { nodeIds: g.nodeIds, dx: d[0], dy: d[1], copy: e.alt };
       useStore.setState({ drag });
     } else {
       marqueeRect = rectOf(g.start, e);
