@@ -1054,11 +1054,11 @@ for (const outcome of ["accepted", "rejected"] as const) {
       page,
       request,
     }) => {
-      const q = "M20 90 L60 90";
+      const qd = "M20 90 L60 90";
       const { docId, ids, held, hold, at, d, button } = await rings(page, request, [0, 1], (x) =>
-        x === 0 ? hook(0) : q,
+        x === 0 ? hook(0) : qd,
       );
-      const [p, qId] = ids as [string, string];
+      const [p, q] = ids as [string, string];
       const transform = async (id: string) =>
         (await call(request, "kalamo_node_get", { docId, nodeIds: [id], detail: "full" }))
           .structuredContent.nodes[0].transform;
@@ -1111,6 +1111,7 @@ for (const outcome of ["accepted", "rejected"] as const) {
         });
       }
       const alert = page.getByRole("alert");
+      if (outcome === "rejected") await expect(alert).toContainText("Rejected for the test.");
       const open = outcome === "accepted" ? "160 60,160 20,120 20" : "120 20,160 20,160 60";
       if (together) {
         // The Join is sent with the move still held, and goes on after it.
@@ -1119,8 +1120,8 @@ for (const outcome of ["accepted", "rejected"] as const) {
           .toEqual(["path_reverse", "transform", "path_join"]);
         for (const h of held.slice(1)) h.pass();
         // p and q are one path, q, stored as drawn and moved with them.
-        await expect.poll(() => transform(qId)).toEqual([1, 0, 0, 1, 0, 30]);
-        expect(anchorsIn(await d(qId))).toEqual([
+        await expect.poll(() => transform(q)).toEqual([1, 0, 0, 1, 0, 30]);
+        expect(anchorsIn(await d(q))).toEqual([
           ["20 90", "60 90", "160 60", "160 20", "120 20"],
           outer,
           ["40 40", "40 60", "60 60", "60 40"],
@@ -1137,15 +1138,14 @@ for (const outcome of ["accepted", "rejected"] as const) {
       for (const h of held.slice(1)) h.pass();
       await page.waitForTimeout(300);
       // q is stored as it was, not drawn on to p's Endpoint, now 30 below where it was joined.
-      expect(anchorsIn(await d(qId))).toEqual([["20 90", "60 90"]]);
-      expect(await transform(qId)).toEqual([1, 0, 0, 1, 0, 0]);
+      expect(anchorsIn(await d(q))).toEqual([["20 90", "60 90"]]);
+      expect(await transform(q)).toEqual([1, 0, 0, 1, 0, 0]);
       expect(await transform(p)).toEqual([1, 0, 0, 1, 0, 30]);
       expect(anchorsIn(await d(p))[2]?.join(",")).toBe(open);
       expect(held.map((h) => h.type)).toEqual(["path_reverse", "transform"]);
       await expect(alert).toContainText(
         "A path the Pen was connecting to moved before the connection was made",
       );
-      if (outcome === "rejected") await expect(alert).toContainText("Rejected for the test.");
       await expect.poll(red).toBe(false);
     });
   }
