@@ -1,6 +1,6 @@
 import { bounds, type Document, fidelityTolerance, union } from "@kalamo/core";
 import { hasAnchors, localAnchors } from "./direct.ts";
-import { previewOp } from "./receive.ts";
+import { belowGesture, type ViewState } from "./receive.ts";
 import { pathTargets } from "./selection.ts";
 import { sendPathOp, useStore } from "./store.ts";
 
@@ -18,6 +18,20 @@ export function anchorCount(doc: Document, nodeIds: string[]): number {
   }, 0);
 }
 
+/**
+ * The Simplify dialog's Anchor counts of `nodeIds` as the canvas draws them (#310): Original with
+ * every sent and held preview applied to `doc`, Current with the open op preview on top as well.
+ */
+export function simplifyCounts(
+  doc: Document,
+  s: Pick<ViewState, "sentPreviews" | "held" | "opPreview">,
+  nodeIds: string[],
+) {
+  const count = (opPreview: ViewState["opPreview"]) =>
+    anchorCount(belowGesture(doc, { ...s, opPreview }), nodeIds);
+  return { original: count(null), current: count(s.opPreview) };
+}
+
 interface Settings {
   curve: number;
   cornerAngle: number;
@@ -25,8 +39,11 @@ interface Settings {
   showOriginal: boolean;
 }
 
-/** The bar or dialog on screen: how to take it down, and to redo the preview at a new zoom. */
-let open: { close: () => void; update: () => void } | null = null;
+/**
+ * The bar or dialog on screen: how to take it down, to redo the preview at a new zoom, and, for
+ * the dialog, to recount its Anchors.
+ */
+let open: { close: () => void; update: () => void; recount?: () => void } | null = null;
 
 /**
  * Whether Simplify's bar or dialog is on screen: its Enter and Escape pass the pressed tool by.
@@ -54,12 +71,21 @@ function cancel() {
 }
 
 // A tab switch drops the preview, so its bar goes; a new Selection applies it, as a click
-// elsewhere does in Illustrator. The slider is in screen px, so a zoom refits.
+// elsewhere does in Illustrator. The slider is in screen px, so a zoom refits. The dialog's counts
+// follow what the canvas draws, which an answer, an Agent's change or a new preview may change; a
+// zoom's `update` sets a new preview, whose nested notice recounts.
 useStore.subscribe((s, prev) => {
   if (!open) return;
   if (!s.opPreview) takeDown();
   else if (s.selection.join(" ") !== prev.selection.join(" ")) commitSimplify();
   else if (s.viewport?.scale !== prev.viewport?.scale) open.update();
+  else if (
+    s.doc !== prev.doc ||
+    s.sentPreviews !== prev.sentPreviews ||
+    s.held !== prev.held ||
+    s.opPreview !== prev.opPreview
+  )
+    open.recount?.();
 });
 
 const button = (label: string, onclick: () => void, ariaLabel = label) =>
@@ -109,7 +135,7 @@ export function startSimplify() {
   };
   const more = () => {
     takeDown();
-    moreOptions(doc, nodeIds, settings, update);
+    moreOptions(nodeIds, settings, update);
   };
   const min = Object.assign(document.createElement("span"), { textContent: "Min" });
   const max = Object.assign(document.createElement("span"), { textContent: "Max" });
@@ -168,7 +194,7 @@ export function startSimplify() {
 }
 
 /** The Simplify dialog: every setting, and the Anchor counts before and after. */
-function moreOptions(doc: Document, nodeIds: string[], settings: Settings, update: () => void) {
+function moreOptions(nodeIds: string[], settings: Settings, update: () => void) {
   const dialog = Object.assign(document.createElement("dialog"), { ariaLabel: "Simplify" });
   dialog.style.font = "13px system-ui, sans-serif";
   const check = (name: string, on: boolean) =>
@@ -186,20 +212,21 @@ function moreOptions(doc: Document, nodeIds: string[], settings: Settings, updat
 </form>`;
   const form = dialog.querySelector("form") as HTMLFormElement;
   const field = <T extends Element>(name: string) => form.elements.namedItem(name) as T;
-  field<HTMLOutputElement>("original").value = String(anchorCount(doc, nodeIds));
-  const refresh = () => {
-    const { opPreview, doc: now } = useStore.getState();
-    const shown = opPreview && now ? previewOp(now, opPreview) : doc;
-    field<HTMLOutputElement>("current").value = String(anchorCount(shown, nodeIds));
-    field<HTMLOutputElement>("angle").value = `${settings.cornerAngle}°`;
+  const recount = () => {
+    const s = useStore.getState();
+    if (!s.doc) return;
+    const { original, current } = simplifyCounts(s.doc, s, nodeIds);
+    field<HTMLOutputElement>("original").value = String(original);
+    field<HTMLOutputElement>("current").value = String(current);
   };
+  // `update` sets a new op preview, which recounts.
   const onInput = () => {
     settings.curve = Number(field<HTMLInputElement>("curve").value);
     settings.cornerAngle = Number(field<HTMLInputElement>("cornerAngle").value);
     settings.toLines = field<HTMLInputElement>("toLines").checked;
     settings.showOriginal = field<HTMLInputElement>("showOriginal").checked;
+    field<HTMLOutputElement>("angle").value = `${settings.cornerAngle}°`;
     update();
-    refresh();
   };
   form.oninput = onInput;
   field<HTMLButtonElement>("auto").onclick = () => {
@@ -214,7 +241,7 @@ function moreOptions(doc: Document, nodeIds: string[], settings: Settings, updat
     else cancel();
   };
   document.body.append(dialog);
-  refresh();
+  recount();
   dialog.showModal();
-  open = { close: () => dialog.open && dialog.close(), update: onInput };
+  open = { close: () => dialog.open && dialog.close(), update: onInput, recount };
 }

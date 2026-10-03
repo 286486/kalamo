@@ -16,7 +16,7 @@ import { keysTaken } from "./MenuBar.tsx";
 import { PathfinderPanel } from "./PathfinderPanel.tsx";
 import { pastedArt, place, placeable } from "./place.ts";
 import { AREA_SHOWN, visibleAreas } from "./presence.ts";
-import { previewAll, previewEdit, previewsOf } from "./receive.ts";
+import { belowGesture, previewAll, previewEdit } from "./receive.ts";
 import { editable } from "./selection.ts";
 import { simplifyOpen } from "./simplify.ts";
 import { afterReverse, canEdit, connect, pointerAt, send, useStore } from "./store.ts";
@@ -180,17 +180,16 @@ export function Viewer({ docId }: { docId: string }) {
 
   // Every preview but the live gesture's, which applies last: an op preview refits its paths, so it
   // runs once per change, not once per frame of a drag.
-  const belowGesture = useMemo(
-    () =>
-      doc && previewAll(doc, previewsOf({ sentPreviews, held, opPreview, edit: null, drag: null })),
+  const below = useMemo(
+    () => doc && belowGesture(doc, { sentPreviews, held, opPreview }),
     [doc, sentPreviews, held, opPreview],
   );
 
   // Hit tests use `doc`; only the drawing shows the drag.
   const shown = useMemo(() => {
-    const edited = belowGesture && previewAll(belowGesture, [{ edit, drag }]);
+    const edited = below && previewAll(below, [{ edit, drag }]);
     return edited && paintPreview ? withPaints(edited, paintPreview.updates) : edited;
-  }, [belowGesture, drag, edit, paintPreview]);
+  }, [below, drag, edit, paintPreview]);
   // A Reverse Path Direction press in flight shows on the Document only: the overlay's Anchors keep
   // the committed numbering the keys use, at the same places (ADR-0110).
   const drawn = useMemo(
