@@ -8,8 +8,7 @@ import {
   type Press,
   rectOf,
   SELECTION,
-  settleDrag,
-  showDrag,
+  sendPreview,
 } from "./canvas.ts";
 import {
   allKeys,
@@ -154,7 +153,7 @@ export const directTool: CanvasTool = {
     }
     g.last = { dx, dy, alt: e.alt };
     const drag = dragOf(g, e.doc, useStore.getState().grabbed);
-    if (drag) showDrag(drag);
+    if (drag) useStore.setState(drag);
   },
   up(e) {
     const g = gesture;
@@ -183,9 +182,9 @@ export const directTool: CanvasTool = {
       afterReverse(
         ({ doc: now, anchors, target }, w) => {
           if (!now) return;
-          if (g.kind === "target" && !target) return settleDrag(null, w);
+          if (g.kind === "target" && !target) return;
           const held = g.kind === "anchors" ? anchors.map(anchorTarget) : target ? [target] : [];
-          settleDrag(dragOf(g, now, held), w);
+          sendPreview(dragOf(g, now, held), w);
         },
         {
           ...(g.kind === "target" && grabbedTarget

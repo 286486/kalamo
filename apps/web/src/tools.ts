@@ -11,7 +11,6 @@ import {
   type Shape,
 } from "@kalamo/core";
 import { addAnchorAt, deleteAnchorAt } from "./anchorTools.ts";
-import { cancelDrag } from "./canvas.ts";
 import { curveThrough } from "./curvature.ts";
 import {
   anchorsOf,
@@ -38,7 +37,15 @@ import {
   VIEWER_TOOLS,
 } from "./receive.ts";
 import { editable, placeParent } from "./selection.ts";
-import { afterReverse, canEdit, DEFAULT_FILL_STROKE, type State, send, useStore } from "./store.ts";
+import {
+  afterReverse,
+  canEdit,
+  DEFAULT_FILL_STROKE,
+  drawSent,
+  type State,
+  send,
+  useStore,
+} from "./store.ts";
 import type { Tool, ToolEvent } from "./toolbox.ts";
 
 /** The Fill and Stroke boxes (F-DRAW-12): what new art is painted with; null is None. */
@@ -202,16 +209,13 @@ const PEN_DROPPED =
   "Someone else changed a path the Pen was continuing or connecting to; what it drew was not applied.";
 
 /**
- * `doc` with the person's Selection tool moves sent and not yet answered, in `ran` and the
- * gesture's `drag`, as the Document DO applies a command sent now: after them, in input order.
+ * `doc` with the person's Selection tool moves sent and not yet answered, as the Document DO applies
+ * a command sent now: after them, in input order.
  */
-const landing = (doc: Document, ran: Preview[], { drag }: Preview) =>
+const landing = (doc: Document, sent: Preview[]) =>
   previewAll(
     doc,
-    [...ran, { edit: null, drag: drag?.commandId ? drag : null }].map((p) => ({
-      edit: null,
-      drag: p.drag && !p.drag.copy ? p.drag : null,
-    })),
+    sent.map((p) => ({ edit: null, drag: p.drag && !p.drag.copy ? p.drag : null })),
   );
 
 /**
@@ -241,27 +245,24 @@ function finishEdit(doc: Document, pen: PenPath) {
   const moves = (d: Document, before: Matrix[]) =>
     ends.map((e, i) => round(multiply(worldOf(d, e.nodeId), before[i] as Matrix)));
   const drawn = own(doc);
-  const { ran, drag } = useStore.getState();
-  const lands = own(landing(doc, ran, { edit: null, drag }));
+  const lands = own(landing(doc, useStore.getState().sentPreviews));
   useStore.setState({
     pen: null,
     selection: [...new Set(ends.map((e) => e.nodeId))],
     edit: { inputs: [first.input], commandIds: null },
   });
   afterReverse(
-    ({ doc: now, anchors: held, ran }, w, aside) => {
+    ({ doc: now, anchors: held, sentPreviews }, w) => {
       // `held` is `keys` renumbered, `from`'s first; another Actor's edit cleared a missing one.
       if (held.length < keys.length) {
-        cancelDrag();
         useStore.setState({ notice: PEN_DROPPED });
         return;
       }
       // Moved apart where the finish lands, after the person's moves sent before it, it can meet
       // only one; moved together, what it drew goes with them (#301). Rounding leaves no move an
       // exact identity.
-      const [one, other] = now ? moves(landing(now, ran, aside), lands) : [];
+      const [one, other] = now ? moves(landing(now, sentPreviews), lands) : [];
       if (one && other && String(one) !== String(other)) {
-        cancelDrag();
         useStore.setState({ notice: PEN_MOVED });
         return;
       }
@@ -277,11 +278,8 @@ function finishEdit(doc: Document, pen: PenPath) {
           from: from && { ...from, ...f },
           to: to && at[0],
         });
-      if (!c) {
-        cancelDrag();
-        return;
-      }
-      useStore.setState({ edit: { inputs: [c.input], commandIds: [send(c.command, w)] } });
+      if (!c) return;
+      drawSent({ edit: { inputs: [c.input], commandIds: [send(c.command, w)] }, drag: null });
     },
     { anchors: keys, segments: [], previewed: true },
   );

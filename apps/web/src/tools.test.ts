@@ -506,14 +506,16 @@ it("drops a held connection when another Actor edits or deletes the path it conn
   for (const [art, { clicks, made }] of Object.entries(drawings)) {
     for (const [label, msg] of [...Object.entries(drops), ...Object.entries(keeps)]) {
       const at = `${art}, ${label}`;
-      useStore.setState({ doc, pen: null, edit: null, notice: null, drag: null });
+      useStore.setState({ doc, pen: null, edit: null, notice: null, drag: null, sentPreviews: [] });
       vi.mocked(send).mockClear();
       for (const p of clicks) penClick(p, 1);
       const before = { pen: pen(), edit: useStore.getState().edit };
       penDown([30, 0], 1);
       expect(pen()?.to, at).toBeDefined();
       if (label === "the person's own edit")
-        useStore.setState({ drag: { nodeIds: [], dx: 0, dy: 0, commandId: "mine" } });
+        useStore.setState({
+          sentPreviews: [{ edit: null, drag: { nodeIds: [], dx: 0, dy: 0, commandId: "mine" } }],
+        });
       useStore.setState(stateAfter(useStore.getState(), msg));
       if (label in keeps) {
         penUp();

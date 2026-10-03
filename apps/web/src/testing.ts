@@ -16,7 +16,7 @@ export const viewState = (over: Partial<ViewState> = {}): ViewState => ({
   renumbering: new Map(),
   held: [],
   grabbed: [],
-  ran: [],
+  sentPreviews: [],
   sent: new Set(),
   opPreview: null,
   anchors: [],

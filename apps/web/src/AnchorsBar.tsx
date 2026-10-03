@@ -1,13 +1,12 @@
 import type { Anchor } from "@kalamo/core";
+import { sendPreview } from "./canvas.ts";
 import { convertInputs, convertTargets } from "./direct.ts";
-import { afterReverse, type State, send, useStore, type Waited } from "./store.ts";
+import { afterReverse, type State, useStore, type Waited } from "./store.ts";
 
 /** One `path_edit` per path, previewed until each is answered, as a Direct Selection drag is. */
 function convert(type: Anchor["type"], { doc, anchors, segments }: State, w: Waited) {
   const inputs = doc ? convertInputs(doc, anchors, segments, type) : [];
-  if (inputs.length === 0) return;
-  const commandIds = inputs.map((input) => send({ type: "path_edit", input }, w));
-  useStore.setState({ edit: { inputs, commandIds } });
+  if (inputs.length > 0) sendPreview({ edit: { inputs, commandIds: null } }, w);
 }
 
 /**

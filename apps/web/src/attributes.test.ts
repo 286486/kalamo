@@ -487,7 +487,7 @@ it("renumbers a drag still being made by the answer alone; another Actor's rever
         (a) => ({ anchors: [anchorKey(a.id, 1, 0)] }),
         g.hole,
       );
-      useStore.setState({ ...pressed, edit: null, drag: null, held: [], ran: [] });
+      useStore.setState({ ...pressed, edit: null, drag: null, held: [], sentPreviews: [] });
       vi.advanceTimersByTime(1000);
       const index = () => firstIndex(useStore.getState().edit?.inputs[0]);
       const [x, y] = g.at;
@@ -635,7 +635,7 @@ it("keeps a drag going through the answer to the person's own earlier edit on th
     g.down(doc, x, y);
     g.move(doc, x + 5, y);
     g.up(doc, x + 5, y);
-    const earlier = useStore.getState().edit;
+    const earlier = useStore.getState().sentPreviews.at(-1)?.edit;
     expect(earlier?.commandIds, name).toEqual(["c"]);
     // The next drag on the same path, whose preview takes the screen before that answer.
     g.down(doc, x, y);
@@ -726,7 +726,7 @@ it("after a reconnect mid-drag, keeps the drag only on a path as it was or as th
     for (const [name, g] of Object.entries(grabs)) {
       const label = `${name}, ${kind}`;
       const { doc, a, pressed } = pressOn((a) => ({ anchors: [anchorKey(a.id, 1, 0)] }), g.hole);
-      useStore.setState({ ...pressed, edit: null, drag: null, held: [], ran: [] });
+      useStore.setState({ ...pressed, edit: null, drag: null, held: [], sentPreviews: [] });
       vi.advanceTimersByTime(1000);
       const [x, y] = g.at;
       g.down(doc, x, y);
@@ -803,7 +803,8 @@ it("after a reconnect, renumbers the keys only on a subpath the press reached", 
   const snapshot = message("document", { rev: doc.rev + 1, nodes });
   // So too with another of the person's commands unanswered, such as a delete sent unheld (#298).
   for (const renumbering of [new Map(), new Map([["k", null]])]) {
-    expect(stateAfter({ ...pressed, renumbering }, snapshot)).toMatchObject({
+    const s = { ...pressed, renumbering };
+    expect({ ...s, ...stateAfter(s, snapshot) }).toMatchObject({
       edit: null,
       reversing: null,
       anchors: [anchorKey(a.id, 1, 1), anchorKey(b.id, 1, 3)],
@@ -1943,7 +1944,9 @@ it("keeps a Pencil drag in progress, and stores what it drew, when a held edit i
     pencilUp(1);
     const [edit] = commands();
     expect(edit, outcome).toMatchObject({ type: "path_edit" });
-    expect(useStore.getState().edit?.inputs, outcome).toEqual([(edit as { input: unknown }).input]);
+    expect(useStore.getState().sentPreviews.at(-1)?.edit?.inputs, outcome).toEqual([
+      (edit as { input: unknown }).input,
+    ]);
   }
 });
 
@@ -2030,7 +2033,7 @@ it("runs a held drag past the answer to the person's own paint change, and drops
       const label = `${outcome}, ${change}`;
       // b's hole Anchor 0 chosen; its Anchor at (70, 10) is 3, and 1 once reversed.
       const { doc, b, pressed, answer } = pressOn((_, b) => ({ anchors: [anchorKey(b.id, 1, 0)] }));
-      useStore.setState({ ...pressed, edit: null, drag: null, held: [], ran: [] });
+      useStore.setState({ ...pressed, edit: null, drag: null, held: [], sentPreviews: [] });
       vi.mocked(send).mockClear();
       directTool.down(event(doc, 70, 10));
       directTool.move?.(event(doc, 75, 10));
@@ -2082,7 +2085,7 @@ it("ends a Pen continuation on the person's own reshape of its path, not on thei
       // Anchors predate it all the same.
       if (change === "held edit that ran") {
         const edit = { inputs: [], commandIds: ["u"] };
-        useStore.setState({ ran: [{ edit, drag: null, fromHeld: true }] });
+        useStore.setState({ sentPreviews: [{ edit, drag: null, fromHeld: true }] });
       }
       // Their own Undo, say, reshapes p's closed subpath; a Fill change leaves p's Anchors.
       const n = (useStore.getState().doc as Document).nodes.get(p) as Node;
@@ -2114,7 +2117,7 @@ it("sends Undo and Redo after the edits held for a press, in input order; at onc
   const menus = documentMenus({ open() {}, close() {} });
   for (const keys of ["Ctrl+Z", "Shift+Ctrl+Z"]) {
     const { doc, a, pressed, answer } = pressOn((a) => ({ anchors: [anchorKey(a.id, 1, 0)] }));
-    useStore.setState({ ...pressed, edit: null, drag: null, held: [], ran: [] });
+    useStore.setState({ ...pressed, edit: null, drag: null, held: [], sentPreviews: [] });
     vi.mocked(send).mockClear();
     directTool.down(event(doc, 20, 10));
     directTool.move?.(event(doc, 25, 10));
@@ -2838,7 +2841,13 @@ it("after a reconnect, drops a held edit on a path the press did not name that s
           reversing?.subpaths.map((t) => t.nodeId),
           label,
         ).toEqual([p.id]);
-        useStore.setState({ ...state, reversing, selection: [p.id, q.id], held: [], ran: [] });
+        useStore.setState({
+          ...state,
+          reversing,
+          selection: [p.id, q.id],
+          held: [],
+          sentPreviews: [],
+        });
         vi.advanceTimersByTime(1000);
         vi.mocked(send).mockClear();
         run(doc);
@@ -2906,7 +2915,7 @@ it("after a reconnect that changes only a dragged path's Fill, keeps the drag (#
     for (const [name, g] of Object.entries(grabs)) {
       const label = `${name}, press ${applied ? "applied" : "lost"}`;
       const { doc, a, pressed } = pressOn((a) => ({ anchors: [anchorKey(a.id, 1, 0)] }), g.hole);
-      useStore.setState({ ...pressed, edit: null, drag: null, held: [], ran: [] });
+      useStore.setState({ ...pressed, edit: null, drag: null, held: [], sentPreviews: [] });
       vi.advanceTimersByTime(1000);
       const [x, y] = g.at;
       g.down(doc, x, y);

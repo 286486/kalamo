@@ -7,7 +7,7 @@ import {
   type PathEditInput,
   type PathOp,
 } from "@kalamo/core";
-import { settleDrag, showDrag } from "./canvas.ts";
+import { sendPreview } from "./canvas.ts";
 import {
   anchorKey,
   anchorsOf,
@@ -185,7 +185,7 @@ export function curvatureDrag(p: Point) {
     const d = localDelta(s.doc, n, p[0] - press.from[0], p[1] - press.from[1]);
     press.d = d;
     const input = moveInput(s.doc, key, d);
-    showDrag({ edit: input ? { inputs: [input], commandIds: null } : null });
+    useStore.setState({ edit: input ? { inputs: [input], commandIds: null } : null });
   }
 }
 
@@ -205,7 +205,7 @@ export function curvatureUp() {
   afterReverse(
     ({ doc: now, target }, w) => {
       const input = now && target?.kind === "anchor" && moveInput(now, target.key, d);
-      settleDrag(input ? { edit: { inputs: [input], commandIds: null } } : null, w);
+      if (input) sendPreview({ edit: { inputs: [input], commandIds: null } }, w);
     },
     { target: { kind: "anchor", key }, previewed: true },
   );

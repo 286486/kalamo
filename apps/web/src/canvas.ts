@@ -2,7 +2,7 @@ import { bounds, type Document, formatPath, type Rect, Shape, shapeSegments } fr
 import { forNewArt, leaving } from "./isolation.ts";
 import { colorOf, labelOf, type Peers, type visibleAreas } from "./presence.ts";
 import { copyInput, type PendingCreate, type Preview } from "./receive.ts";
-import { send, useStore, type Waited } from "./store.ts";
+import { drawSent, send, useStore, type Waited } from "./store.ts";
 import type { ToolEvent } from "./toolbox.ts";
 import type { FillStroke } from "./tools.ts";
 
@@ -99,56 +99,44 @@ export function drawPending(
   for (const p of pending) for (const input of p.nodes) draw(input);
 }
 
-/** Releasing a drag commits it as one Transaction. */
-export function commitDrag(w: Waited) {
-  const { drag, edit } = useStore.getState();
-  // One path_edit per path the drag reshaped (ADR-0032), and one transform for what moved whole.
-  if (edit && edit.commandIds === null) {
-    const commandIds = edit.inputs.map((input) => send({ type: "path_edit", input }, w));
-    useStore.setState({ edit: { ...edit, commandIds } });
-  }
-  if (drag && drag.commandId === null) {
+/**
+ * Sends `p`, an edit's unsent preview no longer on the live slots: one `path_edit` per path it
+ * reshapes (ADR-0032), and one transform, or an Alt-drag's duplicate, for what it moves whole. What
+ * was sent is drawn until answered (#285).
+ */
+export function sendPreview(p: Partial<Preview> | null, w: Waited) {
+  const { edit, drag } = p ?? {};
+  const s = useStore.getState();
+  const sentEdit = edit && {
+    ...edit,
+    commandIds: edit.inputs.map((input) => send({ type: "path_edit", input }, w)),
+  };
+  let sentDrag: Preview["drag"] = null;
+  if (drag) {
     // ponytail: TransformInput takes at most 1000 nodeIds: a larger drag crashes preview() and
     // is closed with 1007 by the DO; chunk the command or lift the max when Documents grow.
     const translate = { x: drag.dx, y: drag.dy };
-    const s = useStore.getState();
     const doc = drag.copy ? s.doc : null;
     const commandId = doc
       ? send({ type: "duplicate", input: copyInput(doc, drag) })
       : send({ type: "transform", input: { nodeIds: drag.nodeIds, translate } });
     // An isolated leaf's copies land beside it, so the Isolation goes up a level, as for new art.
     const leave = doc ? leaving(s.isolated, forNewArt(doc, s)) : undefined;
-    useStore.setState({ drag: { ...drag, commandId, ...(leave && { leave }) } });
+    sentDrag = { ...drag, commandId, ...(leave && { leave }) };
   }
+  drawSent({ edit: sentEdit ?? null, drag: sentDrag });
 }
 
-/**
- * Shows `p` as a drag still being made. A sent edit's preview it replaces is drawn in `ran` until
- * its answer, so that answer still reads as the person's own (ADR-0110).
- */
-export function showDrag(p: Partial<Preview>) {
-  const { edit, drag, ran } = useStore.getState();
-  const sent = {
-    edit: "edit" in p && edit?.commandIds ? edit : null,
-    drag: "drag" in p && drag?.commandId ? drag : null,
-  };
-  useStore.setState({ ...p, ...((sent.edit || sent.drag) && { ran: [...ran, sent] }) });
+/** Releasing a drag commits it as one Transaction: its preview leaves the live slots, sent. */
+export function commitDrag(w: Waited) {
+  const { drag, edit } = useStore.getState();
+  useStore.setState({ edit: null, drag: null });
+  sendPreview({ edit, drag }, w);
 }
 
 /** Drops a drag not yet sent. */
 export function cancelDrag() {
-  if (useStore.getState().drag?.commandId === null) useStore.setState({ drag: null });
-  if (useStore.getState().edit?.commandIds === null) useStore.setState({ edit: null });
-}
-
-/**
- * A held drag's release, once it runs (ADR-0110): with nothing left of what it held, null, its
- * preview goes; otherwise `drag` is its preview, worked out again on the Document then, and is sent.
- */
-export function settleDrag(drag: Partial<Preview> | null, w: Waited) {
-  if (!drag) return cancelDrag();
-  useStore.setState(drag);
-  commitDrag(w);
+  useStore.setState({ edit: null, drag: null });
 }
 
 /** An Agent's Working Area pill, in document coordinates, and the whole `intent` its tooltip shows. */

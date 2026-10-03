@@ -628,6 +628,31 @@ export function renumberInput(r: Renumbering | null, input: PathEditInput): Path
   return ops.length > 0 ? { ...input, ops } : null;
 }
 
+/**
+ * An unsent preview's `input` with each op's Anchor turned as `turnTarget` turns an Anchor or Handle
+ * once `subpaths` are reversed: a Handle set is its Anchor's other one (#285).
+ */
+export function turnInput(doc: Document, subpaths: SubpathRef[], input: PathEditInput) {
+  const turned = (op: PathOp) =>
+    "index" in op &&
+    subpaths.some((t) => t.nodeId === input.nodeId && t.subpath === (op.subpath ?? 0));
+  if (!input.ops.some(turned)) return input;
+  const turn = reversedKey(doc, subpaths, false);
+  const ops = input.ops.map((op): PathOp => {
+    if (!turned(op) || !("index" in op)) return op;
+    const { index } = parseKey(turn(anchorKey(input.nodeId, op.subpath ?? 0, op.index)));
+    if (op.op !== "set_handles") return { ...op, index };
+    const { handleIn, handleOut, ...rest } = op;
+    return {
+      ...rest,
+      index,
+      ...(handleOut !== undefined && { handleIn: handleOut }),
+      ...(handleIn !== undefined && { handleOut: handleIn }),
+    };
+  });
+  return { ...input, ops };
+}
+
 /** The path `t` is on. */
 export const targetNode = (t: Target) => (t.kind === "segment" ? t.nodeId : parseKey(t.key).nodeId);
 

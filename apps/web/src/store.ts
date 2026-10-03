@@ -20,6 +20,7 @@ import {
   type Preview,
   type Probe,
   receive,
+  type SentPreview,
   type ViewState,
 } from "./receive.ts";
 import type { Tool, ToolGroup } from "./toolbox.ts";
@@ -73,7 +74,7 @@ export const useStore = create<State>(() => ({
   renumbering: new Map(),
   held: [],
   grabbed: [],
-  ran: [],
+  sentPreviews: [],
   sent: new Set(),
   opPreview: null,
   anchors: [],
@@ -207,12 +208,13 @@ export const waiting = (s: Pick<State, "reversing" | "renumbering">) =>
  * is then and the keys the person had chosen, renumbered (ADR-0110, #298). The edit
  * is handed the `Waited` its commands by index are sent with. `chosen` overrides the Direct
  * Selection's keys, as a drag's own do; a `target` stands on its own keys, and the edit reads it
- * alone, as the answer turns it. With `previewed`, the unsent preview in `edit` and `drag` is the
- * edit's own: held, it goes with the edit, so the next gesture's preview leaves it on screen.
- * `aside` is the gesture's preview, which a held edit does not see in `edit` and `drag` as it runs.
+ * alone, as the answer turns it. With `previewed`, the live gesture's unsent preview in `edit` and
+ * `drag` is the edit's own and leaves the live slots: held, it goes with the edit, so the next
+ * gesture's preview leaves it on screen; run, it gives way to what the edit sends, if anything.
+ * Either way the edit never sees or changes the live slots' preview (#285).
  */
 export function afterReverse(
-  edit: (s: State & Chosen, w: Waited, aside: Preview) => void,
+  edit: (s: State & Chosen, w: Waited) => void,
   { previewed, ...chosen }: Partial<Chosen> & { previewed?: true } = {},
 ) {
   const s = useStore.getState();
@@ -223,57 +225,60 @@ export function afterReverse(
     ...(target && targetKeys(target)),
   };
   const c = { anchors, segments, selection, tool, ...(target && { target }) };
-  const run = (k: Chosen, aside: Preview) => edit({ ...useStore.getState(), ...k }, WAITED, aside);
-  if (!waiting(s)) return run(c, { edit: s.edit, drag: s.drag });
-  const preview: Preview = {
-    edit: previewed && s.edit?.commandIds === null ? s.edit : null,
-    drag: previewed && s.drag?.commandId === null ? s.drag : null,
-  };
-  useStore.setState({
-    held: [...s.held, { chosen: c, run, preview }],
-    ...(preview.edit && { edit: null }),
-    ...(preview.drag && { drag: null }),
-  });
+  const run = (k: Chosen) => edit({ ...useStore.getState(), ...k }, WAITED);
+  const preview: Preview = { edit: previewed ? s.edit : null, drag: previewed ? s.drag : null };
+  if (previewed) useStore.setState({ edit: null, drag: null });
+  if (!waiting(s)) return run(c);
+  useStore.setState({ held: [...useStore.getState().held, { chosen: c, run, preview }] });
+}
+
+/** Whether `runHeld` is running a held edit, whose sent preview `drawSent` marks `fromHeld`. */
+let runningHeld = false;
+
+/**
+ * Draws `p`, an edit's preview whose commands were just sent with the ids it carries, until their
+ * answers. Every sent preview reaches `sentPreviews` through here, from a live gesture or a held
+ * edit, in the order sent (#285).
+ */
+export function drawSent(p: Preview) {
+  if (!p.edit && !p.drag) return;
+  const shown: SentPreview = { ...p, ...(runningHeld && { fromHeld: true }) };
+  useStore.setState((s) => ({ sentPreviews: [...s.sentPreviews, shown] }));
 }
 
 /**
  * Runs the held edits in order; one that sends a command that may renumber a path, such as another
- * press, holds the rest (#298). Each
- * runs on its own preview, so it replaces or drops that one only: what it sends is drawn in `ran`
- * until answered, and the gesture's preview it set aside is put back (ADR-0110). The notices they
- * set, such as a drop of what the person drew, are shown before `said`, the notice of the message
- * that answered, so none replaces another (#291).
+ * press, holds the rest (#298). Each runs off its own preview, which it replaces with what it sends
+ * or drops, touching no other (ADR-0110). One that throws stops only itself: the rest still run,
+ * and the error is thrown once they have. The notices they set, such as a drop of what the person
+ * drew, are shown before `said`, the notice of the message that answered, so none replaces another
+ * (#291).
  */
 export function runHeld(said?: string | null) {
   const before = useStore.getState().notice;
   const notices: string[] = [];
+  const errors: unknown[] = [];
   let runs = 0;
   for (;;) {
     const state = useStore.getState();
-    const {
-      held: [h, ...rest],
-      edit,
-      drag,
-    } = state;
+    const [h, ...rest] = state.held;
     if (!h || waiting(state)) break;
     runs++;
-    useStore.setState({ held: rest, ...h.preview, notice: null });
-    h.run(h.chosen, { edit, drag });
-    const after = useStore.getState();
-    if (after.notice) notices.push(after.notice);
-    const sent = {
-      edit: after.edit?.commandIds ? after.edit : null,
-      drag: after.drag?.commandId ? after.drag : null,
-    };
-    useStore.setState({
-      edit,
-      drag,
-      ...((sent.edit || sent.drag) && {
-        ran: [...after.ran, { ...sent, fromHeld: true as const }],
-      }),
-    });
+    useStore.setState({ held: rest, notice: null });
+    runningHeld = true;
+    try {
+      h.run(h.chosen);
+    } catch (e) {
+      errors.push(e);
+    } finally {
+      runningHeld = false;
+    }
+    const { notice } = useStore.getState();
+    if (notice) notices.push(notice);
   }
   if (runs > 0) useStore.setState({ notice: joinNotices([...notices, said]) || before });
+  if (errors.length > 1) throw new AggregateError(errors, "Held edits threw.");
+  if (errors.length > 0) throw errors[0];
 }
 
 /** Sends a signed-out person to sign in, coming back to this page. */
@@ -326,7 +331,7 @@ export function connect(docId: string): () => void {
     renumbering: new Map(),
     held: [],
     grabbed: [],
-    ran: [],
+    sentPreviews: [],
     sent: new Set(),
     opPreview: null,
     anchors: [],
