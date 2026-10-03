@@ -91,7 +91,7 @@ let press:
   | { kind: "anchor"; key: string; from: Point; doc: Document; d?: Point }
   | null = null;
 
-/** `press`'s Anchor as `now` numbers it, across a Reverse Path Direction press's answer (ADR-0110). */
+/** `press`'s Anchor as `now` numbers it, for a gesture still being made (ADR-0110). */
 const pressedKey = (p: { key: string; doc: Document }, now: Document) =>
   sameTarget({ kind: "anchor", key: p.key }, p.doc, now).key;
 
