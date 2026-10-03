@@ -9,7 +9,7 @@ function convert(type: Anchor["type"], { doc, anchors, segments }: State, w: Wai
   if (inputs.length > 0) sendPreview({ edit: { inputs } }, w);
 }
 
-/** A Convert button's press, which waits for the person's command that may renumber a path. */
+/** A Convert button's press, which waits for the person's own renumbering command (ADR-0110). */
 export const convertAnchors = (type: Anchor["type"]) =>
   afterRenumbering((s, w) => convert(type, s, w));
 

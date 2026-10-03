@@ -10,10 +10,8 @@ import {
   runsClockwise,
   toAnchors,
 } from "@kalamo/core";
-import type { Command } from "@kalamo/sync";
 import { beforeEach, expect, it, vi } from "vitest";
 import { setDirection } from "./attributes.ts";
-import type { Renumbering } from "./direct.ts";
 import { pencilDown, pencilMove, pencilUp } from "./pencil.ts";
 import { previewAll, previewsOf } from "./receive.ts";
 import {
@@ -26,7 +24,7 @@ import {
   unheld,
   useStore,
 } from "./store.ts";
-import { message, stateAfter } from "./testing.ts";
+import { message, recordAs, stateAfter } from "./testing.ts";
 import { TOOL_KEYS } from "./toolbox.ts";
 import {
   fillStrokeKey,
@@ -603,12 +601,7 @@ function onePath(d: string) {
 }
 
 /** Sends the next command as `id`, recorded as the real `send` records it. */
-const sendAs = (id: string) =>
-  vi
-    .mocked(send)
-    .mockImplementationOnce((c: Command, _w?: unknown, known?: Renumbering) =>
-      record(id, c, known),
-    );
+const sendAs = (id: string) => vi.mocked(send).mockImplementationOnce(recordAs(id));
 
 /** The answer to the person's own `path_edit` `id`, as the Document DO applies it. */
 function answer(id: string) {
@@ -810,9 +803,7 @@ function dragged() {
     nodeId: o.p,
     ops: [{ op: "move_anchor" as const, subpath: 0, index: 1, to: [50, 20] as Point }],
   };
-  vi.mocked(send).mockImplementationOnce((c: Command, _w?: unknown, known?: Renumbering) =>
-    record("drag", c, known),
-  );
+  vi.mocked(send).mockImplementationOnce(recordAs("drag"));
   send({ type: "path_edit", input }, unheld("the test's drag"));
   useStore.setState({
     sentPreviews: [{ edit: { inputs: [input], commandIds: ["drag"] }, drag: null }],

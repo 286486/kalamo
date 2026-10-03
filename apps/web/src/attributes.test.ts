@@ -42,7 +42,7 @@ import { averageAnchors, documentMenus, findByKeys, type Item, type MenuItem } f
 import { pencilDown, pencilMove, pencilUp } from "./pencil.ts";
 import { type PathDrag, previewAll, previewEdit, previewsOf, type ViewState } from "./receive.ts";
 import { afterRenumbering, deliver, record, runHeld, send, unheld, useStore } from "./store.ts";
-import { message, stateAfter, viewState } from "./testing.ts";
+import { message, recordAs, stateAfter, viewState } from "./testing.ts";
 import type { ToolEvent } from "./toolbox.ts";
 import { finishPen, penDown, penUp } from "./tools.ts";
 
@@ -267,9 +267,7 @@ const rejected = message("rejected", {
 function pressOn(keys: (a: Node, b: Node) => Partial<ViewState>, hole?: string) {
   vi.mocked(send).mockClear();
   // Every command is "c" again, after `serve` numbered them.
-  vi.mocked(send).mockImplementation((c: Command, _w?: unknown, known?: Renumbering) =>
-    record("c", c, known),
-  );
+  vi.mocked(send).mockImplementation(recordAs("c"));
   const { doc, a, b } = rings(hole);
   const state = viewState({ doc, selection: [a.id, b.id], role: "owner", ...keys(a, b) });
   setDirection(state, true);
@@ -2234,9 +2232,7 @@ it("lets go of a drag when the answer to the person's own held reshape of its pa
         held();
         expect(useStore.getState().held, label).toHaveLength(1);
         // Sent as "k" once the press is answered.
-        vi.mocked(send).mockImplementationOnce((c: Command, _w?: unknown, known?: Renumbering) =>
-          record("k", c, known),
-        );
+        vi.mocked(send).mockImplementationOnce(recordAs("k"));
       }
       const pressed = message("tx", {
         rev: doc.rev + 1,

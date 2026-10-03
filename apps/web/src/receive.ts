@@ -65,7 +65,7 @@ export interface Endpoint {
   atStart: boolean;
 }
 
-/** `e`'s Anchor as a Direct Selection key, which a Reverse Path Direction press's answer renumbers. */
+/** `e`'s Anchor as a Direct Selection key, which a renumbering command's answer renumbers. */
 export function endKey(doc: Document, e: Endpoint) {
   const n = doc.nodes.get(e.nodeId);
   const count = n && hasAnchors(n) ? (localAnchors(n)[e.subpath]?.anchors.length ?? 0) : 0;

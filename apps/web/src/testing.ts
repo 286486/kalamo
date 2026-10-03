@@ -1,5 +1,11 @@
-import type { ServerMessage } from "@kalamo/sync";
+import type { Command, ServerMessage } from "@kalamo/sync";
+import type { Renumbering } from "./direct.ts";
 import { receive, type ViewState } from "./receive.ts";
+import { record } from "./store.ts";
+
+/** A mock `send` that records each command as `id`, as the real `send` records it. */
+export const recordAs = (id: string) => (c: Command, _w?: unknown, known?: Renumbering) =>
+  record(id, c, known);
 
 /** A test's ViewState: no Document, nothing selected or in flight, until `over` says otherwise. */
 export const viewState = (over: Partial<ViewState> = {}): ViewState => ({
