@@ -20,7 +20,7 @@ import {
   toAnchors,
   worldTransform,
 } from "@kalamo/core";
-import type { Endpoint, PenPath } from "./receive.ts";
+import type { Endpoint } from "./receive.ts";
 import { editable, pathTargets } from "./selection.ts";
 
 /** Direct Selection (research §4): Anchors, Handles and segments of paths and Live Shapes. */
@@ -637,7 +637,3 @@ export function replaceSubpath(
   };
   return { nodeId: e.nodeId, ops: [{ op: "set_d", d: formatPath(fromAnchors(all)) }] };
 }
-
-/** The Pen's preview of the path it continues, once it has drawn on it; null before. */
-export const penEdit = (doc: Document, { from, anchors }: PenPath) =>
-  from && anchors.length > from.kept ? replaceSubpath(doc, from, anchors, false) : null;

@@ -17,11 +17,17 @@ import {
   hasAnchors,
   localAnchors,
   parseKey,
-  penEdit,
   replaceSubpath,
 } from "./direct.ts";
 import { forNewArt, leaving } from "./isolation.ts";
-import { type Endpoint, type PenPath, type ShapeBox, VIEWER_TOOLS } from "./receive.ts";
+import {
+  disconnected,
+  type Endpoint,
+  type PenPath,
+  penEdit,
+  type ShapeBox,
+  VIEWER_TOOLS,
+} from "./receive.ts";
 import { editable, placeParent } from "./selection.ts";
 import { afterReverse, canEdit, DEFAULT_FILL_STROKE, type State, send, useStore } from "./store.ts";
 import type { Tool, ToolEvent } from "./toolbox.ts";
@@ -436,7 +442,7 @@ const connecting = () => {
 /** Drops the press, leaving what it placed but a connection. */
 export const penCancel = () => {
   const pen = connecting();
-  if (pen) setPen({ ...pen, to: undefined, anchors: pen.anchors.slice(0, -1) });
+  if (pen) setPen(disconnected(pen));
   press = null;
 };
 
