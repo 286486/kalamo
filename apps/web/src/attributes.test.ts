@@ -694,7 +694,7 @@ const drawnEdits = {
  * Each subpath with an Anchor at (50, 0), as "x y" lists ending in "Z" when closed, after the
  * commands sent.
  */
-function openAfterSent() {
+function subpathsAfterSent() {
   const doc = structuredClone(useStore.getState().doc as Document);
   for (const c of commands()) {
     if (c.type === "path_edit") editPath(doc, c.input);
@@ -769,7 +769,7 @@ it("holds the Pen's and the Pencil's edits for the press and puts them on the En
       answer(outcome);
       expect(commands().length, name).toBeGreaterThan(0);
       expect(useStore.getState().notice, name).toBe(outcome === "rejected" ? "No." : null);
-      return openAfterSent();
+      return subpathsAfterSent();
     }),
   );
   const [continued, ended, joined, redrawn, closed] = results.map(([accepted, rejected_]) => ({
@@ -805,7 +805,7 @@ it("keeps the Pen on the Endpoint it continues when the answer comes while it dr
     penDown([100, 30], 1);
     penUp();
     finishPen();
-    return openAfterSent();
+    return subpathsAfterSent();
   });
   expect(rejected_).toEqual([["50 0", "80 0", "80 30", "100 30"]]);
   expect(accepted).toEqual([["100 30", "80 30", "80 0", "50 0"]]);
@@ -838,7 +838,7 @@ it("after a reconnect, ends a Pen continuation only when someone else changed it
       continue;
     }
     expect(useStore.getState().notice, label).toBeNull();
-    expect(openAfterSent(), label).toEqual([["100 30", "80 30", "80 0", "50 0"]]);
+    expect(subpathsAfterSent(), label).toEqual([["100 30", "80 30", "80 0", "50 0"]]);
   }
 });
 
@@ -869,7 +869,7 @@ it("ends a Pen continuation another Actor's edit reaches while a press is in fli
       penUp();
       finishPen();
       if (theirsOn === "q") {
-        expect(openAfterSent(), label).toEqual(
+        expect(subpathsAfterSent(), label).toEqual(
           outcome === "accepted"
             ? [["100 30", "80 30", "80 0", "50 0"]]
             : [["50 0", "80 0", "80 30", "100 30"]],
@@ -972,7 +972,7 @@ function ownMove(nodeId: string, dx: number, dy: number) {
 
 /** The stretch from (80, 10) to (80, 25) redrawn on p's open subpath, run as the answer left it. */
 function expectRedrawn(outcome: "accepted" | "rejected", label: string) {
-  const sent = openAfterSent();
+  const sent = subpathsAfterSent();
   expect(sent, label).toHaveLength(1);
   const run = outcome === "accepted" ? sent[0]?.toReversed() : sent[0];
   expect(run?.slice(0, 3), label).toEqual(["50 0", "80 0", "80 10"]);
