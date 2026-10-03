@@ -169,8 +169,8 @@ export type Answered = Waited & { readonly [answered]: true };
 const WAITED = {} as Answered;
 
 /**
- * Lets an edit by index be sent at once, though the person's own renumbering command may be
- * unanswered. `why` says at the call site why it need not wait (ADR-0110).
+ * Lets a command that needs `Waited` be sent at once, though the person's own renumbering command
+ * may be unanswered. `why` says at the call site why it need not wait (ADR-0110).
  */
 export const unheld = (_why: string): Waited => WAITED;
 
