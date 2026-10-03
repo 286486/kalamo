@@ -23,6 +23,7 @@ import {
 } from "./direct.ts";
 import { forNewArt, leaving } from "./isolation.ts";
 import {
+  asDrawn,
   disconnected,
   type Endpoint,
   endKey,
@@ -30,9 +31,7 @@ import {
   PEN_MOVED,
   type PenPath,
   type PenPress,
-  type Preview,
   penState,
-  previewAll,
   type ShapeBox,
   VIEWER_TOOLS,
 } from "./receive.ts";
@@ -204,19 +203,12 @@ function endingAt(doc: Document, e: Endpoint): BareAnchor[] {
 /** Join's distance for the Endpoints a connection put on each other, past `d`'s rounding. */
 const COINCIDENT = 0.05;
 
-/** Why a held Pen finish sent nothing: another Actor's edit changed a path it continued or met. */
-const PEN_DROPPED =
-  "Someone else changed a path the Pen was continuing or connecting to; what it drew was not applied.";
-
-/**
- * `doc` with the person's Selection tool moves sent and not yet answered, as the Document DO applies
- * a command sent now: after them, in input order.
- */
-const landing = (doc: Document, sent: Preview[]) =>
-  previewAll(
-    doc,
-    sent.map((p) => ({ edit: null, drag: p.drag && !p.drag.copy ? p.drag : null })),
-  );
+/** Why a held Pen finish sent nothing: a change to a path it continued or met, by whose (#293). */
+const PEN_DROPPED = {
+  own: "Your own earlier change reshaped a path the Pen was continuing or connecting to; what it drew was not applied.",
+  other:
+    "Someone else changed a path the Pen was continuing or connecting to; what it drew was not applied.",
+};
 
 /**
  * Finishes a path the Pen continued or connected (research 06 §1): one `path_edit` on the path
@@ -231,48 +223,48 @@ const landing = (doc: Document, sent: Preview[]) =>
 function finishEdit(doc: Document, pen: PenPath) {
   const { from, to, anchors, closed } = pen;
   const ends = [from, to].filter((e) => e !== undefined);
+  const shown = asDrawn(doc, useStore.getState());
   const first =
     anchors.length > 0 && !(from && !to && !closed && anchors.length <= from.kept)
-      ? penCommand(doc, pen)
+      ? penCommand(shown, pen)
       : null;
   if (!first) {
     useStore.setState({ pen: null });
     return;
   }
-  const keys = ends.map((e) => endKey(doc, e));
+  const keys = ends.map((e) => endKey(shown, e));
   const own = (d: Document) => ends.map((e) => invert(worldOf(d, e.nodeId)));
   // How each path it meets moved since `before`, `d`'s view of it.
   const moves = (d: Document, before: Matrix[]) =>
     ends.map((e, i) => round(multiply(worldOf(d, e.nodeId), before[i] as Matrix)));
-  const drawn = own(doc);
-  const lands = own(landing(doc, useStore.getState().sentPreviews));
+  const drawn = own(shown);
   useStore.setState({
     pen: null,
     selection: [...new Set(ends.map((e) => e.nodeId))],
     edit: { inputs: [first.input], commandIds: null },
   });
   afterReverse(
-    ({ doc: now, anchors: held, sentPreviews }, w) => {
-      // `held` is `keys` renumbered, `from`'s first; another Actor's edit cleared a missing one.
+    ({ doc: now, anchors: held, lostBy, ...s }, w) => {
+      // `held` is `keys` renumbered, `from`'s first; a change to their path cleared a missing one.
       if (held.length < keys.length) {
-        useStore.setState({ notice: PEN_DROPPED });
+        useStore.setState({ notice: PEN_DROPPED[lostBy ?? "other"] });
         return;
       }
-      // Moved apart where the finish lands, after the person's moves sent before it, it can meet
-      // only one; moved together, what it drew goes with them (#301). Rounding leaves no move an
-      // exact identity.
-      const [one, other] = now ? moves(landing(now, sentPreviews), lands) : [];
-      if (one && other && String(one) !== String(other)) {
+      // It lands after the person's edits and moves sent before it, as they are drawn. Moved apart
+      // there, it can meet only one; moved together, what it drew goes with them (#301). Rounding
+      // leaves no move an exact identity.
+      const there = now && asDrawn(now, s);
+      const [m, other] = there ? moves(there, drawn) : [];
+      if (m && other && String(m) !== String(other)) {
         useStore.setState({ notice: PEN_MOVED });
         return;
       }
-      const [m] = now ? moves(now, drawn) : [];
       const at = held.map(endOf);
       const f = from && at.shift();
       const placed = m ? anchors.map((a) => through(m, a)) : anchors;
       const c =
-        now &&
-        penCommand(now, {
+        there &&
+        penCommand(there, {
           ...pen,
           anchors: placed,
           from: from && { ...from, ...f },
@@ -281,7 +273,7 @@ function finishEdit(doc: Document, pen: PenPath) {
       if (!c) return;
       drawSent({ edit: { inputs: [c.input], commandIds: [send(c.command, w)] }, drag: null });
     },
-    { anchors: keys, segments: [], previewed: true },
+    { anchors: keys, segments: [], previewed: true, ...(from?.seed && { seed: from.seed }) },
   );
 }
 
@@ -316,10 +308,10 @@ function penCommand(doc: Document, { from, to, anchors, closed }: PenPath) {
   return { input, command: { type: "path_edit" as const, input } };
 }
 
-/** The Pen's path so far and its press, and its preview (`penState`). */
+/** The Pen's path so far and its press, and its preview (`penState`) on the path as drawn. */
 function setPen(pen: PenPath | null, penPress = useStore.getState().penPress) {
-  const { doc, edit } = useStore.getState();
-  useStore.setState({ ...penState(doc, pen, edit), penPress });
+  const s = useStore.getState();
+  useStore.setState({ ...penState(s.doc && asDrawn(s.doc, s), pen, s.edit), penPress });
 }
 
 /**
@@ -368,7 +360,9 @@ export function penDown(p: Point, tolerance: number, shift = false) {
   const anchors = pen?.anchors ?? [];
   const first = anchors[0];
   const last = anchors.at(-1);
-  const end = s.doc && endpointAt(s.doc, p, tolerance, pen?.from, s.isolated);
+  // Endpoints are found, and continued, where the person sees them: on the paths as drawn (#293).
+  const shown = s.doc && asDrawn(s.doc, s);
+  const end = shown && endpointAt(shown, p, tolerance, pen?.from, s.isolated);
   const press = (kind: PenPress["kind"], index: number): PenPress => ({ kind, index, at: p });
   if (first && anchors.length >= 2 && near(p, first.anchor, tolerance)) {
     useStore.setState({ penPress: press("close", 0) });
@@ -377,21 +371,28 @@ export function penDown(p: Point, tolerance: number, shift = false) {
       { ...pen, anchors: anchors.with(-1, { ...last, handleOut: null }) },
       press("last", anchors.length - 1),
     );
-  } else if (s.doc && end && !pen) {
-    // Continuing: its Anchors, turned to end at the Endpoint pressed, are the path so far.
-    const theirs = endingAt(s.doc, end);
+  } else if (shown && end && !pen) {
+    // Continuing: its Anchors, turned to end at the Endpoint pressed, are the path so far, with the
+    // person's sent edits to it, whose answers the continuation then keeps through.
+    const theirs = endingAt(shown, end);
     const at = theirs.length - 1;
     const done = theirs.with(at, { ...(theirs[at] as BareAnchor), handleOut: null });
+    const seed = s.sentPreviews.flatMap(
+      ({ edit }) =>
+        edit?.commandIds?.filter(
+          (c, i) => edit.inputs[i]?.nodeId === end.nodeId && s.sent.has(c),
+        ) ?? [],
+    );
     setPen(
       {
         anchors: done,
         closed: false,
-        from: { ...end, kept: theirs.length },
+        from: { ...end, kept: theirs.length, ...(seed.length > 0 && { seed }) },
       },
       press("last", at),
     );
-  } else if (s.doc && end && pen) {
-    const theirs = endingAt(s.doc, end);
+  } else if (shown && end && pen) {
+    const theirs = endingAt(shown, end);
     const at = (theirs.at(-1) as BareAnchor).anchor;
     setPen(
       {

@@ -15,6 +15,7 @@ import {
   afterProbe,
   type Chosen,
   type Effect,
+  type Held,
   joinNotices,
   opening,
   type Preview,
@@ -212,11 +213,12 @@ export const waiting = (s: Pick<State, "reversing" | "renumbering">) =>
  * alone, as the answer turns it. With `previewed`, the live gesture's unsent preview in `edit` and
  * `drag` is the edit's own and leaves the live slots: held, it goes with the edit, so the next
  * gesture's preview leaves it on screen; run, it gives way to what the edit sends, if anything.
- * Either way the edit never sees or changes the live slots' preview (#285).
+ * Either way the edit never sees or changes the live slots' preview (#285). `seed` is a Pen finish's
+ * (#293).
  */
 export function afterReverse(
   edit: (s: State & Chosen, w: Waited) => void,
-  { previewed, ...chosen }: Partial<Chosen> & { previewed?: true } = {},
+  { previewed, seed, ...chosen }: Partial<Chosen> & { previewed?: true } & Pick<Held, "seed"> = {},
 ) {
   const s = useStore.getState();
   const { target } = chosen;
@@ -230,7 +232,8 @@ export function afterReverse(
   const preview: Preview = { edit: previewed ? s.edit : null, drag: previewed ? s.drag : null };
   if (previewed) useStore.setState({ edit: null, drag: null });
   if (!waiting(s)) return run(c);
-  useStore.setState({ held: [...useStore.getState().held, { chosen: c, run, preview }] });
+  const h: Held = { chosen: c, run, preview, ...(seed && { seed }) };
+  useStore.setState({ held: [...useStore.getState().held, h] });
 }
 
 /**

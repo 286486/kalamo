@@ -8,8 +8,10 @@ import {
   pathOp,
   toAnchors,
 } from "@kalamo/core";
+import type { Command } from "@kalamo/sync";
 import { beforeEach, expect, it, vi } from "vitest";
-import { DEFAULT_FILL_STROKE, send, useStore } from "./store.ts";
+import { previewAll, previewsOf } from "./receive.ts";
+import { DEFAULT_FILL_STROKE, record, runHeld, send, unheld, useStore } from "./store.ts";
 import { message, stateAfter } from "./testing.ts";
 import { TOOL_KEYS } from "./toolbox.ts";
 import {
@@ -560,4 +562,203 @@ it("drops a held connection when another Actor edits or deletes the path it conn
   expect(useStore.getState().notice).toMatch(/continuing/);
   penUp();
   expect(sent()).toEqual([]);
+});
+
+// #293: a continuation started while the person's own edit to its path is unanswered continues the
+// path as that edit leaves it, as drawn, and its finish stores that edit plus what the Pen drew.
+
+/** One path, `d`, with nothing in flight; `stored()` is it as the Document has it. */
+function onePath(d: string) {
+  const { doc: made, defaultLayerId: parentId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 100, height: 100 }],
+  });
+  const [p] = createNodes(made, [{ type: "path", parentId, d }]).nodes.map((n) => n.id) as [string];
+  useStore.setState({
+    doc: made,
+    edit: null,
+    drag: null,
+    notice: null,
+    sentPreviews: [],
+    sent: new Set(),
+    renumbering: new Map(),
+    held: [],
+  });
+  vi.mocked(send).mockClear();
+  return { p, stored: () => dOf(useStore.getState().doc as Document, p) };
+}
+
+/** Sends the next command as `id`, recorded as the real `send` records it. */
+const sendAs = (id: string) =>
+  vi.mocked(send).mockImplementationOnce((c: Command) => record(id, c));
+
+/** The answer to the person's own `path_edit` `id`, as the Document DO applies it. */
+function answer(id: string) {
+  const c = sent().find((_, i) => vi.mocked(send).mock.results[i]?.value === id);
+  if (c?.type !== "path_edit") throw new Error(`${id} is no path_edit`);
+  const now = useStore.getState().doc as Document;
+  const { node } = editPath(structuredClone(now), c.input);
+  return message("tx", { rev: now.rev + 1, commandId: id, updated: [node] });
+}
+
+/** The path as the canvas draws it: the Document with every preview applied. */
+const drawnD = (p: string) => {
+  const s = useStore.getState();
+  return dOf(previewAll(s.doc as Document, previewsOf(s)), p);
+};
+
+it("continues a path from its own unanswered extension and stores both (#293)", () => {
+  const { p, stored } = onePath("M 0 0 L 100 0");
+  sendAs("first");
+  penClick([100, 0], 1);
+  penClick([150, 50], 1);
+  finishPen();
+  // The other Endpoint, then a new Anchor: the first extension stays drawn under the Pen's.
+  penClick([0, 0], 1);
+  penClick([-50, 50], 1);
+  expect(drawnD(p)).toBe("M -50 50 L 0 0 L 100 0 L 150 50");
+  expect(useStore.getState().sentPreviews).toHaveLength(1);
+  useStore.setState(stateAfter(useStore.getState(), answer("first")));
+  expect(useStore.getState().notice).toBeNull();
+  expect(pen()).not.toBeNull();
+  expect(drawnD(p)).toBe("M -50 50 L 0 0 L 100 0 L 150 50");
+  sendAs("second");
+  finishPen();
+  useStore.setState(stateAfter(useStore.getState(), answer("second")));
+  expect(stored()).toBe("M -50 50 L 0 0 L 100 0 L 150 50");
+  expect(useStore.getState().notice).toBeNull();
+});
+
+it("continues a path from the person's own unanswered Direct Selection drag on it (#293)", () => {
+  for (const [label, from, to, finished] of [
+    ["its other subpath", [100, 50], [120, 60], "M 0 0 L 50 20 L 100 0 M 0 50 L 100 50 L 120 60"],
+    ["the dragged subpath", [100, 0], [120, 10], "M 0 0 L 50 20 L 100 0 L 120 10 M 0 50 L 100 50"],
+  ] as const) {
+    const { p, stored } = onePath("M 0 0 L 50 0 L 100 0 M 0 50 L 100 50");
+    // The middle Anchor of the first subpath dragged down, sent, unanswered.
+    const input = {
+      nodeId: p,
+      ops: [{ op: "move_anchor" as const, subpath: 0, index: 1, to: [50, 20] as Point }],
+    };
+    useStore.setState({
+      sentPreviews: [{ edit: { inputs: [input], commandIds: ["drag"] }, drag: null }],
+      sent: new Set(["drag"]),
+    });
+    vi.mocked(send).mockReturnValueOnce("drag");
+    send({ type: "path_edit", input }, unheld("the test's drag"));
+    penClick([...from], 1);
+    penClick([...to], 1);
+    expect(drawnD(p), label).toBe(finished);
+    useStore.setState(stateAfter(useStore.getState(), answer("drag")));
+    expect(useStore.getState().notice, label).toBeNull();
+    sendAs("finish");
+    finishPen();
+    useStore.setState(stateAfter(useStore.getState(), answer("finish")));
+    expect(stored(), label).toBe(finished);
+  }
+});
+
+it("ends a continuation when the person's own edit it started from is rejected, and sends nothing (#293)", () => {
+  const { p, stored } = onePath("M 0 0 L 100 0");
+  sendAs("first");
+  penClick([100, 0], 1);
+  penClick([150, 50], 1);
+  finishPen();
+  penClick([0, 0], 1);
+  penClick([-50, 50], 1);
+  vi.mocked(send).mockClear();
+  useStore.setState(stateAfter(useStore.getState(), message("rejected", { id: "first" })));
+  const s = useStore.getState();
+  expect(s.pen).toBeNull();
+  expect(s.edit).toBeNull();
+  expect(s.notice).toMatch(/your earlier edit .*not applied/i);
+  expect(s.notice).not.toMatch(/Someone else/);
+  expect(drawnD(p)).toBe("M 0 0 L 100 0");
+  finishPen();
+  expect(sent()).toEqual([]);
+  expect(stored()).toBe("M 0 0 L 100 0");
+});
+
+it("holds a continuation's finish for the answer to the edit it continued, then sends it, or drops it on a rejection (#293)", () => {
+  for (const outcome of ["accepted", "rejected"] as const) {
+    const { stored } = onePath("M 0 0 L 100 0");
+    sendAs("first");
+    penClick([100, 0], 1);
+    penClick([150, 50], 1);
+    finishPen();
+    penClick([0, 0], 1);
+    penClick([-50, 50], 1);
+    // The first extension may renumber p, so the finish waits for its answer.
+    finishPen();
+    expect(useStore.getState().held, outcome).toHaveLength(1);
+    const after = stateAfter(
+      useStore.getState(),
+      outcome === "accepted" ? answer("first") : message("rejected", { id: "first" }),
+    );
+    useStore.setState(after);
+    if (outcome === "accepted") sendAs("second");
+    runHeld(after.notice);
+    const s = useStore.getState();
+    if (outcome === "accepted") {
+      useStore.setState(stateAfter(s, answer("second")));
+      expect(stored(), outcome).toBe("M -50 50 L 0 0 L 100 0 L 150 50");
+      expect(s.notice, outcome).toBeNull();
+      continue;
+    }
+    expect(
+      sent().map((c) => c.type),
+      outcome,
+    ).toEqual(["path_edit"]);
+    expect(s.held, outcome).toEqual([]);
+    expect(s.notice, outcome).toMatch(/your earlier edit .*not applied/i);
+    expect(stored(), outcome).toBe("M 0 0 L 100 0");
+  }
+});
+
+/** Sends and records the person's own Undo `id`; its answer, built when it comes, leaves p as `d`. */
+function ownUndo(id: string, p: string, d: string) {
+  record(id, { type: "undo" });
+  return () => {
+    const now = useStore.getState().doc as Document;
+    const { node } = editPath(structuredClone(now), { nodeId: p, ops: [{ op: "set_d", d }] });
+    return message("tx", { rev: now.rev + 1, commandId: id, updated: [node] });
+  };
+}
+
+it("names the person's own Undo, not someone else, when it ends a continuation or drops a held Pen finish (#293)", () => {
+  // A continuation with nothing of theirs in flight, ended by their Undo reshaping p.
+  const { p } = onePath("M 0 0 L 100 0");
+  penClick([100, 0], 1);
+  penClick([150, 50], 1);
+  const ended = ownUndo("u", p, "M 0 0 L 100 20")();
+  useStore.setState(stateAfter(useStore.getState(), ended));
+  let s = useStore.getState();
+  expect(s.pen).toBeNull();
+  expect(s.edit).toBeNull();
+  expect(s.notice).toMatch(/^Your own earlier change reshaped the path the Pen was continuing/);
+  finishPen();
+  expect(sent()).toEqual([]);
+
+  // A finish held for the answer to their extension, dropped by their Undo answered after it.
+  const second = onePath("M 0 0 L 100 0");
+  sendAs("first");
+  penClick([100, 0], 1);
+  penClick([150, 50], 1);
+  finishPen();
+  penClick([0, 0], 1);
+  penClick([-50, 50], 1);
+  finishPen();
+  const undo = ownUndo("u", second.p, "M 0 0 L 100 20");
+  useStore.setState(stateAfter(useStore.getState(), answer("first")));
+  runHeld();
+  expect(useStore.getState().held).toHaveLength(1);
+  const after = stateAfter(useStore.getState(), undo());
+  useStore.setState(after);
+  runHeld(after.notice);
+  s = useStore.getState();
+  expect(sent().map((c) => c.type)).toEqual(["path_edit"]);
+  expect(s.held).toEqual([]);
+  expect(s.notice).toMatch(/^Your own earlier change reshaped a path the Pen was continuing/);
+  expect(second.stored()).toBe("M 0 0 L 100 20");
 });
