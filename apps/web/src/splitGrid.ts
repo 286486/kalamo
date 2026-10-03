@@ -1,5 +1,6 @@
 import { pathTargets } from "./selection.ts";
-import { type NodeOp, send, useStore } from "./store.ts";
+import { sendPreviewedOp } from "./simplify.ts";
+import { type NodeOp, useStore } from "./store.ts";
 
 /** Kept between uses as Illustrator's dialog keeps them; a blank Total is the shape's own size. */
 const settings = {
@@ -62,15 +63,12 @@ export function splitGridDialog() {
   };
   dialog.onclose = () => {
     dialog.remove();
-    const { opPreview, doc: now } = useStore.getState();
     // A tab switch meanwhile drops the preview, and these paths are not in the new tab.
-    if (dialog.returnValue !== "ok" || now?.id !== doc.id) {
+    if (dialog.returnValue !== "ok" || useStore.getState().doc?.id !== doc.id) {
       useStore.setState({ opPreview: null });
       return;
     }
-    const commandId = send({ type: "path_op", input: input() });
-    // The preview stays drawn until the answer, so the grid does not flicker.
-    useStore.setState({ opPreview: opPreview && { ...opPreview, input: input(), commandId } });
+    sendPreviewedOp(input());
   };
   document.body.append(dialog);
   dialog.showModal();

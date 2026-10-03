@@ -2,7 +2,7 @@ import { bounds, type Document, fidelityTolerance, union } from "@kalamo/core";
 import { hasAnchors, localAnchors } from "./direct.ts";
 import { previewOp } from "./receive.ts";
 import { pathTargets } from "./selection.ts";
-import { send, useStore } from "./store.ts";
+import { type NodeOp, send, useStore } from "./store.ts";
 
 /** The slider's middle, Auto-Simplify: within 1 screen px of the path (ADR-0035). */
 const AUTO = 50;
@@ -41,13 +41,21 @@ function takeDown() {
   was?.close();
 }
 
+/**
+ * Sends Simplify's, Offset Path's or Split Into Grid's `path_op` on OK. The op preview on screen
+ * stays drawn until the answer, so nothing flickers (ADR-0035).
+ */
+export function sendPreviewedOp(input: NodeOp) {
+  const shown = useStore.getState().opPreview;
+  const commandId = send({ type: "path_op", input });
+  if (shown) useStore.setState({ opPreview: { ...shown, input, showOriginal: false, commandId } });
+}
+
 /** OK: the preview as one `path_op` Command, drawn until its answer. */
-function commit() {
+export function commitSimplify() {
   takeDown();
   const { opPreview } = useStore.getState();
-  if (!opPreview || opPreview.commandId) return;
-  const commandId = send({ type: "path_op", input: opPreview.input });
-  useStore.setState({ opPreview: { ...opPreview, showOriginal: false, commandId } });
+  if (opPreview && !opPreview.commandId) sendPreviewedOp(opPreview.input);
 }
 
 function cancel() {
@@ -60,7 +68,7 @@ function cancel() {
 useStore.subscribe((s, prev) => {
   if (!open) return;
   if (!s.opPreview) takeDown();
-  else if (s.selection.join(" ") !== prev.selection.join(" ")) commit();
+  else if (s.selection.join(" ") !== prev.selection.join(" ")) commitSimplify();
   else if (s.viewport?.scale !== prev.viewport?.scale) open.update();
 });
 
@@ -121,7 +129,7 @@ export function startSimplify() {
     max,
     button("Auto-Simplify", auto),
     button("…", more, "More Options"),
-    button("OK", commit),
+    button("OK", commitSimplify),
     button("Cancel", cancel),
   );
   // Under the paths, as Illustrator shows it.
@@ -155,7 +163,7 @@ export function startSimplify() {
     if (e.key === "Enter" && e.target instanceof HTMLButtonElement) return;
     e.preventDefault();
     e.stopPropagation();
-    if (e.key === "Enter") commit();
+    if (e.key === "Enter") commitSimplify();
     else cancel();
   };
   addEventListener("keydown", onKey, true);
@@ -212,7 +220,7 @@ function moreOptions(doc: Document, nodeIds: string[], settings: Settings, updat
     const ok = dialog.returnValue === "ok";
     dialog.remove();
     if (!open) return; // A tab switch took it down.
-    if (ok) commit();
+    if (ok) commitSimplify();
     else cancel();
   };
   document.body.append(dialog);

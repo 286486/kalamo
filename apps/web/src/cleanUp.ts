@@ -20,23 +20,29 @@ ${box("strayPoints", "Stray Points")}${box("unpainted", "Unpainted Objects")}${b
   const checked = (name: string) => (form.elements.namedItem(name) as HTMLInputElement).checked;
   dialog.onclose = () => {
     dialog.remove();
-    const { doc } = useStore.getState();
-    if (dialog.returnValue !== "ok" || !doc) return;
+    if (dialog.returnValue !== "ok") return;
     const input: NodeOp = {
       op: "clean_up",
       strayPoints: checked("strayPoints"),
       unpainted: checked("unpainted"),
       emptyText: checked("emptyText"),
     };
-    try {
-      const { deletedIds, updated } = pathOp({ ...doc, nodes: new Map(doc.nodes) }, input);
-      send({ type: "path_op", input });
-      const trimmed = updated.length > 0 ? `, and Stray Points from ${updated.length} path(s)` : "";
-      useStore.setState({ notice: `Clean Up removed ${deletedIds.length} object(s)${trimmed}.` });
-    } catch (e) {
-      useStore.setState({ notice: e instanceof Error ? e.message : String(e) });
-    }
+    cleanUp(input);
   };
   document.body.append(dialog);
   dialog.showModal();
+}
+
+/** Clean Up's OK: one `path_op clean_up`, and a notice that counts what it removes. */
+export function cleanUp(input: NodeOp) {
+  const { doc } = useStore.getState();
+  if (!doc) return;
+  try {
+    const { deletedIds, updated } = pathOp({ ...doc, nodes: new Map(doc.nodes) }, input);
+    send({ type: "path_op", input });
+    const trimmed = updated.length > 0 ? `, and Stray Points from ${updated.length} path(s)` : "";
+    useStore.setState({ notice: `Clean Up removed ${deletedIds.length} object(s)${trimmed}.` });
+  } catch (e) {
+    useStore.setState({ notice: e instanceof Error ? e.message : String(e) });
+  }
 }
