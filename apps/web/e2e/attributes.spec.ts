@@ -1088,3 +1088,37 @@ for (const outcome of ["accepted", "rejected"] as const) {
     });
   }
 }
+
+// #303, ADR-0111: a Pen Join sent before another Actor moved one of its paths reaches the Document
+// DO with its Endpoints apart. It is rejected rather than bridging the gap with a straight segment,
+// and the person sees the same notice as for a move the browser saw first.
+test("a sent Pen Join is rejected when another Actor moved one of its paths before it arrived", async ({
+  page,
+  request,
+}) => {
+  const { docId, ids, held, hold, at, d, transform } = await rings(page, request, [0, 1], (x) =>
+    x === 0 ? "M20 20 L60 20" : "M120 20 L160 20",
+  );
+  const [a, b] = ids as [string, string];
+  hold(["path_join"]);
+  // a continued from its Endpoint (60, 20) onto b's (120, 20).
+  await page.keyboard.press("p");
+  await page.mouse.click(...at(60, 20));
+  await page.mouse.click(...at(120, 20));
+  await page.keyboard.press("Enter");
+  await expect.poll(() => held.map((h) => h.type)).toEqual(["path_join"]);
+
+  await call(request, "kalamo_node_transform", { docId, nodeIds: [b], translate: { y: 30 } });
+  const rev = async () =>
+    (await call(request, "kalamo_doc_get_info", { docId })).structuredContent.rev as number;
+  const moved = await rev();
+  held[0]?.pass();
+  await expect(page.getByRole("alert")).toContainText(
+    "A path the Pen was connecting to moved before the connection was made",
+  );
+  // Nothing written: a and b as they were, b where the Agent moved it.
+  expect(await d(a)).toBe("M 20 20 L 60 20");
+  expect(await d(b)).toBe("M 120 20 L 160 20");
+  expect(await transform(b)).toEqual([1, 0, 0, 1, 0, 30]);
+  expect(await rev()).toBe(moved);
+});

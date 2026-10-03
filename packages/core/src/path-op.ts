@@ -440,6 +440,37 @@ function closeWithin(s: Subpath, tolerance: number): Subpath {
   return s;
 }
 
+/** Join's default distance, in document units, at which Endpoints merge. */
+const JOIN_TOLERANCE = 0.01;
+
+/**
+ * `nodes` in the topmost one's coordinates, tolerance too: it is in the Document's. Join and
+ * `endpointsMeet` both measure here, so they agree under a non-uniform scale or a skew.
+ */
+function joinFrame(doc: Document, nodes: WithAnchors[], tolerance = JOIN_TOLERANCE) {
+  const order = paintOrder(doc);
+  const top = nodes.reduce((a, b) => ((order.get(b.id) ?? 0) > (order.get(a.id) ?? 0) ? b : a));
+  const m = worldTransform(doc, top);
+  const each = nodes.map((n) => anchorsIn(n, multiply(invert(m), worldTransform(doc, n))));
+  return { top, each, tolerance: tolerance / scaleOf(m) };
+}
+
+/**
+ * Whether Join merges the two Endpoints a `path_op join` names in `anchors`, rather than adding a
+ * straight segment: whether they lie within its tolerance as Join measures it. True when `anchors`
+ * does not name two Anchors, which Join rejects.
+ */
+export function endpointsMeet(doc: Document, raw: PathOpInput): boolean {
+  const { anchors = [], tolerance } = PathOpInput.parse(raw);
+  if (anchors.length !== 2) return true;
+  const nodes = new Set(anchors.map((r, i) => withAnchors(doc, r.nodeId, `anchors[${i}].nodeId`)));
+  const frame = joinFrame(doc, [...nodes], tolerance);
+  const [p, q] = anchors.map(
+    (r) => frame.each.find((e) => e.node.id === r.nodeId)?.subpaths[r.subpath]?.anchors[r.index],
+  );
+  return !p || !q || Math.hypot(...gap(p, q)) <= frame.tolerance;
+}
+
 /**
  * The two subpaths of `chains`, open ones, whose Endpoints lie closest, `aEnd` and `bEnd` telling whether
  * that is the end (else the start) of `chains[i]` and `chains[j]`, with `i < j`. The first pair
@@ -473,14 +504,6 @@ const JOIN_HINT = "Name two open Endpoints in anchors, or omit anchors to join w
 function join(doc: Document, input: z.output<typeof PathOpInput>): PathOpResult {
   const refs = checkRefs(input.anchors, input.nodeIds);
   const named = allWithAnchors(doc, input.nodeIds);
-  const order = paintOrder(doc);
-  // Everything in the topmost Node's coordinates, tolerance too: it is in the Document's.
-  const gather = (nodes: WithAnchors[]) => {
-    const top = nodes.reduce((a, b) => ((order.get(b.id) ?? 0) > (order.get(a.id) ?? 0) ? b : a));
-    const m = worldTransform(doc, top);
-    const each = nodes.map((n) => anchorsIn(n, multiply(invert(m), worldTransform(doc, n))));
-    return { top, each, tolerance: (input.tolerance ?? 0.01) / scaleOf(m) };
-  };
   const done = (top: WithAnchors, subpaths: Subpath[], nodes: WithAnchors[]): PathOpResult => {
     const next = { ...anchorsIn(top).path, d: formatPath(fromAnchors(subpaths)) };
     const deletedIds = nodes.filter((n) => n !== top).map((n) => n.id);
@@ -495,7 +518,7 @@ function join(doc: Document, input: z.output<typeof PathOpInput>): PathOpResult 
 
   if (refs) {
     const nodes = named.filter((n) => refs.some((r) => r.nodeId === n.id));
-    const { top, each, tolerance } = gather(nodes);
+    const { top, each, tolerance } = joinFrame(doc, nodes, input.tolerance);
     const subpathOf = (r: Ref) => each.find((e) => e.node.id === r.nodeId)?.subpaths[r.subpath];
     const isEndpoint = (r: Ref) => {
       const s = subpathOf(r);
@@ -518,7 +541,7 @@ function join(doc: Document, input: z.output<typeof PathOpInput>): PathOpResult 
   if (nodes.length === 0) {
     throw invalid("nodeIds", "None of the paths has an open subpath to join.", JOIN_HINT);
   }
-  const { top, each, tolerance } = gather(nodes);
+  const { top, each, tolerance } = joinFrame(doc, nodes, input.tolerance);
   const closed = each.flatMap((e) => e.subpaths.filter((s) => s.closed));
   // The topmost Node's open subpaths first, so the result keeps its direction.
   const chains = [...each]

@@ -13,7 +13,7 @@ The Pen continues an open path from an Endpoint and connects the path it draws t
 
 **A new path connecting to an Endpoint is one `path_edit` on that path.** The existing path continues backwards through the new Anchors and keeps its id and appearance.
 
-**Continuing a path onto another's Endpoint is one browser Command, `path_join`: a `path_edit` input, then a `path_op` Join input, in one Transaction.** The edit ends the continued path on the other Endpoint, and Join merges the two Endpoints at a tolerance of 0.05. Join keeps the topmost path and deletes the other, as Object > Path > Join does. No single MCP tool does both. An Agent does the same with `path_edit` then `path_op` inside a Transaction (ADR-0008).
+**Continuing a path onto another's Endpoint is one browser Command, `path_join`: a `path_edit` input, then a `path_op` Join input, in one Transaction.** The edit ends the continued path on the other Endpoint, and Join merges the two Endpoints at a tolerance of 0.05. Join keeps the topmost path and deletes the other, as Object > Path > Join does. No single MCP tool does both. An Agent does the same with `path_edit` then `path_op` inside a Transaction (ADR-0008). (ADR-0111 amends this: the Endpoints must meet once the edit applies, or the Document DO rejects the command with `ENDPOINTS_APART`; an Agent's Join is unchanged.)
 
 **Continuing from a Smooth Endpoint starts a straight segment.** An open subpath's `d` has no outgoing Handle at its last Anchor, so there is none to keep. This follows Adobe's Illustrator-specific note; research 06 open question 2 still needs a live check, and a curved start would need the Handle kept outside `d`. A drag on the Endpoint pulls out a new Handle, as a drag on the last Anchor does while drawing.
 

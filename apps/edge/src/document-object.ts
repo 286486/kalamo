@@ -16,6 +16,7 @@ import {
   duplicateNodes,
   type ErrorData,
   editPath,
+  endpointsMeet,
   type Failed,
   type FullView,
   type Geometry,
@@ -611,6 +612,15 @@ export class DocumentObject extends DurableObject<Env> {
       run: (c, actor, commandId) =>
         this.write(actor, { commandId }, PATH_OP_TEXT.join.summary, (doc) => {
           const { warnings } = editPath(doc, c.edit);
+          // The Pen connects Endpoints that meet; Join would bridge a gap a move opened (ADR-0111).
+          if (!endpointsMeet(doc, c.join)) {
+            throw new KalamoError({
+              code: "ENDPOINTS_APART",
+              message: "A path the Pen was connecting to moved before the connection was made.",
+              hint: "Nothing was written. Draw the connection again where the paths are now.",
+              path: "join.anchors",
+            });
+          }
           const joined = pathOp(doc, c.join);
           return {
             ...joined,

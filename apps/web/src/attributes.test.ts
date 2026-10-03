@@ -1747,6 +1747,29 @@ it("drops a held Pen connection of two paths when one moved alone and its move i
   }
 });
 
+it("drops a sent Pen connection and its preview when the server finds its Endpoints apart (#303)", () => {
+  const answer = pressOnOpen();
+  const [p, q] = useStore.getState().selection as [string, string];
+  drawnEdits["a Pen continuing one path onto another's Endpoint"]();
+  answer("accepted");
+  expect(penSent().map((c) => c.type)).toEqual(["path_join"]);
+  const apart = message("rejected", {
+    id: "c",
+    error: { code: "ENDPOINTS_APART", message: "Moved.", hint: "" },
+  });
+  useStore.setState(stateAfter(useStore.getState(), apart));
+  const s = useStore.getState();
+  expect(s.notice).toMatch(
+    /^A path the Pen was connecting to moved before the connection was made/,
+  );
+  expect(s.edit).toBeNull();
+  const shown = previewAll(s.doc as Document, previewsOf(s));
+  for (const n of [p, q]) {
+    const d = (x: Document) => (x.nodes.get(n) as PathNode).d;
+    expect(d(shown), n).toBe(d(s.doc as Document));
+  }
+});
+
 // #283: a held edit, when it runs or is dropped, touches its own preview only. Each edit is held on
 // a's hole, or on p's open subpath, and another Actor's deletion of that path drops it.
 const heldOnRings: Record<string, (doc: Document) => void> = {

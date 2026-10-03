@@ -431,6 +431,92 @@ it("commits a path_join command as one Transaction that leaves one path", async 
   ]);
 });
 
+describe("a path_join whose Endpoints do not meet once its edit applies (#303)", () => {
+  /** Paths a and b, b moved by `moves` over MCP, then the Pen's join of a's continuation onto b. */
+  async function joinAfter(...moves: { nodeIds: (a: string, b: string) => string[]; x: number }[]) {
+    const { docId, defaultLayerId } = await newDoc();
+    const [a, b] = (
+      await call("kalamo_node_create", {
+        docId,
+        nodes: [
+          { type: "path", parentId: defaultLayerId, d: "M 0 0 L 10 0" },
+          { type: "path", parentId: defaultLayerId, d: "M 30 0 L 40 0" },
+        ],
+      })
+    ).structuredContent.createdIds;
+    for (const m of moves)
+      await call("kalamo_node_transform", {
+        docId,
+        nodeIds: m.nodeIds(a, b),
+        translate: { x: m.x },
+      });
+    const { rev } = (await call("kalamo_doc_get_info", { docId })).structuredContent;
+    const { ws, received } = await subscribe(docId);
+    await received(1);
+    // Worked out before the moves: a's Endpoint drawn onto b's at (30, 0).
+    ws.send(
+      command("j1", {
+        type: "path_join",
+        edit: { nodeId: a, ops: [{ op: "set_d", d: "M 0 0 L 10 0 L 20 5 L 30 0" }] },
+        join: {
+          nodeIds: [a, b],
+          op: "join",
+          tolerance: 0.05,
+          anchors: [
+            { nodeId: a, subpath: 0, index: 3 },
+            { nodeId: b, subpath: 0, index: 0 },
+          ],
+        },
+      }),
+    );
+    const [, answer] = await received(2);
+    return { docId, a, b, rev, ws, received, answer };
+  }
+
+  it("rejects it with ENDPOINTS_APART after another Actor moved one path, writing nothing", async () => {
+    const { docId, a, b, rev, ws, received, answer } = await joinAfter({
+      nodeIds: (_, b) => [b],
+      x: 50,
+    });
+    expect(answer).toMatchObject({
+      type: "rejected",
+      id: "j1",
+      error: { code: "ENDPOINTS_APART" },
+    });
+    const { nodes } = (await call("kalamo_node_get", { docId, nodeIds: [a, b], detail: "full" }))
+      .structuredContent;
+    expect(nodes).toMatchObject([
+      { id: a, d: "M 0 0 L 10 0" },
+      { id: b, d: "M 30 0 L 40 0" },
+    ]);
+    expect((await call("kalamo_doc_get_info", { docId })).structuredContent.rev).toBe(rev);
+    // No history entry: Undo takes back the move, the last Transaction, and the next rev is the next.
+    ws.send(command("u1", { type: "undo" }));
+    const [, , undo] = await received(3);
+    expect(undo).toMatchObject({
+      type: "tx",
+      rev: rev + 1,
+      commandId: "u1",
+      created: [],
+      deletedIds: [],
+      updated: [{ id: b, transform: [1, 0, 0, 1, 0, 0] }],
+    });
+  });
+
+  it("applies it when both paths moved by the same amount", async () => {
+    const { b, answer } = await joinAfter({ nodeIds: (a, b) => [a, b], x: 50 });
+    expect(answer).toMatchObject({ type: "tx", commandId: "j1", updated: [{ id: b }] });
+  });
+
+  it("applies it when each path moved alone by the same amount", async () => {
+    const { b, answer } = await joinAfter(
+      { nodeIds: (a) => [a], x: 50 },
+      { nodeIds: (_, b) => [b], x: 50 },
+    );
+    expect(answer).toMatchObject({ type: "tx", commandId: "j1", updated: [{ id: b }] });
+  });
+});
+
 it("converts a rect with a path_op command, and undo brings the rect back without d", async () => {
   const { docId, defaultLayerId } = await newDoc();
   const [id] = (await call("kalamo_node_create", { docId, nodes: [rect(defaultLayerId)] }))

@@ -862,6 +862,8 @@ it("returns a non-empty hint with every error code a tool can return", async () 
     NOTHING_TO_REDO: null,
     // Only the browser's path_reverse, which names a direction, finds nothing to change (ADR-0109).
     NOTHING_TO_CHANGE: null,
+    // Only the browser's path_join, the Pen connecting Endpoints that meet, checks it (ADR-0111).
+    ENDPOINTS_APART: null,
     // packages/geometry raises it; no tool calls geometry yet (ADR-0034).
     BOOLEAN_FAILED: null,
   };

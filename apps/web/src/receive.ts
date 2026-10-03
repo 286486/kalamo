@@ -324,6 +324,13 @@ export function receive(
   };
 }
 
+/**
+ * Why a Pen finish was not applied: the two paths it joins moved apart, by whoever's edit, seen
+ * before it was sent or by the Document DO's `ENDPOINTS_APART` after (ADR-0111).
+ */
+export const PEN_MOVED =
+  "A path the Pen was connecting to moved before the connection was made; what it drew was not applied.";
+
 /** The Document, Selection and previews after one server message, or null after a missed `rev`. */
 function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<ViewState> | null {
   // Presence changes no Document state (ADR-0090); nor, yet, does an Agent's staged area.
@@ -335,7 +342,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
   )
     return {};
   if (msg.type === "rejected") {
-    const gone = msg.error.code === "NODE_GONE";
+    const { code } = msg.error;
     return {
       ...settleSent(s.sent, msg.id),
       ...(s.reversing?.commandId === msg.id && { reversing: null }),
@@ -346,9 +353,12 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
       ...(s.paintPreview?.commandId === msg.id && { paintPreview: null }),
       ...settle(s.edit, msg.id),
       ...settleRan(s.ran, msg.id),
-      notice: gone
-        ? "Someone else deleted that object first; it stays deleted."
-        : msg.error.message,
+      notice:
+        code === "NODE_GONE"
+          ? "Someone else deleted that object first; it stays deleted."
+          : code === "ENDPOINTS_APART"
+            ? PEN_MOVED
+            : msg.error.message,
     };
   }
   let doc: Document;
