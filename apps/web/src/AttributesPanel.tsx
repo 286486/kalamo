@@ -1,7 +1,7 @@
 import { memo } from "react";
-import { directionOf, fillRuleOf, setDirection, setFillRule } from "./attributes.ts";
+import { directionOf, fillRuleOf, pressDirection, setFillRule } from "./attributes.ts";
 import { guard } from "./GradientPanel.tsx";
-import { afterReverse, useStore } from "./store.ts";
+import { useStore } from "./store.ts";
 
 /**
  * Illustrator's Attributes panel, its controls that decide how a Compound Path fills: the fill
@@ -44,14 +44,14 @@ export const AttributesPanel = memo(function AttributesPanel() {
           text="Direction Off"
           value={on}
           is={false}
-          set={() => afterReverse((s) => setDirection(s, false))}
+          set={() => pressDirection(false)}
         />
         <Choice
           label="Reverse Path Direction On"
           text="Direction On"
           value={on}
           is={true}
-          set={() => afterReverse((s) => setDirection(s, true))}
+          set={() => pressDirection(true)}
         />
       </div>
     </section>

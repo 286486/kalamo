@@ -9,6 +9,9 @@ function convert(type: Anchor["type"], { doc, anchors, segments }: State, w: Wai
   if (inputs.length > 0) sendPreview({ edit: { inputs, commandIds: null } }, w);
 }
 
+/** A Convert button's press, which waits for the person's command that may renumber a path. */
+export const convertAnchors = (type: Anchor["type"]) => afterReverse((s, w) => convert(type, s, w));
+
 /**
  * Illustrator's Control panel Convert buttons under Direct Selection (research 06 §4), an on-canvas
  * bar like Simplify's (ADR-0035) while some path is partly selected. It stays at the canvas's top
@@ -23,12 +26,7 @@ export function AnchorsBar() {
   const button = (type: Anchor["type"], label: string) => {
     const name = `Convert selected anchor points to ${type}`;
     return (
-      <button
-        type="button"
-        aria-label={name}
-        title={name}
-        onClick={() => afterReverse((s, w) => convert(type, s, w))}
-      >
+      <button type="button" aria-label={name} title={name} onClick={() => convertAnchors(type)}>
         {label}
       </button>
     );

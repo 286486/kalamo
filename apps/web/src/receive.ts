@@ -33,7 +33,6 @@ import {
   targetKeys,
   targetNode,
   turnedOf,
-  turnInput,
   turnTarget,
 } from "./direct.ts";
 import type { PaintPreview } from "./gradient.ts";
@@ -240,6 +239,12 @@ export interface ViewState {
    * another Actor's edit to a path drops what it holds there (ADR-0110).
    */
   grabbed: Target[];
+  /**
+   * The preview of the drag still being made, worked out from a Document and what it holds as its
+   * next move works it out; null while it has none. Whatever turns, renumbers or lets go of
+   * `grabbed` redraws the preview with it, so it stays the one the next move draws (#285).
+   */
+  regrab: ((doc: Document, grabbed: Target[]) => Partial<Preview> | null) | null;
   /**
    * Every sent edit's preview, in the order sent, each drawn until the answers to its command ids:
    * a live gesture's and a held edit's alike. A command with no preview is in `sent` only (#285).
@@ -495,10 +500,9 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
   const dropped =
     !reached && pen?.to && changedBut(own)(pen.to.nodeId) ? disconnected(pen, s.penPress) : null;
   // What a drag still being made holds on a path someone else changed goes, read as for the Pen's
-  // continuation, and its unsent preview with it; the rest is turned as the keys are, and its
-  // unsent preview with it, so the preview stays the one its next move draws (ADR-0110, #285).
-  // The answer to a command the browser can number renumbers it instead, and its unsent preview with
-  // it, and lets go of what the command removed (#298).
+  // continuation; the rest is turned as the keys are (ADR-0110). The answer to a command the browser
+  // can number renumbers it instead, and lets go of what the command removed (#298). Its unsent
+  // preview is drawn again from what it still holds, as its next move draws it (#285).
   const letGo = new Set(
     [...new Set(s.grabbed.map(targetNode))].filter(
       (n) => changedBut(grabOwn)(n) && map?.nodeId !== n,
@@ -509,13 +513,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     .map(turnTarget(doc, turned))
     .map(renumberTarget(map))
     .filter(present);
-  const keptInputs =
-    s.edit?.inputs
-      .filter((i) => !letGo.has(i.nodeId))
-      .map((i) => turnInput(doc, turned, i))
-      .map((i) => renumberInput(map, i))
-      .filter(present) ?? [];
-  const keptIds = s.drag?.nodeIds.filter((id) => !letGo.has(id)) ?? [];
+  const regrabbed = (turned.length > 0 || letGo.size > 0 || !!map) && s.regrab?.(doc, grabbed);
   const skipped = msg.type === "tx" ? (msg.skippedIds?.length ?? 0) : 0;
   // A selected Node that a browser's command moved into a new Group selects that Group, as Make
   // Clipping Mask does; an Agent's edit leaves the person's Selection alone.
@@ -551,26 +549,17 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     doc,
     isolated: leave && isolated === leave.from ? prune(s.doc, doc, leave.to) : isolated,
     // An unchanged Selection stays the same array, so the Layer rows stay (ADR-0076).
-    selection: !tops && sameItems(next, s.selection) ? s.selection : next,
+    selection: !tops && sameIds(next, s.selection) ? s.selection : next,
     ...(tops && { layerRows: layers }),
-    // A reconnect loses the answers to the commands in flight, so their previews go; the live
-    // gesture's unsent preview stays as long as what it holds does (#285).
-    ...((letGo.size > 0 || turned.length > 0 || !!map) && {
-      ...(s.edit &&
-        !sameItems(keptInputs, s.edit.inputs) && {
-          edit: keptInputs.length > 0 ? { ...s.edit, inputs: keptInputs } : null,
-        }),
-      ...(s.drag &&
-        !sameItems(keptIds, s.drag.nodeIds) && {
-          drag: keptIds.length > 0 ? { ...s.drag, nodeIds: keptIds } : null,
-        }),
-    }),
+    ...(regrabbed && { edit: regrabbed.edit ?? null, drag: regrabbed.drag ?? null }),
     ...(msg.type === "document" ? s.sent.size > 0 && { sent: new Set() } : settleSent(s.sent, id)),
     anchors,
     segments,
     // A continuation the reconnect keeps is drawn again on the new Document (#292).
     ...(msg.type === "document" &&
       pen && { edit: (!reached && penState(doc, pen, null).edit) || null }),
+    // A reconnect loses the answers to the commands in flight, so their previews go; the live
+    // gesture's unsent preview stays while what it holds does (#285).
     ...(msg.type === "document"
       ? s.sentPreviews.length > 0 && { sentPreviews: [] }
       : settleSentPreviews(s.sentPreviews, id)),
@@ -842,4 +831,5 @@ export function afterProbe(probe: Probe): "retry" | "sign-in" | { notice: string
   return "retry";
 }
 
-const sameItems = <T>(a: T[], b: T[]) => a.length === b.length && a.every((x, i) => x === b[i]);
+const sameIds = (a: string[], b: string[]) =>
+  a.length === b.length && a.every((id, i) => id === b[i]);

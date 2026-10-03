@@ -139,7 +139,8 @@ export const directTool: CanvasTool = {
     } else {
       gesture = { ...g, kind: "marquee", mods };
     }
-    useStore.setState({ grabbed });
+    const current = gesture;
+    useStore.setState({ grabbed, regrab: (doc, held) => current && dragOf(current, doc, held) });
   },
   move(e) {
     const g = gesture;
@@ -159,7 +160,7 @@ export const directTool: CanvasTool = {
     const g = gesture;
     gesture = null;
     const { grabbed } = useStore.getState();
-    useStore.setState({ grabbed: [] });
+    useStore.setState({ grabbed: [], regrab: null });
     if (g?.kind === "marquee") {
       // A marquee selects Anchors; the Selection is the paths they are on.
       const { selection, anchors, segments, isolated } = useStore.getState();
@@ -198,7 +199,7 @@ export const directTool: CanvasTool = {
   cancel(redraw) {
     gesture = null;
     marqueeRect = null;
-    useStore.setState({ grabbed: [] });
+    useStore.setState({ grabbed: [], regrab: null });
     redraw();
     cancelDrag();
   },

@@ -2,7 +2,9 @@ import {
   createDocument,
   createNodes,
   type Document,
+  duplicateNodes,
   editPath,
+  type LeafNode,
   type Node,
   type PathEditInput,
   type PathNode,
@@ -15,13 +17,21 @@ import {
 } from "@kalamo/core";
 import type { Command, ServerMessage } from "@kalamo/sync";
 import { expect, it, vi } from "vitest";
+import { convertAnchors } from "./AnchorsBar.tsx";
 import { addAnchorTool, anchorPointTool, deleteAnchorTool } from "./anchorTools.ts";
-import { directionOf, fillRuleOf, setDirection, setFillRule } from "./attributes.ts";
+import {
+  directionOf,
+  fillRuleOf,
+  pressDirection,
+  setDirection,
+  setFillRule,
+} from "./attributes.ts";
 import { commitDrag } from "./canvas.ts";
 import { curvatureCancel, curvatureDown, curvatureDrag, curvatureUp } from "./curvature.ts";
-import { anchorKey, anchorsOf, localAnchors, parseKey } from "./direct.ts";
+import { allKeys, anchorKey, anchorsOf, localAnchors, parseKey } from "./direct.ts";
 import { directTool } from "./directTool.ts";
-import { documentMenus, findByKeys, type Item, type MenuItem } from "./menu.ts";
+import { paintUpdates, placeOn, sendPaint } from "./gradient.ts";
+import { averageAnchors, documentMenus, findByKeys, type Item, type MenuItem } from "./menu.ts";
 import { pencilDown, pencilMove, pencilUp } from "./pencil.ts";
 import { type PathDrag, previewAll, previewEdit, previewsOf, type ViewState } from "./receive.ts";
 import { sendPreviewedOp } from "./simplify.ts";
@@ -247,6 +257,8 @@ const rejected = message("rejected", {
 /** Both rings selected with the keys `keys` names, after a press of On (command id "c"). */
 function pressOn(keys: (a: Node, b: Node) => Partial<ViewState>, hole?: string) {
   vi.mocked(send).mockClear();
+  // Every command is "c" again, after `serve` numbered them.
+  vi.mocked(send).mockImplementation((c) => record("c", c));
   const { doc, a, b } = rings(hole);
   const state = viewState({ doc, selection: [a.id, b.id], role: "owner", ...keys(a, b) });
   setDirection(state, true);
@@ -1842,12 +1854,56 @@ const onOpen = () => {
   };
 };
 
+/**
+ * #285: held edits with no preview of their own, each on a alone with its hole's Anchor 0 chosen,
+ * as `onRings` chose it, so that another Actor's deletion of a leaves them nothing to send.
+ */
+const unpreviewed: Record<string, () => void> = {
+  "Edit > Clear": () => {
+    chooseOnA([]);
+    menuItem("Clear").run();
+  },
+  "Direct Selection's Delete": () => {
+    chooseOnA();
+    menuItem("Clear").run();
+  },
+  "Remove Anchor Points": () => {
+    chooseOnA();
+    menuItem("Remove Anchor Points").run();
+  },
+  Join: () => {
+    chooseOnA();
+    menuItem("Join").run();
+  },
+  Average: () => {
+    chooseOnA();
+    averageAnchors("both");
+  },
+  Convert: () => {
+    chooseOnA();
+    convertAnchors("smooth");
+  },
+  "the Attributes panel's direction buttons": () => {
+    // The outer subpath runs On, so Off sends whichever way the press left the hole.
+    const [hole = ""] = useStore.getState().anchors;
+    chooseOnA([hole, anchorKey(parseKey(hole).nodeId, 0, 0)]);
+    pressDirection(false);
+  },
+};
+
+/** Selects a alone, the path whose hole Anchor 0 `onRings` chose, with the Anchors `anchors`. */
+function chooseOnA(anchors = useStore.getState().anchors) {
+  const [hole = ""] = useStore.getState().anchors;
+  useStore.setState({ selection: [parseKey(hole).nodeId], anchors, segments: [], tool: "direct" });
+}
+
 const everyHeld = [
   ...Object.entries(heldOnRings).map(([name, run]) => ({
     name,
     hold: onRings,
     run: () => run(useStore.getState().doc as Document),
   })),
+  ...Object.entries(unpreviewed).map(([name, run]) => ({ name, hold: onRings, run })),
   ...Object.entries(drawnEdits).map(([name, run]) => ({ name, hold: onOpen, run })),
 ];
 
@@ -2301,7 +2357,15 @@ function serve(doc: Document) {
       if (c.type === "path_edit") editPath(server, c.input);
       else if (c.type === "path_op") pathOp(server, c.input);
       else if (c.type === "delete") for (const n of c.nodeIds) server.nodes.delete(n);
-      else if (c.type === "undo" || c.type === "redo") {
+      else if (c.type === "transform") transformNodes(server, c.input);
+      else if (c.type === "duplicate") duplicateNodes(server, c.input);
+      else if (c.type === "path_reverse") {
+        for (const { nodeId, subpath } of c.subpaths) {
+          const n = server.nodes.get(nodeId) as PathNode;
+          if (runsClockwise(server, n, subpath) === c.clockwise) continue;
+          editPath(server, { nodeId, ops: [{ op: "reverse", subpath }] });
+        }
+      } else if (c.type === "undo" || c.type === "redo") {
         const [from, to] = c.type === "undo" ? [history, future] : [future, history];
         const last = from.pop();
         if (!last) throw new Error("NOTHING_TO_UNDO");
@@ -2978,4 +3042,226 @@ it("after a reconnect that changes only a continued path's Fill, keeps the Pen's
       applied ? ["100 30", "80 30", "80 0", "50 0"] : ["50 0", "80 0", "80 30", "100 30"],
     ]);
   }
+});
+
+/** Every path in `d` but `skip`, as its Anchors where the canvas draws them, sorted: copies' ids are new. */
+const shapesBut = (d: Document, skip: string) =>
+  [...d.nodes.values()]
+    .filter((n): n is PathNode => n.type === "path" && n.id !== skip)
+    .map((n) =>
+      JSON.stringify(
+        anchorsOf(d, n).map((x) => x.anchors.map((p) => p.anchor.map((v) => Math.round(v * 100)))),
+      ),
+    )
+    .sort();
+
+/** The Document as the canvas draws it: committed, with every preview in the order drawn. */
+const drawnDoc = () => {
+  const s = useStore.getState();
+  return previewAll(s.doc as Document, previewsOf(s));
+};
+
+// #285: a Selection tool Alt-drag of a, sent at once, copies a before the Direct Selection edit held
+// on a reshapes it, so the copy keeps a as it was; a plain move of a and the edit commute.
+it("draws the previews in the order the Document DO applies their edits (#285)", () => {
+  vi.useFakeTimers();
+  // What opens the window the drag on a waits in, on b's hole: a press, or the person's own
+  // renumbering command (#298).
+  const openers: Record<string, (b: Node) => void> = {
+    "a press": (b) =>
+      setDirection({ ...useStore.getState(), anchors: [anchorKey(b.id, 1, 0)] }, true),
+    "an Add Anchor click": () =>
+      addAnchorTool.down?.(event(useStore.getState().doc as Document, 65, 20)),
+  };
+  for (const [opener, open] of Object.entries(openers)) {
+    for (const outcome of ["accepted", "rejected"] as const) {
+      for (const copy of [true, false]) {
+        const label = `${opener}, ${outcome}, ${copy ? "copied" : "moved"}`;
+        const { doc, a, b } = rings();
+        useStore.setState(viewState({ doc, selection: [a.id, b.id], role: "owner" }));
+        vi.advanceTimersByTime(1000);
+        const { server, answer } = serve(doc);
+        open(b);
+        // a's hole Anchor at (20, 10) dragged to (26, 10), held for the opener's answer.
+        directTool.down(event(doc, 20, 10));
+        directTool.move?.(event(doc, 26, 10));
+        directTool.up?.(event(doc, 26, 10));
+        expect(useStore.getState().held, label).toHaveLength(1);
+        // Then a Selection tool drag of a, released and sent at once.
+        useStore.setState({ drag: { nodeIds: [a.id], dx: 100, dy: 50, commandId: null, copy } });
+        commitDrag(unheld("the test's Selection tool drag"));
+        const drawn = [shapesBut(drawnDoc(), b.id)];
+        answer(outcome === "rejected");
+        // The held edit ran and is sent, drawn after the drag sent before it, as a held edit's.
+        const sent = useStore.getState().sentPreviews;
+        expect(
+          sent.map((p) => !!p.fromHeld),
+          label,
+        ).toEqual([false, true]);
+        expect(sent[1]?.edit?.inputs[0]?.nodeId, label).toBe(a.id);
+        drawn.push(shapesBut(drawnDoc(), b.id));
+        answer();
+        drawn.push(shapesBut(drawnDoc(), b.id));
+        answer();
+        const stored = shapesBut(server, b.id);
+        expect(drawn, label).toEqual([stored, stored, stored]);
+        expect(shapesBut(drawnDoc(), b.id), label).toEqual(stored);
+      }
+    }
+  }
+  vi.useRealTimers();
+});
+
+it("runs the held edits after one that throws, leaves a drag in progress alone, and throws its error (#285)", () => {
+  vi.useFakeTimers();
+  for (const outcome of ["accepted", "rejected"] as const) {
+    const { b, answer } = onRings();
+    const doc = useStore.getState().doc as Document;
+    // A held edit with a preview of its own, which throws when it runs; then one that sends.
+    const own = { inputs: [{ nodeId: b.id, ops: [] }], commandIds: null };
+    useStore.setState({ edit: own });
+    afterReverse(
+      () => {
+        throw new Error("Boom.");
+      },
+      { previewed: true },
+    );
+    expect(useStore.getState().held[0]?.preview.edit, outcome).toBe(own);
+    heldOnRings["a Direct Selection drag"]?.(doc);
+    // A Direct Selection drag of b's top-left corner, (50, 0), to (55, 5), in progress.
+    directTool.down(event(doc, 50, 0));
+    directTool.move?.(event(doc, 55, 5));
+    const shown = useStore.getState().edit;
+    expect(() => answer(outcome), outcome).toThrow("Boom.");
+    expect(useStore.getState().edit, outcome).toEqual(shown);
+    expect(useStore.getState().held, outcome).toEqual([]);
+    expect(
+      commands().map((c) => c.type),
+      outcome,
+    ).toEqual(["path_edit"]);
+    vi.mocked(send).mockClear();
+    directTool.up?.(event(useStore.getState().doc as Document, 55, 5));
+    expect(commands(), outcome).toEqual([
+      {
+        type: "path_edit",
+        input: { nodeId: b.id, ops: [{ op: "move_anchor", subpath: 0, index: 0, to: [55, 5] }] },
+      },
+    ]);
+  }
+  vi.useRealTimers();
+});
+
+it("leaves the person's unanswered edit on screen through their next Direct Selection gestures (#285)", () => {
+  const { doc, a, b } = rings();
+  useStore.setState(viewState({ doc, selection: [a.id, b.id], role: "owner" }));
+  const { answer } = serve(doc);
+  const shown = () => stored(drawnDoc(), a.id);
+  // a's hole Anchor at (20, 10) dragged to (26, 10), sent.
+  directTool.down(event(doc, 20, 10));
+  directTool.move?.(event(doc, 26, 10));
+  directTool.up?.(event(doc, 26, 10));
+  const edited = shown();
+  expect(edited).not.toEqual(stored(doc, a.id));
+  // Then b's Anchor at (50, 0) dragged, and b dragged whole, with every Anchor of it selected.
+  for (const anchors of [[], allKeys(b as PathNode)]) {
+    useStore.setState({ anchors, segments: [] });
+    directTool.down(event(doc, 50, 0));
+    directTool.move?.(event(doc, 53, 0));
+    expect(shown(), `${anchors.length}`).toEqual(edited);
+    directTool.up?.(event(doc, 53, 0));
+    expect(shown(), `${anchors.length}`).toEqual(edited);
+  }
+  answer();
+  expect(shown()).toEqual(edited);
+  expect(useStore.getState().sentPreviews).toHaveLength(2);
+});
+
+it("after a reconnect, keeps drawing a drag it keeps, as its next move draws it (#285)", () => {
+  vi.useFakeTimers();
+  const cases: Record<string, { press: boolean; swap: (d: Document, n: Node, a: Node) => Node }> = {
+    unchanged: { press: false, swap: (_, n) => n },
+    "unchanged, a press in flight": { press: true, swap: (_, n) => n },
+    "the press's reverse": {
+      press: true,
+      swap: (d, n, a) => (n.id === a.id ? reversed(d, a.id) : n),
+    },
+    "only its Fill changed": { press: false, swap: (_, n, a) => (n.id === a.id ? refilled(n) : n) },
+    "only its Fill changed, a press in flight": {
+      press: true,
+      swap: (_, n, a) => (n.id === a.id ? refilled(n) : n),
+    },
+    // A drag the reconnect lets go of loses its preview.
+    "reshaped, no press": {
+      press: false,
+      swap: (d, n, a) => (n.id === a.id ? reversed(d, a.id) : n),
+    },
+  };
+  for (const [name, g] of Object.entries(grabs)) {
+    for (const [kind, { press, swap }] of Object.entries(cases)) {
+      const label = `${name}, ${kind}`;
+      const chosen = (a: Node) => ({ anchors: [anchorKey(a.id, 1, 0)] });
+      const { doc, a, pressed } = press
+        ? pressOn(chosen, g.hole)
+        : { ...rings(g.hole), pressed: {} };
+      useStore.setState(
+        press ? pressed : viewState({ doc, selection: [a.id], role: "owner", ...chosen(a) }),
+      );
+      vi.advanceTimersByTime(1000);
+      const [x, y] = g.at;
+      g.down(doc, x, y);
+      g.move(doc, x + 5, y);
+      const nodes = [...doc.nodes.values()].map((n) => swap(doc, n, a));
+      const snapshot = message("document", { rev: doc.rev + 1, nodes });
+      useStore.setState(stateAfter(useStore.getState(), snapshot));
+      runHeld();
+      const now = useStore.getState().doc as Document;
+      const shown = stored(drawnDoc(), a.id);
+      if (kind === "reshaped, no press") {
+        expect(useStore.getState().edit, label).toBeNull();
+        expect(shown, label).toEqual(stored(now, a.id));
+      } else {
+        expect(shown, label).not.toEqual(stored(now, a.id));
+        g.move(now, x + 5, y);
+        expect(stored(drawnDoc(), a.id), label).toEqual(shown);
+      }
+      g.cancel();
+    }
+  }
+  vi.useRealTimers();
+});
+
+it("keeps commands with no preview in `sent` alone, beside the sent previews (#285)", () => {
+  const { doc, a, b } = rings();
+  useStore.setState(viewState({ doc, selection: [a.id, b.id], role: "owner" }));
+  const { answer } = serve(doc);
+  // A Direct Selection drag of a's hole Anchor at (20, 10), sent with its preview.
+  directTool.down(event(doc, 20, 10));
+  directTool.move?.(event(doc, 26, 10));
+  directTool.up?.(event(doc, 26, 10));
+  // An Add Anchor click on b's hole and a gradient Fill on b, each sent with no preview in the list.
+  addAnchorTool.down?.(event(doc, 65, 20));
+  const g = placeOn(b as LeafNode, {
+    type: "linear",
+    stops: [
+      { offset: 0, color: "#000000" },
+      { offset: 1, color: "#FFFFFF" },
+    ],
+  });
+  sendPaint(paintUpdates([b as LeafNode], "fill", () => g));
+  const s = useStore.getState();
+  expect(commands().map((c) => c.type)).toEqual(["path_edit", "path_edit", "appearance"]);
+  expect([...s.sent]).toEqual(["k1", "k2", "k3"]);
+  expect(s.sentPreviews).toEqual([
+    {
+      edit: { inputs: [expect.objectContaining({ nodeId: a.id })], commandIds: ["k1"] },
+      drag: null,
+    },
+  ]);
+  // Each answer takes its own id out of `sent`, and only the edit's takes a preview out of the list.
+  answer();
+  expect([...useStore.getState().sent]).toEqual(["k2", "k3"]);
+  expect(useStore.getState().sentPreviews).toEqual([]);
+  answer();
+  expect([...useStore.getState().sent]).toEqual(["k3"]);
+  expect(useStore.getState().sentPreviews).toEqual([]);
 });
