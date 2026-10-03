@@ -320,6 +320,11 @@ export interface ViewState {
    * of them chooses them again (ADR-0112). A tool switch forgets them, as it drops the keys.
    */
   keysOn: ReadonlyMap<string, Pick<ViewState, "anchors" | "segments">>;
+  /**
+   * The keys on its path that each of the person's own Anchor edits in flight dropped when it was
+   * sent, by command id. Its answer keeps them in `keysOn` as the path's keys before it (ADR-0112).
+   */
+  keysDropped: ReadonlyMap<string, Pick<ViewState, "anchors" | "segments">>;
   /** Why the last command was rejected. */
   notice: string | null;
   /** The Gradient panel's or tool's paints, drawn until their answer (ADR-0081). */
@@ -562,6 +567,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
       ...gone.state,
       ...(s.reversing?.commandId === msg.id && { reversing: null }),
       ...settleRenumbering(s.renumbering, msg.id),
+      ...settleDropped(s.keysDropped, msg.id),
       ...settlePending(s.pending, msg.id),
       ...(s.paintPreview?.commandId === msg.id && { paintPreview: null }),
       ...sentPreviews,
@@ -740,6 +746,9 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     selection: !tops && sameIds(next, s.selection) ? s.selection : next,
     ...(tops && { layerRows: layers }),
     ...(msg.type === "document" ? s.sent.size > 0 && { sent: new Set() } : settleSent(s.sent, id)),
+    ...(msg.type === "document"
+      ? s.keysDropped.size > 0 && { keysDropped: new Map() }
+      : settleDropped(s.keysDropped, id)),
     ...chosenAgain(
       s,
       msg,
@@ -1101,6 +1110,14 @@ function settleSent(sent: ReadonlySet<string>, id: string | undefined) {
   return { sent: left };
 }
 
+/** The keys dropped by the commands in flight without command `id`, answered or rejected. */
+function settleDropped(dropped: ViewState["keysDropped"], id: string | undefined) {
+  if (!id || !dropped.has(id)) return {};
+  const left = new Map(dropped);
+  left.delete(id);
+  return { keysDropped: left };
+}
+
 /** Where `keysOn` keeps the keys a path had on `geometry`. */
 const keysAt = (id: string, geometry: string) => `${id}\n${geometry}`;
 
@@ -1115,7 +1132,8 @@ const KEYS_KEPT = 200;
  * the person's own command cleared, the keys kept for its new geometry come back and `keysOn` stays
  * as it was: an Undo or Redo steps between kept geometries, as Illustrator's steps between recorded
  * states. Any other change of a path's geometry keeps its keys before and after it, each only when
- * there are some or an entry to replace, so a geometry keeps the latest keys it had.
+ * there are some or an entry to replace, so a geometry keeps the latest keys it had. The keys before
+ * the person's own Anchor edit are those it dropped when sent (`keysDropped`).
  */
 function chosenAgain(
   s: ViewState,
@@ -1126,8 +1144,9 @@ function chosenAgain(
 ): Pick<ViewState, "anchors" | "segments"> & Partial<Pick<ViewState, "keysOn">> {
   const { doc } = after;
   let { anchors, segments } = after;
+  const had = (msg.type === "tx" && msg.commandId && s.keysDropped.get(msg.commandId)) || s;
   // With no keys before and none kept, there is nothing to keep or choose again.
-  if (s.keysOn.size + s.anchors.length + s.segments.length === 0) return { anchors, segments };
+  if (s.keysOn.size + had.anchors.length + had.segments.length === 0) return { anchors, segments };
   const changed = msg.type === "tx" ? msg.updated.map((n) => n.id) : [...doc.nodes.keys()];
   const keysOn = new Map(s.keysOn);
   let kept = false;
@@ -1149,7 +1168,7 @@ function chosenAgain(
       segments = [...segments, ...again.segments];
       continue;
     }
-    const before = { anchors: s.anchors.filter(on), segments: s.segments.filter(on) };
+    const before = { anchors: had.anchors.filter(on), segments: had.segments.filter(on) };
     const now = { anchors: anchors.filter(on), segments: segments.filter(on) };
     kept = keep(keysAt(id, was), before) || kept;
     kept = keep(keysAt(id, is), now) || kept;

@@ -509,5 +509,5 @@ export function undoAnchor(): boolean {
 export function setTool(tool: Tool) {
   if (!canEdit(useStore.getState()) && !VIEWER_TOOLS.includes(tool)) return;
   finishPen();
-  useStore.setState({ tool, anchors: [], segments: [], keysOn: new Map() });
+  useStore.setState({ tool, anchors: [], segments: [], keysOn: new Map(), keysDropped: new Map() });
 }

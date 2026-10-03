@@ -28,6 +28,7 @@ export const viewState = (over: Partial<ViewState> = {}): ViewState => ({
   anchors: [],
   segments: [],
   keysOn: new Map(),
+  keysDropped: new Map(),
   notice: null,
   paintPreview: null,
   peers: new Map(),
