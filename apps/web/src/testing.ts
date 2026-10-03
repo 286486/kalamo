@@ -13,6 +13,7 @@ export const viewState = (over: Partial<ViewState> = {}): ViewState => ({
   pending: [],
   edit: null,
   reversing: null,
+  renumbering: new Map(),
   held: [],
   grabbed: [],
   ran: [],

@@ -8,7 +8,7 @@ import {
   TOO_MANY_CONNECTIONS,
 } from "@kalamo/sync";
 import { create } from "zustand";
-import { parseKey, targetKeys } from "./direct.ts";
+import { parseKey, type Renumbering, targetKeys } from "./direct.ts";
 import type { ImageCache } from "./images.ts";
 import { type ActorKind, type Pointer, peersFrom, presenceSender } from "./presence.ts";
 import {
@@ -16,6 +16,7 @@ import {
   type Chosen,
   type Effect,
   joinNotices,
+  opening,
   type Preview,
   type Probe,
   receive,
@@ -69,6 +70,7 @@ export const useStore = create<State>(() => ({
   pending: [],
   edit: null,
   reversing: null,
+  renumbering: new Map(),
   held: [],
   grabbed: [],
   ran: [],
@@ -167,18 +169,42 @@ export function send<C extends Command>(
   const msg: ClientMessage = { type: "command", id, command };
   if (socket?.readyState !== WebSocket.OPEN) return id;
   socket.send(JSON.stringify(msg));
-  return record(id);
-}
-
-/** Records command `id` as sent and not yet answered, and returns it. */
-export function record(id: string) {
-  useStore.setState((s) => ({ sent: new Set(s.sent).add(id) }));
-  return id;
+  return record(id, command);
 }
 
 /**
- * Runs a Direct Selection edit now, or once the Reverse Path Direction press in flight is answered,
- * on the Document as it is then and the keys the person had chosen, renumbered (ADR-0110). The edit
+ * Records `command`, sent as `id`, as not yet answered, and returns `id`. A command that may
+ * renumber a path's Anchors opens the window edits by index wait for (#298).
+ */
+export function record(id: string, command: Command) {
+  useStore.setState((s) => {
+    const r = opening(s.doc, command);
+    return {
+      sent: new Set(s.sent).add(id),
+      ...(r !== undefined && { renumbering: new Map(s.renumbering).set(id, r) }),
+    };
+  });
+  return id;
+}
+
+/** Says how command `id`, unanswered, renumbers `r`'s path where its ops alone do not (#298). */
+export function renumbers(id: string, r: Renumbering) {
+  useStore.setState((s) =>
+    s.renumbering.has(id) ? { renumbering: new Map(s.renumbering).set(id, r) } : {},
+  );
+}
+
+/**
+ * Whether a command of the person's own that may renumber a path's Anchors is unanswered: a Reverse
+ * Path Direction press, or another that `record` opened the window for (ADR-0110).
+ */
+export const waiting = (s: Pick<State, "reversing" | "renumbering">) =>
+  !!s.reversing || s.renumbering.size > 0;
+
+/**
+ * Runs a Direct Selection edit now, or once the Reverse Path Direction press in flight, or the
+ * person's other command that may renumber a path, is answered (`waiting`), on the Document as it
+ * is then and the keys the person had chosen, renumbered (ADR-0110, #298). The edit
  * is handed the `Waited` its commands by index are sent with. `chosen` overrides the Direct
  * Selection's keys, as a drag's own do; a `target` stands on its own keys, and the edit reads it
  * alone, as the answer turns it. With `previewed`, the unsent preview in `edit` and `drag` is the
@@ -197,7 +223,7 @@ export function afterReverse(
   };
   const c = { anchors, segments, selection, tool, ...(target && { target }) };
   const run = (k: Chosen) => edit({ ...useStore.getState(), ...k }, WAITED);
-  if (!s.reversing) return run(c);
+  if (!waiting(s)) return run(c);
   const preview: Preview = {
     edit: previewed && s.edit?.commandIds === null ? s.edit : null,
     drag: previewed && s.drag?.commandId === null ? s.drag : null,
@@ -210,7 +236,8 @@ export function afterReverse(
 }
 
 /**
- * Runs the held edits in order; one that presses Reverse Path Direction again holds the rest. Each
+ * Runs the held edits in order; one that sends a command that may renumber a path, such as another
+ * press, holds the rest (#298). Each
  * runs on its own preview, so it replaces or drops that one only: what it sends is drawn in `ran`
  * until answered, and the gesture's preview it set aside is put back (ADR-0110). The notices they
  * set, such as a drop of what the person drew, are shown before `said`, the notice of the message
@@ -221,13 +248,13 @@ export function runHeld(said?: string | null) {
   const notices: string[] = [];
   let runs = 0;
   for (;;) {
+    const state = useStore.getState();
     const {
       held: [h, ...rest],
-      reversing,
       edit,
       drag,
-    } = useStore.getState();
-    if (!h || reversing) break;
+    } = state;
+    if (!h || waiting(state)) break;
     runs++;
     useStore.setState({ held: rest, ...h.preview, notice: null });
     h.run(h.chosen);
@@ -295,6 +322,7 @@ export function connect(docId: string): () => void {
     pending: [],
     edit: null,
     reversing: null,
+    renumbering: new Map(),
     held: [],
     grabbed: [],
     ran: [],

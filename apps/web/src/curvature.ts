@@ -17,6 +17,9 @@ import {
   localDelta,
   parseKey,
   plus,
+  type Renumbering,
+  renumbering,
+  tagged,
 } from "./direct.ts";
 import { editable } from "./selection.ts";
 import { afterReverse, send, useStore } from "./store.ts";
@@ -301,6 +304,7 @@ export function toggleInput(doc: Document, key: string): PathEditInput | null {
  */
 export function curvatureClearInputs(doc: Document, selection: string[], keys: string[]) {
   const edits: PathEditInput[] = [];
+  const known: Renumbering[] = [];
   const ids = new Set(keys.map((k) => parseKey(k).nodeId));
   const deleteIds = selection.filter((id) => !ids.has(id) && editable(doc, doc.nodes.get(id)));
   for (const nodeId of ids) {
@@ -308,7 +312,7 @@ export function curvatureClearInputs(doc: Document, selection: string[], keys: s
     if (!hasAnchors(n) || !editable(doc, n)) continue;
     const live = keys.filter((k) => parseKey(k).nodeId === nodeId && inRange(doc, k));
     if (live.length === 0) continue;
-    const subpaths = localAnchors(n).flatMap((s, k) => {
+    const subpaths = tagged(n).flatMap((s, k) => {
       const gone = (i: number) => live.includes(anchorKey(nodeId, k, i));
       const kept = s.anchors.filter((_, i) => !gone(i));
       if (kept.length < 2) return [];
@@ -325,7 +329,10 @@ export function curvatureClearInputs(doc: Document, selection: string[], keys: s
       return [{ ...s, anchors: kept }];
     });
     if (subpaths.length === 0) deleteIds.push(nodeId);
-    else edits.push({ nodeId, ops: [{ op: "set_d", d: formatPath(fromAnchors(subpaths)) }] });
+    else {
+      edits.push({ nodeId, ops: [{ op: "set_d", d: formatPath(fromAnchors(subpaths)) }] });
+      known.push(renumbering(n, subpaths));
+    }
   }
-  return { edits, deleteIds };
+  return { edits, deleteIds, known };
 }

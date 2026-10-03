@@ -1,6 +1,7 @@
 import type { Document, PathEditInput } from "@kalamo/core";
 import { cancelDrag, dragged, type Press, settleDrag, showDrag } from "./canvas.ts";
 import {
+  alongLine,
   anchorsOf,
   bendSegment,
   hasAnchors,
@@ -11,6 +12,7 @@ import {
   parseKey,
   pick,
   plus,
+  type Renumbering,
   removeAnchorInputs,
   type Target,
   targetKeys,
@@ -18,19 +20,31 @@ import {
 } from "./direct.ts";
 import { directTool } from "./directTool.ts";
 import { editable } from "./selection.ts";
-import { afterReverse, send, useStore, type Waited } from "./store.ts";
+import { afterReverse, renumbers, send, useStore, type Waited } from "./store.ts";
 import type { CanvasTool, ToolEvent } from "./toolbox.ts";
 
 /** The Add, Delete and Anchor Point tools (research 06 §1), and the Pen's Auto Add/Delete. */
 
 type Point = [number, number];
 
-/** One `path_edit` per path and one `delete`, for edits on Anchors, which drop the selected Anchors and segments. */
+/**
+ * One `path_edit` per path and one `delete`, for edits on Anchors, which drop the selected Anchors
+ * and segments. `known` says how a `set_d` renumbers its path, which its answer renumbers the keys
+ * by (#298).
+ */
 export function sendAnchorEdits(
-  { edits, deleteIds }: ReturnType<typeof removeAnchorInputs>,
+  {
+    edits,
+    deleteIds,
+    known = [],
+  }: ReturnType<typeof removeAnchorInputs> & { known?: Renumbering[] },
   w: Waited,
 ) {
-  for (const input of edits) send({ type: "path_edit", input }, w);
+  for (const input of edits) {
+    const id = send({ type: "path_edit", input }, w);
+    const r = known.find((k) => k.nodeId === input.nodeId);
+    if (r) renumbers(id, r);
+  }
   if (deleteIds.length > 0) send({ type: "delete", nodeIds: deleteIds });
   useStore.setState({ anchors: [], segments: [] });
 }
@@ -58,23 +72,23 @@ export function addAnchorAt(doc: Document, p: Point, tolerance: number, only?: s
   const hit = only
     ? nearestOf(doc, only, p, tolerance)
     : pick(doc, { selection: [], anchors: [], x: p[0], y: p[1], tolerance, scope });
-  if (hit?.kind !== "segment") return false;
-  const { nodeId, subpath, segment } = hit;
-  const n = doc.nodes.get(nodeId);
-  const s = hasAnchors(n) ? localAnchors(n)[subpath] : undefined;
-  const a = s?.anchors[segment];
-  const b = s?.anchors[(segment + 1) % s.anchors.length];
-  // nearestSegment reads a line as a cubic with its Handles on its ends; add_anchor's t on a line
-  // runs along it.
-  const line = !a?.handleOut && !b?.handleIn;
-  const t = line ? 3 * hit.t ** 2 - 2 * hit.t ** 3 : hit.t;
-  if (t <= 0 || t >= 1) return false;
+  if (hit?.kind !== "segment" || hit.t <= 0 || hit.t >= 1) return false;
+  const { nodeId, subpath, segment, t } = hit;
   // Sent once a Reverse Path Direction press in flight is answered, on the segment chosen
-  // (ADR-0110); another Actor's edit to the path meanwhile drops it (ADR-0109).
+  // (ADR-0110); another Actor's edit to the path meanwhile drops it (ADR-0109). The target's `t` is
+  // nearestSegment's, as every target's is, so the answer to the person's own Add Anchor click
+  // that splits the segment puts it on the half clicked (#298).
   afterReverse(
     ({ doc: now, target: at }, w) => {
-      if (!now || at?.kind !== "segment") return;
-      const ops = [{ op: "add_anchor" as const, subpath, segment: at.segment, t: at.t }];
+      const n = now?.nodes.get(nodeId);
+      const s = hasAnchors(n) && at?.kind === "segment" ? localAnchors(n)[at.subpath] : undefined;
+      if (!s || at?.kind !== "segment") return;
+      const a = s.anchors[at.segment];
+      const b = s.anchors[(at.segment + 1) % s.anchors.length];
+      const along = !a?.handleOut && !b?.handleIn ? alongLine(at.t) : at.t;
+      const ops = [
+        { op: "add_anchor" as const, subpath: at.subpath, segment: at.segment, t: along },
+      ];
       sendAnchorEdits({ edits: [{ nodeId, ops }], deleteIds: [] }, w);
     },
     { target: { kind: "segment", nodeId, subpath, segment, t } },

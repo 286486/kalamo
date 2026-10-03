@@ -206,7 +206,7 @@ Window > Pathfinder（Shift+Ctrl+F9）打开的停靠面板。目前有 Shape Mo
 _Avoid_: Boolean panel
 
 **Attributes panel（属性面板）**：
-Window > Attributes（Ctrl+F11）打开的停靠面板，目前有决定 Compound Path 如何填充的两行按钮：Use Non-Zero Winding Fill Rule / Use Even-Odd Fill Rule 设置所选 Path（含所选 Group 中的 Path）的 `fillRule`；Reverse Path Direction Off / On 设置 Direct Selection 所选子路径的方向（仅 nonzero 的 Compound Path；On 为屏幕上顺时针，Make 结果中最后面子路径为 Off、洞为 On）。按钮是设置而非切换，取值不一致时都不按下；每次按下一个 Transaction，值未变则不发送（ADR-0108）；`path_reverse` 带上目标方向，Document 只反转应用时仍朝另一方向的子路径，全都已是该方向时以 `NOTHING_TO_CHANGE` 拒绝（ADR-0109）。按下后到回执前，Direct Selection 选中的 Anchor 仍按已提交的文档编号，点选照常；拖动、Delete、Remove Anchor Points、Convert 与再次按下等到回执后依次执行，回执反转的子路径上的选中项随之重新编号（ADR-0110）。
+Window > Attributes（Ctrl+F11）打开的停靠面板，目前有决定 Compound Path 如何填充的两行按钮：Use Non-Zero Winding Fill Rule / Use Even-Odd Fill Rule 设置所选 Path（含所选 Group 中的 Path）的 `fillRule`；Reverse Path Direction Off / On 设置 Direct Selection 所选子路径的方向（仅 nonzero 的 Compound Path；On 为屏幕上顺时针，Make 结果中最后面子路径为 Off、洞为 On）。按钮是设置而非切换，取值不一致时都不按下；每次按下一个 Transaction，值未变则不发送（ADR-0108）；`path_reverse` 带上目标方向，Document 只反转应用时仍朝另一方向的子路径，全都已是该方向时以 `NOTHING_TO_CHANGE` 拒绝（ADR-0109）。按下后到回执前，Direct Selection 选中的 Anchor 仍按已提交的文档编号，点选照常；拖动、Delete、Remove Anchor Points、Convert 与再次按下等到回执后依次执行，回执反转的子路径上的选中项随之重新编号（ADR-0110）。这个窗口也对本人其他可能重新编号 Anchor 的命令打开（Add/Delete Anchor 点击、Edit > Clear、Remove Anchor Points、Undo、Redo、`path_op` 等）：其后按索引的编辑等到它的回执，浏览器能算出编号的回执把它们重新编号到原来的点上，算不出的则在路径几何改变时丢弃（#298）。
 
 **Gradient Annotator（渐变批注者）**：
 Gradient 工具（G）在画布上为一个选中叶子的渐变画出的控件：从起点到终点（径向为中心沿角度到半径）的滑条、其上的 Color Stop 与 Midpoint，径向还有虚线椭圆、长宽比手柄与焦点。拖动它们即改渐变，释放时一个 Transaction（ADR-0081）。

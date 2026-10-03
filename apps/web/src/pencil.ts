@@ -302,11 +302,12 @@ export function pencilResult(
 }
 
 /**
- * Why a held redraw sent nothing: another Actor's edit to its path, or the person's own edit in the
- * window that took the path off the Ink.
+ * Why a held redraw sent nothing: another Actor's edit to its path, the answer to the person's own
+ * command that reshaped it in a way the browser cannot number (#298), or their own edit that took
+ * the path off the Ink.
  */
 const DROPPED =
-  "The Pencil edit was not applied; its path changed before Reverse Path Direction was answered.";
+  "The Pencil edit was not applied; its path changed before your earlier edit was answered.";
 
 /** The Ink of the drag in progress, in document coordinates, and where a straight segment starts. */
 let ink: Point[] | null = null;
@@ -358,10 +359,15 @@ export function pencilUp(scale: number) {
     // the Document then, so it redraws the stretch drawn over (ADR-0110). It redraws the path it
     // was drawn over, whatever the Selection is then, and keeps the Ink in that path's own
     // coordinates, so the person's Selection tool move sent meanwhile carries the Ink with the path,
-    // as Illustrator, which redraws before it moves, would (#284). It holds the key of the path's
-    // first Anchor only so that another Actor's edit to the path, which clears it, drops the redraw
-    // (ADR-0109); which Anchor does not matter.
+    // as Illustrator, which redraws before it moves, would (#284). It holds the keys of the path's
+    // Anchors only so that another Actor's edit to the path, which clears them, drops the redraw
+    // (ADR-0109); the answer to the person's own Delete Anchor click clears only the one it
+    // removes, so the redraw still runs (#298).
     const { nodeId } = r.edit;
+    const n = s.doc.nodes.get(nodeId);
+    const keys = hasAnchors(n)
+      ? localAnchors(n).flatMap((sub, k) => sub.anchors.map((_, i) => anchorKey(nodeId, k, i)))
+      : [];
     const frame = (doc: Document) => worldTransform(doc, doc.nodes.get(nodeId) as Node);
     const m = invert(frame(s.doc));
     const own = done.map((p) => applyTo(m, ...p));
@@ -382,7 +388,7 @@ export function pencilUp(scale: number) {
         const commandIds = [send({ type: "path_edit", input: again.edit }, w)];
         useStore.setState({ edit: { inputs: [again.edit], commandIds } });
       },
-      { anchors: [anchorKey(nodeId, 0, 0)], segments: [], previewed: true },
+      { anchors: keys, segments: [], previewed: true },
     );
     return;
   }

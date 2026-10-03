@@ -1,10 +1,12 @@
 import {
   createDocument,
   createNodes,
+  type Document,
   editPath,
   type Node,
   type PathEditInput,
   parsePath,
+  type ShapeNode,
   toAnchors,
 } from "@kalamo/core";
 import { expect, it } from "vitest";
@@ -15,12 +17,18 @@ import {
   convertInputs,
   convertTargets,
   deleteParts,
+  fits,
+  localAnchors,
   marqueeAnchors,
   moveAnchors,
   moveHandle,
   moveSegment,
   pick,
+  type Renumbering,
   removeAnchorInputs,
+  renumberingOf,
+  renumberKey,
+  renumberTarget,
   segmentHandles,
   segmentInRange,
   splitWhole,
@@ -228,11 +236,11 @@ it("Clear deletes selected segments, converting a Live Shape, and ignores out-of
   expect(segmentInRange(doc, anchorKey(rect.id, 0, 3))).toBe(true);
   expect(segmentInRange(doc, anchorKey(rect.id, 0, 4))).toBe(false);
   expect(segmentInRange(doc, anchorKey(curve.id, 0, 2))).toBe(false);
-  expect(clearInputs(doc, [rect.id], [], [anchorKey(rect.id, 0, 9)])).toEqual({
+  expect(clearInputs(doc, [rect.id], [], [anchorKey(rect.id, 0, 9)])).toMatchObject({
     edits: [],
     deleteIds: [],
   });
-  expect(clearInputs(doc, [rect.id, curve.id], [], [anchorKey(rect.id, 0, 3)])).toEqual({
+  expect(clearInputs(doc, [rect.id, curve.id], [], [anchorKey(rect.id, 0, 3)])).toMatchObject({
     edits: [{ nodeId: rect.id, ops: [{ op: "set_d", d: "M 0 0 L 10 0 L 10 10 L 0 10" }] }],
     deleteIds: [curve.id],
   });
@@ -249,7 +257,7 @@ it("Clear deletes selected segments, converting a Live Shape, and ignores out-of
   const line = createNodes(doc, [
     { type: "path", parentId: rect.parentId, d: "M 0 0 L 5 5" },
   ] as never).nodes[0] as Node;
-  expect(clearInputs(doc, [line.id], [], [anchorKey(line.id, 0, 0)])).toEqual({
+  expect(clearInputs(doc, [line.id], [], [anchorKey(line.id, 0, 0)])).toMatchObject({
     edits: [],
     deleteIds: [line.id],
   });
@@ -290,17 +298,17 @@ it("Clear deletes selected Anchors, and whole the selected objects without any",
   ] as never).nodes[0] as Node;
   const selection = [rect.id, curve.id, other.id];
   // An Anchor out of range, as after someone else's edit, is ignored: no set_d converts the rect.
-  expect(clearInputs(doc, selection, [anchorKey(rect.id, 0, 9)])).toEqual({
+  expect(clearInputs(doc, selection, [anchorKey(rect.id, 0, 9)])).toMatchObject({
     edits: [],
     deleteIds: [curve.id, other.id],
   });
-  expect(clearInputs(doc, selection, [anchorKey(rect.id, 0, 1)])).toEqual({
+  expect(clearInputs(doc, selection, [anchorKey(rect.id, 0, 1)])).toMatchObject({
     edits: [{ nodeId: rect.id, ops: [{ op: "set_d", d: "M 10 10 L 0 10 L 0 0" }] }],
     deleteIds: [curve.id, other.id],
   });
   // Every Anchor of the curve leaves nothing: the curve goes.
   const all = [0, 1, 2].map((i) => anchorKey(curve.id, 0, i));
-  expect(clearInputs(doc, [curve.id], all)).toEqual({ edits: [], deleteIds: [curve.id] });
+  expect(clearInputs(doc, [curve.id], all)).toMatchObject({ edits: [], deleteIds: [curve.id] });
 });
 
 it("a path with every Anchor selected moves whole; a partly selected one by its Anchors", () => {
@@ -432,4 +440,95 @@ it("convertTargets takes paths partly selected, not whole ones or keys out of ra
       ],
     },
   ]);
+});
+
+/** The point at `t` along segment `k` of subpath `s` of `n` in `doc`, as a cubic, rounded. */
+function along(doc: Document, id: string, s: number, k: number, t: number) {
+  const sub = localAnchors(doc.nodes.get(id) as ShapeNode)[s];
+  const [a, b] = [sub?.anchors[k], sub?.anchors[(k + 1) % (sub?.anchors.length ?? 1)]];
+  if (!a || !b) return null;
+  const [p0, p3] = [a.anchor, b.anchor];
+  const [p1, p2] = [a.handleOut ?? p0, b.handleIn ?? p3];
+  const u = 1 - t;
+  const w = [u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t];
+  const at = (i: 0 | 1) =>
+    (w[0] ?? 0) * p0[i] + (w[1] ?? 0) * p1[i] + (w[2] ?? 0) * p2[i] + (w[3] ?? 0) * p3[i];
+  return [at(0), at(1)].map((v) => Math.round(v * 1e6) / 1e6);
+}
+
+it("renumbers keys and targets by the ops of a command the browser built, each on the same point (#298)", () => {
+  const { doc, rect, curve } = fixture();
+  const edited = (input: PathEditInput) => {
+    const after = structuredClone(doc);
+    editPath(after, input);
+    return { after, r: renumberingOf(doc, input) as Renumbering };
+  };
+  const seg = (nodeId: string, segment: number, t: number) =>
+    ({ kind: "segment", nodeId, subpath: 0, segment, t }) as const;
+  // An Anchor added halfway along the curve's first segment.
+  const add = edited({
+    nodeId: curve.id,
+    ops: [{ op: "add_anchor", subpath: 0, segment: 0, t: 0.5 }],
+  });
+  expect(fits(doc, add.r)).toBe(true);
+  expect(fits(add.after, add.r)).toBe(false);
+  expect(renumberKey(add.r, false)(anchorKey(curve.id, 0, 2))).toBe(anchorKey(curve.id, 0, 3));
+  expect(renumberKey(add.r, false)(anchorKey(curve.id, 0, 0))).toBe(anchorKey(curve.id, 0, 0));
+  expect(renumberKey(add.r, true)(anchorKey(curve.id, 0, 1))).toBe(anchorKey(curve.id, 0, 2));
+  // A selected segment split in two names neither half.
+  expect(renumberKey(add.r, true)(anchorKey(curve.id, 0, 0))).toBeNull();
+  // A point grabbed on it is on the half it lies on, at the same place.
+  for (const t of [0.25, 0.75]) {
+    const moved = renumberTarget(add.r)(seg(curve.id, 0, t));
+    expect(moved).toMatchObject({ segment: t < 0.5 ? 0 : 1, t: 0.5 });
+    if (moved) {
+      expect(along(add.after, curve.id, 0, moved.segment, moved.t)).toEqual(
+        along(doc, curve.id, 0, 0, t),
+      );
+    }
+  }
+  // On a line, too, where `add_anchor`'s t runs along it.
+  const line = edited({
+    nodeId: rect.id,
+    ops: [{ op: "add_anchor", subpath: 0, segment: 0, t: 0.4 }],
+  });
+  for (const t of [0.3, 0.5]) {
+    const moved = renumberTarget(line.r)(seg(rect.id, 0, t));
+    expect(moved?.segment).toBe(t < 0.45 ? 0 : 1);
+    if (moved) {
+      expect(along(line.after, rect.id, 0, moved.segment, moved.t)).toEqual(
+        along(doc, rect.id, 0, 0, t),
+      );
+    }
+  }
+  // The rect's first Anchor removed: the two segments beside it become one, which neither names.
+  const { r: gone } = edited({
+    nodeId: rect.id,
+    ops: [{ op: "remove_anchor", subpath: 0, index: 0 }],
+  });
+  const keys = [0, 1, 2, 3].map((i) => anchorKey(rect.id, 0, i));
+  expect(keys.map(renumberKey(gone, false))).toEqual([null, ...keys.slice(0, 3)]);
+  expect(keys.map(renumberKey(gone, true))).toEqual([null, keys[0], keys[1], null]);
+  expect(
+    renumberTarget(gone)({ kind: "handle", key: keys[2] as string, which: "handleIn" }),
+  ).toEqual({
+    kind: "handle",
+    key: keys[1],
+    which: "handleIn",
+  });
+  // Clear's `set_d` says how it numbers what it keeps: cutting the closing segment opens the rect.
+  const { known } = clearInputs(doc, [rect.id], [], [anchorKey(rect.id, 0, 3)]);
+  const [cut] = known;
+  expect(cut && keys.map(renumberKey(cut, true))).toEqual([...keys.slice(0, 3), null]);
+  expect(cut && keys.map(renumberKey(cut, false))).toEqual(keys);
+  // Ops the browser cannot number, and ops that keep the numbering.
+  expect(
+    renumberingOf(doc, { nodeId: rect.id, ops: [{ op: "set_d", d: "M 0 0 L 5 5" }] }),
+  ).toBeNull();
+  expect(
+    renumberingOf(doc, {
+      nodeId: rect.id,
+      ops: [{ op: "move_anchor", subpath: 0, index: 0, to: [1, 1] }],
+    }),
+  ).toBeUndefined();
 });

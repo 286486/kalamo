@@ -44,7 +44,7 @@ function reset() {
   vi.mocked(send).mockImplementation((command) => {
     const id = `k${++ids}`;
     queue.push({ id, command });
-    return record(id);
+    return record(id, command);
   });
 }
 const commands = () => vi.mocked(send).mock.calls.map(([c]) => c);
@@ -369,6 +369,9 @@ it("leaves a held Offset Path's preview to it when Offset Path is sent again wit
   sendPreviewedOp(offset(9), false);
   expect(useStore.getState().opPreview).toBe(held);
   answer(server);
-  expect(sentOps().slice(1)).toEqual(["path_edit", "offset", "offset"]);
+  expect(sentOps().slice(1)).toEqual(["path_edit", "offset"]);
   expect(useStore.getState().opPreview).toEqual({ ...held, commandId: queue[1]?.id });
+  // The second waits for the first one's answer, which may renumber p (#298).
+  serve(server);
+  expect(sentOps().slice(1)).toEqual(["path_edit", "offset", "offset"]);
 });

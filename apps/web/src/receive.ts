@@ -12,14 +12,20 @@ import {
   pathOp,
   transformNodes,
 } from "@kalamo/core";
-import { applyBroadcast, type Role, type ServerMessage } from "@kalamo/sync";
+import { applyBroadcast, type Command, type Role, type ServerMessage } from "@kalamo/sync";
 import type { CurveAnchor } from "./curvature.ts";
 import {
   anchorKey,
+  fits,
   hasAnchors,
   inRange,
   localAnchors,
   parseKey,
+  type Renumbering,
+  renumberInput,
+  renumberingOf,
+  renumberKey,
+  renumberTarget,
   replaceSubpath,
   reversedKey,
   segmentInRange,
@@ -212,7 +218,13 @@ export interface ViewState {
   pending: PendingCreate[];
   edit: PathDrag | null;
   reversing: Reversing | null;
-  /** Direct Selection edits waiting for `reversing`'s answer, oldest first. */
+  /**
+   * The person's other commands sent and unanswered that may renumber a path's Anchors, by id, and
+   * how each renumbers its path, or null when the browser cannot tell. Edits by index wait for them
+   * as for `reversing` (#298).
+   */
+  renumbering: ReadonlyMap<string, Renumbering | null>;
+  /** Direct Selection edits waiting for the answers to `reversing` and `renumbering`, oldest first. */
   held: Held[];
   /**
    * What a drag still being made holds by index: Direct Selection's Anchors, or the one Anchor,
@@ -326,6 +338,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     return {
       ...settleSent(s.sent, msg.id),
       ...(s.reversing?.commandId === msg.id && { reversing: null }),
+      ...settleRenumbering(s.renumbering, msg.id),
       ...(s.drag?.commandId === msg.id && { drag: null }),
       ...settlePending(s.pending, msg.id),
       ...(s.opPreview?.commandId === msg.id && { opPreview: null }),
@@ -377,6 +390,11 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
   const touched =
     msg.type === "tx" ? new Set([...msg.updated.map((n) => n.id), ...msg.deletedIds]) : null;
   const prior = s.doc;
+  // The answer to the person's own command the browser can number renumbers the keys on its path,
+  // so each still names its point; one worked out on another numbering, which someone else's edit
+  // left, cannot (#298).
+  const numbered = id ? s.renumbering.get(id) : undefined;
+  const map = numbered && fits(prior, numbered) ? numbered : null;
   const reshapedBy = new Set(
     tracked && touched
       ? [...touched].filter((n) => geometryOf(prior, n) !== geometryOf(doc, n))
@@ -391,15 +409,24 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
   // for another Actor's edit (ADR-0109).
   const settled =
     !!s.reversing && (msg.type === "document" || msg.commandId === s.reversing.commandId);
-  const reshaped = new Set(
+  // A reconnect with another renumbering command unanswered cannot say whether it was applied, so
+  // the keys stay only on a path as it was; on a path the press names, the press's rule holds (#298).
+  const pressReshaped = new Set(
     msg.type === "document" && prior && s.reversing ? reshapedOf(prior, doc, s.reversing) : [],
   );
+  const pressNamed = new Set(s.reversing?.subpaths.map((t) => t.nodeId));
+  const unsure = msg.type === "document" && s.renumbering.size > 0;
+  const reshaped = (n: string) =>
+    pressNamed.has(n)
+      ? pressReshaped.has(n)
+      : unsure && geometryOf(prior, n) !== geometryOf(doc, n);
   const kept = (inRangeOf: typeof inRange) => (key: string) => {
     const { nodeId } = parseKey(key);
     const changed = !touched || touched.has(nodeId);
     return (
-      !reshaped.has(nodeId) &&
-      (!changed || ((!touched || keeps(nodeId, own)) && inRangeOf(doc, key)))
+      !reshaped(nodeId) &&
+      (!changed ||
+        ((!touched || keeps(nodeId, own) || map?.nodeId === nodeId) && inRangeOf(doc, key)))
     );
   };
   const turned =
@@ -407,21 +434,30 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
       ? turnedOf(
           prior,
           doc,
-          s.reversing.subpaths.filter((t) => !reshaped.has(t.nodeId)),
+          s.reversing.subpaths.filter((t) => !reshaped(t.nodeId)),
         )
       : [];
+  const present = <K>(k: K | null): k is K => k !== null;
   const rekey = (k: Pick<ViewState, "anchors" | "segments">) => ({
-    anchors: k.anchors.map(reversedKey(doc, turned, false)).filter(kept(inRange)),
-    segments: k.segments.map(reversedKey(doc, turned, true)).filter(kept(segmentInRange)),
+    anchors: k.anchors
+      .map(reversedKey(doc, turned, false))
+      .map(renumberKey(map, false))
+      .filter(present)
+      .filter(kept(inRange)),
+    segments: k.segments
+      .map(reversedKey(doc, turned, true))
+      .map(renumberKey(map, true))
+      .filter(present)
+      .filter(kept(segmentInRange)),
   });
   const { anchors, segments } = rekey(s);
   // A held edit's target is turned as its keys are; once a key goes, so does the target.
   const rechosen = ({ target, ...c }: Chosen): Chosen => {
     if (!target) return { ...c, ...rekey(c) };
-    const t = turnTarget(doc, turned)(target);
-    const k = targetKeys(t);
-    const on = k.anchors.every(kept(inRange)) && k.segments.every(kept(segmentInRange));
-    return on ? { ...c, ...k, target: t } : { ...c, anchors: [], segments: [] };
+    const t = renumberTarget(map)(turnTarget(doc, turned)(target));
+    const k = t && targetKeys(t);
+    const on = k?.anchors.every(kept(inRange)) && k.segments.every(kept(segmentInRange));
+    return t && on ? { ...c, ...k, target: t } : { ...c, anchors: [], segments: [] };
   };
   // Someone else's change to the path the Pen continues ends the continuation and its preview, so
   // its finish never writes the Anchors it started from over theirs (ADR-0110). A change to the
@@ -443,9 +479,23 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     !reached && pen?.to && changedBut(own)(pen.to.nodeId) ? disconnected(pen, s.penPress) : null;
   // What a drag still being made holds on a path someone else changed goes, read as for the Pen's
   // continuation, and its unsent preview with it; the rest is turned as the keys are (ADR-0110).
-  const letGo = new Set([...new Set(s.grabbed.map(targetNode))].filter(changedBut(grabOwn)));
-  const grabbed = s.grabbed.filter((t) => !letGo.has(targetNode(t))).map(turnTarget(doc, turned));
-  const keptInputs = s.edit?.inputs.filter((i) => !letGo.has(i.nodeId)) ?? [];
+  // The answer to a command the browser can number renumbers it instead, and its unsent preview with
+  // it, and lets go of what the command removed (#298).
+  const letGo = new Set(
+    [...new Set(s.grabbed.map(targetNode))].filter(
+      (n) => changedBut(grabOwn)(n) && map?.nodeId !== n,
+    ),
+  );
+  const grabbed = s.grabbed
+    .filter((t) => !letGo.has(targetNode(t)))
+    .map(turnTarget(doc, turned))
+    .map(renumberTarget(map))
+    .filter(present);
+  const keptInputs =
+    s.edit?.inputs
+      .filter((i) => !letGo.has(i.nodeId))
+      .map((i) => renumberInput(map, i))
+      .filter(present) ?? [];
   const keptIds = s.drag?.nodeIds.filter((id) => !letGo.has(id)) ?? [];
   const skipped = msg.type === "tx" ? (msg.skippedIds?.length ?? 0) : 0;
   // A selected Node that a browser's command moved into a new Group selects that Group, as Make
@@ -483,7 +533,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     // An unchanged Selection stays the same array, so the Layer rows stay (ADR-0076).
     selection: !tops && sameIds(next, s.selection) ? s.selection : next,
     ...(tops && { layerRows: layers }),
-    ...(letGo.size > 0 && {
+    ...((letGo.size > 0 || !!map) && {
       ...(s.edit?.commandIds === null && {
         edit: keptInputs.length > 0 ? { ...s.edit, inputs: keptInputs } : null,
       }),
@@ -502,10 +552,14 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     ...(settled && { reversing: null }),
     ...(pen !== s.pen && { pen }),
     ...(dropped && { ...penState(doc, dropped.pen, s.edit), penPress: dropped.penPress }),
-    ...((turned.length > 0 || letGo.size > 0) && { grabbed }),
+    ...((turned.length > 0 || letGo.size > 0 || !!map) && { grabbed }),
+    ...(msg.type === "document"
+      ? s.renumbering.size > 0 && { renumbering: new Map() }
+      : settleRenumbering(s.renumbering, id)),
     ...(s.held.length > 0 && {
       held: s.held.map((h) => ({
         ...h,
+        ...(map && { preview: renumberPreview(map, h.preview) }),
         chosen: {
           ...rechosen(h.chosen),
           selection: h.chosen.selection.filter((id) => doc.nodes.has(id)),
@@ -686,6 +740,33 @@ function settle(edit: PathDrag | null, id: string | undefined): { edit?: PathDra
   const inputs = edit.inputs.filter((_, i) => ids[i] !== id);
   const commandIds = ids.filter((c) => c !== id);
   return { edit: inputs.length > 0 ? { inputs, commandIds } : null };
+}
+
+/**
+ * How the person's `command` renumbers paths' Anchors on `doc` (#298): undefined when it keeps the
+ * numbering, null when the browser cannot tell, as for Undo, Redo, a `path_op` or a `path_join`, and
+ * else how. A `delete` takes its paths' Anchors away, so an edit on them waits and is dropped. Any
+ * other value opens the window ADR-0110 holds edits by index for.
+ */
+export function opening(doc: Document | null, command: Command): Renumbering | null | undefined {
+  if (command.type === "path_edit") return renumberingOf(doc, command.input);
+  const opens = ["path_join", "path_op", "undo", "redo", "delete"].includes(command.type);
+  return opens ? null : undefined;
+}
+
+/** The window without command `id`, answered or rejected. */
+function settleRenumbering(renumbering: ViewState["renumbering"], id: string | undefined) {
+  if (!id || !renumbering.has(id)) return {};
+  const left = new Map(renumbering);
+  left.delete(id);
+  return { renumbering: left };
+}
+
+/** A held edit's unsent preview renumbered as its keys are (#298). */
+function renumberPreview(r: Renumbering, p: Preview): Preview {
+  if (!p.edit || p.edit.commandIds !== null) return p;
+  const inputs = p.edit.inputs.map((i) => renumberInput(r, i)).filter((i) => i !== null);
+  return { ...p, edit: inputs.length > 0 ? { ...p.edit, inputs } : null };
 }
 
 /** The record of commands in flight without command `id`, answered or rejected. */
