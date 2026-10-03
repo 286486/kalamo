@@ -208,6 +208,10 @@ export const PathEditInput = z.strictObject({
 });
 export type PathEditInput = z.input<typeof PathEditInput>;
 
+/** One subpath of a Node, as `path_reverse` and the browser's Direct Selection name it. */
+export const SubpathRef = z.object({ nodeId: z.string(), subpath: subpath.removeDefault() });
+export type SubpathRef = z.infer<typeof SubpathRef>;
+
 /** One Anchor of a Node, as `path_op`'s anchors name it. */
 export const AnchorRef = z.strictObject({ nodeId: z.string(), subpath, index });
 

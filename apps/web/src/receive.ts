@@ -10,6 +10,7 @@ import {
   type PathEditInput,
   paintOrder,
   pathOp,
+  type SubpathRef,
   transformNodes,
 } from "@kalamo/core";
 import { applyBroadcast, type Command, type Role, type ServerMessage } from "@kalamo/sync";
@@ -59,9 +60,7 @@ export interface Drag {
 export type SentDrag = Drag & { commandId: string };
 
 /** An open subpath's Endpoint: its first Anchor, or its last. */
-export interface Endpoint {
-  nodeId: string;
-  subpath: number;
+export interface Endpoint extends SubpathRef {
   atStart: boolean;
 }
 
@@ -156,7 +155,7 @@ export type SentPathDrag = PathDrag & { commandIds: string[] };
  */
 export interface Reversing {
   commandId: string;
-  subpaths: { nodeId: string; subpath: number }[];
+  subpaths: SubpathRef[];
   /** The direction pressed, which the Attributes panel shows until the answer. */
   clockwise: boolean;
   inputs: PathEditInput[];
