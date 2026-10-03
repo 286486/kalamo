@@ -648,6 +648,39 @@ it("runs a held edit on its held target alone, as renumbered, kept or dropped", 
   vi.useRealTimers();
 });
 
+it("adds a held Anchor on its held segment alone, as renumbered, kept or dropped", () => {
+  for (const source of ["renumbered", "kept", "dropped"] as const) {
+    const { doc, a, pressed, answer } = pressOn((a) => ({ anchors: [anchorKey(a.id, 1, 0)] }));
+    useStore.setState({ ...pressed, edit: null, drag: null, held: [] });
+    vi.mocked(send).mockClear();
+    toolEdits["Add Anchor Point"]?.(doc);
+    useStore.setState(stateAfter(useStore.getState(), answer(doc, a.id)));
+    const [h] = useStore.getState().held;
+    // The answer turned a's hole: the segment from (10, 10) to (10, 20) went from 0 to 3.
+    expect(h?.chosen.target, source).toMatchObject({ kind: "segment", segment: 3 });
+    if (h?.chosen.target?.kind === "segment" && source !== "renumbered") {
+      const { target, ...chosen } = h.chosen;
+      const next =
+        source === "kept"
+          ? { ...chosen, target: { ...target, segment: 0, t: 1 - target.t } }
+          : { ...chosen, segments: [] };
+      useStore.setState({ held: [{ ...h, chosen: next }] });
+    }
+    runHeld();
+    const added = holeAfterSent(a.id, false)?.map((x) => x.at);
+    if (source === "dropped") expect(commands(), source).toEqual([]);
+    // Segment 0 of the turned hole runs from (10, 10) to (20, 10).
+    else {
+      const [x, y] = source === "renumbered" ? [10, 14] : [14, 10];
+      const near = (at: string | null | undefined) => {
+        const [ax = 0, ay = 0] = (at ?? "").split(" ").map(Number);
+        return Math.hypot(ax - x, ay - y) < 0.01;
+      };
+      expect(added?.some(near), `${source}: ${added}`).toBe(true);
+    }
+  }
+});
+
 // With Handles on (20, 10), its In toward (20, 20) and its Out toward (10, 10), which the reverse
 // swaps: with (20, 10) chosen, the Anchor Point tool acts on the Handle under the pointer, and a
 // click on the Anchor retracts both.
