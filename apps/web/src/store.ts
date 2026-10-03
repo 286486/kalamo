@@ -75,8 +75,7 @@ export const useStore = create<State>(() => ({
   reversing: null,
   renumbering: new Map(),
   held: [],
-  grabbed: [],
-  regrab: null,
+  grab: null,
   sentPreviews: [],
   sent: new Set(),
   opPreview: null,
@@ -352,6 +351,30 @@ async function fetchActors(docId: string): Promise<Pick<State, "actorNames" | "a
 }
 
 /**
+ * Applies one server message that arrived at `now`: `receive` works out the next ViewState, whose
+ * effects `run` runs before it is shown. A drag still being made whose targets the message turned,
+ * renumbered or let go of draws its unsent preview again from them, as its next move would (#285),
+ * outside `receive`, since that redraw reads the tool's gesture state (#307); then the held edits
+ * run against it. Returns the state `receive` worked out.
+ */
+export function deliver(
+  msg: ServerMessage,
+  docId: string,
+  now: number,
+  run: (effect: Effect) => void = () => {},
+) {
+  const prev = useStore.getState();
+  const { state, effects } = receive(prev, msg, docId, now);
+  effects.forEach(run);
+  useStore.setState(state);
+  const { grab, doc } = useStore.getState();
+  const drawn = grab && grab !== prev.grab && doc && grab.redraw(doc, grab.targets);
+  if (drawn) useStore.setState({ edit: drawn.edit ?? null, drag: drawn.drag ?? null });
+  runHeld(state.notice);
+  return state;
+}
+
+/**
  * Shows a Document (ADR-0009) until the returned function is called. Only the active tab is
  * connected, so switching tabs starts over from the Document sent on connect (ADR-0030).
  */
@@ -368,8 +391,7 @@ export function connect(docId: string): () => void {
     reversing: null,
     renumbering: new Map(),
     held: [],
-    grabbed: [],
-    regrab: null,
+    grab: null,
     sentPreviews: [],
     sent: new Set(),
     opPreview: null,
@@ -426,11 +448,7 @@ export function connect(docId: string): () => void {
       else effect satisfies never;
     };
     ws.onmessage = (e) => {
-      const msg = JSON.parse(e.data) as ServerMessage;
-      const { state, effects } = receive(useStore.getState(), msg, docId, Date.now());
-      effects.forEach(run);
-      useStore.setState(state);
-      runHeld(state.notice);
+      deliver(JSON.parse(e.data) as ServerMessage, docId, Date.now(), run);
     };
     ws.onclose = (e) => {
       if (stopped) return;
