@@ -2531,3 +2531,20 @@ it("after a reconnect with the person's own command unanswered, runs a held drag
   }
   vi.useRealTimers();
 });
+
+it("drops a drag made before the answer to a Remove Anchor Points that deletes its path, silently (#298 T5)", () => {
+  vi.useFakeTimers();
+  const { doc, p } = line();
+  useStore.setState({ tool: "direct" });
+  const { server, serveAll } = serve(doc);
+  useStore.setState({ anchors: [1, 2, 3, 4].map((i) => anchorKey(p.id, 0, i)) });
+  menuItem("Remove Anchor Points").run();
+  directTool.down(event(doc, 0, 0));
+  directTool.move?.(event(doc, 0, 5));
+  directTool.up?.(event(doc, 0, 5));
+  serveAll();
+  expect(commands().map((c) => c.type)).toEqual(["delete"]);
+  expect(server.nodes.has(p.id)).toBe(false);
+  expect(useStore.getState().notice).toBeNull();
+  vi.useRealTimers();
+});

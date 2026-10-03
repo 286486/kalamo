@@ -416,15 +416,13 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     msg.type === "document" && prior && s.reversing ? reshapedOf(prior, doc, s.reversing) : [],
   );
   const unsure = msg.type === "document" && s.renumbering.size > 0;
-  const reshaped = {
-    has: (n: string) =>
-      pressReshaped.has(n) || (unsure && geometryOf(prior, n) !== geometryOf(doc, n)),
-  };
+  const reshaped = (n: string) =>
+    pressReshaped.has(n) || (unsure && geometryOf(prior, n) !== geometryOf(doc, n));
   const kept = (inRangeOf: typeof inRange) => (key: string) => {
     const { nodeId } = parseKey(key);
     const changed = !touched || touched.has(nodeId);
     return (
-      !reshaped.has(nodeId) &&
+      !reshaped(nodeId) &&
       (!changed || ((!touched || keeps(nodeId, own) || mapped.has(nodeId)) && inRangeOf(doc, key)))
     );
   };
@@ -433,20 +431,20 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
       ? turnedOf(
           prior,
           doc,
-          s.reversing.subpaths.filter((t) => !reshaped.has(t.nodeId)),
+          s.reversing.subpaths.filter((t) => !reshaped(t.nodeId)),
         )
       : [];
-  const known = <K>(k: K | null): k is K => k !== null;
+  const present = <K>(k: K | null): k is K => k !== null;
   const rekey = (k: Pick<ViewState, "anchors" | "segments">) => ({
     anchors: k.anchors
       .map(reversedKey(doc, turned, false))
       .map(renumberKey(maps, false))
-      .filter(known)
+      .filter(present)
       .filter(kept(inRange)),
     segments: k.segments
       .map(reversedKey(doc, turned, true))
       .map(renumberKey(maps, true))
-      .filter(known)
+      .filter(present)
       .filter(kept(segmentInRange)),
   });
   const { anchors, segments } = rekey(s);
@@ -487,12 +485,12 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     .filter((t) => !letGo.has(targetNode(t)))
     .map(turnTarget(doc, turned))
     .map(renumberTarget(maps))
-    .filter(known);
+    .filter(present);
   const keptInputs =
     s.edit?.inputs
       .filter((i) => !letGo.has(i.nodeId))
       .map((i) => renumberInput(maps, i))
-      .filter(known) ?? [];
+      .filter(present) ?? [];
   const keptIds = s.drag?.nodeIds.filter((id) => !letGo.has(id)) ?? [];
   const skipped = msg.type === "tx" ? (msg.skippedIds?.length ?? 0) : 0;
   // A selected Node that a browser's command moved into a new Group selects that Group, as Make
@@ -742,11 +740,12 @@ function settle(edit: PathDrag | null, id: string | undefined): { edit?: PathDra
 /**
  * How the person's `command` renumbers paths' Anchors on `doc` (#298): undefined when it keeps the
  * numbering, null when the browser cannot tell, as for Undo, Redo, a `path_op` or a `path_join`, and
- * else how. Any other value opens the window ADR-0110 holds edits by index for.
+ * else how. A `delete` takes its paths' Anchors away, so an edit on them waits and is dropped. Any
+ * other value opens the window ADR-0110 holds edits by index for.
  */
 export function opening(doc: Document | null, command: Command): Renumbering | null | undefined {
   if (command.type === "path_edit") return renumberingOf(doc, command.input);
-  const opens = ["path_join", "path_op", "undo", "redo"].includes(command.type);
+  const opens = ["path_join", "path_op", "undo", "redo", "delete"].includes(command.type);
   return opens ? null : undefined;
 }
 
