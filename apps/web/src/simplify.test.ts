@@ -40,7 +40,14 @@ it("counts Simplify's Anchors on the path as drawn under an unanswered or held e
             sent: new Set(["c1"]),
           }
         : {
-            held: [{ preview: { edit: { inputs }, drag: null }, token: "h1" } as unknown as Held],
+            held: [
+              {
+                chosen: { anchors: [], segments: [], selection: [q.id], tool: "direct" },
+                run: () => {},
+                preview: { edit: { inputs }, drag: null },
+                token: "h1",
+              } satisfies Held,
+            ],
           }),
     });
     expect(simplifyCounts(doc, s, [q.id]), how).toEqual({ original: 5, current: 6 });

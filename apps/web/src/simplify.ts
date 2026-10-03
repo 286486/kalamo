@@ -40,8 +40,8 @@ interface Settings {
 }
 
 /**
- * The bar or dialog on screen: how to take it down, to redo the preview at a new zoom, and to
- * recount the dialog's Anchors.
+ * The bar or dialog on screen: how to take it down, to redo the preview at a new zoom, and, for
+ * the dialog, to recount its Anchors.
  */
 let open: { close: () => void; update: () => void; recount?: () => void } | null = null;
 
