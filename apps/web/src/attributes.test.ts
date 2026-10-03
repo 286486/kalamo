@@ -54,7 +54,7 @@ import {
 } from "./store.ts";
 import { message, recordAs, stateAfter, viewState } from "./testing.ts";
 import type { ToolEvent } from "./toolbox.ts";
-import { finishPen, penDown, penUp, setTool } from "./tools.ts";
+import { finishPen, penDown, penUp, sendNewArt, setTool } from "./tools.ts";
 
 // Records each id as the real `send` does, so the answers tests drive are the person's own (#288).
 vi.mock("./store.ts", async (original) => {
@@ -2369,6 +2369,7 @@ function serve(doc: Document) {
       else if (c.type === "delete") for (const n of c.nodeIds) server.nodes.delete(n);
       else if (c.type === "transform") transformNodes(server, c.input);
       else if (c.type === "duplicate") duplicateNodes(server, c.input);
+      else if (c.type === "create") createNodes(server, c.nodes);
       else if (c.type === "fill_rule") {
         for (const id of c.nodeIds) {
           server.nodes.set(id, { ...(server.nodes.get(id) as PathNode), fillRule: c.fillRule });
@@ -3930,6 +3931,135 @@ it("leaves out of the Selection a Node the person's own Undo brings back hidden,
     deliver(message("tx", { rev: nextRev(), commandId: id, actor: "user", created: [a] }), "d", 0);
     expect(useStore.getState().doc?.nodes.has(a.id), name).toBe(true);
     expect(selected(), name).toEqual([]);
+  }
+  vi.useRealTimers();
+});
+
+/** Draws a square as any drawing tool does, and answers it: the Node it created. */
+const draw = (answer: () => void) => {
+  sendNewArt([{ type: "path", d: "M100 100 L120 100 L120 120 Z" }]);
+  answer();
+  const { selection, doc } = useStore.getState();
+  expect(selection).toHaveLength(1);
+  return doc?.nodes.get(selection[0] as string) as Node;
+};
+
+/** Duplicates `nodeIds` as the Layers panel's Duplicate does: its copies become the Selection. */
+const duplicate = (nodeIds: string[], answer: () => void) => {
+  const commandId = send({ type: "duplicate", input: { nodeIds } });
+  useStore.setState((s) => ({ pending: [...s.pending, { commandId, nodes: [], select: true }] }));
+  answer();
+  const { selection } = useStore.getState();
+  expect(selection).toHaveLength(nodeIds.length);
+  return selection;
+};
+
+it("selects again, after the person's own Undo of a Layers panel Duplicate, what was selected before it with its keys, and a Redo the copy (ADR-0112, ADR-0113)", () => {
+  vi.useFakeTimers();
+  const { a, answer, undo, redo, chosen } = undoable((a) => ({
+    anchors: [anchorKey(a.id, 0, 1), anchorKey(a.id, 1, 2)],
+    segments: [anchorKey(a.id, 0, 3)],
+  }));
+  useStore.setState({ selection: [a.id] });
+  const before = chosen();
+  const [copy] = duplicate([a.id], answer);
+  expect(copy).not.toBe(a.id);
+  expect(chosen()).toEqual({ anchors: [], segments: [] });
+  undo();
+  expect(useStore.getState().doc?.nodes.has(copy as string)).toBe(false);
+  expect(selected()).toEqual([a.id]);
+  expect(chosen()).toEqual(before);
+  // A key changed after the Undo is a silent action the Redo and the next Undo step past.
+  useStore.setState({ anchors: [anchorKey(a.id, 0, 0)], segments: [] });
+  redo();
+  expect(selected()).toEqual([copy]);
+  expect(chosen()).toEqual({ anchors: [], segments: [] });
+  undo();
+  expect(selected()).toEqual([a.id]);
+  expect(chosen()).toEqual(before);
+  expect(commands().map((c) => c.type)).toEqual(["duplicate", "undo", "redo", "undo"]);
+  vi.useRealTimers();
+});
+
+it("selects again, after the person's own Undo of drawn art, what was selected before it, without the keys the tool switch dropped (ADR-0112, ADR-0113)", () => {
+  vi.useFakeTimers();
+  for (const tool of ["pen", "pencil", "rectangle"] as const) {
+    const { a, answer, undo, redo, chosen } = undoable((a) => ({
+      anchors: [anchorKey(a.id, 0, 1)],
+      segments: [],
+    }));
+    useStore.setState({ selection: [a.id] });
+    setTool(tool);
+    const drawn = draw(answer);
+    undo();
+    expect(selected(), tool).toEqual([a.id]);
+    expect(chosen(), tool).toEqual({ anchors: [], segments: [] });
+    redo();
+    expect(selected(), tool).toEqual([drawn.id]);
+  }
+  vi.useRealTimers();
+});
+
+// A guard: main passes it too, and a restore that ignores whose Undo it is fails it (#316).
+it("selects nothing after the person's own Undo of a create made with nothing selected (ADR-0113)", () => {
+  vi.useFakeTimers();
+  const { answer, undo, redo } = undoable(() => ({ anchors: [], segments: [] }));
+  useStore.setState({ selection: [] });
+  const drawn = draw(answer);
+  undo();
+  expect(selected()).toEqual([]);
+  redo();
+  expect(selected()).toEqual([drawn.id]);
+  vi.useRealTimers();
+});
+
+it("selects again, after the person's own Undo of a create, what was selected before it, not after a Delete of the Node created (ADR-0113)", () => {
+  vi.useFakeTimers();
+  const { a, answer, undo, redo } = undoable(() => ({ anchors: [], segments: [] }));
+  useStore.setState({ selection: [a.id] });
+  const drawn = draw(answer);
+  menuItem("Clear").run();
+  answer();
+  expect(selected()).toEqual([]);
+  undo();
+  expect(selected()).toEqual([drawn.id]);
+  redo();
+  expect(selected()).toEqual([]);
+  undo();
+  expect(selected()).toEqual([drawn.id]);
+  undo();
+  expect(selected()).toEqual([a.id]);
+  expect(commands().map((c) => c.type)).toEqual([
+    "create",
+    "delete",
+    "undo",
+    "redo",
+    "undo",
+    "undo",
+  ]);
+  vi.useRealTimers();
+});
+
+// A guard: main passes it too, and a restore that ignores whose Undo it is fails it (#316).
+it("leaves the Selection pruned, never added to, after another Actor's or another tab's undo of the person's create (ADR-0113)", () => {
+  vi.useFakeTimers();
+  for (const whose of ["another Actor", "another tab"] as const) {
+    const { a, server, answer } = undoable(() => ({ anchors: [], segments: [] }));
+    useStore.setState({ selection: [a.id] });
+    const drawn = draw(answer);
+    // Their undo deletes what the person drew, under a command id this tab never sent.
+    server.nodes.delete(drawn.id);
+    server.rev++;
+    deliver(
+      message("tx", {
+        rev: server.rev,
+        deletedIds: [drawn.id],
+        ...(whose === "another tab" && { commandId: "elsewhere", actor: "user" }),
+      }),
+      "d",
+      0,
+    );
+    expect(selected(), whose).toEqual([]);
   }
   vi.useRealTimers();
 });

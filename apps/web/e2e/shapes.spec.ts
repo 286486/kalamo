@@ -43,6 +43,31 @@ async function openShapes(page: Page, request: Parameters<typeof call>[0], name:
   return { create, nodes, drag };
 }
 
+// #316: Undo of drawn art selects again what was selected before it was drawn, as in Illustrator.
+test("the person's Undo of a drawn rectangle selects again the rectangle selected before it", async ({
+  page,
+  request,
+}) => {
+  const { create, nodes, drag } = await openShapes(page, request, "Undo draw");
+  await create({ type: "rect", name: "Box", x: 20, y: 20, width: 40, height: 40 });
+  const row = page.getByRole("button", { name: "Box", exact: true });
+  const drawn = page.getByRole("button", { name: "<Rectangle>", exact: true });
+  await row.click();
+  await expect(row).toHaveAttribute("aria-pressed", "true");
+
+  await page.keyboard.press("m");
+  await drag([120, 20], [160, 60]);
+  await expect(drawn).toHaveAttribute("aria-pressed", "true");
+  await expect(row).toHaveAttribute("aria-pressed", "false");
+
+  await page.keyboard.press("Control+z");
+  await expect.poll(async () => (await nodes("rect")).length).toBe(1);
+  await expect(row).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Control+Shift+z");
+  await expect(drawn).toHaveAttribute("aria-pressed", "true");
+  await expect(row).toHaveAttribute("aria-pressed", "false");
+});
+
 /** Picks `name`, a tool without a shortcut, from the flyout of the group whose button is `group`. */
 async function pickFromGroup(page: Page, group: string, name: string) {
   await page.getByRole("button", { name: group, exact: true }).click({ button: "right" });

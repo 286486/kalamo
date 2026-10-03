@@ -36,7 +36,7 @@ That is as far as it goes. The answer reads the keys at a later point, not at th
 
 **What the rule leaves.** Keys live only on Nodes in the Selection, so they come back only on a path selected after the answer. Switching tools drops the keys, and also forgets `keysOn`.
 
-Amended by ADR-0113 (#314): the person's own Undo and Redo select again what was selected in the state they restore, so keys come back on a path the Undo selects again. A path the person's own edit deletes whole keeps its keys under its geometry before the delete, those `sendAnchorEdits` dropped for its `delete` included, and an Undo that brings the path back chooses them again.
+Amended by ADR-0113 (#314): the person's own Undo and Redo select again what was selected in the state they restore, so keys come back on a path the Undo selects again. A path the person's own edit deletes whole keeps its keys under its geometry before the delete, those `sendAnchorEdits` dropped for its `delete` included, and an Undo that brings the path back chooses them again. Amended again by ADR-0113 (#316): a path an answer other than an Undo or Redo takes out of the Selection, but leaves alone, keeps its keys under its geometry, and the person's own Undo or Redo that selects it again chooses them again.
 
 ADR-0109's bullet on the Direct Selection and ADR-0110's paragraph "The answer numbers what waited" are amended to point here.
 
