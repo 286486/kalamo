@@ -43,9 +43,13 @@ it("keeps command ids off unsent previews and on sent ones (#306)", () => {
   const unsent = (p: Preview) => p;
   const settled = (p: SentPreview) => p;
   // @ts-expect-error A sent preview never goes back on a live slot or a held edit.
-  unsent(sent);
+  unsent({ edit: sent.edit, drag: null });
+  // @ts-expect-error
+  unsent({ edit: null, drag: sent.drag });
   // @ts-expect-error An unsent preview has no command ids its answers settle it by.
-  settled({ edit: { inputs: [] }, drag: drag([]) });
+  settled({ edit: { inputs: [] }, drag: null });
+  // @ts-expect-error
+  settled({ edit: null, drag: drag([]) });
 });
 
 it("keeps the drag preview until the tx answering its command arrives", () => {

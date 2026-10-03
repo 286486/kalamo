@@ -1603,7 +1603,10 @@ it("tells the person a held Pencil redraw was dropped when their own edit took t
     answer(outcome);
     const s = useStore.getState();
     expect(commands(), outcome).toEqual([]);
-    expect(s.notice, outcome).toMatch(/Pencil/);
+    const no = outcome === "rejected" ? " No." : "";
+    expect(s.notice, outcome).toBe(
+      `The Pencil edit was not applied; your own earlier change reshaped its path.${no}`,
+    );
     const shown = previewAll(s.doc as Document, previewsOf(s)).nodes.get(p) as PathNode;
     expect(shown.d, outcome).toBe(((s.doc as Document).nodes.get(p) as PathNode).d);
   }
