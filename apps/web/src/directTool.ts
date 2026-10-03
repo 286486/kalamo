@@ -9,6 +9,7 @@ import {
   rectOf,
   SELECTION,
   settleDrag,
+  showDrag,
 } from "./canvas.ts";
 import {
   allKeys,
@@ -25,6 +26,7 @@ import {
   splitWhole,
   type Target,
   targetKeys,
+  targetNode,
 } from "./direct.ts";
 import type { Preview } from "./receive.ts";
 import { combine, hitTest } from "./selection.ts";
@@ -98,8 +100,7 @@ export const directTool: CanvasTool = {
     const leaf = target
       ? null
       : hitTest(e.ctx, doc, start.x, start.y, tolerance, { leaf: true, scope });
-    const nodeId =
-      target?.kind === "segment" ? target.nodeId : target ? parseKey(target.key).nodeId : leaf;
+    const nodeId = target ? targetNode(target) : leaf;
     const node = doc.nodes.get(nodeId ?? "");
     const keys =
       target?.kind === "anchor" ? [target.key] : !target && hasAnchors(node) ? allKeys(node) : [];
@@ -153,7 +154,7 @@ export const directTool: CanvasTool = {
     }
     g.last = { dx, dy, alt: e.alt };
     const drag = dragOf(g, e.doc, useStore.getState().grabbed);
-    if (drag) useStore.setState(drag);
+    if (drag) showDrag(drag);
   },
   up(e) {
     const g = gesture;
@@ -174,10 +175,10 @@ export const directTool: CanvasTool = {
       });
       marqueeRect = null;
       e.redraw();
-    } else if (g?.moved) {
-      // Sent once a Reverse Path Direction press in flight is answered, from the Document then. What
-      // it holds is renumbered as the keys are, and another Actor's edit to its path meanwhile
-      // drops it, as it drops the keys (ADR-0109, ADR-0110).
+    } else if (g?.moved && (g.kind === "move" || grabbed.length > 0)) {
+      // Sent once a Reverse Path Direction press in flight is answered, from the Document then, on
+      // what is still grabbed. What it holds is renumbered as the keys are, and another Actor's edit
+      // to its path meanwhile drops it, as it drops the keys (ADR-0109, ADR-0110).
       const [grabbedTarget] = grabbed;
       afterReverse(
         ({ doc: now, anchors, target }, w) => {

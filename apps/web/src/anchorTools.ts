@@ -1,5 +1,5 @@
 import type { Document, PathEditInput } from "@kalamo/core";
-import { cancelDrag, dragged, type Press, settleDrag } from "./canvas.ts";
+import { cancelDrag, dragged, type Press, settleDrag, showDrag } from "./canvas.ts";
 import {
   anchorsOf,
   bendSegment,
@@ -14,6 +14,7 @@ import {
   removeAnchorInputs,
   type Target,
   targetKeys,
+  targetNode,
 } from "./direct.ts";
 import { directTool } from "./directTool.ts";
 import { editable } from "./selection.ts";
@@ -228,8 +229,7 @@ export const anchorPointTool: CanvasTool = {
     // Its Handles show while they are pulled out, as Direct Selection shows a selected Anchor's
     // or segment's.
     if (target.kind !== "handle") {
-      const nodeId = target.kind === "segment" ? target.nodeId : parseKey(target.key).nodeId;
-      useStore.setState({ selection: [nodeId], ...targetKeys(target) });
+      useStore.setState({ selection: [targetNode(target)], ...targetKeys(target) });
     }
   },
   move(e) {
@@ -240,7 +240,7 @@ export const anchorPointTool: CanvasTool = {
     if (!t) return;
     g.last = { d, shift: e.shift };
     const input = dragInput(e.doc, t, d, e.shift);
-    useStore.setState({ edit: input && { inputs: [input], commandIds: null } });
+    showDrag({ edit: input && { inputs: [input], commandIds: null } });
   },
   up() {
     const g = gesture;

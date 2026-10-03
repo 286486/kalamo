@@ -122,6 +122,19 @@ export function commitDrag(w: Waited) {
   }
 }
 
+/**
+ * Shows `p` as a drag still being made. A sent edit's preview it replaces is drawn in `ran` until
+ * its answer, so that answer still reads as the person's own (ADR-0110).
+ */
+export function showDrag(p: Partial<Preview>) {
+  const { edit, drag, ran } = useStore.getState();
+  const sent = {
+    edit: "edit" in p && edit?.commandIds ? edit : null,
+    drag: "drag" in p && drag?.commandId ? drag : null,
+  };
+  useStore.setState({ ...p, ...((sent.edit || sent.drag) && { ran: [...ran, sent] }) });
+}
+
 /** Drops a drag not yet sent. */
 export function cancelDrag() {
   if (useStore.getState().drag?.commandId === null) useStore.setState({ drag: null });

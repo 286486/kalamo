@@ -21,7 +21,7 @@ import { curvatureCancel, curvatureDown, curvatureDrag, curvatureUp } from "./cu
 import { anchorKey, localAnchors, parseKey } from "./direct.ts";
 import { directTool } from "./directTool.ts";
 import { pencilDown, pencilMove, pencilUp } from "./pencil.ts";
-import { previewAll, previewsOf, type ViewState } from "./receive.ts";
+import { type PathDrag, previewAll, previewEdit, previewsOf, type ViewState } from "./receive.ts";
 import { afterReverse, runHeld, send, unheld, useStore } from "./store.ts";
 import { message, stateAfter, viewState } from "./testing.ts";
 import type { ToolEvent } from "./toolbox.ts";
@@ -91,8 +91,11 @@ const firstIndex = (input: PathEditInput | undefined) => {
   return op && "index" in op ? op.index : undefined;
 };
 
-/** Two Compound Paths, each a clockwise square with a counter-clockwise hole. */
-function rings() {
+/**
+ * Two Compound Paths, each a clockwise square with a counter-clockwise hole; `hole` draws a's at
+ * x = 0.
+ */
+function rings(hole?: string) {
   const { doc, defaultLayerId: parentId } = createDocument({
     id: "d",
     name: "Doc",
@@ -101,7 +104,7 @@ function rings() {
   const ring = (x: number) =>
     `M${x} 0 L${x + 30} 0 L${x + 30} 30 L${x} 30 Z M${x + 10} 10 L${x + 10} 20 L${x + 20} 20 L${x + 20} 10 Z`;
   const [a, b] = createNodes(doc, [
-    { type: "path", parentId, d: ring(0) },
+    { type: "path", parentId, d: hole ? `M0 0 L30 0 L30 30 L0 30 Z ${hole}` : ring(0) },
     { type: "path", parentId, d: ring(50) },
   ]).nodes as [Node, Node];
   return { doc, a, b };
@@ -238,9 +241,9 @@ const rejected = message("rejected", {
 });
 
 /** Both rings selected with the keys `keys` names, after a press of On (command id "c"). */
-function pressOn(keys: (a: Node, b: Node) => Partial<ViewState>) {
+function pressOn(keys: (a: Node, b: Node) => Partial<ViewState>, hole?: string) {
   vi.mocked(send).mockClear();
-  const { doc, a, b } = rings();
+  const { doc, a, b } = rings(hole);
   const state = viewState({ doc, selection: [a.id, b.id], role: "owner", ...keys(a, b) });
   setDirection(state, true);
   const pressed = { ...state, reversing: useStore.getState().reversing };
@@ -376,8 +379,8 @@ it("keeps a Handle drag on its Handle when the answer comes mid-drag", () => {
   setDirection(state, true);
   const pressed = { ...state, reversing: useStore.getState().reversing, edit: null };
   const ops = () => useStore.getState().edit?.inputs[0]?.ops;
-  // The answer turns the Handle held; another Actor's reverse before it leaves the drag on Anchor 0's
-  // out Handle, which that reverse retracted, so it previews nothing (#296).
+  // The answer turns the Handle held; another Actor's reverse before it lets go of the drag, so it
+  // previews nothing (#297).
   for (const theirs of [false, true]) {
     useStore.setState(pressed);
     directTool.down(event(doc, 10, 15));
@@ -397,14 +400,16 @@ it("keeps a Handle drag on its Handle when the answer comes mid-drag", () => {
   }
 });
 
-// #296: a drag still being made follows only the answer to the person's own press, never a winding
-// flip by another Actor. Each grabs a's hole at `at`; `index` is the first op's before and after the
-// answer. (20, 10) is the hole's Anchor 3, then 1; its segment 0 runs back as segment 3.
+// #296, #297: a drag still being made follows the answer to the person's own press, and another
+// Actor's edit to its path lets go of it. Each grabs a's hole, or `hole` when given, at `at`, with
+// the hole's Anchor 0 selected; `index` is the first op's before and after the answer. (20, 10) is
+// the hole's Anchor 3, then 1; its segment 0 runs back as segment 3.
 const grabs: Record<
   string,
   {
     at: [number, number];
     index: [number, number];
+    hole?: string;
     down: (doc: Document, x: number, y: number) => void;
     move: (doc: Document, x: number, y: number) => void;
     up: (doc: Document, x: number, y: number) => void;
@@ -414,6 +419,16 @@ const grabs: Record<
   "a Direct Selection Anchor drag": {
     at: [20, 10],
     index: [3, 1],
+    down: (doc, x, y) => directTool.down(event(doc, x, y)),
+    move: (doc, x, y) => directTool.move?.(event(doc, x, y)),
+    up: (doc, x, y) => directTool.up?.(event(doc, x, y)),
+    cancel: () => directTool.cancel?.(() => {}),
+  },
+  "a Direct Selection Handle drag": {
+    // Anchor 0's in Handle, at (12, 10), which the reverse makes its out Handle.
+    at: [12, 10],
+    index: [0, 0],
+    hole: "M10 10 L10 20 L20 20 L20 10 C18 10 12 10 10 10 Z",
     down: (doc, x, y) => directTool.down(event(doc, x, y)),
     move: (doc, x, y) => directTool.move?.(event(doc, x, y)),
     up: (doc, x, y) => directTool.up?.(event(doc, x, y)),
@@ -435,23 +450,40 @@ const grabs: Record<
     up: (doc, x, y) => anchorPointTool.up?.(event(doc, x, y)),
     cancel: () => anchorPointTool.cancel?.(() => {}),
   },
+  "an Anchor Point drag of a segment": {
+    at: [10, 15],
+    index: [0, 3],
+    down: (doc, x, y) => anchorPointTool.down?.(event(doc, x, y)),
+    move: (doc, x, y) => anchorPointTool.move?.(event(doc, x, y)),
+    up: (doc, x, y) => anchorPointTool.up?.(event(doc, x, y)),
+    cancel: () => anchorPointTool.cancel?.(() => {}),
+  },
   "a Curvature drag": {
     at: [20, 10],
     index: [3, 1],
-    down: (_, x, y) => curvatureDown([x, y], 1, false),
+    down: (_, x, y) => {
+      // A press far away first, so a press here again is never read as a double-click.
+      curvatureDown([-1000, -1000], 1, false);
+      curvatureCancel();
+      useStore.setState({ pen: null });
+      curvatureDown([x, y], 1, false);
+    },
     move: (_, x, y) => curvatureDrag([x, y]),
     up: () => curvatureUp(),
     cancel: () => curvatureCancel(),
   },
 };
 
-it("renumbers a drag still being made by the answer alone, not by another Actor's reverse", () => {
+it("renumbers a drag still being made by the answer alone; another Actor's reverse lets go of it", () => {
   vi.useFakeTimers();
   for (const [name, g] of Object.entries(grabs)) {
     for (const source of ["answer", "rejected", "theirs"] as const) {
       const label = `${name}, ${source}`;
-      const { doc, a, pressed, answer } = pressOn((a) => ({ anchors: [anchorKey(a.id, 1, 0)] }));
-      useStore.setState({ ...pressed, edit: null, drag: null, held: [] });
+      const { doc, a, pressed, answer } = pressOn(
+        (a) => ({ anchors: [anchorKey(a.id, 1, 0)] }),
+        g.hole,
+      );
+      useStore.setState({ ...pressed, edit: null, drag: null, held: [], ran: [] });
       vi.advanceTimersByTime(1000);
       const index = () => firstIndex(useStore.getState().edit?.inputs[0]);
       const [x, y] = g.at;
@@ -467,19 +499,26 @@ it("renumbers a drag still being made by the answer alone, not by another Actor'
       useStore.setState(stateAfter(useStore.getState(), msg));
       runHeld();
       const now = useStore.getState().doc as Document;
+      if (source === "theirs") {
+        // The drag lets go at once, with its preview, and shows the path as the Agent left it.
+        expect(useStore.getState().edit, label).toBeNull();
+        expect(useStore.getState().notice, label).toBeNull();
+        expect(now.nodes.get(a.id), label).toEqual(reversed(doc, a.id));
+      }
       g.move(now, x + 6, y);
-      const after = source === "answer" ? g.index[1] : g.index[0];
+      const after = { answer: g.index[1], rejected: g.index[0], theirs: undefined }[source];
       expect(index(), label).toBe(after);
       vi.mocked(send).mockClear();
       g.up(now, x + 6, y);
       if (source === "theirs") {
-        // Released while the press is still in flight, the edit waits on the indices it kept, and
-        // the answer alone renumbers them.
+        // Released while the press is still in flight, nothing is held: the answer neither renumbers
+        // nor brings back what the Agent's edit let go of, and nothing is sent.
         expect(commands(), label).toEqual([]);
+        expect(useStore.getState().held, label).toEqual([]);
         useStore.setState(stateAfter(useStore.getState(), answer(now, a.id)));
         runHeld();
-        const [held] = commands().filter((c) => c.type === "path_edit");
-        expect(held?.type === "path_edit" && firstIndex(held.input), label).toBe(g.index[1]);
+        expect(commands(), label).toEqual([]);
+        expect(useStore.getState().notice, label).toBeNull();
         continue;
       }
       // Released after the answer or the rejection, the edit is sent on the target as it left it.
@@ -490,42 +529,216 @@ it("renumbers a drag still being made by the answer alone, not by another Actor'
   vi.useRealTimers();
 });
 
-it("keeps a drag on the Anchor grabbed when another Actor flips its winding, no press in flight", () => {
-  vi.useFakeTimers();
-  const { doc, defaultLayerId: parentId } = createDocument({
-    id: "d",
-    name: "Doc",
-    artboards: [{ width: 200, height: 200 }],
-  });
-  const [p] = createNodes(doc, [{ type: "path", parentId, d: "M0 0 L10 0 L10 10 L0 10" }])
-    .nodes as [Node];
-  // Anchor 1 moved to (-30, 30) turns the open path the other way and renumbers nothing.
-  const flipped = editPath(
-    { ...doc, nodes: new Map(doc.nodes) },
-    { nodeId: p.id, ops: [{ op: "move_anchor", subpath: 0, index: 1, to: [-30, 30] }] },
-  ).node;
-  expect(runsClockwise(doc, p as PathNode, 0)).not.toBe(runsClockwise(doc, flipped, 0));
-  const theirs = message("tx", { rev: doc.rev + 1, actor: "agent", updated: [flipped] });
-  const gestures = {
-    "an Anchor Point drag out of an Anchor": grabs["an Anchor Point drag out of an Anchor"],
-    "a Curvature drag": grabs["a Curvature drag"],
-  };
-  for (const [name, g] of Object.entries(gestures)) {
-    if (!g) continue;
-    useStore.setState(viewState({ doc, selection: [p.id], role: "owner" }));
-    vi.advanceTimersByTime(1000);
+/**
+ * Each gesture in `grabs` made on a's hole with no press in flight, dragged right by 5; `then` is
+ * the message that comes mid-drag, from the Document `doc` as the drag began.
+ */
+function dragThrough(
+  then: (doc: Document, a: Node, b: Node) => Parameters<typeof stateAfter>[1],
+  check: (label: string, g: (typeof grabs)[string], ctx: { doc: Document; a: Node }) => void,
+) {
+  for (const [name, g] of Object.entries(grabs)) {
     vi.mocked(send).mockClear();
-    const index = () => firstIndex(useStore.getState().edit?.inputs[0]);
-    g.down(doc, 0, 0);
-    g.move(doc, 0, 5);
-    expect(index(), name).toBe(0);
-    useStore.setState(stateAfter(useStore.getState(), theirs));
-    const now = useStore.getState().doc as Document;
-    g.move(now, 0, 6);
-    expect(index(), name).toBe(0);
-    g.up(now, 0, 6);
-    const [sent] = commands();
-    expect(sent?.type === "path_edit" && firstIndex(sent.input), name).toBe(0);
+    const { doc, a, b } = rings(g.hole);
+    const keys = { anchors: [anchorKey(a.id, 1, 0)] };
+    useStore.setState(viewState({ doc, selection: [a.id, b.id], role: "owner", ...keys }));
+    const [x, y] = g.at;
+    g.down(doc, x, y);
+    g.move(doc, x + 5, y);
+    expect(firstIndex(useStore.getState().edit?.inputs[0]), name).toBe(g.index[0]);
+    useStore.setState(stateAfter(useStore.getState(), then(doc, a, b)));
+    runHeld();
+    check(name, g, { doc, a });
+  }
+}
+
+/** The rest of a drag from `dragThrough`: a move, then the release; what each sent. */
+function finish(g: (typeof grabs)[string]) {
+  const now = useStore.getState().doc as Document;
+  const [x, y] = g.at;
+  vi.mocked(send).mockClear();
+  g.move(now, x + 6, y);
+  const moved = firstIndex(useStore.getState().edit?.inputs[0]);
+  g.up(now, x + 6, y);
+  return { moved, sent: commands() };
+}
+
+it("lets go of a drag when another Actor edits or deletes its path, no press in flight", () => {
+  const { doc: d, a: p } = rings();
+  // Anchor 2 of a's hole moved to (-30, 40) turns the hole the other way and renumbers nothing.
+  const flip = (doc: Document, a: Node) =>
+    editPath(
+      { ...doc, nodes: new Map(doc.nodes) },
+      { nodeId: a.id, ops: [{ op: "move_anchor", subpath: 1, index: 2, to: [-30, 40] }] },
+    ).node;
+  expect(runsClockwise(d, p as PathNode, 1)).not.toBe(runsClockwise(d, flip(d, p), 1));
+  const edits = {
+    reverse: (doc: Document, a: Node) => ({ updated: [reversed(doc, a.id)] }),
+    "added Anchor": (doc: Document, a: Node) => ({
+      updated: [
+        editPath(
+          { ...doc, nodes: new Map(doc.nodes) },
+          { nodeId: a.id, ops: [{ op: "add_anchor", subpath: 1, segment: 0, t: 0.5 }] },
+        ).node,
+      ],
+    }),
+    "winding flip": (doc: Document, a: Node) => ({ updated: [flip(doc, a)] }),
+    delete: (_: Document, a: Node) => ({ updated: [], deletedIds: [a.id] }),
+  };
+  for (const [kind, edit] of Object.entries(edits)) {
+    let theirs: Node | undefined;
+    dragThrough(
+      (doc, a) => {
+        const e = edit(doc, a);
+        theirs = e.updated[0];
+        return message("tx", { rev: doc.rev + 1, actor: "agent", ...e });
+      },
+      (name, g, { a }) => {
+        const label = `${name}, ${kind}`;
+        const s = useStore.getState();
+        expect(s.edit, label).toBeNull();
+        expect(s.notice, label).toBeNull();
+        expect(s.doc?.nodes.get(a.id), label).toEqual(theirs);
+        expect(finish(g), label).toEqual({ moved: undefined, sent: [] });
+        expect(useStore.getState().notice, label).toBeNull();
+      },
+    );
+  }
+});
+
+it("keeps a drag going through another Actor's edit to a different path", () => {
+  dragThrough(
+    (doc, _, b) =>
+      message("tx", { rev: doc.rev + 1, actor: "agent", updated: [reversed(doc, b.id)] }),
+    (name, g) => {
+      const { moved, sent } = finish(g);
+      expect(moved, name).toBe(g.index[0]);
+      expect(sent.length, name).toBe(1);
+      const [c] = sent;
+      expect(c?.type === "path_edit" && firstIndex(c.input), name).toBe(g.index[0]);
+    },
+  );
+});
+
+it("keeps a drag going through the answer to the person's own earlier edit on the same path", () => {
+  for (const [name, g] of Object.entries(grabs)) {
+    vi.mocked(send).mockClear();
+    const { doc, a, b } = rings(g.hole);
+    const keys = { anchors: [anchorKey(a.id, 1, 0)] };
+    useStore.setState(viewState({ doc, selection: [a.id, b.id], role: "owner", ...keys }));
+    const [x, y] = g.at;
+    // The earlier drag, sent as command "c" and not yet answered.
+    g.down(doc, x, y);
+    g.move(doc, x + 5, y);
+    g.up(doc, x + 5, y);
+    const earlier = useStore.getState().edit;
+    expect(earlier?.commandIds, name).toEqual(["c"]);
+    // The next drag on the same path, whose preview takes the screen before that answer.
+    g.down(doc, x, y);
+    g.move(doc, x + 4, y);
+    const answer = message("tx", {
+      rev: doc.rev + 1,
+      commandId: "c",
+      updated: [previewEdit(doc, earlier as PathDrag).nodes.get(a.id) as Node],
+    });
+    useStore.setState(stateAfter(useStore.getState(), answer));
+    expect(firstIndex(useStore.getState().edit?.inputs[0]), name).toBe(g.index[0]);
+    const { moved, sent } = finish(g);
+    expect(moved, name).toBe(g.index[0]);
+    expect(sent.length, name).toBe(1);
+  }
+});
+
+it("lets go only of the Anchors on the path another Actor edits, in a drag of two paths", () => {
+  vi.mocked(send).mockClear();
+  const { doc, a, b } = rings();
+  // Each hole's Anchor 3, a's at (20, 10) and b's at (70, 10), dragged together.
+  const anchors = [anchorKey(a.id, 1, 3), anchorKey(b.id, 1, 3)];
+  useStore.setState(viewState({ doc, selection: [a.id, b.id], role: "owner", anchors }));
+  const paths = () => useStore.getState().edit?.inputs.map((i) => i.nodeId);
+  directTool.down(event(doc, 20, 10));
+  directTool.move?.(event(doc, 25, 10));
+  expect(paths()).toEqual([a.id, b.id]);
+  const theirs = message("tx", {
+    rev: doc.rev + 1,
+    actor: "agent",
+    updated: [reversed(doc, a.id)],
+  });
+  useStore.setState(stateAfter(useStore.getState(), theirs));
+  expect(paths()).toEqual([b.id]);
+  const now = useStore.getState().doc as Document;
+  directTool.move?.(event(now, 26, 10));
+  expect(useStore.getState().edit?.inputs).toEqual([
+    { nodeId: b.id, ops: [{ op: "move_anchor", subpath: 1, index: 3, to: [76, 10] }] },
+  ]);
+  directTool.up?.(event(now, 26, 10));
+  expect(commands()).toEqual([
+    {
+      type: "path_edit",
+      input: { nodeId: b.id, ops: [{ op: "move_anchor", subpath: 1, index: 3, to: [76, 10] }] },
+    },
+  ]);
+});
+
+it("after a reconnect mid-drag, keeps the drag only on a path as it was or as the press leaves it", () => {
+  const snapshot = (doc: Document, swap: (n: Node) => Node | null) =>
+    message("document", {
+      rev: doc.rev + 1,
+      nodes: [...doc.nodes.values()].flatMap((n) => swap(n) ?? []),
+    });
+  // No press in flight: unchanged keeps the drag; reversed or deleted, by whoever, lets it go.
+  const cases = {
+    unchanged: (_: Document, n: Node) => n,
+    reversed: (doc: Document, n: Node, a: Node) => (n.id === a.id ? reversed(doc, a.id) : n),
+    deleted: (_: Document, n: Node, a: Node) => (n.id === a.id ? null : n),
+  };
+  for (const [kind, swap] of Object.entries(cases)) {
+    dragThrough(
+      (doc, a) => snapshot(doc, (n) => swap(doc, n, a)),
+      (name, g) => {
+        const label = `${name}, ${kind}`;
+        expect(useStore.getState().notice, label).toBeNull();
+        const { moved, sent } = finish(g);
+        if (kind !== "unchanged")
+          return expect({ moved, sent }, label).toEqual({ moved: undefined, sent: [] });
+        expect(moved, label).toBe(g.index[0]);
+        const [c] = sent;
+        expect(c?.type === "path_edit" && firstIndex(c.input), label).toBe(g.index[0]);
+      },
+    );
+  }
+  // With a press in flight, the press's reverse renumbers the drag, as its answer does (#296); any
+  // other reshape lets it go.
+  vi.useFakeTimers();
+  const reshapes = {
+    reversed: reversed,
+    "added Anchor": (doc: Document, id: string) =>
+      editPath(
+        { ...doc, nodes: new Map(doc.nodes) },
+        { nodeId: id, ops: [{ op: "add_anchor", subpath: 1, segment: 0, t: 0.5 }] },
+      ).node,
+  };
+  for (const [kind, reshape] of Object.entries(reshapes)) {
+    for (const [name, g] of Object.entries(grabs)) {
+      const label = `${name}, ${kind}`;
+      const { doc, a, pressed } = pressOn((a) => ({ anchors: [anchorKey(a.id, 1, 0)] }), g.hole);
+      useStore.setState({ ...pressed, edit: null, drag: null, held: [], ran: [] });
+      vi.advanceTimersByTime(1000);
+      const [x, y] = g.at;
+      g.down(doc, x, y);
+      g.move(doc, x + 5, y);
+      const msg = snapshot(doc, (n) => (n.id === a.id ? reshape(doc, a.id) : n));
+      useStore.setState(stateAfter(useStore.getState(), msg));
+      runHeld();
+      const { moved, sent } = finish(g);
+      if (kind !== "reversed") {
+        expect({ moved, sent }, label).toEqual({ moved: undefined, sent: [] });
+        continue;
+      }
+      expect(moved, label).toBe(g.index[1]);
+      const [c] = sent;
+      expect(c?.type === "path_edit" && firstIndex(c.input), label).toBe(g.index[1]);
+    }
   }
   vi.useRealTimers();
 });

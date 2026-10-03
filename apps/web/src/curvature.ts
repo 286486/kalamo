@@ -7,7 +7,7 @@ import {
   type PathEditInput,
   type PathOp,
 } from "@kalamo/core";
-import { settleDrag } from "./canvas.ts";
+import { settleDrag, showDrag } from "./canvas.ts";
 import {
   anchorKey,
   anchorsOf,
@@ -110,7 +110,9 @@ export const curvaturePressed = () => press !== null;
  */
 export function curvatureDown(p: Point, tolerance: number, alt: boolean) {
   const time = Date.now();
-  const double = !!lastDown && time - lastDown.time < DOUBLE_MS && near(p, lastDown.at, tolerance);
+  // A clock set back since the last press reads as a new press, never a double-click.
+  const since = lastDown ? time - lastDown.time : -1;
+  const double = since >= 0 && since < DOUBLE_MS && !!lastDown && near(p, lastDown.at, tolerance);
   lastDown = double ? null : { at: p, time };
   const s = useStore.getState();
   const pen = drawing(s);
@@ -180,7 +182,7 @@ export function curvatureDrag(p: Point) {
     const d = localDelta(s.doc, n, p[0] - press.from[0], p[1] - press.from[1]);
     press.d = d;
     const input = moveInput(s.doc, key, d);
-    useStore.setState({ edit: input ? { inputs: [input], commandIds: null } : null });
+    showDrag({ edit: input ? { inputs: [input], commandIds: null } : null });
   }
 }
 

@@ -452,6 +452,9 @@ export const turnTarget =
     return { ...t, key, which: t.which === "handleIn" ? "handleOut" : "handleIn" };
   };
 
+/** The path `t` is on. */
+export const targetNode = (t: Target) => (t.kind === "segment" ? t.nodeId : parseKey(t.key).nodeId);
+
 /** What `t` stands on, as Direct Selection keys, which a press's answer renumbers (ADR-0110). */
 export const targetKeys = (t: Target): { anchors: string[]; segments: string[] } =>
   t.kind === "segment"
