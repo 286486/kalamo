@@ -73,8 +73,8 @@ export function directionOf(s: Directed): boolean | "mixed" | null {
  * Sets the chosen subpaths' direction as one Transaction; sends nothing when none differ. The
  * command names the direction, so a subpath someone else reverses first is left as it is
  * (ADR-0109). The selected Anchors and segments keep their numbers until the answer renumbers
- * them, and Direct Selection edits wait for it (ADR-0110). `w` says the press before it was
- * answered, which the store tracks alone (#279).
+ * them, and Direct Selection edits wait for it (ADR-0110). `w` says the person's own
+ * renumbering command was answered, the press before it included (#279).
  */
 export function setDirection(s: Directed, on: boolean, w: Answered) {
   const { doc } = s;

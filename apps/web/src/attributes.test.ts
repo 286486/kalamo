@@ -3343,25 +3343,26 @@ it("sends a second press once the first is answered, and renumbers the Direct Se
       return { anchors: anchors.map((k) => at(d, k)), ends };
     };
     const chose = points();
-    // On, then Off while On is in flight: Off waits for On's answer.
+    // On, then, while On is in flight, Off if On is accepted or On again if it is rejected: either
+    // way the second waits for On's answer, then turns a's hole of the Document as it is then.
+    const second = outcome === "rejected";
     pressDirection(true);
-    pressDirection(false);
+    pressDirection(second);
     expect(commands(), outcome).toEqual([expect.objectContaining({ clockwise: true })]);
     answer(outcome === "rejected");
     expect(points(), outcome).toEqual(chose);
-    if (outcome === "accepted") {
-      // On turned a's hole, so Off, sent now, turns it back.
-      expect(useStore.getState().anchors, outcome).not.toEqual(chosen.anchors);
-      expect(
-        commands().map((c) => c.type === "path_reverse" && c.clockwise),
-        outcome,
-      ).toEqual([true, false]);
-      answer();
-    } else {
-      // On rejected, the hole already runs Off, so Off sends nothing.
-      expect(commands(), outcome).toHaveLength(1);
-    }
-    expect(useStore.getState(), outcome).toMatchObject({ reversing: null, ...chosen });
+    /** Whether the Direct Selection still has the keys chosen. */
+    const kept = () => useStore.getState().anchors[0] === chosen.anchors[0];
+    // Accepted, On turned a's hole and renumbered the Direct Selection; rejected, it did neither.
+    expect(kept(), outcome).toBe(outcome === "rejected");
+    expect(
+      commands().map((c) => c.type === "path_reverse" && c.clockwise),
+      outcome,
+    ).toEqual([true, second]);
+    answer();
+    // The second turns the hole of the Document then: back after On, or once on the committed one.
+    expect(useStore.getState().reversing, outcome).toBeNull();
+    expect(kept(), outcome).toBe(outcome === "accepted");
     expect(points(), outcome).toEqual(chose);
   }
 });

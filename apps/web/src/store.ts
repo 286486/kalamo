@@ -137,9 +137,9 @@ const views = new Map<string, Pick<State, "viewport" | "selection" | "isolated" 
  * Every command except a `path_edit`, a `path_join`, a `path_op` and a `path_reverse`. The person's
  * own renumbering command, unanswered, would put one that names Anchors, Handles or segments by
  * index on other points, and a `path_op` on whole Nodes reshapes or replaces the paths that edits
- * held for it name by index, so `send` takes each only with `Waited` (ADR-0110). A `path_reverse`, a Reverse Path
- * Direction press, is the renumbering command the store tracks alone, so `send` takes it only with
- * `Answered` (#279).
+ * held for it name by index, so `send` takes each only with `Waited` (ADR-0110). A `path_reverse`,
+ * a Reverse Path Direction press, is the renumbering command the store tracks alone, so `send`
+ * takes it only with `Answered` (#279).
  */
 export type NodeCommand = Exclude<
   Command,
@@ -158,9 +158,10 @@ export type Waited = { readonly [waited]: true };
 
 declare const answered: unique symbol;
 /**
- * `Waited` that only `afterRenumbering` hands, and `unheld` cannot make: the person's own renumbering
- * command was answered. A Reverse Path Direction press needs it, since the store tracks one press in
- * flight, and a second sent before the first is answered would replace its record (#279).
+ * `Waited` that only `afterRenumbering` hands, and `unheld` cannot make: the person's own
+ * renumbering command was answered. A Reverse Path Direction press needs it, since the store tracks
+ * one press in flight, and a second sent before the first is answered would replace its record
+ * (#279).
  */
 export type Answered = Waited & { readonly [answered]: true };
 const WAITED = {} as Answered;
@@ -189,7 +190,8 @@ export function send<C extends Command>(
     ? []
     : [C] extends [{ type: "path_edit" }]
       ? [Waited, Renumbering?]
-      : [Extract<C, { type: "path_reverse" }>] extends [never]
+      : // Any union that may hold a press, not only a press alone.
+        [Extract<C, { type: "path_reverse" }>] extends [never]
         ? [Waited]
         : [Answered]
 ): string {
@@ -235,14 +237,15 @@ const unanswered = (s: Pick<State, "sent">, seed: string[] | undefined) =>
  * answered, on the Document as it is then and the keys the person had chosen, renumbered (ADR-0110,
  * #298). The edit is handed the `Answered` its commands by index, and a press, are sent with.
  * `chosen` overrides the Direct Selection's keys, as a drag's own do; a `target` stands on its own
- * keys, and the edit reads it alone, as the answer turns it. With `previewed`, the live gesture's unsent preview in
- * `edit` and `drag` is the edit's own and leaves the live slots: held, it goes with the edit, so
- * the next gesture's preview leaves it on screen; run, it gives way to what the edit sends, if
- * anything. Either way the edit never sees or changes the live slots' preview (#285). An `op`, the
- * open bar's or dialog's preview of a `path_op`, is its own the same way, and leaves `opPreview`
- * (#299). A `set_d` edit's `redraw` comes from `afterRedraw`, its one run step (#286, #309); its
- * `seed` holds it, and the edits after it, until the answers to the edits it was drawn on (#293,
- * #308, #309). `pulled` turns its preview as an Anchor Point drag out of an Anchor sends it (#286).
+ * keys, and the edit reads it alone, as the answer turns it. With `previewed`, the live gesture's
+ * unsent preview in `edit` and `drag` is the edit's own and leaves the live slots: held, it goes
+ * with the edit, so the next gesture's preview leaves it on screen; run, it gives way to what the
+ * edit sends, if anything. Either way the edit never sees or changes the live slots' preview
+ * (#285). An `op`, the open bar's or dialog's preview of a `path_op`, is its own the same way, and
+ * leaves `opPreview` (#299). A `set_d` edit's `redraw` comes from `afterRedraw`, its one run step
+ * (#286, #309); its `seed` holds it, and the edits after it, until the answers to the edits it was
+ * drawn on (#293, #308, #309). `pulled` turns its preview as an Anchor Point drag out of an Anchor
+ * sends it (#286).
  */
 export function afterRenumbering(
   edit: (s: State & Chosen, w: Answered) => void,
