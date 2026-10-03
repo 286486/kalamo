@@ -225,9 +225,8 @@ const unanswered = (s: Pick<State, "sent">, seed: string[] | undefined) =>
  * Either way the edit never sees or changes the live slots' preview (#285). An `op`, the open bar's
  * or dialog's preview of a `path_op`, is its own the same way, and leaves `opPreview` (#299). A
  * `seed` holds it, and the edits after it, until the answers to the edits it was drawn on (#293,
- * #308, #309). A `set_d`
- * edit's `redraw` comes from `afterRedraw`, its one run step (#286, #309); `pulled`
- * turns its preview as an Anchor Point drag out of an Anchor sends it (#286).
+ * #308, #309). A `set_d` edit's `redraw` comes from `afterRedraw`, its one run step (#286, #309);
+ * `pulled` turns its preview as an Anchor Point drag out of an Anchor sends it (#286).
  */
 export function afterReverse(
   edit: (s: State & Chosen, w: Waited) => void,

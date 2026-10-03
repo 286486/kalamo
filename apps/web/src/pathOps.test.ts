@@ -413,12 +413,27 @@ it("draws a Simplify, Offset Path or Split Into Grid confirmed after a drag on t
   }
 });
 
+/**
+ * `pressed`'s fixture, with nothing in flight but `first`: the press, or Add Anchor Points on p,
+ * which opens #298's window for the person's own renumbering command.
+ */
+function waitingOn(first: "press" | "window") {
+  if (first === "press") return pressed(LINED);
+  const s = pressed({ ...LINED, press: false });
+  useStore.setState({ selection: [s.p.id] });
+  menuItem("Object", "Path", "Add Anchor Points").run();
+  useStore.setState({ selection: [s.p.id, s.q.id, s.r.id] });
+  return { ...s, press: log[0]?.id };
+}
+
 it("keeps a held Simplify, Offset Path or Split Into Grid preview its own until its answer, while another op is previewed and confirmed (#299)", () => {
   for (const op of PREVIEWED) {
-    for (const press of ["accepted", "rejected"] as const) {
+    for (const [first, press] of ["press", "window"].flatMap((f) =>
+      (["accepted", "rejected"] as const).map((o) => [f as "press" | "window", o] as const),
+    )) {
       for (const outcome of ["accepted", "rejected"] as const) {
-        const label = `${op}, press ${press}, op ${outcome}`;
-        const { p, q, doc, server, ...s } = pressed(LINED);
+        const label = `${op}, ${first} ${press}, op ${outcome}`;
+        const { p, q, doc, server, ...s } = waitingOn(first);
         const input = opsOn([q.id])[op];
         const own = made(doc, p.id, input);
         expect(own.length, label).toBeGreaterThan(0);

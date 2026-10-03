@@ -2672,7 +2672,8 @@ it("never sends an edit made before the answer to Undo, Redo or Simplify with in
   const commandsOf: Record<string, (a: Node) => void> = {
     Undo: undo,
     Redo: undo,
-    // Simplify with no preview, sent as its OK sends it (`sendPathOp`).
+    // Simplify with no preview, as `sendPathOp` sends it; this file's `send` mock cannot see a
+    // call inside the store module.
     Simplify: (a) =>
       afterReverse((_s, w) =>
         send({ type: "path_op", input: { nodeIds: [a.id], op: "simplify", tolerance: 5 } }, w),

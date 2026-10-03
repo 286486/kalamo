@@ -180,7 +180,7 @@ export function Viewer({ docId }: { docId: string }) {
 
   // Every preview but the live gesture's, which applies last: an op preview refits its paths, so it
   // runs once per change, not once per frame of a drag.
-  const under = useMemo(
+  const belowGesture = useMemo(
     () =>
       doc && previewAll(doc, previewsOf({ sentPreviews, held, opPreview, edit: null, drag: null })),
     [doc, sentPreviews, held, opPreview],
@@ -188,9 +188,9 @@ export function Viewer({ docId }: { docId: string }) {
 
   // Hit tests use `doc`; only the drawing shows the drag.
   const shown = useMemo(() => {
-    const edited = under && previewAll(under, [{ edit, drag }]);
+    const edited = belowGesture && previewAll(belowGesture, [{ edit, drag }]);
     return edited && paintPreview ? withPaints(edited, paintPreview.updates) : edited;
-  }, [under, drag, edit, paintPreview]);
+  }, [belowGesture, drag, edit, paintPreview]);
   // A Reverse Path Direction press in flight shows on the Document only: the overlay's Anchors keep
   // the committed numbering the keys use, at the same places (ADR-0110).
   const drawn = useMemo(
