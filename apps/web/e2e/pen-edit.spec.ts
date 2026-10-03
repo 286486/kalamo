@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { pixel } from "./canvas.ts";
 import { call } from "./mcp.ts";
 
 // #81: the Pen continues and connects an Agent's paths; +, - and Shift+C edit their Anchors.
@@ -213,4 +214,58 @@ test("an Agent's deletion of the path a Pen press connects to drops the connecti
   await page.keyboard.press("Enter");
   await expect.poll(paths).toEqual(["M 20 80 L 60 80"]);
   expect(errors).toEqual([]);
+});
+
+// #292: a reconnect that keeps the Pen's continuation keeps drawing what it drew on the path.
+test("a reconnect keeps the Pen continuation drawn", async ({ page, request }) => {
+  const { docId, defaultLayerId: parentId } = (
+    await call(request, "kalamo_doc_create", {
+      name: "Pen reconnect",
+      artboards: [{ width: 200, height: 100, background: "#FFFFFF" }],
+    })
+  ).structuredContent;
+  const created = await call(request, "kalamo_node_create", {
+    docId,
+    nodes: [
+      {
+        type: "path",
+        parentId,
+        d: "M 20 20 L 60 20",
+        appearance: { fills: [], strokes: [{ color: "#FF0000", width: 6 }] },
+      },
+    ],
+  });
+  const [a] = created.structuredContent.createdIds as [string];
+  const d = async () =>
+    (await call(request, "kalamo_node_get", { docId, nodeIds: [a], detail: "full" }))
+      .structuredContent?.nodes[0]?.d;
+  let sockets = 0;
+  let close = () => {};
+  await page.routeWebSocket(/\/ws$/, (ws) => {
+    sockets += 1;
+    ws.connectToServer();
+    close = () => ws.close();
+  });
+
+  await page.goto(`/docs/${docId}`);
+  await expect(page.getByTestId("status-bar")).toContainText(/\d+%/);
+  await page.keyboard.press("Control+1");
+  await expect(page.getByTestId("status-bar")).toContainText("100%");
+  const box = await page.getByTestId("canvas").boundingBox();
+  if (!box) throw new Error("no canvas");
+  const at = (x: number, y: number) =>
+    [box.x + box.width / 2 + x - 100, box.y + box.height / 2 + y - 50] as const;
+
+  await page.keyboard.press("p");
+  await page.mouse.click(...at(60, 20));
+  await page.mouse.click(...at(100, 60));
+  // The new segment's middle, painted in the path's Stroke.
+  await expect.poll(() => pixel(page, 80, 40)).toEqual([255, 0, 0]);
+  close();
+  await expect.poll(() => sockets).toBe(2);
+  await expect(page.getByTestId("status-bar")).not.toContainText("connecting");
+  await page.waitForTimeout(100);
+  expect(await pixel(page, 80, 40)).toEqual([255, 0, 0]);
+  await page.keyboard.press("Enter");
+  await expect.poll(d).toBe("M 20 20 L 60 20 L 100 60");
 });

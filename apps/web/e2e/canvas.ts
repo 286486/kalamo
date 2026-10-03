@@ -30,3 +30,15 @@ export const shows = (page: Page, [x, y]: [number, number], color: number[], r =
     },
     [x, y, r, color] as [number, number, number, number[]],
   );
+
+/** The canvas's colour at (x, y) in document coordinates, at 100% with the Artboard centred. */
+export function pixel(page: Page, x: number, y: number) {
+  return page.getByTestId("canvas").evaluate(
+    (el: HTMLCanvasElement, [x, y]: [number, number]) => {
+      const k = el.width / el.getBoundingClientRect().width;
+      const [px, py] = [(el.width / k / 2 + x - 100) * k, (el.height / k / 2 + y - 50) * k];
+      return [...(el.getContext("2d")?.getImageData(px, py, 1, 1).data ?? [])].slice(0, 3);
+    },
+    [x, y] as [number, number],
+  );
+}

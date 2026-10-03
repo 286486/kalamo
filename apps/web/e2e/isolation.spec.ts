@@ -1,4 +1,5 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { pixel } from "./canvas.ts";
 import { call } from "./mcp.ts";
 
 const fill = (color: string) => ({ fills: [{ color }], strokes: [] });
@@ -195,15 +196,3 @@ test("Isolation Mode enters, edits inside, navigates and leaves a Clip Group", a
   await expect(pixel(page, 140, 50)).resolves.toEqual([0, 255, 0]);
   expect((await pixel(page, 115, 50))[1]).not.toBe(255);
 });
-
-/** The canvas's colour at (x, y) in document coordinates, at 100% with the Artboard centred. */
-function pixel(page: Page, x: number, y: number) {
-  return page.getByTestId("canvas").evaluate(
-    (el: HTMLCanvasElement, [x, y]: [number, number]) => {
-      const k = el.width / el.getBoundingClientRect().width;
-      const [px, py] = [(el.width / k / 2 + x - 100) * k, (el.height / k / 2 + y - 50) * k];
-      return [...(el.getContext("2d")?.getImageData(px, py, 1, 1).data ?? [])].slice(0, 3);
-    },
-    [x, y] as [number, number],
-  );
-}

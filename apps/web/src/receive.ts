@@ -560,7 +560,10 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     ...(msg.type === "document" ? s.sent.size > 0 && { sent: new Set() } : settleSent(s.sent, id)),
     anchors,
     segments,
-    ...(msg.type === "document" ? { edit: null } : settle(s.edit, msg.commandId)),
+    // A continuation the reconnect keeps is drawn again on the new Document (#292).
+    ...(msg.type === "document"
+      ? { edit: (!reached && penState(doc, pen, null).edit) || null }
+      : settle(s.edit, msg.commandId)),
     ...(msg.type === "document"
       ? s.ran.length > 0 && { ran: [] }
       : settleRan(s.ran, msg.commandId)),
