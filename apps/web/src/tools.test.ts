@@ -406,6 +406,11 @@ it("ends a continuation when another Actor edits or deletes its path, and only t
     const s = useStore.getState();
     const stored = s.doc?.nodes.get(a);
     if (label in keeps) {
+      // #292: the continued path is still drawn with the Pen's Anchors, before any further input.
+      expect(s.edit, label).toEqual({
+        inputs: [{ nodeId: a, ops: [{ op: "set_d", d: "M 0 0 L 10 0 L 20 10 M 0 20 L 10 20" }] }],
+        commandIds: null,
+      });
       penClick([30, 10], 1);
       finishPen();
       const finished = "M 0 0 L 10 0 L 20 10 L 30 10 M 0 20 L 10 20";
