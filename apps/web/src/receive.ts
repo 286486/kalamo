@@ -542,13 +542,14 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
       ...(s.opPreview?.commandId === msg.id && { opPreview: null }),
       ...(s.paintPreview?.commandId === msg.id && { paintPreview: null }),
       ...sentPreviews,
+      // Drawn work's drop notices first, as ADR-0110 joins them (#291).
       notice: joinNotices([
+        ...gone.notices,
         code === "NODE_GONE"
           ? "Someone else deleted that object first; it stays deleted."
           : code === "ENDPOINTS_APART"
             ? PEN_MOVED
             : msg.error.message,
-        ...gone.notices,
       ]),
     };
   }
