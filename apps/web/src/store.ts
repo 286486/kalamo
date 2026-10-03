@@ -16,6 +16,7 @@ import {
   type Chosen,
   type Effect,
   type Held,
+  heldRan,
   joinNotices,
   opening,
   type Preview,
@@ -204,7 +205,11 @@ export function renumbers(id: string, r: Renumbering) {
 export const waiting = (s: Pick<State, "reversing" | "renumbering">) =>
   !!s.reversing || s.renumbering.size > 0;
 
-/** Whether one of the commands a held Pen finish was drawn on is unanswered (#293). */
+/**
+ * Whether one of the commands a held Pen finish was drawn on is unanswered (#293). A held edit's
+ * token in its seed is never in `sent`: that edit runs first, and its token gives way to what it
+ * sent (#308).
+ */
 const unanswered = (s: Pick<State, "sent">, seed: string[] | undefined) =>
   !!seed?.some((id) => s.sent.has(id));
 
@@ -218,7 +223,7 @@ const unanswered = (s: Pick<State, "sent">, seed: string[] | undefined) =>
  * `drag` is the edit's own and leaves the live slots: held, it goes with the edit, so the next
  * gesture's preview leaves it on screen; run, it gives way to what the edit sends, if anything.
  * Either way the edit never sees or changes the live slots' preview (#285). A Pen finish's `seed`
- * holds it, and the edits after it, until the answers to the edits it was drawn on (#293).
+ * holds it, and the edits after it, until the answers to the edits it was drawn on (#293, #308).
  */
 export function afterReverse(
   edit: (s: State & Chosen, w: Waited) => void,
@@ -236,7 +241,7 @@ export function afterReverse(
   const preview: Preview = { edit: previewed ? s.edit : null, drag: previewed ? s.drag : null };
   if (previewed) useStore.setState({ edit: null, drag: null });
   if (!waiting(s) && s.held.length === 0 && !unanswered(s, seed)) return run(c);
-  const h: Held = { chosen: c, run, preview, ...(seed && { seed }) };
+  const h: Held = { chosen: c, run, preview, token: newId(), ...(seed && { seed }) };
   useStore.setState({ held: [...useStore.getState().held, h] });
 }
 
@@ -253,7 +258,8 @@ export function drawSent(p: Preview) {
 /**
  * Runs the held edits in order; one that sends a command that may renumber a path, such as another
  * press, holds the rest (#298). Each runs off its own preview, which it replaces with what it sends
- * or drops, touching no other (ADR-0110). One that throws stops only itself: the rest still run,
+ * or drops, touching no other (ADR-0110); what was drawn on it then waits for what it sent, or goes
+ * when it sent nothing (#308). One that throws stops only itself: the rest still run,
  * and the error is thrown once they have. The notices they set, such as a drop of what the person
  * drew, are shown before `said`, the notice of the message that answered, so none replaces another
  * (#291).
@@ -269,12 +275,17 @@ export function runHeld(said?: string | null) {
     if (!h || waiting(state) || unanswered(state, h.seed)) break;
     runs++;
     useStore.setState({ held: rest, notice: null });
-    const from = useStore.getState().sentPreviews.length;
+    const { sentPreviews: was, sent } = useStore.getState();
+    const from = was.length;
     try {
       h.run(h.chosen);
     } catch (e) {
       errors.push(e);
     }
+    const ran = useStore.getState();
+    const ids = [...ran.sent].filter((id) => !sent.has(id));
+    const { state: after, notices: gone } = heldRan(ran, h.token, ids);
+    useStore.setState({ ...after, notice: joinNotices([ran.notice, ...gone]) || null });
     // What it sent is marked as a held edit's (#288).
     const { sentPreviews } = useStore.getState();
     if (sentPreviews.length > from) {

@@ -97,8 +97,8 @@ export interface PenPath {
   /**
    * The path the Pen continues from its Endpoint: `anchors` start with its subpath's `kept` Anchors
    * as drawn, turned to end at that Endpoint. `to` is another path's Endpoint the last Anchor
-   * connects to, as drawn. Each `seed` is the person's sent, unanswered edits to its path that
-   * drawing applied (#293).
+   * connects to, as drawn. Each `seed` is what its path as drawn is built on: the person's sent,
+   * unanswered edits to it, by command id (#293), and their held edits to it, by token (#308).
    */
   from?: Endpoint & { kept: number; seed?: string[] };
   to?: Endpoint & { seed?: string[] };
@@ -191,8 +191,13 @@ export interface Held {
   run: (chosen: Chosen) => void;
   preview: Preview;
   /**
-   * A Pen finish's `from` and `to` seeds: it waits for their answers, and a rejection of one drops
-   * it (#293).
+   * Names it in what is drawn on its preview until it runs: a seed then holds the ids it sent in its
+   * place, or goes with it if it sent nothing (#308).
+   */
+  token: string;
+  /**
+   * A Pen finish's `from` and `to` seeds: it waits for their answers, and a rejection of one, or a
+   * held edit named that sends nothing, drops it (#293, #308).
    */
   seed?: string[];
 }
@@ -437,7 +442,8 @@ function classify(
         geometryOf(pressedThen, n) !== geometryOf(doc, n);
     };
     const reshaped = changedSince(prior);
-    const seen = prior && asDrawn(prior, s);
+    // A held edit was never sent, so the Document cannot have it.
+    const seen = prior && asDrawn(prior, { ...s, held: [] });
     const redrawn = changedSince(seen);
     const placed = (n: string) =>
       String(seen?.nodes.get(n)?.transform) !== String(doc.nodes.get(n)?.transform);
@@ -503,30 +509,13 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     return {};
   if (msg.type === "rejected") {
     const { code } = msg.error;
-    // What the Pen drew on the person's rejected edit would write it back, so it goes: the
-    // continuation, the connection, or a held finish (#293).
-    const on = (e: { seed?: string[] } | undefined) => !!e?.seed?.includes(msg.id);
-    const stopped = on(s.pen?.from);
-    const unmet = !stopped && s.pen && on(s.pen.to) ? disconnected(s.pen, s.penPress) : null;
-    const held = s.held.filter((h) => !h.seed?.includes(msg.id));
     const sent = settleSent(s.sent, msg.id);
     const sentPreviews = settleSentPreviews(s.sentPreviews, msg.id);
+    // What the Pen drew on the person's rejected edit would write it back, so it goes (#293).
+    const gone = dropDrawnOn({ ...s, ...sent, ...sentPreviews }, [msg.id]);
     return {
       ...sent,
-      ...(stopped && { pen: null, ...(s.edit && { edit: null }) }),
-      ...(unmet && {
-        ...penState(
-          s.doc &&
-            asDrawn(s.doc, {
-              sent: sent.sent ?? s.sent,
-              sentPreviews: sentPreviews.sentPreviews ?? s.sentPreviews,
-            }),
-          unmet.pen,
-          s.edit,
-        ),
-        penPress: unmet.penPress,
-      }),
-      ...(held.length < s.held.length && { held }),
+      ...gone.state,
       ...(s.reversing?.commandId === msg.id && { reversing: null }),
       ...settleRenumbering(s.renumbering, msg.id),
       ...settlePending(s.pending, msg.id),
@@ -539,9 +528,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
           : code === "ENDPOINTS_APART"
             ? PEN_MOVED
             : msg.error.message,
-        stopped && PEN_STOPPED.unapplied,
-        unmet && PEN_DISCONNECTED.unapplied,
-        held.length < s.held.length && PEN_DROPPED.unapplied,
+        ...gone.notices,
       ]),
     };
   }
@@ -575,11 +562,21 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
   // are renumbered to stay on their points (ADR-0110).
   const settled =
     !!s.reversing && (msg.type === "document" || msg.commandId === s.reversing.commandId);
+  // A reconnect loses the answers to the commands in flight, so their previews go; the live
+  // gesture's unsent preview stays while what it holds does (#285).
+  const { sentPreviews: sentLeft = s.sentPreviews } =
+    msg.type === "document" ? { sentPreviews: [] } : settleSentPreviews(s.sentPreviews, id);
+  const sentAfter =
+    msg.type === "document" ? new Set<string>() : (settleSent(s.sent, id).sent ?? s.sent);
+  // A Pen finish's keys are numbered on its paths as drawn, the edits it waits for applied (#308).
+  const drawnAfter = s.held.some((h) => h.seed)
+    ? asDrawn(doc, { sentPreviews: sentLeft, sent: sentAfter, held: s.held })
+    : doc;
   // Keys stay on a Node the message left alone; on one it touched, while they keep and are in range.
   const keptBy =
     (what: "keys" | "held" | "seeded") => (inRangeOf: typeof inRange) => (key: string) => {
       const f = fates(parseKey(key).nodeId);
-      return !f || (f[what] !== "ends" && inRangeOf(doc, key));
+      return !f || (f[what] !== "ends" && inRangeOf(what === "seeded" ? drawnAfter : doc, key));
     };
   const kept = keptBy("keys");
   const turned =
@@ -639,10 +636,6 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     .filter(present);
   const regrabbed = (turned.length > 0 || letGo.size > 0 || !!map) && s.regrab?.(doc, grabbed);
   const skipped = msg.type === "tx" ? (msg.skippedIds?.length ?? 0) : 0;
-  // A reconnect loses the answers to the commands in flight, so their previews go; the live
-  // gesture's unsent preview stays while what it holds does (#285).
-  const { sentPreviews: sentLeft = s.sentPreviews } =
-    msg.type === "document" ? { sentPreviews: [] } : settleSentPreviews(s.sentPreviews, id);
   // A selected Node that a browser's command moved into a new Group selects that Group, as Make
   // Clipping Mask does; an Agent's edit leaves the person's Selection alone.
   const made = new Set(msg.type === "tx" && msg.commandId ? msg.created.map((n) => n.id) : []);
@@ -690,7 +683,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     ...(settled && { reversing: null }),
     ...(pen !== s.pen && { pen }),
     ...(dropped && {
-      ...penState(asDrawn(doc, { sentPreviews: sentLeft, sent: s.sent }), dropped.pen, s.edit),
+      ...penState(asDrawn(doc, { ...s, sentPreviews: sentLeft }), dropped.pen, s.edit),
       penPress: dropped.penPress,
     }),
     ...((turned.length > 0 || letGo.size > 0 || !!map) && { grabbed }),
@@ -808,26 +801,104 @@ export const previewAll = (doc: Document, previews: Preview[]): Document =>
   }, doc);
 
 /**
- * `doc` as the person sees it: with their unanswered edits and Selection tool moves applied, in the
- * order sent, as the Document DO applies a command sent now (#293). An edit counts only while `sent`
- * records it: one dropped while the socket was down is never applied, so the Pen must not write it
- * back. An Alt-drag's copies are left out: they are not in the Document until its answer, so nothing
- * can be continued or joined on them.
+ * A preview the paths as drawn include, and what it waits on: a sent command's id, or a held edit's
+ * token until it runs (#308).
  */
-export const asDrawn = (
-  doc: Document,
-  { sentPreviews, sent }: Pick<ViewState, "sentPreviews" | "sent">,
-) =>
-  previewAll(
-    doc,
-    sentPreviews.map(({ edit, drag }) => ({
-      edit: edit && {
-        ...edit,
-        inputs: edit.inputs.filter((_, i) => sent.has(edit.commandIds?.[i] ?? "")),
-      },
-      drag: drag && !drag.copy ? drag : null,
-    })),
-  );
+export type DrawnOn = Preview & { on: string };
+
+/**
+ * What the paths as drawn are built on, in the order the Document DO will apply it (#293, #308): the
+ * person's sent, unanswered edits and Selection tool moves, one entry per command, then their held
+ * edits' previews, in the order they will run. An edit counts only while `sent` records it: one
+ * dropped while the socket was down is never applied, so the Pen must not write it back. An
+ * Alt-drag's copies are left out: they are not in the Document until its answer, so nothing can be
+ * continued or joined on them. The live slots are the gesture being made, not what it is drawn on.
+ */
+export const drawnOn = (s: Pick<ViewState, "sentPreviews" | "sent" | "held">): DrawnOn[] => [
+  ...s.sentPreviews.flatMap(({ edit, drag }) => [
+    ...(drag?.commandId && !drag.copy ? [{ edit: null, drag, on: drag.commandId }] : []),
+    ...(edit?.inputs.flatMap((input, i) => {
+      const id = edit.commandIds?.[i];
+      return id && s.sent.has(id)
+        ? [{ edit: { inputs: [input], commandIds: [id] }, drag: null, on: id }]
+        : [];
+    }) ?? []),
+  ]),
+  ...s.held.map((h) => ({ ...h.preview, on: h.token })),
+];
+
+/** `doc` as the person sees it under the gesture being made: with what `drawnOn` lists applied. */
+export const asDrawn = (doc: Document, s: Pick<ViewState, "sentPreviews" | "sent" | "held">) =>
+  previewAll(doc, drawnOn(s));
+
+/** What a settled held edit leaves the store, and the notices it adds. */
+type Settled = { state: Partial<ViewState>; notices: Parameters<typeof joinNotices>[0] };
+
+type Drawing = Pick<
+  ViewState,
+  "doc" | "sentPreviews" | "sent" | "held" | "pen" | "penPress" | "edit"
+>;
+
+/**
+ * What goes when the edits `gone` names, by command id or held token, are never applied: the held
+ * edits drawn on them, and those drawn on these in turn, the Pen's continuation drawn on any, else
+ * its connection, each with the `unapplied` notice. Nothing they drew is sent (#293, #308).
+ */
+export function dropDrawnOn(s: Drawing, gone: string[]): Settled {
+  const dead = new Set(gone);
+  const on = (e: { seed?: string[] } | undefined) => !!e?.seed?.some((k) => dead.has(k));
+  // Held edits run in order, so each is drawn only on those before it.
+  const held = s.held.filter((h) => {
+    const goes = on(h);
+    if (goes) dead.add(h.token);
+    return !goes;
+  });
+  const dropped = held.length < s.held.length;
+  const stopped = on(s.pen?.from);
+  const unmet = !stopped && s.pen && on(s.pen.to) ? disconnected(s.pen, s.penPress) : null;
+  return {
+    state: {
+      ...(dropped && { held }),
+      ...(stopped && { pen: null, ...(s.edit && { edit: null }) }),
+      ...(unmet && {
+        ...penState(s.doc && asDrawn(s.doc, { ...s, held }), unmet.pen, s.edit),
+        penPress: unmet.penPress,
+      }),
+    },
+    notices: [
+      stopped && PEN_STOPPED.unapplied,
+      unmet && PEN_DISCONNECTED.unapplied,
+      dropped && PEN_DROPPED.unapplied,
+    ],
+  };
+}
+
+/**
+ * After held edit `token` ran and sent `ids`: what was drawn on it waits for their answers instead,
+ * or, when it sent nothing, goes (#308).
+ */
+export function heldRan(s: Drawing, token: string, ids: string[]): Settled {
+  if (ids.length === 0) return dropDrawnOn(s, [token]);
+  const { pen } = s;
+  const named = (e: { seed?: string[] } | undefined) => !!e?.seed?.includes(token);
+  if (!s.held.some(named) && !named(pen?.from) && !named(pen?.to))
+    return { state: {}, notices: [] };
+  const swap = <E extends { seed?: string[] }>(e: E): E =>
+    named(e) ? { ...e, seed: e.seed?.flatMap((k) => (k === token ? ids : [k])) } : e;
+  return {
+    state: {
+      held: s.held.map(swap),
+      ...(pen && {
+        pen: {
+          ...pen,
+          ...(pen.from && { from: swap(pen.from) }),
+          ...(pen.to && { to: swap(pen.to) }),
+        },
+      }),
+    },
+    notices: [],
+  };
+}
 
 /**
  * The Pen's path and its preview: a continued path is drawn as its Node, in its own Fill and
