@@ -24,7 +24,7 @@ import {
   disconnected,
   type Endpoint,
   type PenPath,
-  penEdit,
+  penState,
   type ShapeBox,
   VIEWER_TOOLS,
 } from "./receive.ts";
@@ -282,18 +282,10 @@ function penCommand(doc: Document, { from, to, anchors, closed }: PenPath) {
   return { input, command: { type: "path_edit" as const, input } };
 }
 
-/**
- * The Pen's path so far. A continued path is drawn as its Node, in its own Fill and Stroke: a
- * Direct Selection preview of its `set_d`.
- */
+/** The Pen's path so far, and its preview (`penState`). */
 function setPen(pen: PenPath | null) {
   const { doc, edit } = useStore.getState();
-  const input = doc && pen && penEdit(doc, pen);
-  if (!input) {
-    useStore.setState({ pen, ...(edit?.commandIds === null && { edit: null }) });
-    return;
-  }
-  useStore.setState({ pen, edit: { inputs: [input], commandIds: null } });
+  useStore.setState(penState(doc, pen, edit));
 }
 
 /**
@@ -407,7 +399,8 @@ export function penDown(p: Point, tolerance: number, shift = false) {
 export function penDrag(p: Point, mods: PenMods) {
   const pen = drawing(useStore.getState());
   const a = press && pen?.anchors[press.index];
-  if (!press || !pen || !a) return;
+  // A connect press whose connection was dropped drags nothing (#290).
+  if (!press || !pen || !a || (press.kind === "connect" && !pen.to)) return;
   const [dx, dy] = [p[0] - press.at[0], p[1] - press.at[1]];
   press.at = p;
   // Illustrator's documented order is to release Alt, then the button: the cusp stays.

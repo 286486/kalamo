@@ -347,8 +347,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
       : !same(id, prior) && !(prior && s.reversing && same(id, previewEdit(prior, s.reversing))));
   const reached = changed(s.pen?.from?.nodeId);
   const pen = s.pen && turned.length > 0 ? turnedPen(s.pen, turned) : s.pen;
-  const unmet = !reached && pen?.to && changed(pen.to.nodeId) ? disconnected(pen) : null;
-  const preview = unmet && penEdit(doc, unmet);
+  const dropped = !reached && pen?.to && changed(pen.to.nodeId) ? disconnected(pen) : null;
   const skipped = msg.type === "tx" ? (msg.skippedIds?.length ?? 0) : 0;
   // A selected Node that a browser's command moved into a new Group selects that Group, as Make
   // Clipping Mask does; an Agent's edit leaves the person's Selection alone.
@@ -393,10 +392,8 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
       ? s.ran.length > 0 && { ran: [] }
       : settleRan(s.ran, msg.commandId)),
     ...(settled && { reversing: null }),
-    ...((unmet ?? pen) !== s.pen && { pen: unmet ?? pen }),
-    ...(preview
-      ? { edit: { inputs: [preview], commandIds: null } }
-      : unmet && s.edit?.commandIds === null && { edit: null }),
+    ...(pen !== s.pen && { pen }),
+    ...(dropped && penState(doc, dropped, s.edit)),
     ...(s.held.length > 0 && {
       held: s.held.map((h) => ({
         ...h,
@@ -417,11 +414,11 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
         paintPreview: null,
       }),
     ...(reached && { pen: null, ...(s.edit?.commandIds === null && { edit: null }) }),
-    ...((reached || unmet || skipped > 0) && {
+    ...((reached || dropped || skipped > 0) && {
       notice: joinNotices([
         reached &&
           "Someone else changed the path the Pen was continuing; the Pen stopped, and what it drew was not applied.",
-        unmet &&
+        dropped &&
           "Someone else changed the path the Pen was connecting to; the connection was not made.",
         skipped > 0 &&
           `Skipped ${skipped} object(s) deleted or moved since; they stay as they are.`,
@@ -507,9 +504,20 @@ export const previewAll = (doc: Document, previews: Preview[]): Document =>
     return edit ? previewEdit(moved, edit) : moved;
   }, doc);
 
-/** The Pen's preview of the path it continues, once it has drawn on it; null before. */
-export const penEdit = (doc: Document, { from, anchors }: PenPath) =>
-  from && anchors.length > from.kept ? replaceSubpath(doc, from, anchors, false) : null;
+/**
+ * The Pen's path and its preview: a continued path is drawn as its Node, in its own Fill and
+ * Stroke, a Direct Selection preview of its `set_d`, once the Pen has drawn on it; before that,
+ * an unsent preview goes.
+ */
+export function penState(doc: Document | null, pen: PenPath | null, edit: PathDrag | null) {
+  const from = pen?.from;
+  if (!doc || !pen || !from || pen.anchors.length <= from.kept)
+    return { pen, ...(edit?.commandIds === null && { edit: null }) };
+  return {
+    pen,
+    edit: { inputs: [replaceSubpath(doc, from, pen.anchors, false)], commandIds: null },
+  };
+}
 
 /** The Pen's path with its connection dropped, as before the press on the Endpoint (#290). */
 export const disconnected = (pen: PenPath): PenPath => ({
