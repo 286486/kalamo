@@ -37,8 +37,8 @@ const DIRECT_HIT = 2;
 
 /**
  * A press on the canvas: moving objects or drawing a marquee, as the Selection tool does, or
- * dragging Anchors, or one Handle or segment, which the store keeps as its `grab` so a Reverse Path
- * Direction press's answer renumbers them (ADR-0110); `last` is its latest move.
+ * dragging Anchors, or one Handle or segment, which the store keeps as its `grab` so the answer to
+ * the person's own renumbering command renumbers them (ADR-0110); `last` is its latest move.
  */
 type Gesture = Press & { last?: { dx: number; dy: number; alt: boolean } } & (
     | { kind: "move"; nodeIds: string[] }
