@@ -196,11 +196,13 @@ export function afterReverse(
 /**
  * Runs the held edits in order; one that presses Reverse Path Direction again holds the rest. Each
  * runs on its own preview, so it replaces or drops that one only: what it sends is drawn in `ran`
- * until answered, and the gesture's preview it set aside is put back (ADR-0110). What `tellDropped`
- * is told meanwhile is shown beside `said`, the notice of the message that answered (#291).
+ * until answered, and the gesture's preview it set aside is put back (ADR-0110). The notices they
+ * set, such as a drop of what the person drew, are shown before `said`, the notice of the message
+ * that answered, so none replaces another (#291).
  */
 export function runHeld(said?: string | null) {
-  told = [];
+  const before = useStore.getState().notice;
+  const notices: string[] = [];
   for (;;) {
     const {
       held: [h, ...rest],
@@ -209,9 +211,10 @@ export function runHeld(said?: string | null) {
       drag,
     } = useStore.getState();
     if (!h || reversing) break;
-    useStore.setState({ held: rest, ...h.preview });
+    useStore.setState({ held: rest, ...h.preview, notice: null });
     h.run(h.chosen);
     const after = useStore.getState();
+    if (after.notice) notices.push(after.notice);
     const sent = {
       edit: after.edit?.commandIds ? after.edit : null,
       drag: after.drag?.commandId ? after.drag : null,
@@ -222,21 +225,7 @@ export function runHeld(said?: string | null) {
       ...((sent.edit || sent.drag) && { ran: [...after.ran, sent] }),
     });
   }
-  const notices = told;
-  told = null;
-  if (notices.length > 0) useStore.setState({ notice: joinNotices([said, ...notices]) });
-}
-
-/** The drop notices of held edits run so far by `runHeld`, which shows them; null outside it. */
-let told: string[] | null = null;
-
-/**
- * Tells the person that what they drew was not applied, as a held edit drops it. Within `runHeld`
- * the notice joins the answering message's, so neither replaces the other (#291).
- */
-export function tellDropped(notice: string) {
-  if (told) told.push(notice);
-  else useStore.setState({ notice });
+  useStore.setState({ notice: joinNotices([...notices, said]) || before });
 }
 
 /** Sends a signed-out person to sign in, coming back to this page. */

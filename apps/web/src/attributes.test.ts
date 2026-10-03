@@ -894,7 +894,7 @@ it("drops a held Pencil redraw when another Actor edits its path before the answ
         expect(shown(p), label).toBe(stored(p));
         // #291: and a notice says the Pencil edit was not applied, beside the rejection's.
         expect(s.notice, label).toMatch(/Pencil edit was not applied/);
-        expect(s.notice?.startsWith("No. "), label).toBe(outcome === "rejected");
+        expect(s.notice?.endsWith(" No."), label).toBe(outcome === "rejected");
       } else {
         // The redraw replaces the stretch from (80, 10) to (80, 25) on p as it then runs.
         expectRedrawn(outcome, label);
@@ -950,7 +950,7 @@ it("tells the person when another Actor's edit drops a held Pen finish", () => {
       const { notice } = useStore.getState();
       expect(notice, label).toMatch(/Pen .*not applied/);
       // A rejection's notice comes from the same message, so it is shown too.
-      expect(notice?.startsWith("No. "), label).toBe(outcome === "rejected");
+      expect(notice?.endsWith(" No."), label).toBe(outcome === "rejected");
     }
   }
 });

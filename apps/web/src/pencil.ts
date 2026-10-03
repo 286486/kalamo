@@ -16,7 +16,7 @@ import { cancelDrag } from "./canvas.ts";
 import { anchorKey, anchorsOf, hasAnchors, localAnchors, nearestSegment } from "./direct.ts";
 import { editable } from "./selection.ts";
 import { getItem } from "./storage.ts";
-import { afterReverse, send, tellDropped, useStore } from "./store.ts";
+import { afterReverse, send, useStore } from "./store.ts";
 import { constrain, near, pathD, sendNewArt } from "./tools.ts";
 
 /** The Pencil (research 06 §3): Ink fitted on release, as one `create` or one `path_edit`. */
@@ -367,13 +367,9 @@ export function pencilUp(scale: number) {
     const own = done.map((p) => applyTo(m, ...p));
     afterReverse(
       ({ doc: now, anchors }, w) => {
-        if (!now) {
+        if (!now || anchors.length === 0) {
           cancelDrag();
-          return;
-        }
-        if (anchors.length === 0) {
-          cancelDrag();
-          tellDropped(DROPPED);
+          if (now) useStore.setState({ notice: DROPPED });
           return;
         }
         const f = frame(now);
@@ -381,7 +377,7 @@ export function pencilUp(scale: number) {
         const again = pencilResult(now, [nodeId], at, o, scale);
         if (!again || !("edit" in again)) {
           cancelDrag();
-          tellDropped(DROPPED);
+          useStore.setState({ notice: DROPPED });
           return;
         }
         const commandIds = [send({ type: "path_edit", input: again.edit }, w)];

@@ -24,15 +24,7 @@ import {
 import { forNewArt, leaving } from "./isolation.ts";
 import { type Endpoint, type PenPath, type ShapeBox, VIEWER_TOOLS } from "./receive.ts";
 import { editable, placeParent } from "./selection.ts";
-import {
-  afterReverse,
-  canEdit,
-  DEFAULT_FILL_STROKE,
-  type State,
-  send,
-  tellDropped,
-  useStore,
-} from "./store.ts";
+import { afterReverse, canEdit, DEFAULT_FILL_STROKE, type State, send, useStore } from "./store.ts";
 import type { Tool, ToolEvent } from "./toolbox.ts";
 
 /** The Fill and Stroke boxes (F-DRAW-12): what new art is painted with; null is None. */
@@ -234,6 +226,10 @@ function endOf(key: string): Endpoint {
   return { nodeId, subpath, atStart: index === 0 };
 }
 
+/** Why a held Pen finish sent nothing: another Actor's edit changed a path it continued or met. */
+const PEN_DROPPED =
+  "Someone else changed a path the Pen was continuing or connecting to; what it drew was not applied.";
+
 /**
  * Finishes a path the Pen continued or connected (research 06 §1): one `path_edit` on the path
  * continued, or on the one a new path connected to, which it continues backwards; continuing one
@@ -263,7 +259,7 @@ function finishEdit(doc: Document, pen: PenPath) {
       // `held` is `keys` renumbered, `from`'s first; another Actor's edit cleared a missing one.
       if (held.length < keys.length) {
         cancelDrag();
-        tellDropped(PEN_DROPPED);
+        useStore.setState({ notice: PEN_DROPPED });
         return;
       }
       const at = held.map(endOf);
@@ -279,10 +275,6 @@ function finishEdit(doc: Document, pen: PenPath) {
     { anchors: keys, segments: [], previewed: true },
   );
 }
-
-/** Why a held Pen finish sent nothing: another Actor's edit changed a path it continued or met. */
-const PEN_DROPPED =
-  "Someone else changed a path the Pen was continuing or connecting to; what it drew was not applied.";
 
 /** The command finishing `pen` on `doc`, and the `path_edit` its preview draws. */
 function penCommand(doc: Document, { from, to, anchors, closed }: PenPath) {
