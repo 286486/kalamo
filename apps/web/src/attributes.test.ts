@@ -1878,15 +1878,22 @@ it("redraws a held Pencil stretch past the answer to the person's own paint chan
 
 it("ends a Pen continuation on the person's own reshape of its path, not on their paint change (#288)", () => {
   for (const outcome of ["accepted", "rejected"] as const) {
-    for (const change of ["paint", "reshape"] as const) {
+    for (const change of ["paint", "reshape", "held edit that ran"] as const) {
       const label = `${outcome}, ${change}`;
       const answer = pressOnOpen();
       const [p] = useStore.getState().selection as [string, string];
       penDown([80, 30], 1);
       penUp();
+      // A held edit that ran, such as a Pencil redraw, is drawn in `ran` until its answer; the Pen's
+      // Anchors predate it all the same.
+      if (change === "held edit that ran") {
+        const edit = { inputs: [], commandIds: ["u"] };
+        useStore.setState({ ran: [{ edit, drag: null, held: true }] });
+      }
       // Their own Undo, say, reshapes p's closed subpath; a Fill change leaves p's Anchors.
-      const mine = ownTx("u", (useStore.getState().doc as Document).nodes.get(p) as Node, change);
-      expect(useStore.getState().pen === null, label).toBe(change === "reshape");
+      const n = (useStore.getState().doc as Document).nodes.get(p) as Node;
+      const mine = ownTx("u", n, change === "paint" ? "paint" : "reshape");
+      expect(useStore.getState().pen === null, label).toBe(change !== "paint");
       const after = useStore.getState().doc as Document;
       answer(outcome);
       penDown([100, 30], 1);
@@ -2023,4 +2030,26 @@ it("lets go of a drag when the answer to the person's own held reshape of its pa
     }
   }
   vi.useRealTimers();
+});
+
+it("lets go only of the Anchors on the path the person's own Undo reshapes, in a drag of two paths (#288)", () => {
+  vi.mocked(send).mockClear();
+  const { doc, a, b } = rings();
+  const anchors = [anchorKey(a.id, 1, 3), anchorKey(b.id, 1, 3)];
+  useStore.setState(viewState({ doc, selection: [a.id, b.id], role: "owner", anchors }));
+  const paths = () => useStore.getState().edit?.inputs.map((i) => i.nodeId);
+  directTool.down(event(doc, 20, 10));
+  directTool.move?.(event(doc, 25, 10));
+  expect(paths()).toEqual([a.id, b.id]);
+  ownTx("u", a, "reshape");
+  expect(paths()).toEqual([b.id]);
+  const now = useStore.getState().doc as Document;
+  directTool.move?.(event(now, 26, 10));
+  directTool.up?.(event(now, 26, 10));
+  expect(commands()).toEqual([
+    {
+      type: "path_edit",
+      input: { nodeId: b.id, ops: [{ op: "move_anchor", subpath: 1, index: 3, to: [76, 10] }] },
+    },
+  ]);
 });
