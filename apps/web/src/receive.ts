@@ -314,6 +314,12 @@ export interface ViewState {
   anchors: string[];
   /** Its selected segments, keyed by the Anchor each starts at (ADR-0045). */
   segments: string[];
+  /**
+   * The keys each path had when a message changed its geometry, by `keysAt`: the Node id and the
+   * geometry they index. The answer to the person's own Undo or Redo that brings a path back to one
+   * of them chooses them again (ADR-0112). A tool switch forgets them, as it drops the keys.
+   */
+  keysOn: ReadonlyMap<string, Pick<ViewState, "anchors" | "segments">>;
   /** Why the last command was rejected. */
   notice: string | null;
   /** The Gradient panel's or tool's paints, drawn until their answer (ADR-0081). */
@@ -734,8 +740,13 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     selection: !tops && sameIds(next, s.selection) ? s.selection : next,
     ...(tops && { layerRows: layers }),
     ...(msg.type === "document" ? s.sent.size > 0 && { sent: new Set() } : settleSent(s.sent, id)),
-    anchors,
-    segments,
+    ...chosenAgain(
+      s,
+      msg,
+      prior,
+      { doc, anchors, segments },
+      (n) => next.includes(n) && causeOf(n) === "own" && ends(n, "keys"),
+    ),
     // A continuation the reconnect keeps is drawn again on the new Document (#292).
     ...(msg.type === "document" &&
       pen && { edit: (!reached && penState(doc, pen, null).edit) || null }),
@@ -1088,6 +1099,66 @@ function settleSent(sent: ReadonlySet<string>, id: string | undefined) {
   const left = new Set(sent);
   left.delete(id);
   return { sent: left };
+}
+
+/** Where `keysOn` keeps the keys a path had on `geometry`. */
+const keysAt = (id: string, geometry: string) => `${id}\n${geometry}`;
+
+/**
+ * The undo stack's depth (ADR-0011), counted in geometries: a change keeps two per path it reshapes,
+ * before and after, so fewer than 200 undo steps' keys stay.
+ */
+const KEYS_KEPT = 200;
+
+/**
+ * The keys after `msg`, and `keysOn` when it changed (ADR-0112). On a path `back` names, whose keys
+ * the person's own command cleared, the keys kept for its new geometry come back and `keysOn` stays
+ * as it was: an Undo or Redo steps between kept geometries, as Illustrator's steps between recorded
+ * states. Any other change of a path's geometry keeps its keys before and after it, each only when
+ * there are some or an entry to replace, so a geometry keeps the latest keys it had.
+ */
+function chosenAgain(
+  s: ViewState,
+  msg: Extract<ServerMessage, { type: "tx" | "document" }>,
+  prior: Document | null,
+  after: { doc: Document } & Pick<ViewState, "anchors" | "segments">,
+  back: (n: string) => boolean,
+): Pick<ViewState, "anchors" | "segments"> & Partial<Pick<ViewState, "keysOn">> {
+  const { doc } = after;
+  let { anchors, segments } = after;
+  // With no keys before and none kept, there is nothing to keep or choose again.
+  if (s.keysOn.size + s.anchors.length + s.segments.length === 0) return { anchors, segments };
+  const changed = msg.type === "tx" ? msg.updated.map((n) => n.id) : [...doc.nodes.keys()];
+  const keysOn = new Map(s.keysOn);
+  let kept = false;
+  const keep = (at: string, keys: Pick<ViewState, "anchors" | "segments">) => {
+    if (keys.anchors.length + keys.segments.length === 0 && !keysOn.has(at)) return false;
+    // Set again, so the oldest geometry is the first to go.
+    keysOn.delete(at);
+    keysOn.set(at, keys);
+    return true;
+  };
+  for (const id of changed) {
+    const was = geometryOf(prior, id);
+    const is = geometryOf(doc, id);
+    if (!was || !is || was === is) continue;
+    const on = (k: string) => parseKey(k).nodeId === id;
+    const again = back(id) && keysOn.get(keysAt(id, is));
+    if (again) {
+      anchors = [...anchors, ...again.anchors];
+      segments = [...segments, ...again.segments];
+      continue;
+    }
+    const before = { anchors: s.anchors.filter(on), segments: s.segments.filter(on) };
+    const now = { anchors: anchors.filter(on), segments: segments.filter(on) };
+    kept = keep(keysAt(id, was), before) || kept;
+    kept = keep(keysAt(id, is), now) || kept;
+  }
+  for (const k of keysOn.keys()) {
+    if (keysOn.size <= KEYS_KEPT) break;
+    keysOn.delete(k);
+  }
+  return { anchors, segments, ...(kept && { keysOn }) };
 }
 
 /**

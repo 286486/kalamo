@@ -53,7 +53,7 @@ import {
 } from "./store.ts";
 import { message, recordAs, stateAfter, viewState } from "./testing.ts";
 import type { ToolEvent } from "./toolbox.ts";
-import { finishPen, penDown, penUp } from "./tools.ts";
+import { finishPen, penDown, penUp, setTool } from "./tools.ts";
 
 // Records each id as the real `send` does, so the answers tests drive are the person's own (#288).
 vi.mock("./store.ts", async (original) => {
@@ -2368,7 +2368,11 @@ function serve(doc: Document) {
       else if (c.type === "delete") for (const n of c.nodeIds) server.nodes.delete(n);
       else if (c.type === "transform") transformNodes(server, c.input);
       else if (c.type === "duplicate") duplicateNodes(server, c.input);
-      else if (c.type === "path_reverse") {
+      else if (c.type === "fill_rule") {
+        for (const id of c.nodeIds) {
+          server.nodes.set(id, { ...(server.nodes.get(id) as PathNode), fillRule: c.fillRule });
+        }
+      } else if (c.type === "path_reverse") {
         for (const { nodeId, subpath } of c.subpaths) {
           const n = server.nodes.get(nodeId) as PathNode;
           if (runsClockwise(server, n, subpath) === c.clockwise) continue;
@@ -3459,5 +3463,160 @@ it("guards: a drag held behind two Delete Anchor clicks, or behind a press and a
     serveAll();
     expect(stored(server, a.id), name).toEqual(shown);
   }
+  vi.useRealTimers();
+});
+
+// ADR-0112: the answer to the person's own Undo or Redo chooses again the Anchors and segments they
+// had on the geometry it brings a path back to, as Illustrator's Undo restores the state it recorded.
+
+/** Both rings under Direct Selection, a served Document, and the menu's Undo and Redo. */
+function undoable(keys: (a: Node, b: Node) => Pick<ViewState, "anchors" | "segments">) {
+  const { doc, a, b } = rings();
+  useStore.setState(
+    viewState({ doc, selection: [a.id, b.id], role: "owner", tool: "direct", ...keys(a, b) }),
+  );
+  vi.advanceTimersByTime(1000);
+  const served = serve(doc);
+  const menus = documentMenus({ open() {}, close() {} });
+  const undo = () => {
+    findByKeys(menus, "Ctrl+Z")?.run();
+    served.answer();
+  };
+  const redo = () => {
+    findByKeys(menus, "Shift+Ctrl+Z")?.run();
+    served.answer();
+  };
+  // The keys are a set; the order the answer lists its Nodes in is not part of the rule.
+  const chosen = () => {
+    const { anchors, segments } = useStore.getState();
+    return { anchors: anchors.toSorted(), segments: segments.toSorted() };
+  };
+  return { doc, a, b, ...served, undo, redo, chosen };
+}
+
+it("chooses again, after the person's own Undo and Redo of a press on two Compound Paths, the keys from before and after it (ADR-0112)", () => {
+  vi.useFakeTimers();
+  const { a, b, answer, undo, redo, chosen } = undoable((a, b) => ({
+    anchors: [anchorKey(a.id, 1, 1), anchorKey(b.id, 1, 2), anchorKey(b.id, 0, 1)],
+    segments: [anchorKey(a.id, 1, 3)],
+  }));
+  const before = chosen();
+  const was = directionOf(useStore.getState());
+  expect(was).toBe("mixed");
+  pressDirection(true);
+  answer();
+  const after = chosen();
+  expect(after).not.toEqual(before);
+  expect(directionOf(useStore.getState())).toBe(true);
+  const holes = (s: string[]) => s.filter((k) => parseKey(k).subpath === 1).length;
+  expect([holes(after.anchors), holes(after.segments)]).toEqual([2, 1]);
+  undo();
+  expect(chosen()).toEqual(before);
+  expect(directionOf(useStore.getState())).toBe(was);
+  redo();
+  expect(chosen()).toEqual(after);
+  expect(directionOf(useStore.getState())).toBe(true);
+  expect(commands().map((c) => c.type)).toEqual(["path_reverse", "undo", "redo"]);
+  expect([a.id, b.id].map((id) => useStore.getState().selection.includes(id))).toEqual([
+    true,
+    true,
+  ]);
+  vi.useRealTimers();
+});
+
+it("clears the keys after another Actor's or another tab's undo of the person's press, as after any edit of theirs (ADR-0112)", () => {
+  vi.useFakeTimers();
+  for (const whose of ["another Actor", "another tab"] as const) {
+    const { a, server, answer, chosen } = undoable((a) => ({
+      anchors: [anchorKey(a.id, 1, 1)],
+      segments: [],
+    }));
+    pressDirection(!directionOf(useStore.getState()));
+    answer();
+    expect(chosen().anchors, whose).toHaveLength(1);
+    // Their undo puts a back as it was before the press, under a command id this tab never sent.
+    const before = structuredClone(server.nodes);
+    editPath(server, { nodeId: a.id, ops: [{ op: "reverse", subpath: 1 }] });
+    server.rev++;
+    const tx = message("tx", {
+      rev: server.rev,
+      updated: [server.nodes.get(a.id) as Node],
+      ...(whose === "another tab" && { commandId: "elsewhere", actor: "user" }),
+    });
+    expect(JSON.stringify(server.nodes.get(a.id)), whose).not.toBe(
+      JSON.stringify(before.get(a.id)),
+    );
+    deliver(tx, "d", 0);
+    expect(chosen(), whose).toEqual({ anchors: [], segments: [] });
+  }
+  vi.useRealTimers();
+});
+
+it("keeps the keys through the person's own Undo of a paint change, and brings back those from before a press over a later choice (ADR-0112)", () => {
+  vi.useFakeTimers();
+  const { a, answer, undo, chosen } = undoable((a) => ({
+    anchors: [anchorKey(a.id, 1, 1)],
+    segments: [anchorKey(a.id, 1, 2)],
+  }));
+  const keys = chosen();
+  setFillRule(useStore.getState(), "evenodd");
+  answer();
+  undo();
+  expect(commands().map((c) => c.type)).toEqual(["fill_rule", "undo"]);
+  expect(chosen()).toEqual(keys);
+  // A press, then a choice of the outer subpath alone: Undo brings back the keys from before the
+  // press, as Illustrator rolls back a selection change with the step it follows.
+  pressDirection(!directionOf(useStore.getState()));
+  answer();
+  useStore.setState({ anchors: [anchorKey(a.id, 0, 0)], segments: [] });
+  undo();
+  expect(chosen()).toEqual(keys);
+  vi.useRealTimers();
+});
+
+it("chooses again, after the person's own Undo of a drag or a convert, the keys from before it (ADR-0112)", () => {
+  vi.useFakeTimers();
+  const edits: Record<string, (doc: Document) => void> = {
+    "a Direct Selection drag": (doc) => {
+      // The Anchor at (20, 10), a's hole Anchor 3, to (26, 10).
+      directTool.down(event(doc, 20, 10));
+      directTool.move?.(event(doc, 26, 10));
+      directTool.up?.(event(doc, 26, 10));
+    },
+    "a convert": () => convertAnchors("smooth"),
+  };
+  for (const [name, edit] of Object.entries(edits)) {
+    const { a, server, doc, answer, undo, redo, chosen } = undoable((a) => ({
+      anchors: [anchorKey(a.id, 1, 3)],
+      segments: [],
+    }));
+    const stored0 = JSON.stringify(server.nodes.get(a.id));
+    edit(doc);
+    answer();
+    expect(JSON.stringify(server.nodes.get(a.id)), name).not.toBe(stored0);
+    const after = chosen();
+    expect(after.anchors, name).toEqual([anchorKey(a.id, 1, 3)]);
+    useStore.setState({ anchors: [], segments: [] });
+    undo();
+    expect(JSON.stringify(server.nodes.get(a.id)), name).toBe(stored0);
+    expect(chosen(), name).toEqual({ anchors: [anchorKey(a.id, 1, 3)], segments: [] });
+    redo();
+    expect(chosen(), name).toEqual(after);
+  }
+  vi.useRealTimers();
+});
+
+it("forgets the keys it would choose again when the person switches tools, which drops them (ADR-0112)", () => {
+  vi.useFakeTimers();
+  const { answer, undo, chosen } = undoable((a) => ({
+    anchors: [anchorKey(a.id, 1, 1)],
+    segments: [],
+  }));
+  pressDirection(!directionOf(useStore.getState()));
+  answer();
+  setTool("selection");
+  setTool("direct");
+  undo();
+  expect(chosen()).toEqual({ anchors: [], segments: [] });
   vi.useRealTimers();
 });
