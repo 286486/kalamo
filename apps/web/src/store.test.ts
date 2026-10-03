@@ -118,7 +118,7 @@ it("stops when a socket closed for changed access fails again before a Document"
 });
 
 // tsc checks this test: each @ts-expect-error fails the check once its line compiles (ADR-0110).
-it("sends a command that names Anchors by index, or any path_op, only once it waited or says why it need not", () => {
+it("sends a command that names Anchors by index, any path_op, undo, redo or delete only once it waited or says why it need not", () => {
   const input: PathEditInput = { nodeId: "p", ops: [{ op: "move_anchor", index: 0, to: [1, 1] }] };
   const anchors = [{ nodeId: "p", subpath: 0, index: 0 }];
   // @ts-expect-error A path_edit names Anchors by index.
@@ -148,8 +148,13 @@ it("sends a command that names Anchors by index, or any path_op, only once it wa
   afterRenumbering((_s, w) => send({ type: "path_reverse", subpaths, clockwise: true }, w));
   // @ts-expect-error So setDirection, which sends it, does not take unheld's either.
   () => setDirection(useStore.getState(), true, unheld("a test"));
-  // A delete waits by call-site convention (#288).
+  // @ts-expect-error An undo runs after the edits held before it, in input order (#312).
+  send({ type: "undo" });
+  // @ts-expect-error So does a redo.
+  send({ type: "redo" });
+  // @ts-expect-error And a delete.
   send({ type: "delete", nodeIds: ["p"] });
+  afterRenumbering((_s, w) => send({ type: "delete", nodeIds: ["p"] }, w));
   expect(useStore.getState().held).toEqual([]);
 });
 
@@ -204,19 +209,19 @@ it("records a command only when it goes out on an open socket, until its answer 
   const { last } = stubSockets();
   const stop = connect("a");
   last().receive(message("document"));
-  const id = send({ type: "undo" });
+  const id = send({ type: "undo" }, unheld("a test"));
   expect(useStore.getState().sent).toEqual(new Set([id]));
   last().receive(message("tx", { rev: 1, commandId: id }));
   expect(useStore.getState().sent).toEqual(new Set());
-  const rejected = send({ type: "redo" });
+  const rejected = send({ type: "redo" }, unheld("a test"));
   last().receive(message("rejected", { id: rejected }));
   expect(useStore.getState().sent).toEqual(new Set());
   // Sent while the socket is down, it never went out, so nothing waits on its answer.
   last().readyState = 3;
-  send({ type: "undo" });
+  send({ type: "undo" }, unheld("a test"));
   expect(useStore.getState().sent).toEqual(new Set());
   last().readyState = 1;
-  send({ type: "undo" });
+  send({ type: "undo" }, unheld("a test"));
   last().receive(message("document", { rev: 4 }));
   expect(useStore.getState().sent).toEqual(new Set());
   stop();
