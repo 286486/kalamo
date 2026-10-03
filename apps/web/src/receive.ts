@@ -209,8 +209,8 @@ export interface ViewState {
   held: Held[];
   /**
    * What a drag still being made holds by index: Direct Selection's Anchors, or the one Anchor,
-   * Handle or segment a tool grabbed. Only the answer to a Reverse Path Direction press renumbers
-   * it; another Actor's edit leaves its indices (ADR-0110).
+   * Handle or segment a tool grabbed. The answer to a Reverse Path Direction press renumbers it;
+   * another Actor's edit to a path drops what it holds there (ADR-0110).
    */
   grabbed: Target[];
   /** The previews of held edits that ran and were sent, each drawn until its answer. */
@@ -404,6 +404,13 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
   const pen = s.pen && turned.length > 0 ? turnedPen(doc, s.pen, turned) : s.pen;
   const dropped =
     !reached && pen?.to && changed(pen.to.nodeId) ? disconnected(pen, s.penPress) : null;
+  // What a drag still being made holds on a path someone else changed goes, read as for the Pen's
+  // continuation, and its unsent preview with it; the rest is turned as the keys are (ADR-0110).
+  const pathOf = (t: Target) => (t.kind === "segment" ? t.nodeId : parseKey(t.key).nodeId);
+  const letGo = new Set(s.grabbed.map(pathOf).filter(changed));
+  const grabbed = s.grabbed.filter((t) => !letGo.has(pathOf(t))).map(turnTarget(doc, turned));
+  const keptInputs = s.edit?.inputs.filter((i) => !letGo.has(i.nodeId)) ?? [];
+  const keptIds = s.drag?.nodeIds.filter((id) => !letGo.has(id)) ?? [];
   const skipped = msg.type === "tx" ? (msg.skippedIds?.length ?? 0) : 0;
   // A selected Node that a browser's command moved into a new Group selects that Group, as Make
   // Clipping Mask does; an Agent's edit leaves the person's Selection alone.
@@ -440,6 +447,14 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     // An unchanged Selection stays the same array, so the Layer rows stay (ADR-0076).
     selection: !tops && sameIds(next, s.selection) ? s.selection : next,
     ...(tops && { layerRows: layers }),
+    ...(letGo.size > 0 && {
+      ...(s.edit?.commandIds === null && {
+        edit: keptInputs.length > 0 ? { ...s.edit, inputs: keptInputs } : null,
+      }),
+      ...(s.drag?.commandId === null && {
+        drag: keptIds.length > 0 ? { ...s.drag, nodeIds: keptIds } : null,
+      }),
+    }),
     ...(answered && { drag: null }),
     anchors,
     segments,
@@ -450,7 +465,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     ...(settled && { reversing: null }),
     ...(pen !== s.pen && { pen }),
     ...(dropped && { ...penState(doc, dropped.pen, s.edit), penPress: dropped.penPress }),
-    ...(turned.length > 0 && { grabbed: s.grabbed.map(turnTarget(doc, turned)) }),
+    ...((turned.length > 0 || letGo.size > 0) && { grabbed }),
     ...(s.held.length > 0 && {
       held: s.held.map((h) => ({
         ...h,

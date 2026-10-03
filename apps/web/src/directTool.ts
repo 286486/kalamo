@@ -9,6 +9,7 @@ import {
   rectOf,
   SELECTION,
   settleDrag,
+  showDrag,
 } from "./canvas.ts";
 import {
   allKeys,
@@ -151,9 +152,12 @@ export const directTool: CanvasTool = {
       e.redraw();
       return;
     }
+    const { grabbed } = useStore.getState();
+    // Another Actor's edit let go of all it grabbed (ADR-0110).
+    if (g.kind !== "move" && grabbed.length === 0) return;
     g.last = { dx, dy, alt: e.alt };
-    const drag = dragOf(g, e.doc, useStore.getState().grabbed);
-    if (drag) useStore.setState(drag);
+    const drag = dragOf(g, e.doc, grabbed);
+    if (drag) showDrag(drag);
   },
   up(e) {
     const g = gesture;
@@ -174,10 +178,10 @@ export const directTool: CanvasTool = {
       });
       marqueeRect = null;
       e.redraw();
-    } else if (g?.moved) {
-      // Sent once a Reverse Path Direction press in flight is answered, from the Document then. What
-      // it holds is renumbered as the keys are, and another Actor's edit to its path meanwhile
-      // drops it, as it drops the keys (ADR-0109, ADR-0110).
+    } else if (g?.moved && (g.kind === "move" || grabbed.length > 0)) {
+      // Sent once a Reverse Path Direction press in flight is answered, from the Document then, on
+      // what is still grabbed. What it holds is renumbered as the keys are, and another Actor's edit
+      // to its path meanwhile drops it, as it drops the keys (ADR-0109, ADR-0110).
       const [grabbedTarget] = grabbed;
       afterReverse(
         ({ doc: now, anchors, target }, w) => {

@@ -1,5 +1,5 @@
 import type { Document, PathEditInput } from "@kalamo/core";
-import { cancelDrag, dragged, type Press, settleDrag } from "./canvas.ts";
+import { cancelDrag, dragged, type Press, settleDrag, showDrag } from "./canvas.ts";
 import {
   anchorsOf,
   bendSegment,
@@ -240,7 +240,7 @@ export const anchorPointTool: CanvasTool = {
     if (!t) return;
     g.last = { d, shift: e.shift };
     const input = dragInput(e.doc, t, d, e.shift);
-    useStore.setState({ edit: input && { inputs: [input], commandIds: null } });
+    showDrag({ edit: input && { inputs: [input], commandIds: null } });
   },
   up() {
     const g = gesture;
