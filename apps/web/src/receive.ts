@@ -746,9 +746,14 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     selection: !tops && sameIds(next, s.selection) ? s.selection : next,
     ...(tops && { layerRows: layers }),
     ...(msg.type === "document" ? s.sent.size > 0 && { sent: new Set() } : settleSent(s.sent, id)),
-    ...(msg.type === "document"
-      ? s.keysDropped.size > 0 && { keysDropped: new Map() }
-      : settleDropped(s.keysDropped, id)),
+    // The keys in flight are kept as the keys are: another Actor's change drops them (ADR-0109).
+    ...(s.keysDropped.size > 0 && {
+      keysDropped: new Map(
+        msg.type === "document"
+          ? []
+          : [...s.keysDropped].flatMap(([k, keys]) => (k === id ? [] : [[k, rekey(keys)]])),
+      ),
+    }),
     ...chosenAgain(
       s,
       msg,
