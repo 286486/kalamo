@@ -3944,7 +3944,17 @@ const draw = (answer: () => void) => {
   return doc?.nodes.get(selection[0] as string) as Node;
 };
 
-it("selects again, after the person's own Undo of a create, what was selected before it with its keys, and a Redo the Node created (ADR-0112, ADR-0113)", () => {
+/** Duplicates `nodeIds` as the Layers panel's Duplicate does: its copies become the Selection. */
+const duplicate = (nodeIds: string[], answer: () => void) => {
+  const commandId = send({ type: "duplicate", input: { nodeIds } });
+  useStore.setState((s) => ({ pending: [...s.pending, { commandId, nodes: [], select: true }] }));
+  answer();
+  const { selection } = useStore.getState();
+  expect(selection).toHaveLength(nodeIds.length);
+  return selection;
+};
+
+it("selects again, after the person's own Undo of a Layers panel Duplicate, what was selected before it with its keys, and a Redo the copy (ADR-0112, ADR-0113)", () => {
   vi.useFakeTimers();
   const { a, answer, undo, redo, chosen } = undoable((a) => ({
     anchors: [anchorKey(a.id, 0, 1), anchorKey(a.id, 1, 2)],
@@ -3952,22 +3962,45 @@ it("selects again, after the person's own Undo of a create, what was selected be
   }));
   useStore.setState({ selection: [a.id] });
   const before = chosen();
-  const drawn = draw(answer);
+  const [copy] = duplicate([a.id], answer);
+  expect(copy).not.toBe(a.id);
   expect(chosen()).toEqual({ anchors: [], segments: [] });
   undo();
-  expect(useStore.getState().doc?.nodes.has(drawn.id)).toBe(false);
+  expect(useStore.getState().doc?.nodes.has(copy as string)).toBe(false);
   expect(selected()).toEqual([a.id]);
   expect(chosen()).toEqual(before);
+  // A key changed after the Undo is a silent action the Redo and the next Undo step past.
+  useStore.setState({ anchors: [anchorKey(a.id, 0, 0)], segments: [] });
   redo();
-  expect(selected()).toEqual([drawn.id]);
+  expect(selected()).toEqual([copy]);
   expect(chosen()).toEqual({ anchors: [], segments: [] });
   undo();
   expect(selected()).toEqual([a.id]);
   expect(chosen()).toEqual(before);
-  expect(commands().map((c) => c.type)).toEqual(["create", "undo", "redo", "undo"]);
+  expect(commands().map((c) => c.type)).toEqual(["duplicate", "undo", "redo", "undo"]);
   vi.useRealTimers();
 });
 
+it("selects again, after the person's own Undo of drawn art, what was selected before it, without the keys the tool switch dropped (ADR-0112, ADR-0113)", () => {
+  vi.useFakeTimers();
+  for (const tool of ["pen", "pencil", "rectangle"] as const) {
+    const { a, answer, undo, redo, chosen } = undoable((a) => ({
+      anchors: [anchorKey(a.id, 0, 1)],
+      segments: [],
+    }));
+    useStore.setState({ selection: [a.id] });
+    setTool(tool);
+    const drawn = draw(answer);
+    undo();
+    expect(selected(), tool).toEqual([a.id]);
+    expect(chosen(), tool).toEqual({ anchors: [], segments: [] });
+    redo();
+    expect(selected(), tool).toEqual([drawn.id]);
+  }
+  vi.useRealTimers();
+});
+
+// A guard: main passes it too, and a restore that ignores whose Undo it is fails it (#316).
 it("selects nothing after the person's own Undo of a create made with nothing selected (ADR-0113)", () => {
   vi.useFakeTimers();
   const { answer, undo, redo } = undoable(() => ({ anchors: [], segments: [] }));
@@ -4007,6 +4040,7 @@ it("selects again, after the person's own Undo of a create, what was selected be
   vi.useRealTimers();
 });
 
+// A guard: main passes it too, and a restore that ignores whose Undo it is fails it (#316).
 it("leaves the Selection pruned, never added to, after another Actor's or another tab's undo of the person's create (ADR-0113)", () => {
   vi.useFakeTimers();
   for (const whose of ["another Actor", "another tab"] as const) {

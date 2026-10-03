@@ -329,8 +329,9 @@ export interface ViewState {
   keysDropped: ReadonlyMap<string, Pick<ViewState, "anchors" | "segments">>;
   /**
    * The Selection each Node's state had when a `tx` changed it, before and after, by `stateOf` the
-   * Node's stored copy. The answer to the person's own Undo or Redo that brings a Node back to one
-   * of them selects it again (ADR-0113). Opening a Document forgets it.
+   * Node's stored copy, and the Selection before each Node's create, by `madeBy` its id. The answer
+   * to the person's own Undo or Redo that brings a Node back to one of them, or the person's own
+   * Undo that deletes a Node created, selects it again (ADR-0113). Opening a Document forgets it.
    */
   selectionOn: ReadonlyMap<string, string[]>;
   /** Why the last command was rejected. */
@@ -1220,11 +1221,12 @@ function chosenAgain(
     if (was) kept = keep(keysAt(id, was), before) || kept;
     if (is) kept = keep(keysAt(id, is), now) || kept;
   }
-  // A path the answer leaves alone but takes out of the Selection, as drawn art does, keeps its keys
-  // on its geometry; one the person's own Undo or Redo selects again chooses them again (#316).
+  // A path the answer leaves alone but takes out of the Selection, as copies made Selection do, keeps
+  // its keys on its geometry, unless the answer is an Undo or Redo, which keeps none; one the
+  // person's own Undo or Redo selects again chooses them again (#316).
   if (msg.type === "tx") {
     const keyed = new Set([...had.anchors, ...had.segments].map((k) => parseKey(k).nodeId));
-    for (const id of keyed) {
+    for (const id of step ? [] : keyed) {
       const at = geometryOf(doc, id);
       if (!at || changed.includes(id) || selected.includes(id)) continue;
       const on = (k: string) => parseKey(k).nodeId === id;
@@ -1261,6 +1263,12 @@ const stateOf = (n: Node) =>
       .filter(([, v]) => v !== undefined)
       .sort(([a], [b]) => (a < b ? -1 : 1)),
   );
+
+/**
+ * Where `selectionOn` keeps the Selection before Node `id` was created; never a `stateOf` key, which
+ * is a JSON array.
+ */
+const madeBy = (id: string) => `created ${id}`;
 
 /** The undo stack's depth (ADR-0011), counted in Node states, as `keysOn` counts geometries. */
 const SELECTIONS_KEPT = 200;
@@ -1304,9 +1312,6 @@ function selectionKept(
   }
   return next;
 }
-
-/** Where `selectionOn` keeps the Selection before Node `id` was created; no stored copy is one. */
-const madeBy = (id: string) => `created ${id}`;
 
 /**
  * The Selection kept with the Node states the Undo or Redo `msg` brings back, and for an `undo`,
