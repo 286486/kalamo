@@ -272,8 +272,7 @@ export const anchorPointTool: CanvasTool = {
     if (!g || !grabbed) return;
     // Sent once the person's own command that may renumber a path's Anchors (a Reverse Path
     // Direction press is one) is answered, from the Document then, on what the gesture grabbed
-    // (ADR-0110); another Actor's edit to its path meanwhile drops it
-    // (ADR-0109).
+    // (ADR-0110); another Actor's edit to its path meanwhile drops it (ADR-0109).
     const { last } = g;
     afterRenumbering(
       ({ doc: now, target: t }, w) => {

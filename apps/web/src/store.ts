@@ -176,7 +176,11 @@ export const unheld = (_why: string): Waited => WAITED;
  */
 export function send<C extends Command>(
   command: C,
-  ...[, known]: [C] extends [NodeCommand] ? [] : [Waited, Renumbering?]
+  ...[, known]: [C] extends [NodeCommand]
+    ? []
+    : [C] extends [{ type: "path_edit" }]
+      ? [Waited, Renumbering?]
+      : [Waited]
 ): string {
   const id = newId();
   const msg: ClientMessage = { type: "command", id, command };
@@ -212,8 +216,8 @@ export const waiting = (s: Pick<State, "reversing" | "renumbering">) =>
  * #309). A held edit's token in its seed is never in `sent`: that edit runs first, and its token
  * gives way to what it sent (#308).
  */
-const unanswered = (s: Pick<State, "sent">, redraw: Held["redraw"]) =>
-  !!redraw?.seed?.some((id) => s.sent.has(id));
+const unanswered = (s: Pick<State, "sent">, seed: string[] | undefined) =>
+  !!seed?.some((id) => s.sent.has(id));
 
 /**
  * Runs a Direct Selection edit now, or, while the person's own command that may renumber a path's
@@ -259,7 +263,7 @@ export function afterRenumbering(
   };
   if (previewed) useStore.setState({ edit: null, drag: null });
   if (op) useStore.setState({ opPreview: null });
-  if (!waiting(s) && s.held.length === 0 && !unanswered(s, redraw)) return run(c);
+  if (!waiting(s) && s.held.length === 0 && !unanswered(s, redraw?.seed)) return run(c);
   const h: Held = {
     chosen: c,
     run,
@@ -313,7 +317,7 @@ export function runHeld(said?: string | null) {
   for (;;) {
     const state = useStore.getState();
     const [h, ...rest] = state.held;
-    if (!h || waiting(state) || unanswered(state, h.redraw)) break;
+    if (!h || waiting(state) || unanswered(state, h.redraw?.seed)) break;
     runs++;
     useStore.setState({ held: rest, notice: null });
     const { sentPreviews: was, sent } = useStore.getState();

@@ -267,7 +267,9 @@ const rejected = message("rejected", {
 function pressOn(keys: (a: Node, b: Node) => Partial<ViewState>, hole?: string) {
   vi.mocked(send).mockClear();
   // Every command is "c" again, after `serve` numbered them.
-  vi.mocked(send).mockImplementation((c, _w, known) => record("c", c, known));
+  vi.mocked(send).mockImplementation((c: Command, _w?: unknown, known?: Renumbering) =>
+    record("c", c, known),
+  );
   const { doc, a, b } = rings(hole);
   const state = viewState({ doc, selection: [a.id, b.id], role: "owner", ...keys(a, b) });
   setDirection(state, true);
@@ -2232,7 +2234,9 @@ it("lets go of a drag when the answer to the person's own held reshape of its pa
         held();
         expect(useStore.getState().held, label).toHaveLength(1);
         // Sent as "k" once the press is answered.
-        vi.mocked(send).mockImplementationOnce((c, _w, known) => record("k", c, known));
+        vi.mocked(send).mockImplementationOnce((c: Command, _w?: unknown, known?: Renumbering) =>
+          record("k", c, known),
+        );
       }
       const pressed = message("tx", {
         rev: doc.rev + 1,
@@ -2317,7 +2321,7 @@ function serve(doc: Document) {
   const future: Document["nodes"][] = [];
   let ids = 0;
   vi.mocked(send).mockClear();
-  vi.mocked(send).mockImplementation((command, _w, known) => {
+  vi.mocked(send).mockImplementation((command: Command, _w?: unknown, known?: Renumbering) => {
     const id = `k${++ids}`;
     queue.push({ id, command });
     return record(id, command, known);

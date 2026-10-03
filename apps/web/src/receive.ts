@@ -288,9 +288,10 @@ export interface ViewState {
   /**
    * The drag still being made, or null: its targets, Direct Selection's Anchors or the one Anchor,
    * Handle or segment a tool grabbed, and `redraw`, which works out its unsent preview from a
-   * Document and those targets as its next move does. The answer to a Reverse Path Direction press
-   * renumbers the targets; another Actor's edit to a path drops those there, and the slot stays
-   * with what is left, even nothing (ADR-0110). `deliver` redraws it, not `receive` (#285, #307).
+   * Document and those targets as its next move does. The answer to the person's own command that
+   * may renumber a path's Anchors, such as a Reverse Path Direction press, renumbers the targets;
+   * another Actor's edit to a path drops those there, and the slot stays with what is left, even
+   * nothing (ADR-0110). `deliver` redraws it, not `receive` (#285, #307).
    */
   grab: {
     targets: Target[];

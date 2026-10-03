@@ -213,11 +213,10 @@ const COINCIDENT = 0.05;
  * continued, or on the one a new path connected to, which it continues backwards; continuing one
  * onto another is one `path_join`, the Join deleting one of them. It is sent once the person's own
  * command that may renumber a path's Anchors (a Reverse Path Direction press is one) is answered,
- * at the Endpoints chosen, as the Document then runs
- * (ADR-0110); another Actor's edit to their path meanwhile drops it (ADR-0109). What it drew is
- * kept in the own coordinates of the paths it meets, so a move of them meanwhile carries it along,
- * as it does the held Pencil redraw (#284); a move of one of two paths it joins, but not the
- * other, drops it.
+ * at the Endpoints chosen, as the Document then runs (ADR-0110); another Actor's edit to their path
+ * meanwhile drops it (ADR-0109). What it drew is kept in the own coordinates of the paths it meets,
+ * so a move of them meanwhile carries it along, as it does the held Pencil redraw (#284); a move of
+ * one of two paths it joins, but not the other, drops it.
  */
 function finishEdit(doc: Document, pen: PenPath) {
   const { from, to, anchors, closed } = pen;

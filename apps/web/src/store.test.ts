@@ -130,6 +130,8 @@ it("sends a command that names Anchors by index, or any path_op, only once it wa
   // @ts-expect-error A command that may be any of them.
   send(some);
   send({ type: "path_edit", input }, unheld("a test"));
+  // @ts-expect-error Only a path_edit's ops may leave how it renumbers to the sender.
+  send({ type: "path_op", input: { nodeIds: ["p"], op: "unite" } }, unheld("a test"), null);
   afterRenumbering((_s, w) =>
     send({ type: "path_op", input: { nodeIds: ["p"], op: "join", anchors } }, w),
   );
@@ -164,6 +166,8 @@ it("holds an edit on a seed only with its tool's drop notices (#300)", () => {
   () => {
     // @ts-expect-error A seed without a redraw would be dropped with no notice.
     afterRenumbering(() => {}, { seed: ["c1"] });
+    // @ts-expect-error So would a redraw's seed without its notices.
+    afterRenumbering(() => {}, { redraw: { run: () => "", seed: ["c1"] } });
   };
 });
 
