@@ -65,7 +65,7 @@ export function offsetDialog() {
       return;
     }
     // Its own preview goes with it, of the settings at OK; none while PathKit is still loading.
-    sendPathOp(input(), settings.preview && geometry ? { input: input(), geometry } : undefined);
+    sendPathOp(input(), settings.preview && geometry ? { geometry } : undefined);
   };
   document.body.append(dialog);
   dialog.showModal();

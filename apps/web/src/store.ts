@@ -283,15 +283,16 @@ export function drawSent(p: SentPreview) {
 
 /**
  * Sends `input` as one `path_op` once the person's renumbering command in flight is answered
- * (ADR-0110). `shown` is the open bar's or dialog's preview of it, when Preview is on: it leaves the
- * op-preview slot and is the op's own, held with it and drawn from its send until its answer
- * (ADR-0035, #299).
+ * (ADR-0110). `shown`, when Preview is on, is what the open bar's or dialog's preview adds to
+ * `input`: the preview of `input` leaves the op-preview slot and is the op's own, held with it and
+ * drawn from its send until its answer (ADR-0035, #299).
  */
-export function sendPathOp(input: NodeOp, shown?: OpPreview) {
+export function sendPathOp(input: NodeOp, shown?: Omit<OpPreview, "input">) {
+  const op = shown && { ...shown, input };
   afterReverse((_s, w) => {
     const commandId = send({ type: "path_op", input }, w);
-    if (shown) drawSent({ edit: null, drag: null, op: { ...shown, commandId } });
-  }, shown && { op: shown });
+    if (op) drawSent({ edit: null, drag: null, op: { ...op, commandId } });
+  }, op && { op });
 }
 
 /**

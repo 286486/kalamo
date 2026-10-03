@@ -211,7 +211,7 @@ const shown = (input: NodeOp) => ({
 function ok(input: NodeOp, previewed = true) {
   if (previewed) useStore.setState({ opPreview: shown(input) });
   if (input.op === "simplify") return commitSimplify();
-  const { showOriginal: _, ...own } = shown(input);
+  const { showOriginal: _, input: __, ...own } = shown(input);
   sendPathOp(input, previewed ? own : undefined);
 }
 

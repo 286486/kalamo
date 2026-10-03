@@ -45,7 +45,7 @@ function takeDown() {
 export function commitSimplify() {
   takeDown();
   const { opPreview } = useStore.getState();
-  if (opPreview) sendPathOp(opPreview.input, { input: opPreview.input });
+  if (opPreview) sendPathOp(opPreview.input, {});
 }
 
 function cancel() {

@@ -67,7 +67,7 @@ export function splitGridDialog() {
       useStore.setState({ opPreview: null });
       return;
     }
-    sendPathOp(input(), settings.preview ? { input: input() } : undefined);
+    sendPathOp(input(), settings.preview ? {} : undefined);
   };
   document.body.append(dialog);
   dialog.showModal();
