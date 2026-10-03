@@ -2601,13 +2601,13 @@ it("drops a drag made before the answer to a Remove Anchor Points that deletes i
   vi.useRealTimers();
 });
 
-/** `n` with a red Fill and its geometry as it was. */
-const repainted = (n: Node) =>
+/** `n` with a red Fill, its geometry as it was. */
+const refilled = (n: Node) =>
   ({ ...n, appearance: { fills: [{ type: "solid", color: "#FF0000" }], strokes: [] } }) as Node;
 
 // #287: with only a press in flight, the Document sent on reconnect drops a held edit on a path the
 // press did not name once someone else reshaped it, whether the press was applied or not; a change
-// to its paint alone, or none, leaves the edit to run.
+// to its Fill alone, or none, leaves the edit to run.
 it("after a reconnect, drops a held edit on a path the press did not name that someone else reshaped (#287)", () => {
   vi.useFakeTimers();
   const edits = {
@@ -2631,7 +2631,7 @@ it("after a reconnect, drops a held edit on a path the press did not name that s
   };
   for (const [name, run] of Object.entries(edits)) {
     for (const applied of [false, true]) {
-      for (const theirs of ["none", "paint", "reshape"] as const) {
+      for (const theirs of ["none", "fill", "reshape"] as const) {
         const label = `${name}, press ${applied ? "applied" : "lost"}, their ${theirs}`;
         const { doc, defaultLayerId: parentId } = createDocument({
           id: "d",
@@ -2663,7 +2663,7 @@ it("after a reconnect, drops a held edit on a path the press did not name that s
         // The socket drops; meanwhile an Agent edits q, or not.
         const agents = {
           none: q,
-          paint: repainted(q),
+          fill: refilled(q),
           reshape: editPath(structuredClone(doc), {
             nodeId: q.id,
             ops: [{ op: "move_anchor", subpath: 0, index: 0, to: [0, 90] }],
@@ -2692,8 +2692,8 @@ it("after a reconnect, drops a held edit on a path the press did not name that s
 });
 
 // #287: the Document sent on reconnect reads a change to the dragged path by its geometry, as it
-// does for the keys, so a change to its paint alone keeps the drag, with or without a press.
-it("after a reconnect that changes only a dragged path's paint, keeps the drag (#287)", () => {
+// does for the keys, so a change to its Fill alone keeps the drag, with or without a press.
+it("after a reconnect that changes only a dragged path's Fill, keeps the drag (#287)", () => {
   const snapshot = (doc: Document, a: Node, swap: (n: Node) => Node) =>
     message("document", {
       rev: doc.rev + 1,
@@ -2707,7 +2707,7 @@ it("after a reconnect that changes only a dragged path's paint, keeps the drag (
     expect(c?.type === "path_edit" && firstIndex(c.input), label).toBe(index);
   };
   dragThrough(
-    (doc, a) => snapshot(doc, a, repainted),
+    (doc, a) => snapshot(doc, a, refilled),
     (name, g) => {
       expect(useStore.getState().notice, name).toBeNull();
       kept(name, g, g.index[0]);
@@ -2723,7 +2723,7 @@ it("after a reconnect that changes only a dragged path's paint, keeps the drag (
       const [x, y] = g.at;
       g.down(doc, x, y);
       g.move(doc, x + 5, y);
-      const msg = snapshot(doc, a, (n) => repainted(applied ? reversed(doc, n.id) : n));
+      const msg = snapshot(doc, a, (n) => refilled(applied ? reversed(doc, n.id) : n));
       useStore.setState(stateAfter(useStore.getState(), msg));
       runHeld();
       kept(label, g, g.index[applied ? 1 : 0]);
@@ -2733,14 +2733,14 @@ it("after a reconnect that changes only a dragged path's paint, keeps the drag (
 });
 
 // #287: so does the Pen's continuation.
-it("after a reconnect that changes only a continued path's paint, keeps the Pen's continuation (#287)", () => {
+it("after a reconnect that changes only a continued path's Fill, keeps the Pen's continuation (#287)", () => {
   for (const applied of [false, true]) {
     pressOnOpen();
     const [p] = useStore.getState().selection as [string];
     penDown([80, 30], 1);
     penUp();
     const now = useStore.getState().doc as Document;
-    const after = repainted(applied ? reversed(now, p) : (now.nodes.get(p) as Node));
+    const after = refilled(applied ? reversed(now, p) : (now.nodes.get(p) as Node));
     const nodes = [...now.nodes.values()].map((n) => (n.id === p ? after : n));
     useStore.setState(
       stateAfter(useStore.getState(), message("document", { rev: now.rev + 1, nodes })),

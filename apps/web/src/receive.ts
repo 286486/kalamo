@@ -374,8 +374,9 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
   const drawn =
     msg.type === "tx" ? s.pending.find((p) => p.commandId === msg.commandId) : undefined;
   // Someone else's change to a path renumbers its Anchors, so its selected ones go; after the
-  // command the keys were worked out for, and on a reconnect, those it still has stay. After the
-  // person's other commands, they stay on a Node whose geometry it left as it was (#288).
+  // command the keys were worked out for, those it still has stay, and a reconnect reads geometry,
+  // as `moved` below says. After the person's other commands, they stay on a Node whose geometry
+  // it left as it was (#288).
   const id = msg.type === "tx" ? msg.commandId : undefined;
   const pressed = !!id && id === s.reversing?.commandId;
   /** Whether the `tx` answers one of `previews`' commands, or the press. */
@@ -409,7 +410,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     !!s.reversing && (msg.type === "document" || msg.commandId === s.reversing.commandId);
   // The Document sent on reconnect says nothing of who changed what, so a Node changed while the
   // socket was down when its geometry is neither as it was nor as the press leaves it; a change
-  // to its paint alone is none, since no key, drag or Pen names that (#287).
+  // to its Appearance alone is none, since no key, drag or Pen names that (#287).
   const pressedDoc =
     msg.type === "document" && prior && s.reversing ? previewEdit(prior, s.reversing) : prior;
   const moved = (n: string) =>
