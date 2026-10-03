@@ -3725,6 +3725,55 @@ it("leaves the keys of a rejected Clear dropped, as before, and keeps nothing fo
   vi.useRealTimers();
 });
 
+it("chooses again, after the person's own Undo crossing a drag or a convert, the keys from before it when a Clear was sent before its answer (ADR-0112)", () => {
+  vi.useFakeTimers();
+  const edits: Record<string, (doc: Document) => void> = {
+    "a Direct Selection drag": (doc) => {
+      // The Anchor at (20, 10), a's hole Anchor 3, to (26, 10), and Anchor 2 with it.
+      directTool.down(event(doc, 20, 10));
+      directTool.move?.(event(doc, 26, 10));
+      directTool.up?.(event(doc, 26, 10));
+    },
+    "a convert": () => convertAnchors("smooth"),
+  };
+  const cases = Object.keys(edits).flatMap((edit) =>
+    (["before", "after"] as const).flatMap((answered) =>
+      [false, true].map((rejected) => ({ edit, answered, rejected })),
+    ),
+  );
+  for (const { edit, answered, rejected } of cases) {
+    const name = `${edit}, answered ${answered} the Clear is sent${rejected ? ", Clear rejected" : ""}`;
+    const { a, server, doc, answer, undo, chosen } = undoable((a) => ({
+      anchors: [anchorKey(a.id, 1, 2), anchorKey(a.id, 1, 3)],
+      segments: [],
+    }));
+    useStore.setState({ selection: [a.id] });
+    const before = chosen();
+    const stored0 = JSON.stringify(server.nodes.get(a.id));
+    edits[edit]?.(doc);
+    if (answered === "before") answer();
+    menuItem("Clear").run();
+    // Between send and answer, no key is shown on an Anchor the committed Document lacks.
+    expect(allInRange(), name).toBe(true);
+    if (answered === "after") answer();
+    expect(allInRange(), name).toBe(true);
+    answer(rejected);
+    expect(chosen(), name).toEqual({ anchors: [], segments: [] });
+    expect(useStore.getState().keysDropped.size, name).toBe(0);
+    if (!rejected) {
+      undo();
+      expect(chosen(), name).toEqual(before);
+      expect(allInRange(), name).toBe(true);
+      useStore.setState({ anchors: [], segments: [] });
+    }
+    undo();
+    expect(JSON.stringify(server.nodes.get(a.id)), name).toBe(stored0);
+    expect(chosen(), name).toEqual(before);
+    expect(allInRange(), name).toBe(true);
+  }
+  vi.useRealTimers();
+});
+
 it("forgets the keys a Clear dropped on a path another Actor edits before its answer, so Undo brings none back (ADR-0109, ADR-0112)", () => {
   vi.useFakeTimers();
   const { a, server, answer, undo, chosen } = undoable((a) => ({
