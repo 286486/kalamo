@@ -367,14 +367,13 @@ export function pencilUp(scale: number) {
     const own = done.map((p) => applyTo(m, ...p));
     afterReverse(
       ({ doc: now, anchors }, w) => {
-        if (!now || anchors.length === 0) {
+        if (!now) {
           cancelDrag();
-          if (now) useStore.setState({ notice: DROPPED });
           return;
         }
-        const f = frame(now);
-        const at = own.map((p) => applyTo(f, ...p));
-        const again = pencilResult(now, [nodeId], at, o, scale);
+        const f = anchors.length > 0 && frame(now);
+        const at = f && own.map((p) => applyTo(f, ...p));
+        const again = at && pencilResult(now, [nodeId], at, o, scale);
         if (!again || !("edit" in again)) {
           cancelDrag();
           useStore.setState({ notice: DROPPED });

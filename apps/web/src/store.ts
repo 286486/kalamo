@@ -203,6 +203,7 @@ export function afterReverse(
 export function runHeld(said?: string | null) {
   const before = useStore.getState().notice;
   const notices: string[] = [];
+  let runs = 0;
   for (;;) {
     const {
       held: [h, ...rest],
@@ -211,6 +212,7 @@ export function runHeld(said?: string | null) {
       drag,
     } = useStore.getState();
     if (!h || reversing) break;
+    runs++;
     useStore.setState({ held: rest, ...h.preview, notice: null });
     h.run(h.chosen);
     const after = useStore.getState();
@@ -225,7 +227,7 @@ export function runHeld(said?: string | null) {
       ...((sent.edit || sent.drag) && { ran: [...after.ran, sent] }),
     });
   }
-  useStore.setState({ notice: joinNotices([...notices, said]) || before });
+  if (runs > 0) useStore.setState({ notice: joinNotices([...notices, said]) || before });
 }
 
 /** Sends a signed-out person to sign in, coming back to this page. */

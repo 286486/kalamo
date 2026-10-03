@@ -414,7 +414,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
   };
 }
 
-/** The notices one message gives, each once and none replacing another, drawn work's first (#291). */
+/** The notices one message gives, in the order given, each once and none replacing another (#291). */
 export const joinNotices = (notices: (string | false | null | undefined)[]) =>
   [...new Set(notices.filter(Boolean))].join(" ");
 

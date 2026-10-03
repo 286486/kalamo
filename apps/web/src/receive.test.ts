@@ -6,6 +6,7 @@ import {
   afterProbe,
   copyInput,
   type Effect,
+  joinNotices,
   preview,
   previewEdit,
   previewOp,
@@ -213,8 +214,13 @@ it("keeps the Pen's notice beside the Skipped one from the same Transaction", ()
     tx(doc, { actor: "agent", updated: [a], skippedIds: [b.id] }),
   );
   expect(after.pen).toBeNull();
-  expect(after.notice).toMatch(/Pen .*not applied/);
-  expect(after.notice).toMatch(/Skipped 1/);
+  // Drawn work's first.
+  expect(after.notice).toMatch(/^Someone else .*Pen .*not applied.* Skipped 1 /);
+});
+
+it("joins one message's notices in order, each once", () => {
+  expect(joinNotices(["A.", null, "B.", false, "A.", undefined])).toBe("A. B.");
+  expect(joinNotices([null, undefined])).toBe("");
 });
 
 it("selects the Group a selected Node was just moved into, as Make Clipping Mask leaves it", () => {
