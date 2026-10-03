@@ -201,6 +201,8 @@ export interface Held {
   preview: Preview;
   /** A `set_d` edit's input, which its run sends and its preview draws (#286). */
   redraw?: Redraw;
+  /** An Anchor Point drag out of an Anchor, whose Handles a turn leaves as they are (#286). */
+  pulled?: true;
   /**
    * Names it in what is drawn on its preview until it runs: a seed then holds the ids it sent in its
    * place, or goes with it if it sent nothing (#308).
@@ -613,8 +615,8 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
   const { anchors, segments } = rekey(s);
   // A held edit's target is turned as its keys are; once a key goes, so does the target. The first
   // change that takes keys away is the one a dropped Pen finish names (#293).
-  const rechosen = ({ target, ...c }: Chosen, what: "held" | "seeded", drawn: Document): Chosen => {
-    const heldKept = keptBy(what, drawn);
+  const rechosen = ({ target, ...c }: Chosen, what: "held" | "seeded", base: Document): Chosen => {
+    const heldKept = keptBy(what, base);
     const t = target && renumberTarget(map)(turnTarget(doc, turned)(target));
     const k = t && targetKeys(t);
     const on = k?.anchors.every(heldKept(inRange)) && k.segments.every(heldKept(segmentInRange));
@@ -679,21 +681,21 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
   // Each held preview follows its keys. A `set_d` one is worked out again in run order, on what its
   // run will see: the paths as drawn with the sent previews and the held ones before it, which a Pen
   // finish's keys are numbered on (#286, #308).
-  const moves = turned.length > 0 || !!map;
+  const renumbers = turned.length > 0 || !!map;
   const held: Held[] = [];
   for (const h of s.held) {
-    const drawn =
-      h.seed || (moves && h.redraw)
+    const base =
+      h.seed || (renumbers && h.redraw)
         ? asDrawn(doc, { sentPreviews: sentLeft, sent: sentAfter, held })
         : doc;
     const chosen = {
-      ...rechosen(h.chosen, h.seed ? "seeded" : "held", drawn),
+      ...rechosen(h.chosen, h.seed ? "seeded" : "held", base),
       selection: h.chosen.selection.filter((id) => doc.nodes.has(id)),
     };
-    const preview = !moves
+    const preview = !renumbers
       ? h.preview
       : h.redraw
-        ? redrawn(h.redraw(drawn, chosen))
+        ? redrawn(h.redraw(base, chosen))
         : renumberPreview(doc, turned, map, h);
     held.push({ ...h, chosen, preview });
   }
@@ -1011,12 +1013,11 @@ function renumberPreview(
   doc: Document,
   turned: Reversing["subpaths"],
   r: Renumbering | null,
-  { preview: p, chosen }: Held,
+  { preview: p, pulled }: Held,
 ): Preview {
   if (!p.edit || p.edit.commandIds !== null) return p;
-  const onAnchor = chosen.target?.kind === "anchor";
   const inputs = p.edit.inputs
-    .map((i) => renumberInput(r, turnInput(doc, turned, i, onAnchor)))
+    .map((i) => renumberInput(r, turnInput(doc, turned, i, pulled)))
     .filter((i) => i !== null);
   return { ...p, edit: inputs.length > 0 ? { ...p.edit, inputs } : null };
 }

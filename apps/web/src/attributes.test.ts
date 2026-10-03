@@ -3284,10 +3284,18 @@ const indexEdits: Record<string, Step> = {
 
 it("draws an edit held behind a second press on the Anchors it sends, after the first press turned its subpath (#286)", () => {
   vi.useFakeTimers();
+  // A hole of Smooth Anchors too, whose Handles a Curvature drag sets the way the path runs.
+  const k = 2.761;
+  const round = `M10 10 C${10 - k} ${10 + k} ${10 - k} ${20 - k} 10 20 C${10 + k} ${20 + k} ${20 - k} ${20 + k} 20 20 C${20 + k} ${20 - k} ${20 + k} ${10 + k} 20 10 C${20 - k} ${10 - k} ${10 + k} ${10 - k} 10 10 Z`;
   for (const [name, edit] of Object.entries(indexEdits)) {
-    for (const outcome of ["accepted", "rejected"] as const) {
-      const label = `${name}, first press ${outcome}`;
-      const { doc, a, b } = rings();
+    for (const [outcome, hole] of [
+      ["accepted", undefined],
+      ["rejected", undefined],
+      ["accepted", round],
+      ["rejected", round],
+    ] as const) {
+      const label = `${name}, first press ${outcome}${hole ? ", Smooth" : ""}`;
+      const { doc, a, b } = rings(hole);
       const chosen = { anchors: [anchorKey(a.id, 1, 0)] };
       useStore.setState(viewState({ doc, selection: [a.id, b.id], role: "owner", ...chosen }));
       vi.advanceTimersByTime(1000);

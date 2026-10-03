@@ -536,7 +536,7 @@ it("renumbers keys and targets by the ops of a command the browser built, each o
 });
 
 // #286: a held preview's ops turn with its keys: only on a subpath the press turned.
-it("turns a preview's ops only on the subpaths turned, a Handle set its Anchor's other one unless on its Anchor", () => {
+it("turns a preview's ops only on the subpaths turned, a Handle set its Anchor's other one unless pulled", () => {
   const { doc, defaultLayerId: parentId } = createDocument({
     id: "d",
     name: "Doc",
@@ -569,5 +569,13 @@ it("turns a preview's ops only on the subpaths turned, a Handle set its Anchor's
     handleIn: [1, 1],
     handleOut: null,
   });
+  // A pulled Endpoint's one Handle is at the pointer, the other side once the subpath is turned.
+  const end: PathEditInput = {
+    nodeId: p.id,
+    ops: [{ op: "set_handles", subpath: 1, index: 0, handleOut: [2, 2] }],
+  };
+  expect(turnInput(doc, turned, end, true).ops).toEqual([
+    { op: "set_handles", subpath: 1, index: 3, handleIn: [2, 2] },
+  ]);
   expect(turnInput(doc, [{ nodeId: "other", subpath: 0 }], input)).toBe(input);
 });
