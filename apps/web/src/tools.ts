@@ -269,8 +269,9 @@ function finishEdit(doc: Document, pen: PenPath) {
 /**
  * Runs a `set_d` edit, a Pen finish or a Pencil redraw, through `afterReverse`, its unsent preview
  * in `edit` its own: the one run step for both (#309). It sends what `redraw` works out on the paths
- * as drawn, without the held edits after it, which run after it: the base `viewAfter` redraws its
- * preview held on (#286). It waits for the edits `seed` names, and a drop gives `dropped`'s notice.
+ * as drawn without the held edits after it, which run later. That is the base `viewAfter` redraws a
+ * held preview on, so the two agree (#286). It waits for the edits `seed` names, and a drop gives
+ * `dropped`'s notice.
  */
 export function afterRedraw(
   redraw: Redraw,
@@ -292,8 +293,7 @@ export function afterRedraw(
       anchors,
       segments: [],
       previewed: true,
-      redraw,
-      dropped,
+      redraw: { run: redraw, dropped },
       ...(seed.length > 0 && { seed }),
     },
   );

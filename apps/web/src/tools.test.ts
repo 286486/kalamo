@@ -1162,14 +1162,17 @@ it("stores a held drag on the Anchor dragged, and the Pen continuation drawn on 
 // #309: a Pencil redraw is drawn on the paths as drawn, so it carries the person's sent and held
 // edits to its path, and it waits for their answers as a Pen finish does.
 
-/** A Pencil drag on p at 100%, from the dragged Anchor's drawn (50, 20) down to (100, 60). */
-function pencilFromDrag(p: string) {
+/** A Pencil drag at 100% on the Selection `p` from `from`, by `step` five times, freehand. */
+function pencilFrom(p: string, from: Point, step: Point) {
   useStore.setState({ selection: [p], tool: "pencil" });
-  pencilDown([50, 20]);
+  pencilDown(from);
   for (let t = 1; t <= 5; t++)
-    pencilMove([[50 + t * 10, 20 + t * 8]], { shift: false, alt: false });
+    pencilMove([[from[0] + t * step[0], from[1] + t * step[1]]], { shift: false, alt: false });
   pencilUp(1);
 }
+
+/** A Pencil drag on p at 100%, from the dragged Anchor's drawn (50, 20) down to (100, 60). */
+const pencilFromDrag = (p: string) => pencilFrom(p, [50, 20], [10, 8]);
 
 /** p with the drag, the redraw from (50, 20), and its untouched second subpath. */
 const REDRAWN = "M 0 0 L 50 20 L 100 60 M 0 50 L 100 50";
@@ -1244,15 +1247,6 @@ it("holds a Pencil redraw drawn on the person's drag for its answer, and drops i
     }
   }
 });
-
-/** A Pencil drag at 100% on the Selection `p` from `from`, by `step` five times, freehand. */
-function pencilFrom(p: string, from: Point, step: Point) {
-  useStore.setState({ selection: [p], tool: "pencil" });
-  pencilDown(from);
-  for (let t = 1; t <= 5; t++)
-    pencilMove([[from[0] + t * step[0], from[1] + t * step[1]]], { shift: false, alt: false });
-  pencilUp(1);
-}
 
 it("holds a Pencil redraw drawn on a held Pen finish's extension until it runs, then sends both (#309)", () => {
   const { p, stored } = onePath("M 0 0 L 100 0");

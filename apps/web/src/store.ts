@@ -224,7 +224,7 @@ const unanswered = (s: Pick<State, "sent">, seed: string[] | undefined) =>
  * gesture's preview leaves it on screen; run, it gives way to what the edit sends, if anything.
  * Either way the edit never sees or changes the live slots' preview (#285). A `seed` holds it, and
  * the edits after it, until the answers to the edits it was drawn on (#293, #308, #309). A `set_d`
- * edit's `redraw` and `dropped` come from `afterRedraw`, its one run step (#286, #309); `pulled`
+ * edit's `redraw` comes from `afterRedraw`, its one run step (#286, #309); `pulled`
  * turns its preview as an Anchor Point drag out of an Anchor sends it (#286).
  */
 export function afterReverse(
@@ -233,13 +233,9 @@ export function afterReverse(
     previewed,
     seed,
     redraw,
-    dropped,
     pulled,
     ...chosen
-  }: Partial<Chosen> & { previewed?: true } & Pick<
-      Held,
-      "seed" | "redraw" | "dropped" | "pulled"
-    > = {},
+  }: Partial<Chosen> & { previewed?: true } & Pick<Held, "seed" | "redraw" | "pulled"> = {},
 ) {
   const s = useStore.getState();
   const { target } = chosen;
@@ -260,7 +256,6 @@ export function afterReverse(
     token: newId(),
     ...(seed && { seed }),
     ...(redraw && { redraw }),
-    ...(dropped && { dropped }),
     ...(pulled && { pulled }),
   };
   useStore.setState({ held: [...useStore.getState().held, h] });

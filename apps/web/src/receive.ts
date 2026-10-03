@@ -203,10 +203,11 @@ export interface Held {
   chosen: Chosen;
   run: (chosen: Chosen) => void;
   preview: Preview;
-  /** A `set_d` edit's input, which its run sends and its preview draws (#286). */
-  redraw?: Redraw;
-  /** Its tool's notices for a drop of what it drew, by cause (#309). */
-  dropped?: Record<Cause, string>;
+  /**
+   * A `set_d` edit's input, which its run sends and its preview draws (#286), and its tool's
+   * notices for a drop of what it drew, by cause (#309). Only `afterRedraw` sets it.
+   */
+  redraw?: { run: Redraw; dropped: Record<Cause, string> };
   /** An Anchor Point drag out of an Anchor, whose Handles a turn leaves as they are (#286). */
   pulled?: true;
   /**
@@ -701,7 +702,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     const preview = !renumbers
       ? h.preview
       : h.redraw
-        ? redrawn(h.redraw(base, chosen))
+        ? redrawn(h.redraw.run(base, chosen))
         : renumberPreview(doc, turned, map, h);
     held.push({ ...h, chosen, preview });
   }
@@ -888,12 +889,13 @@ export function dropDrawnOn(s: Drawing, gone: string[]): Settled {
   const dead = new Set(gone);
   const on = (e: { seed?: string[] } | undefined) => !!e?.seed?.some((k) => dead.has(k));
   // Held edits run in order, so each is drawn only on those before it.
-  const lost = s.held.filter((h) => {
+  const held: Held[] = [];
+  const lost: Held[] = [];
+  for (const h of s.held) {
     const goes = on(h);
     if (goes) dead.add(h.token);
-    return goes;
-  });
-  const held = s.held.filter((h) => !lost.includes(h));
+    (goes ? lost : held).push(h);
+  }
   const dropped = lost.length > 0;
   const stopped = on(s.pen?.from);
   const unmet = !stopped && s.pen && on(s.pen.to) ? disconnected(s.pen, s.penPress) : null;
@@ -909,7 +911,7 @@ export function dropDrawnOn(s: Drawing, gone: string[]): Settled {
     notices: [
       stopped && PEN_STOPPED.unapplied,
       unmet && PEN_DISCONNECTED.unapplied,
-      ...lost.map((h) => h.dropped?.unapplied),
+      ...lost.map((h) => h.redraw?.dropped.unapplied),
     ],
   };
 }
