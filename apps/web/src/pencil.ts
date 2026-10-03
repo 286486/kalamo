@@ -7,13 +7,20 @@ import {
   formatPath,
   fromAnchors,
   invert,
-  type Node,
   type PathEditInput,
   toAnchors,
   worldTransform,
 } from "@kalamo/core";
 import { cancelDrag } from "./canvas.ts";
-import { anchorKey, anchorsOf, hasAnchors, localAnchors, nearestSegment } from "./direct.ts";
+import {
+  anchorKey,
+  anchorsOf,
+  hasAnchors,
+  localAnchors,
+  nearestSegment,
+  through,
+  worldOf,
+} from "./direct.ts";
 import { editable } from "./selection.ts";
 import { getItem } from "./storage.ts";
 import { afterReverse, send, useStore } from "./store.ts";
@@ -259,12 +266,7 @@ export function pencilEdit(
   if (!redrawn) return null;
   // Back into the path's own coordinates; its other subpaths stay as they are.
   const m = invert(worldTransform(doc, n));
-  const local = (p: Point | null) => p && applyTo(m, p[0], p[1]);
-  const anchors = redrawn.anchors.map((a) => ({
-    anchor: applyTo(m, ...a.anchor),
-    handleIn: local(a.handleIn),
-    handleOut: local(a.handleOut),
-  }));
+  const anchors = redrawn.anchors.map((a) => through(m, a));
   const all: { closed: boolean; anchors: BareAnchor[] }[] = localAnchors(n);
   all[hit.subpath] = { closed: redrawn.closed, anchors };
   return { nodeId, ops: [{ op: "set_d", d: formatPath(fromAnchors(all)) }] };
@@ -368,8 +370,7 @@ export function pencilUp(scale: number) {
     const keys = hasAnchors(n)
       ? localAnchors(n).flatMap((sub, k) => sub.anchors.map((_, i) => anchorKey(nodeId, k, i)))
       : [];
-    const frame = (doc: Document) => worldTransform(doc, doc.nodes.get(nodeId) as Node);
-    const m = invert(frame(s.doc));
+    const m = invert(worldOf(s.doc, nodeId));
     const own = done.map((p) => applyTo(m, ...p));
     afterReverse(
       ({ doc: now, anchors }, w) => {
@@ -377,7 +378,7 @@ export function pencilUp(scale: number) {
           cancelDrag();
           return;
         }
-        const f = anchors.length > 0 && frame(now);
+        const f = anchors.length > 0 && worldOf(now, nodeId);
         const at = f && own.map((p) => applyTo(f, ...p));
         const again = at && pencilResult(now, [nodeId], at, o, scale);
         if (!again || !("edit" in again)) {

@@ -209,9 +209,10 @@ export const waiting = (s: Pick<State, "reversing" | "renumbering">) =>
  * Selection's keys, as a drag's own do; a `target` stands on its own keys, and the edit reads it
  * alone, as the answer turns it. With `previewed`, the unsent preview in `edit` and `drag` is the
  * edit's own: held, it goes with the edit, so the next gesture's preview leaves it on screen.
+ * `aside` is the gesture's preview, which a held edit does not see in `edit` and `drag` as it runs.
  */
 export function afterReverse(
-  edit: (s: State & Chosen, w: Waited) => void,
+  edit: (s: State & Chosen, w: Waited, aside: Preview) => void,
   { previewed, ...chosen }: Partial<Chosen> & { previewed?: true } = {},
 ) {
   const s = useStore.getState();
@@ -222,8 +223,8 @@ export function afterReverse(
     ...(target && targetKeys(target)),
   };
   const c = { anchors, segments, selection, tool, ...(target && { target }) };
-  const run = (k: Chosen) => edit({ ...useStore.getState(), ...k }, WAITED);
-  if (!waiting(s)) return run(c);
+  const run = (k: Chosen, aside: Preview) => edit({ ...useStore.getState(), ...k }, WAITED, aside);
+  if (!waiting(s)) return run(c, { edit: s.edit, drag: s.drag });
   const preview: Preview = {
     edit: previewed && s.edit?.commandIds === null ? s.edit : null,
     drag: previewed && s.drag?.commandId === null ? s.drag : null,
@@ -257,7 +258,7 @@ export function runHeld(said?: string | null) {
     if (!h || waiting(state)) break;
     runs++;
     useStore.setState({ held: rest, ...h.preview, notice: null });
-    h.run(h.chosen);
+    h.run(h.chosen, { edit, drag });
     const after = useStore.getState();
     if (after.notice) notices.push(after.notice);
     const sent = {

@@ -178,10 +178,11 @@ export type Ran = Preview & { fromHeld?: true };
  * A Direct Selection edit made while a Reverse Path Direction press was in flight, run once it is
  * answered (ADR-0110). Its keys are renumbered and cleared as the Direct Selection's are meanwhile.
  * `preview` is its own, drawn until it runs: running or dropping it changes no other preview.
+ * `run` is handed the gesture's preview it sets aside meanwhile.
  */
 export interface Held {
   chosen: Chosen;
-  run: (chosen: Chosen) => void;
+  run: (chosen: Chosen, aside: Preview) => void;
   preview: Preview;
 }
 

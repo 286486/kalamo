@@ -760,6 +760,51 @@ for (const outcome of ["accepted", "rejected"] as const) {
     expect(await transform()).toEqual([1, 0, 0, 1, 0, 30]);
   });
 
+  // #301, ADR-0110: so does a held Pen finish: the path is stored extended where the person drew it
+  // relative to the path, and moved, with no notice.
+  test(`a held Pen finish follows its path moved with the Selection tool, ${outcome}`, async ({
+    page,
+    request,
+  }) => {
+    const { docId, ids, held, hold, at, d, button } = await rings(page, request, [0], hook);
+    const [id] = ids as [string];
+    await page.keyboard.press("a");
+    await page.mouse.click(...at(120, 20));
+    await expect(button("Reverse Path Direction On")).toHaveAttribute("aria-pressed", "true");
+
+    hold();
+    await button("Reverse Path Direction Off").click();
+    await expect.poll(() => held.length).toBe(1);
+    await page.keyboard.press("p");
+    await page.mouse.click(...at(160, 60));
+    await page.mouse.click(...at(180, 60));
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("v");
+    await page.mouse.move(...at(30, 30));
+    await page.mouse.down();
+    await page.mouse.move(...at(30, 45), { steps: 5 });
+    await page.mouse.move(...at(30, 60), { steps: 5 });
+    await page.mouse.up();
+    const transform = async () =>
+      (await call(request, "kalamo_node_get", { docId, nodeIds: [id], detail: "full" }))
+        .structuredContent.nodes[0].transform;
+    await expect.poll(transform).toEqual([1, 0, 0, 1, 0, 30]);
+    const [press] = held;
+    if (outcome === "accepted") press?.pass();
+    else {
+      press?.answer({
+        type: "rejected",
+        id: press.id,
+        error: { code: "INVALID_PATH", message: "Rejected for the test.", hint: "" },
+      });
+    }
+    await expect
+      .poll(async () => anchorsIn(await d(id))[2]?.join(","))
+      .toMatch(drawnEdits["a Pen continuing from an Endpoint"][outcome]);
+    expect(await transform()).toEqual([1, 0, 0, 1, 0, 30]);
+    await expect(page.getByText("what it drew was not applied")).toHaveCount(0);
+  });
+
   // #281, ADR-0109: an Agent's edit to the path drops the held redraw, so the Agent's edit is
   // stored as they made it, reversed only by an accepted press.
   test(`a held Pencil redraw is dropped when an Agent edits its path, ${outcome}`, async ({
