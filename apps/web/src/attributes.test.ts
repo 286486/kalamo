@@ -13,6 +13,7 @@ import {
   toAnchors,
   transformNodes,
 } from "@kalamo/core";
+import type { Command, ServerMessage } from "@kalamo/sync";
 import { expect, it, vi } from "vitest";
 import { addAnchorTool, anchorPointTool, deleteAnchorTool } from "./anchorTools.ts";
 import { directionOf, fillRuleOf, setDirection, setFillRule } from "./attributes.ts";
@@ -20,9 +21,10 @@ import { commitDrag } from "./canvas.ts";
 import { curvatureCancel, curvatureDown, curvatureDrag, curvatureUp } from "./curvature.ts";
 import { anchorKey, localAnchors, parseKey } from "./direct.ts";
 import { directTool } from "./directTool.ts";
-import { documentMenus, findByKeys } from "./menu.ts";
+import { documentMenus, findByKeys, type Item, type MenuItem } from "./menu.ts";
 import { pencilDown, pencilMove, pencilUp } from "./pencil.ts";
 import { type PathDrag, previewAll, previewEdit, previewsOf, type ViewState } from "./receive.ts";
+import { sendPreviewedOp } from "./simplify.ts";
 import { afterReverse, record, runHeld, send, unheld, useStore } from "./store.ts";
 import { message, stateAfter, viewState } from "./testing.ts";
 import type { ToolEvent } from "./toolbox.ts";
@@ -31,7 +33,7 @@ import { finishPen, penDown, penUp } from "./tools.ts";
 // Records each id as the real `send` does, so the answers tests drive are the person's own (#288).
 vi.mock("./store.ts", async (original) => {
   const store = await original<typeof import("./store.ts")>();
-  return { ...store, send: vi.fn(() => store.record("c")) };
+  return { ...store, send: vi.fn((c: Command) => store.record("c", c)) };
 });
 
 /**
@@ -1816,7 +1818,12 @@ it("keeps each held edit's preview on screen until that edit runs or is dropped"
 
 /** The person's own Transaction for command `id` on `n` as `change` leaves it, sent and answered. */
 function ownTx(id: string, n: Node, change: "paint" | "reshape") {
-  record(id);
+  record(
+    id,
+    change === "paint"
+      ? { type: "update", nodeId: n.id, patch: { visible: true } }
+      : { type: "undo" },
+  );
   const { doc } = useStore.getState() as { doc: Document };
   const updated =
     change === "paint"
@@ -1933,7 +1940,8 @@ it("sends Undo and Redo after the edits held for a press, in input order; at onc
       commands().map((c) => c.type),
       keys,
     ).toEqual(["path_edit", keys === "Ctrl+Z" ? "undo" : "redo"]);
-    // With no press in flight, it is sent at once.
+    // With nothing in flight, it is sent at once.
+    useStore.setState(stateAfter(useStore.getState(), message("rejected", { id: "c" })));
     vi.mocked(send).mockClear();
     findByKeys(menus, keys)?.run();
     expect(
@@ -1944,8 +1952,9 @@ it("sends Undo and Redo after the edits held for a press, in input order; at onc
 });
 
 // Case 5: a's hole runs (10, 10), (10, 20), (20, 20), (20, 10). A held Pencil redraw from its bottom
-// round to its right side is drawn in `ran` once sent and renumbers its Anchors; a held Add Anchor
-// click on its left side adds one, untracked before #288. Either answer mid-drag lets go of a drag on a.
+// round to its right side is drawn in `ran` once sent and renumbers its Anchors in a way the browser
+// cannot number, so its answer mid-drag lets go of a drag on a. An Add Anchor click it can number
+// keeps the drag (#298 T3).
 const heldOnA = {
   "Pencil redraw": () => {
     pencilDown([12, 20]);
@@ -1959,8 +1968,6 @@ const heldOnA = {
       pencilMove([[...p]], { shift: false, alt: false });
     pencilUp(1);
   },
-  "Add Anchor click": () =>
-    addAnchorTool.down?.(event(useStore.getState().doc as Document, 10, 14)),
 };
 
 it("lets go of a drag when the answer to the person's own held reshape of its path comes mid-drag; their paint change keeps it (#288)", () => {
@@ -1984,7 +1991,7 @@ it("lets go of a drag when the answer to the person's own held reshape of its pa
         held();
         expect(useStore.getState().held, label).toHaveLength(1);
         // Sent as "k" once the press is answered.
-        vi.mocked(send).mockImplementationOnce(() => record("k"));
+        vi.mocked(send).mockImplementationOnce((c) => record("k", c));
       }
       const pressed = message("tx", {
         rev: doc.rev + 1,
@@ -2052,4 +2059,475 @@ it("lets go only of the Anchors on the path the person's own Undo reshapes, in a
       input: { nodeId: b.id, ops: [{ op: "move_anchor", subpath: 1, index: 3, to: [76, 10] }] },
     },
   ]);
+});
+
+// #298: an edit by index made before the answer to the person's own command that may renumber its
+// path waits for that answer, which renumbers it, so it acts on the point the person pressed, as in
+// Illustrator, which runs each command before it takes the next input.
+
+/**
+ * The Document DO for #298's tests: each command sent is queued under its own id, and `answer`
+ * applies the next one to `server` as the socket delivers it, or rejects it, then runs what was
+ * held. Undo puts back the Document before the last command it applied, and Redo what it undid.
+ */
+function serve(doc: Document) {
+  const server = structuredClone(doc);
+  const queue: { id: string; command: Command }[] = [];
+  const history: Document["nodes"][] = [];
+  const future: Document["nodes"][] = [];
+  let ids = 0;
+  vi.mocked(send).mockClear();
+  vi.mocked(send).mockImplementation((command) => {
+    const id = `k${++ids}`;
+    queue.push({ id, command });
+    return record(id, command);
+  });
+  const deliver = (msg: ServerMessage) => {
+    const after = stateAfter(useStore.getState(), msg);
+    useStore.setState(after);
+    runHeld(after.notice);
+  };
+  /** The server's change since `before` as a Transaction, the answer to `commandId` if given. */
+  const tx = (before: Document["nodes"], commandId?: string) =>
+    message("tx", {
+      rev: server.rev,
+      commandId,
+      actor: commandId ? "user" : "agent",
+      created: [...server.nodes.values()].filter((n) => !before.has(n.id)),
+      updated: [...server.nodes.values()].filter(
+        (n) => before.has(n.id) && JSON.stringify(before.get(n.id)) !== JSON.stringify(n),
+      ),
+      deletedIds: [...before.keys()].filter((k) => !server.nodes.has(k)),
+    });
+  const answer = (reject = false) => {
+    const { id, command: c } = queue.shift() as { id: string; command: Command };
+    const no = message("rejected", {
+      id,
+      error: { code: "INVALID_PATH", message: "No.", hint: "" },
+    });
+    const before = structuredClone(server.nodes);
+    try {
+      if (reject) throw new Error("Rejected.");
+      if (c.type === "path_edit") editPath(server, c.input);
+      else if (c.type === "path_op") pathOp(server, c.input);
+      else if (c.type === "delete") for (const n of c.nodeIds) server.nodes.delete(n);
+      else if (c.type === "undo" || c.type === "redo") {
+        const [from, to] = c.type === "undo" ? [history, future] : [future, history];
+        const last = from.pop();
+        if (!last) throw new Error("NOTHING_TO_UNDO");
+        to.push(before);
+        server.nodes = last;
+      } else throw new Error(`The test server does not run ${c.type}.`);
+    } catch {
+      server.nodes = before;
+      return deliver(no);
+    }
+    if (c.type !== "undo" && c.type !== "redo") {
+      history.push(before);
+      future.length = 0;
+    }
+    server.rev++;
+    deliver(tx(before, id));
+  };
+  /** Another Actor's edit to the server's Document, delivered at once. */
+  const theirs = (change: (d: Document) => void) => {
+    const before = structuredClone(server.nodes);
+    change(server);
+    server.rev++;
+    deliver(tx(before));
+  };
+  const serveAll = () => {
+    while (queue.length > 0) answer();
+  };
+  return { server, queue, answer, serveAll, theirs };
+}
+
+/** Subpath `k` of `id` in `doc` as "x y" per Anchor, with its Handles, rounded. */
+function stored(doc: Document, id: string, k = 1) {
+  const n = doc.nodes.get(id);
+  const r = (p: [number, number] | null) =>
+    p ? p.map((v) => Math.round(v * 100) / 100).join(" ") : "";
+  const s = n?.type === "path" ? localAnchors(n)[k] : undefined;
+  return (
+    s && [...s.anchors.map((a) => [r(a.anchor), r(a.handleIn), r(a.handleOut)].join(",")), s.closed]
+  );
+}
+
+type Step = (doc: Document, a: Node) => void;
+
+/**
+ * a's hole as the DO stores it after the person makes `first` and then `then` on a with its hole's
+ * Anchor 0 chosen. `when` says whether `then` was made once `first` was answered, or before, with
+ * `first` then accepted or rejected.
+ */
+function inOrder(first: Step, then: Step, when: "after" | "accepted" | "rejected", hole?: string) {
+  const { doc, a } = rings(hole);
+  const chosen = { anchors: [anchorKey(a.id, 1, 0)] };
+  useStore.setState(viewState({ doc, selection: [a.id], role: "owner", ...chosen }));
+  vi.advanceTimersByTime(1000);
+  const { server, answer, serveAll } = serve(doc);
+  first(doc, a);
+  if (when === "after") serveAll();
+  then(useStore.getState().doc as Document, a);
+  if (when === "rejected") answer(true);
+  serveAll();
+  return stored(server, a.id);
+}
+
+/** Each gesture in `grabs` dragged right by 6. */
+const gestureOf =
+  (g: (typeof grabs)[string]): Step =>
+  (doc) => {
+    const [x, y] = g.at;
+    g.down(doc, x, y);
+    g.move(doc, x + 3, y);
+    g.move(doc, x + 6, y);
+    g.up(doc, x + 6, y);
+  };
+
+/** What a rejected command leaves: it was sent, so the keys it cleared stay cleared. */
+const nothing: Step = () => useStore.setState({ anchors: [], segments: [] });
+const addAnchorClick: Step = (doc) => addAnchorTool.down?.(event(doc, 10, 14));
+/** An Add Anchor click on the hole's bottom, out of reach of every gesture's press. */
+const addAnchorBelow: Step = (doc) => addAnchorTool.down?.(event(doc, 15, 20));
+
+it("sends a drag made before an Add Anchor click's answer after it, on the Anchor pressed (#298 T1)", () => {
+  vi.useFakeTimers();
+  for (const outcome of ["accepted", "rejected"] as const) {
+    const { doc, a } = rings();
+    useStore.setState(viewState({ doc, selection: [a.id], role: "owner" }));
+    const { server, answer, serveAll } = serve(doc);
+    addAnchorClick(doc, a);
+    directTool.down(event(doc, 20, 10));
+    directTool.move?.(event(doc, 25, 10));
+    directTool.up?.(event(doc, 25, 10));
+    // Nothing but the click goes out until its answer.
+    expect(commands().map((c) => c.type)).toEqual(["path_edit"]);
+    answer(outcome === "rejected");
+    expect(commands()[1], outcome).toEqual({
+      type: "path_edit",
+      input: {
+        nodeId: a.id,
+        ops: [
+          { op: "move_anchor", subpath: 1, index: outcome === "accepted" ? 4 : 3, to: [25, 10] },
+        ],
+      },
+    });
+    serveAll();
+    const at = (stored(server, a.id) as string[]).slice(0, -1).map((s) => s.split(",")[0]);
+    expect(at, outcome).toEqual(
+      outcome === "accepted"
+        ? ["10 10", "10 14", "10 20", "20 20", "25 10"]
+        : ["10 10", "10 20", "20 20", "25 10"],
+    );
+  }
+  vi.useRealTimers();
+});
+
+it("stores what each gesture made before an Add Anchor click's answer would store after it (#298 T2)", () => {
+  vi.useFakeTimers();
+  for (const [name, g] of Object.entries(grabs)) {
+    const then = gestureOf(g);
+    const after = inOrder(addAnchorBelow, then, "after", g.hole);
+    expect(inOrder(addAnchorBelow, then, "accepted", g.hole), name).toEqual(after);
+    expect(after, name).not.toEqual(inOrder(nothing, then, "after", g.hole));
+    expect(inOrder(addAnchorBelow, then, "rejected", g.hole), name).toEqual(
+      inOrder(nothing, then, "after", g.hole),
+    );
+  }
+  vi.useRealTimers();
+});
+
+it("renumbers a drag still being made when the answer it waits for comes mid-drag, and the drag goes on (#298 T3)", () => {
+  vi.useFakeTimers();
+  for (const [name, g] of Object.entries(grabs)) {
+    const then = gestureOf(g);
+    const expected = inOrder(addAnchorBelow, then, "after", g.hole);
+    const { doc, a } = rings(g.hole);
+    const chosen = { anchors: [anchorKey(a.id, 1, 0)] };
+    useStore.setState(viewState({ doc, selection: [a.id], role: "owner", ...chosen }));
+    vi.advanceTimersByTime(1000);
+    const { server, queue, answer } = serve(doc);
+    addAnchorBelow(doc, a);
+    const [x, y] = g.at;
+    g.down(doc, x, y);
+    g.move(doc, x + 3, y);
+    answer();
+    // The drag goes on, its preview on the point pressed: as the next move to the same place draws it.
+    const now = useStore.getState().doc as Document;
+    const shown = () => stored(previewAll(now, previewsOf(useStore.getState())), a.id);
+    const kept = shown();
+    expect(useStore.getState().edit, name).not.toBeNull();
+    g.move(now, x + 3, y);
+    expect(kept, name).toEqual(shown());
+    g.move(now, x + 6, y);
+    g.up(now, x + 6, y);
+    // The release is sent at once.
+    expect(queue.length, name).toBe(1);
+    answer();
+    expect(stored(server, a.id), name).toEqual(expected);
+  }
+  vi.useRealTimers();
+});
+
+/** A path along y = 0 with Anchors at x = 0, 10, 20, 30 and 40, selected. */
+function line() {
+  const { doc, defaultLayerId: parentId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 200, height: 200 }],
+  });
+  const [p] = createNodes(doc, [{ type: "path", parentId, d: "M 0 0 L 10 0 L 20 0 L 30 0 L 40 0" }])
+    .nodes as [PathNode];
+  useStore.setState(viewState({ doc, selection: [p.id], role: "owner", tool: "pen" }));
+  return { doc, p };
+}
+
+it("sends quick Add and Delete Anchor and Pen Auto Add/Delete clicks one answer apart, each on the point clicked (#298 T4)", () => {
+  const pen = (x: number) => () => {
+    penDown([x, 0], 1);
+    penUp();
+  };
+  const clicks: Record<string, [Record<number, () => void>, number[]]> = {
+    "Delete Anchor Point": [
+      {
+        10: () => deleteAnchorTool.down?.(event(useStore.getState().doc as Document, 10, 0)),
+        30: () => deleteAnchorTool.down?.(event(useStore.getState().doc as Document, 30, 0)),
+      },
+      [0, 20, 40],
+    ],
+    "Add Anchor Point": [
+      {
+        5: () => addAnchorTool.down?.(event(useStore.getState().doc as Document, 5, 0)),
+        25: () => addAnchorTool.down?.(event(useStore.getState().doc as Document, 25, 0)),
+      },
+      [0, 5, 10, 20, 25, 30, 40],
+    ],
+    "the Pen's Auto Delete": [{ 10: pen(10), 30: pen(30) }, [0, 20, 40]],
+    "the Pen's Auto Add": [{ 5: pen(5), 25: pen(25) }, [0, 5, 10, 20, 25, 30, 40]],
+  };
+  for (const [name, [click, xs]] of Object.entries(clicks)) {
+    const { doc, p } = line();
+    const { server, answer } = serve(doc);
+    for (const run of Object.values(click)) run();
+    // The second waits for the first one's answer.
+    expect(commands(), name).toHaveLength(1);
+    answer();
+    expect(commands(), name).toHaveLength(2);
+    answer();
+    const at = (server.nodes.get(p.id) as PathNode).d;
+    const anchors = toAnchors(parsePath(at, "d"))[0]?.anchors.map((a) => Math.round(a.anchor[0]));
+    expect(anchors, name).toEqual(xs);
+  }
+});
+
+/** The Edit menu's Clear, or an Object > Path item by its label. */
+const menuItem = (label: string) => {
+  const find = (items: Item[]): MenuItem | undefined => {
+    for (const i of items) {
+      if (i === "-") continue;
+      const found = "items" in i ? find(i.items) : i.label === label ? i : undefined;
+      if (found) return found;
+    }
+  };
+  return find(documentMenus({ open() {}, close() {} })) as MenuItem;
+};
+
+/** Chooses a's hole Anchor at `index` with `tool`, then `run`s. */
+const onChosen =
+  (index: number, run: () => void, tool: ViewState["tool"] = "direct"): Step =>
+  (_, a) => {
+    useStore.setState({ anchors: [anchorKey(a.id, 1, index)], segments: [], tool });
+    run();
+  };
+
+// Each command that may renumber a's hole, made on its Anchor at (10, 20), or on its bottom.
+const renumbering: Record<string, Step> = {
+  "Edit > Clear": onChosen(1, () => menuItem("Clear").run()),
+  "Remove Anchor Points": onChosen(1, () => menuItem("Remove Anchor Points").run()),
+  "the Curvature tool's Clear": onChosen(1, () => menuItem("Clear").run(), "curvature"),
+  "the Pen's Auto Add": (_, a) => {
+    useStore.setState({ selection: [a.id], tool: "pen" });
+    penDown([15, 20], 1);
+    penUp();
+  },
+  "an Add Anchor click": addAnchorBelow,
+};
+
+/** A Direct Selection drag of the Anchor at (20, 10) to (26, 10). */
+const dragAnchor: Step = (doc) => {
+  directTool.down(event(doc, 20, 10));
+  directTool.move?.(event(doc, 23, 10));
+  directTool.move?.(event(doc, 26, 10));
+  directTool.up?.(event(doc, 26, 10));
+};
+
+it("holds a drag behind each command that may renumber its path, and stores what the order the person used stores (#298 T5)", () => {
+  vi.useFakeTimers();
+  for (const [name, first] of Object.entries(renumbering)) {
+    const after = inOrder(first, dragAnchor, "after");
+    expect(inOrder(first, dragAnchor, "accepted"), name).toEqual(after);
+    expect(inOrder(first, dragAnchor, "rejected"), name).toEqual(
+      inOrder(nothing, dragAnchor, "after"),
+    );
+  }
+  vi.useRealTimers();
+});
+
+it("drops a held drag whose pressed Anchor the command removed, silently (#298 T5)", () => {
+  vi.useFakeTimers();
+  for (const name of ["Edit > Clear", "Remove Anchor Points", "the Curvature tool's Clear"]) {
+    const clear = { "Edit > Clear": "Clear", "Remove Anchor Points": "Remove Anchor Points" }[name];
+    const first = onChosen(
+      3,
+      () => menuItem(clear ?? "Clear").run(),
+      clear ? "direct" : "curvature",
+    );
+    const cleared = inOrder(first, nothing, "after");
+    expect(inOrder(first, dragAnchor, "accepted"), name).toEqual(cleared);
+    expect(commands(), name).toHaveLength(1);
+    expect(useStore.getState().notice, name).toBeNull();
+  }
+  vi.useRealTimers();
+});
+
+it("deletes with Edit > Clear the Anchor chosen before the answer that renumbered it (#298)", () => {
+  vi.useFakeTimers();
+  const chooseAndClear: Step = (doc) => {
+    // A click selects at once, on the Document shown.
+    directTool.down(event(doc, 20, 20));
+    directTool.up?.(event(doc, 20, 20));
+    menuItem("Clear").run();
+  };
+  const deleteClick: Step = (doc) => deleteAnchorTool.down?.(event(doc, 10, 20));
+  const after = inOrder(deleteClick, chooseAndClear, "after");
+  expect(inOrder(deleteClick, chooseAndClear, "accepted")).toEqual(after);
+  expect(inOrder(deleteClick, chooseAndClear, "rejected")).toEqual(
+    inOrder(nothing, chooseAndClear, "after"),
+  );
+  vi.useRealTimers();
+});
+
+it("never sends an edit made before the answer to Undo, Redo or Simplify with indices from before it (#298 T6)", () => {
+  vi.useFakeTimers();
+  const menus = documentMenus({ open() {}, close() {} });
+  const undo = () => findByKeys(menus, "Ctrl+Z")?.run();
+  const redo = () => findByKeys(menus, "Shift+Ctrl+Z")?.run();
+  const commandsOf: Record<string, (a: Node) => void> = {
+    Undo: undo,
+    Redo: undo,
+    Simplify: (a) => sendPreviewedOp({ nodeIds: [a.id], op: "simplify", tolerance: 5 }, false),
+  };
+  for (const [name, command] of Object.entries(commandsOf)) {
+    for (const outcome of ["accepted", "rejected"] as const) {
+      const label = `${name}, ${outcome}`;
+      const { doc, a } = rings();
+      useStore.setState(viewState({ doc, selection: [a.id], role: "owner" }));
+      vi.advanceTimersByTime(1000);
+      const { server, answer, serveAll } = serve(doc);
+      // An earlier Add Anchor click on a, answered; Redo first undoes it.
+      addAnchorClick(doc, a);
+      answer();
+      command(a);
+      if (name === "Redo") {
+        answer();
+        redo();
+      }
+      const before = structuredClone(server.nodes.get(a.id));
+      dragAnchor(useStore.getState().doc as Document, a);
+      expect(commands().at(-1)?.type, label).not.toBe("path_edit");
+      answer(outcome === "rejected");
+      serveAll();
+      // Accepted, the answer reshapes a and drops the drag; rejected, the drag is sent and stored.
+      const reshaped = JSON.stringify(server.nodes.get(a.id)) !== JSON.stringify(before);
+      const moved = commands().filter((c) => c.type === "path_edit").length > 1;
+      expect({ reshaped, moved }, label).toEqual({ reshaped: true, moved: outcome === "rejected" });
+      expect(useStore.getState().held, label).toEqual([]);
+    }
+  }
+  vi.useRealTimers();
+});
+
+it("drops a drag held behind the person's own command when another Actor reshapes its path (#298 T8)", () => {
+  vi.useFakeTimers();
+  const { doc, a } = rings();
+  useStore.setState(viewState({ doc, selection: [a.id], role: "owner" }));
+  const { server, answer, theirs } = serve(doc);
+  addAnchorClick(doc, a);
+  dragAnchor(doc, a);
+  theirs((d) =>
+    editPath(d, { nodeId: a.id, ops: [{ op: "move_anchor", subpath: 1, index: 2, to: [22, 22] }] }),
+  );
+  answer();
+  expect(commands().map((c) => c.type)).toEqual(["path_edit"]);
+  const at = (stored(server, a.id) as string[]).slice(0, -1).map((s) => s.split(",")[0]);
+  expect(at).toEqual(["10 10", "10 14", "10 20", "22 22", "20 10"]);
+  vi.useRealTimers();
+});
+
+it("redraws a Pencil stretch held behind the person's own command from its Ink, or drops it with its notice (#298)", () => {
+  for (const [x, y, runs] of [
+    [9, 9, true],
+    [0, 0, false],
+  ] as const) {
+    const { doc, defaultLayerId: parentId } = createDocument({
+      id: "d",
+      name: "Doc",
+      artboards: [{ width: 200, height: 200 }],
+    });
+    const [p] = createNodes(doc, [
+      { type: "path", parentId, d: "M0 0 L9 0 L9 9 L0 9 Z M50 0 L80 0 L80 30" },
+    ]).nodes as [PathNode];
+    useStore.setState(viewState({ doc, selection: [p.id], role: "owner", tool: "pencil" }));
+    const { server, serveAll } = serve(doc);
+    deleteAnchorTool.down?.(event(doc, x, y));
+    drawnEdits["a Pencil redraw"]();
+    expect(commands(), `${x}`).toHaveLength(1);
+    serveAll();
+    expect(commands(), `${x}`).toHaveLength(runs ? 2 : 1);
+    expect(useStore.getState().notice === null, `${x}`).toBe(runs);
+    const open = (stored(server, p.id) as string[])
+      .slice(0, -1)
+      .map((s) => (s.split(",")[0] as string).split(" ").map(Number).map(Math.round).join(" "));
+    if (runs) {
+      expect(open.slice(0, 3)).toEqual(["50 0", "80 0", "80 10"]);
+      expect(open.slice(-2)).toEqual(["80 25", "80 30"]);
+    } else expect(open).toEqual(["50 0", "80 0", "80 30"]);
+  }
+});
+
+it("after a reconnect with the person's own command unanswered, runs a held drag only on a path as it was (#298 T9)", () => {
+  vi.useFakeTimers();
+  for (const applied of [false, true]) {
+    const { doc, a } = rings();
+    useStore.setState(viewState({ doc, selection: [a.id], role: "owner" }));
+    const { server, queue } = serve(doc);
+    addAnchorClick(doc, a);
+    dragAnchor(doc, a);
+    // The socket drops before the click's answer; the DO applied it or not.
+    const [click] = queue.splice(0);
+    if (applied && click?.command.type === "path_edit") editPath(server, click.command.input);
+    const nodes = [...server.nodes.values()];
+    const after = stateAfter(
+      useStore.getState(),
+      message("document", { rev: server.rev + 1, artboards: doc.artboards, nodes }),
+    );
+    useStore.setState(after);
+    runHeld(after.notice);
+    expect(commands().slice(1), `${applied}`).toEqual(
+      applied
+        ? []
+        : [
+            {
+              type: "path_edit",
+              input: {
+                nodeId: a.id,
+                ops: [{ op: "move_anchor", subpath: 1, index: 3, to: [26, 10] }],
+              },
+            },
+          ],
+    );
+    expect(useStore.getState().held, `${applied}`).toEqual([]);
+  }
+  vi.useRealTimers();
 });

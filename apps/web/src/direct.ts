@@ -452,6 +452,173 @@ export const turnTarget =
     return { ...t, key, which: t.which === "handleIn" ? "handleOut" : "handleIn" };
   };
 
+/**
+ * Where a command the browser built puts one path's Anchors (#298): by subpath, each Anchor's new
+ * subpath and index, null once the command removed it; whether each subpath was closed; each new
+ * subpath's Anchor count and whether it is closed, which say where its segments are; and the
+ * segments an `add_anchor` split, by the Anchor each starts at, where, and whether it is a line.
+ */
+export interface Renumbering {
+  nodeId: string;
+  to: ([number, number] | null)[][];
+  closed: boolean[];
+  after: { count: number; closed: boolean }[];
+  splits?: { at: [number, number]; t: number; line: boolean }[];
+}
+
+type Tag = { from?: [number, number] };
+
+/** `n`'s Anchors, each tagged with its subpath and index, for `renumbering` to read once edited. */
+export const tagged = (n: ShapeNode): Subpath[] =>
+  localAnchors(n).map((s, k) => ({
+    ...s,
+    anchors: s.anchors.map((a, i): Anchor & Tag => ({ ...a, from: [k, i] })),
+  }));
+
+/** How `after`, worked out from `tagged(n)` keeping each Anchor's tag, renumbers `n`'s Anchors. */
+export function renumbering(
+  n: ShapeNode,
+  after: Subpath[],
+  splits: Renumbering["splits"] = [],
+): Renumbering {
+  const before = localAnchors(n);
+  const to = before.map((s) => s.anchors.map((): [number, number] | null => null));
+  for (const [j, s] of after.entries()) {
+    for (const [i, a] of s.anchors.entries()) {
+      const from = (a as Anchor & Tag).from;
+      const row = from && to[from[0]];
+      if (row && from) row[from[1]] = [j, i];
+    }
+  }
+  return {
+    nodeId: n.id,
+    to,
+    closed: before.map((s) => s.closed),
+    after: after.map((s) => ({ count: s.anchors.length, closed: s.closed })),
+    ...(splits.length > 0 && { splits }),
+  };
+}
+
+const KEEPS_NUMBERING = new Set<PathOp["op"]>(["move_anchor", "set_handles", "set_point_type"]);
+const NUMBERED = new Set<PathOp["op"]>([...KEEPS_NUMBERING, "add_anchor", "remove_anchor"]);
+
+/**
+ * How `input` renumbers its path's Anchors on `doc` (#298): undefined when its ops keep the
+ * numbering, null when the browser cannot tell from its ops alone, as for a `set_d`, `open`,
+ * `close` or `reverse`.
+ */
+export function renumberingOf(
+  doc: Document | null,
+  input: PathEditInput,
+): Renumbering | null | undefined {
+  if (input.ops.every((o) => KEEPS_NUMBERING.has(o.op))) return undefined;
+  const n = doc?.nodes.get(input.nodeId);
+  if (!hasAnchors(n) || !input.ops.every((o) => NUMBERED.has(o.op))) return null;
+  try {
+    const splits: Renumbering["splits"] = [];
+    const after = input.ops.reduce((s, op) => {
+      if (op.op === "add_anchor") {
+        const sub = s[op.subpath ?? 0];
+        const a = sub?.anchors[op.segment] as (Anchor & Tag) | undefined;
+        const b = sub?.anchors[(op.segment + 1) % sub.anchors.length];
+        if (a?.from) splits.push({ at: a.from, t: op.t, line: !a.handleOut && !b?.handleIn });
+      }
+      return editSubpaths(s, op as Parameters<typeof editSubpaths>[1], "");
+    }, tagged(n));
+    return renumbering(n, after, splits);
+  } catch {
+    return null;
+  }
+}
+
+/** Whether `r` was worked out on `doc`'s numbering of its path: the same subpaths and Anchor counts. */
+export function fits(doc: Document | null, r: Renumbering): boolean {
+  const n = doc?.nodes.get(r.nodeId);
+  const subpaths = hasAnchors(n) ? localAnchors(n) : [];
+  return (
+    subpaths.length === r.to.length &&
+    subpaths.every((s, k) => s.anchors.length === r.to[k]?.length && s.closed === r.closed[k])
+  );
+}
+
+/**
+ * `t` as the answer to a command `maps` describe numbers it (#298): an Anchor or Handle is on its
+ * Anchor's new index, and a segment on the segment between its two Anchors while they are still
+ * next to each other; with `onSplit`, a point on a segment one `add_anchor` split is on the half it
+ * lies on, at the same place. Null once the command removed the Anchor or merged the segment.
+ */
+const renumber =
+  (maps: Renumbering[], onSplit: boolean) =>
+  <T extends Target>(t: T): T | null => {
+    const { nodeId, subpath, index } = parseKey(keyOf(t));
+    const r = maps.find((m) => m.nodeId === nodeId);
+    if (!r) return t;
+    const row = r.to[subpath] ?? [];
+    const at = row[index];
+    if (!at) return null;
+    if (t.kind !== "segment") return { ...t, key: anchorKey(nodeId, ...at) };
+    const next = row[(index + 1) % row.length];
+    const s = r.after[at[0]];
+    if (!s || !next || next[0] !== at[0] || !(r.closed[subpath] || index + 1 < row.length)) {
+      return null;
+    }
+    const after = (k: number) => (k + 1 < s.count ? k + 1 : s.closed ? 0 : -1);
+    if (next[1] === after(at[1])) return { ...t, subpath: at[0], segment: at[1] };
+    // Split by one Anchor, the segment is two; the point pressed is on one of them.
+    const split = r.splits?.filter((x) => x.at[0] === subpath && x.at[1] === index);
+    const [only] = split ?? [];
+    if (!onSplit || split?.length !== 1 || !only || next[1] !== after(after(at[1]))) return null;
+    // On a line, `t` is a cubic's with its Handles on its ends (`nearestSegment`); `add_anchor`'s
+    // runs along it.
+    const along = only.line ? 3 * t.t ** 2 - 2 * t.t ** 3 : t.t;
+    const first = along < only.t;
+    const u = first ? along / only.t : (along - only.t) / (1 - only.t);
+    return {
+      ...t,
+      subpath: at[0],
+      segment: first ? at[1] : after(at[1]),
+      t: only.line ? 0.5 - Math.sin(Math.asin(1 - 2 * u) / 3) : u,
+    };
+  };
+
+/**
+ * `t` renumbered as `renumber` does, a point on a split segment kept. Every held target and
+ * `grabbed` the answer to a command the browser can number renumbers goes through this rule, and
+ * every key through `renumberKey` (ADR-0110).
+ */
+export const renumberTarget = (maps: Renumbering[]) => renumber(maps, true);
+
+/**
+ * Anchor `key`, or with `segment` the segment starting there, renumbered as `renumberTarget` does. A
+ * selected segment split in two goes: it would be one half or both, which the person never chose.
+ */
+export const renumberKey = (maps: Renumbering[], segment: boolean) => (key: string) => {
+  const { nodeId, subpath, index } = parseKey(key);
+  const t = renumber(
+    maps,
+    false,
+  )<Target>(
+    segment ? { kind: "segment", nodeId, subpath, segment: index, t: 0 } : { kind: "anchor", key },
+  );
+  return t && keyOf(t);
+};
+
+/**
+ * An unsent preview's `input` with each op's Anchor renumbered as `renumberTarget` does. An op on an
+ * Anchor the command removed goes, and so does an input left with none.
+ */
+export function renumberInput(maps: Renumbering[], input: PathEditInput): PathEditInput | null {
+  if (!maps.some((m) => m.nodeId === input.nodeId)) return input;
+  const ops = input.ops.flatMap((op): PathOp[] => {
+    if (!("index" in op)) return [];
+    const key = renumberKey(maps, false)(anchorKey(input.nodeId, op.subpath ?? 0, op.index));
+    if (!key) return [];
+    const { subpath, index } = parseKey(key);
+    return [{ ...op, subpath, index }];
+  });
+  return ops.length > 0 ? { ...input, ops } : null;
+}
+
 /** The path `t` is on. */
 export const targetNode = (t: Target) => (t.kind === "segment" ? t.nodeId : parseKey(t.key).nodeId);
 
@@ -476,6 +643,7 @@ export function clearInputs(
   segments: string[] = [],
 ) {
   const edits: PathEditInput[] = [];
+  const known: Renumbering[] = [];
   const anchorsBy = byNode(anchors);
   const segmentsBy = byNode(segments);
   const deleteIds = selection.filter(
@@ -489,11 +657,14 @@ export function clearInputs(
     if (!hasAnchors(n) || !editable(doc, n) || liveAnchors.length + liveSegments.length === 0) {
       continue;
     }
-    const left = deleteParts(localAnchors(n), liveAnchors, liveSegments);
+    const left = deleteParts(tagged(n), liveAnchors, liveSegments);
     if (left.length === 0) deleteIds.push(nodeId);
-    else edits.push({ nodeId, ops: [{ op: "set_d", d: formatPath(fromAnchors(left)) }] });
+    else {
+      edits.push({ nodeId, ops: [{ op: "set_d", d: formatPath(fromAnchors(left)) }] });
+      known.push(renumbering(n, left));
+    }
   }
-  return { edits, deleteIds };
+  return { edits, deleteIds, known };
 }
 
 /**

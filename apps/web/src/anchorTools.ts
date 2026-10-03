@@ -11,6 +11,7 @@ import {
   parseKey,
   pick,
   plus,
+  type Renumbering,
   removeAnchorInputs,
   type Target,
   targetKeys,
@@ -18,19 +19,31 @@ import {
 } from "./direct.ts";
 import { directTool } from "./directTool.ts";
 import { editable } from "./selection.ts";
-import { afterReverse, send, useStore, type Waited } from "./store.ts";
+import { afterReverse, renumbers, send, useStore, type Waited } from "./store.ts";
 import type { CanvasTool, ToolEvent } from "./toolbox.ts";
 
 /** The Add, Delete and Anchor Point tools (research 06 §1), and the Pen's Auto Add/Delete. */
 
 type Point = [number, number];
 
-/** One `path_edit` per path and one `delete`, for edits on Anchors, which drop the selected Anchors and segments. */
+/**
+ * One `path_edit` per path and one `delete`, for edits on Anchors, which drop the selected Anchors
+ * and segments. `known` says how a `set_d` renumbers its path, which its answer renumbers the keys
+ * by (#298).
+ */
 export function sendAnchorEdits(
-  { edits, deleteIds }: ReturnType<typeof removeAnchorInputs>,
+  {
+    edits,
+    deleteIds,
+    known = [],
+  }: ReturnType<typeof removeAnchorInputs> & { known?: Renumbering[] },
   w: Waited,
 ) {
-  for (const input of edits) send({ type: "path_edit", input }, w);
+  for (const input of edits) {
+    const id = send({ type: "path_edit", input }, w);
+    const r = known.find((k) => k.nodeId === input.nodeId);
+    if (r) renumbers(id, r);
+  }
   if (deleteIds.length > 0) send({ type: "delete", nodeIds: deleteIds });
   useStore.setState({ anchors: [], segments: [] });
 }
