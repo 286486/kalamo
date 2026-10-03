@@ -181,10 +181,9 @@ export const directTool: CanvasTool = {
       marqueeRect = null;
       e.redraw();
     } else if (g?.moved && (g.kind === "move" || grabbed.length > 0)) {
-      // Sent once the person's own command that may renumber a path's Anchors (a Reverse Path
-      // Direction press is one) is answered, from the Document then, on what is still grabbed. What
-      // it holds is renumbered as the keys are, and another Actor's edit to its path meanwhile
-      // drops it, as it drops the keys (ADR-0109, ADR-0110).
+      // Sent once the person's own renumbering command is answered, from the Document then, on
+      // what is still grabbed. What it holds is renumbered as the keys are, and another Actor's
+      // edit to its path meanwhile drops it, as it drops the keys (ADR-0109, ADR-0110).
       const [grabbedTarget] = grabbed;
       afterRenumbering(
         ({ doc: now, anchors, target }, w) => {

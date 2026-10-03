@@ -148,8 +148,7 @@ export function curvatureDown(p: Point, tolerance: number, alt: boolean) {
     if (key) {
       press = null;
       if (double) {
-        // Sent once the person's own command that may renumber a path's Anchors (a Reverse Path
-        // Direction press is one) is answered, on the Anchor chosen.
+        // Sent once the person's own renumbering command is answered, on the Anchor chosen.
         afterRenumbering(
           ({ doc: now, anchors: [held] }, w) => {
             const input = now && held && toggleInput(now, held);
@@ -207,9 +206,8 @@ function movePreview(doc: Document, t: Target | undefined, d: Point) {
 
 /**
  * Releasing: a click on the first Anchor closes the path, and a drag of a selected path's Anchor is
- * sent once the person's own command that may renumber a path's Anchors (a Reverse Path Direction
- * press is one) is answered, on the Anchor chosen, from the Document then (ADR-0110); another
- * Actor's edit to the path meanwhile drops it (ADR-0109).
+ * sent once the person's own renumbering command is answered, on the Anchor chosen, from the
+ * Document then (ADR-0110); another Actor's edit to the path meanwhile drops it (ADR-0109).
  */
 export function curvatureUp() {
   const p = press;

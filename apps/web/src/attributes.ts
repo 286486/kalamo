@@ -86,8 +86,7 @@ export function setDirection(s: Directed, on: boolean) {
 }
 
 /**
- * The Attributes panel's direction buttons: a press waits for the person's own command that may
- * renumber a path's Anchors, unanswered, such as the press before it, which the store tracks alone
- * (ADR-0110).
+ * The Attributes panel's direction buttons: a press waits for the person's own renumbering command,
+ * such as the press before it, which the store tracks alone (ADR-0110).
  */
 export const pressDirection = (on: boolean) => afterRenumbering((s) => setDirection(s, on));

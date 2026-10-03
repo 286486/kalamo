@@ -69,11 +69,10 @@ export function addAnchorAt(doc: Document, p: Point, tolerance: number, only?: s
     : pick(doc, { selection: [], anchors: [], x: p[0], y: p[1], tolerance, scope });
   if (hit?.kind !== "segment" || hit.t <= 0 || hit.t >= 1) return false;
   const { nodeId, subpath, segment, t } = hit;
-  // Sent once the person's own command that may renumber a path's Anchors (a Reverse Path Direction
-  // press is one) is answered, on the segment chosen (ADR-0110); another Actor's edit to the path
-  // meanwhile drops it (ADR-0109). The target's `t` is nearestSegment's, as every target's is, so
-  // the answer to the person's own Add Anchor click that splits the segment puts it on the half
-  // clicked (#298).
+  // Sent once the person's own renumbering command is answered, on the segment chosen (ADR-0110);
+  // another Actor's edit to the path meanwhile drops it (ADR-0109). The target's `t` is
+  // nearestSegment's, as every target's is, so the answer to the person's own Add Anchor click that
+  // splits the segment puts it on the half clicked (#298).
   afterRenumbering(
     ({ doc: now, target: at }, w) => {
       const n = now?.nodes.get(nodeId);
@@ -111,9 +110,8 @@ export function deleteAnchorAt(
     scope: useStore.getState().isolated,
   });
   if (hit?.kind !== "anchor" || (only && !only.includes(parseKey(hit.key).nodeId))) return false;
-  // Sent once the person's own command that may renumber a path's Anchors (a Reverse Path Direction
-  // press is one) is answered, on the Anchor chosen, which the answer renumbers (ADR-0110); another
-  // Actor's edit to the path meanwhile drops it (ADR-0109).
+  // Sent once the person's own renumbering command is answered, on the Anchor chosen, which the
+  // answer renumbers (ADR-0110); another Actor's edit to the path meanwhile drops it (ADR-0109).
   afterRenumbering(
     ({ doc: now, anchors }, w) => {
       if (now && anchors.length > 0) sendAnchorEdits(removeAnchorInputs(now, anchors), w);
@@ -270,9 +268,9 @@ export const anchorPointTool: CanvasTool = {
     const [grabbed] = useStore.getState().grab?.targets ?? [];
     useStore.setState({ grab: null });
     if (!g || !grabbed) return;
-    // Sent once the person's own command that may renumber a path's Anchors (a Reverse Path
-    // Direction press is one) is answered, from the Document then, on what the gesture grabbed
-    // (ADR-0110); another Actor's edit to its path meanwhile drops it (ADR-0109).
+    // Sent once the person's own renumbering command is answered, from the Document then, on what
+    // the gesture grabbed (ADR-0110); another Actor's edit to its path meanwhile drops it
+    // (ADR-0109).
     const { last } = g;
     afterRenumbering(
       ({ doc: now, target: t }, w) => {

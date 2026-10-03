@@ -362,16 +362,15 @@ export function pencilUp(scale: number) {
   if (!r) return;
   if ("edit" in r) {
     useStore.setState({ edit: { inputs: [r.edit] } });
-    // Worked out again from the Ink once the person's own command that may renumber a path's
-    // Anchors (a Reverse Path Direction press is one) is answered, on the paths as drawn then, so
-    // it redraws the stretch drawn over (ADR-0110). It redraws the path it was drawn over, whatever
-    // the Selection is then, and keeps the Ink in that path's own coordinates, so the person's
-    // Selection tool move sent meanwhile carries the Ink with the path, as Illustrator, which
-    // redraws before it moves, would (#284). It holds the keys of the path's Anchors only so that
-    // another Actor's edit to the path, which clears them, drops the redraw (ADR-0109); the answer
-    // to the person's own Delete Anchor click clears only the one it removes, so the redraw still
-    // runs (#298). It carries the person's edits to the path it was drawn on, so it waits for their
-    // answers, and goes if one is not applied (#309).
+    // Worked out again from the Ink once the person's own renumbering command is answered, on the
+    // paths as drawn then, so it redraws the stretch drawn over (ADR-0110). It redraws the path it
+    // was drawn over, whatever the Selection is then, and keeps the Ink in that path's own
+    // coordinates, so the person's Selection tool move sent meanwhile carries the Ink with the
+    // path, as Illustrator, which redraws before it moves, would (#284). It holds the keys of the
+    // path's Anchors only so that another Actor's edit to the path, which clears them, drops the
+    // redraw (ADR-0109); the answer to the person's own Delete Anchor click clears only the one it
+    // removes, so the redraw still runs (#298). It carries the person's edits to the path it was
+    // drawn on, so it waits for their answers, and goes if one is not applied (#309).
     const { nodeId } = r.edit;
     const n = shown.nodes.get(nodeId);
     const keys = hasAnchors(n)

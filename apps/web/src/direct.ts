@@ -676,10 +676,7 @@ export function turnInput(
 /** The path `t` is on. */
 export const targetNode = (t: Target) => (t.kind === "segment" ? t.nodeId : parseKey(t.key).nodeId);
 
-/**
- * What `t` stands on, as Direct Selection keys, which the answer to the person's own command that
- * may renumber a path's Anchors renumbers (ADR-0110).
- */
+/** What `t` stands on, as Direct Selection keys, which a renumbering command's answer renumbers. */
 export const targetKeys = (t: Target): { anchors: string[]; segments: string[] } =>
   t.kind === "segment"
     ? { anchors: [], segments: [keyOf(t)] }

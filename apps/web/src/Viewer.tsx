@@ -358,8 +358,8 @@ export function Viewer({ docId }: { docId: string }) {
       e.clipboardData.setData("text/plain", svg);
       e.clipboardData.setData("image/svg+xml", svg);
       const nodeIds = selection.filter((id) => editable(doc, doc.nodes.get(id)));
-      // A viewer's Cut copies and deletes nothing. The delete waits for the person's own command
-      // that may renumber a path's Anchors, unanswered, as Edit > Clear's does (ADR-0110).
+      // A viewer's Cut copies and deletes nothing. The delete waits for the person's own
+      // renumbering command, as Edit > Clear's does (ADR-0110).
       if (e.type === "cut" && nodeIds.length > 0 && canEdit(useStore.getState())) {
         afterRenumbering(() => send({ type: "delete", nodeIds }));
       }

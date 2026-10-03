@@ -34,9 +34,8 @@ ${box("strayPoints", "Stray Points")}${box("unpainted", "Unpainted Objects")}${b
 }
 
 /**
- * Clean Up's OK: one `path_op clean_up` once the person's own command that may renumber a path's
- * Anchors (a Reverse Path Direction press is one) is answered (ADR-0110), and a notice that counts
- * what it removes from the Document then.
+ * Clean Up's OK: one `path_op clean_up` once the person's own renumbering command is answered
+ * (ADR-0110), and a notice that counts what it removes from the Document then.
  */
 export function cleanUp(input: NodeOp) {
   afterRenumbering(({ doc }, w) => {

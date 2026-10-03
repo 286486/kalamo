@@ -221,11 +221,11 @@ export type Redraw = (
 ) => { input: PathEditInput; command?: Command } | string;
 
 /**
- * A Direct Selection edit made while the person's own command that may renumber a path's Anchors
- * was unanswered (a Reverse Path Direction press is one), run once it is answered (ADR-0110). Its
- * keys are renumbered and cleared as the Direct Selection's are meanwhile. `preview` is its own,
- * drawn until it runs: running or dropping it changes no other preview. An answer that renumbers
- * its keys moves its preview with them, or, with `redraw`, works it out again (#286).
+ * A Direct Selection edit made while the person's own renumbering command was unanswered, run once
+ * it is answered (ADR-0110). Its keys are renumbered and cleared as the Direct Selection's are
+ * meanwhile. `preview` is its own, drawn until it runs: running or dropping it changes no other
+ * preview. An answer that renumbers its keys moves its preview with them, or, with `redraw`, works
+ * it out again (#286).
  */
 export interface Held {
   chosen: Chosen;
@@ -235,8 +235,8 @@ export interface Held {
    * A `set_d` edit's input, which its run sends and its preview draws (#286), and its tool's
    * notices for a drop of what it drew, by cause (#309). Only `afterRedraw` sets it. Its `seed` is
    * what a Pen finish or a Pencil redraw was drawn on (`seedOf`): it waits for their answers, and a
-   * rejection of one, or a held edit named that sends nothing, drops it with `dropped`'s notice, so
-   * no edit waits on a seed without its notices (#293, #308, #309).
+   * rejection of one, or a held edit named that sends nothing, drops it with `dropped`'s notice
+   * (#293, #308, #309).
    */
   redraw?: { run: Redraw; dropped: Record<Cause, string>; seed?: string[] };
   /** An Anchor Point drag out of an Anchor, whose Handles a turn leaves as they are (#286). */
@@ -288,10 +288,10 @@ export interface ViewState {
   /**
    * The drag still being made, or null: its targets, Direct Selection's Anchors or the one Anchor,
    * Handle or segment a tool grabbed, and `redraw`, which works out its unsent preview from a
-   * Document and those targets as its next move does. The answer to the person's own command that
-   * may renumber a path's Anchors, such as a Reverse Path Direction press, renumbers the targets;
-   * another Actor's edit to a path drops those there, and the slot stays with what is left, even
-   * nothing (ADR-0110). `deliver` redraws it, not `receive` (#285, #307).
+   * Document and those targets as its next move does. The answer to the person's own renumbering
+   * command renumbers the targets; another Actor's edit to a path drops those there, and the slot
+   * stays with what is left, even nothing (ADR-0110). `deliver` redraws it, not `receive` (#285,
+   * #307).
    */
   grab: {
     targets: Target[];
