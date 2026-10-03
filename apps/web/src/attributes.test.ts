@@ -3265,3 +3265,141 @@ it("keeps commands with no preview in `sent` alone, beside the sent previews (#2
   expect([...useStore.getState().sent]).toEqual(["k3"]);
   expect(useStore.getState().sentPreviews).toEqual([]);
 });
+
+// #286: a held edit's preview follows every answer that renumbers its keys, so it draws what the edit
+// sends when it runs: a press's turn moves an index preview with the keys, and a `set_d` preview is
+// worked out again on what its run will see.
+
+/** Subpath `k` of `id` as the Direct Selection edit `p`'s preview draws it on the shown Document. */
+const drawnBy = (id: string, p: PathDrag | null, k = 1) =>
+  stored(previewEdit(useStore.getState().doc as Document, p ?? { inputs: [] }), id, k);
+
+/** Held edits on a's hole whose preview names Anchors by index, each on the Anchor at (20, 10). */
+const indexEdits: Record<string, Step> = {
+  "a Direct Selection drag": dragAnchor,
+  "a Curvature drag": (doc) => toolEdits["a Curvature drag"]?.(doc),
+  "an Anchor Point drag out of an Anchor": (doc) =>
+    toolEdits["an Anchor Point drag out of an Anchor"]?.(doc),
+};
+
+it("draws an edit held behind a second press on the Anchors it sends, after the first press turned its subpath (#286)", () => {
+  vi.useFakeTimers();
+  for (const [name, edit] of Object.entries(indexEdits)) {
+    for (const outcome of ["accepted", "rejected"] as const) {
+      const label = `${name}, first press ${outcome}`;
+      const { doc, a, b } = rings();
+      const chosen = { anchors: [anchorKey(a.id, 1, 0)] };
+      useStore.setState(viewState({ doc, selection: [a.id, b.id], role: "owner", ...chosen }));
+      vi.advanceTimersByTime(1000);
+      const { server, answer, serveAll } = serve(doc);
+      // A press on a's hole, then one on b's, held, then the edit on a's hole, held behind both.
+      setDirection(useStore.getState(), true);
+      afterReverse((s) => setDirection({ ...s, anchors: [anchorKey(b.id, 1, 0)] }, true));
+      edit(doc, a);
+      answer(outcome === "rejected");
+      expect(useStore.getState().reversing, label).not.toBeNull();
+      const [held] = useStore.getState().held;
+      const shown = drawnBy(a.id, held?.preview.edit ?? null);
+      expect(shown, label).not.toEqual(stored(useStore.getState().doc as Document, a.id));
+      // The second press rejected, the edit runs on the Document as it is shown.
+      answer(true);
+      serveAll();
+      expect(stored(server, a.id), label).toEqual(shown);
+    }
+  }
+  vi.useRealTimers();
+});
+
+/** p, a closed subpath and an open one from (50, 0) through (80, 0) to (80, 30), and a line q. */
+function pAndQ(tool: ViewState["tool"]) {
+  const { doc, defaultLayerId: parentId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 200, height: 200 }],
+  });
+  const [p, q] = createNodes(doc, [
+    { type: "path", parentId, d: "M0 0 L9 0 L9 9 L0 9 Z M50 0 L80 0 L80 30" },
+    { type: "path", parentId, d: "M0 100 L10 100 L20 100" },
+  ]).nodes as [PathNode, PathNode];
+  useStore.setState(viewState({ doc, selection: [p.id, q.id], role: "owner", tool }));
+  return { doc, p, q };
+}
+
+it("draws a Pen finish held behind a second press as what it sends, after the first press turned its subpath (#286)", () => {
+  for (const outcome of ["accepted", "rejected"] as const) {
+    const { doc, p } = pAndQ("pen");
+    const { answer } = serve(doc);
+    // A press on p's open subpath, then one on its closed one, held, then the Pen continuing the
+    // open one from (80, 30), held behind both.
+    const press = (subpath: number) => (s: ViewState) =>
+      setDirection(
+        { ...s, anchors: [anchorKey(p.id, subpath, 0)] },
+        !runsClockwise(s.doc as Document, s.doc?.nodes.get(p.id) as PathNode, subpath),
+      );
+    press(1)(useStore.getState());
+    afterReverse(press(0));
+    drawnEdits["a Pen continuing from an Endpoint"]();
+    answer(outcome === "rejected");
+    expect(useStore.getState().reversing, outcome).not.toBeNull();
+    const shown = useStore.getState().held[0]?.preview.edit?.inputs;
+    expect(shown, outcome).toHaveLength(1);
+    answer(true);
+    const sent = commands()[2];
+    expect(sent && "input" in sent ? [sent.input] : sent, outcome).toEqual(shown);
+  }
+});
+
+const deleteAt = (x: number, y: number) =>
+  deleteAnchorTool.down?.(event(useStore.getState().doc as Document, x, y));
+
+it("keeps a held Pencil redraw's and Pen finish's preview through a Delete Anchor click's answer, as what each sends (#286)", () => {
+  const drawn = {
+    "a Pencil redraw": ["pencil", drawnEdits["a Pencil redraw"]],
+    "a Pen finish": ["pen", drawnEdits["a Pen continuing from an Endpoint"]],
+  } as const;
+  for (const [name, [tool, draw]] of Object.entries(drawn)) {
+    for (const outcome of ["accepted", "rejected"] as const) {
+      const label = `${name}, click ${outcome}`;
+      const { doc } = pAndQ(tool);
+      const { answer } = serve(doc);
+      // A Delete Anchor click on p's closed subpath, then one on q, held, then the edit on p, held.
+      deleteAt(9, 9);
+      deleteAt(10, 100);
+      draw();
+      expect(commands(), label).toHaveLength(1);
+      answer(outcome === "rejected");
+      expect(commands(), label).toHaveLength(2);
+      const [held] = useStore.getState().held;
+      const shown = held?.preview.edit?.inputs;
+      expect(shown, label).toHaveLength(1);
+      // q's click rejected, the edit runs on the Document as it is shown.
+      answer(true);
+      const sent = commands()[2];
+      expect(sent && "input" in sent ? [sent.input] : sent, label).toEqual(shown);
+    }
+  }
+});
+
+it("guards: a drag held behind two Delete Anchor clicks, or behind a press and a Delete Anchor click, draws what it sends (#286)", () => {
+  vi.useFakeTimers();
+  const firsts: Record<string, (b: Node) => void> = {
+    "a Delete Anchor click": () => deleteAt(20, 20),
+    "a press on b's hole": (b) =>
+      setDirection({ ...useStore.getState(), anchors: [anchorKey(b.id, 1, 0)] }, true),
+  };
+  for (const [name, first] of Object.entries(firsts)) {
+    const { doc, a, b } = rings();
+    useStore.setState(viewState({ doc, selection: [a.id, b.id], role: "owner" }));
+    vi.advanceTimersByTime(1000);
+    const { server, answer, serveAll } = serve(doc);
+    first(b);
+    deleteAt(10, 20);
+    dragAnchor(doc, a);
+    answer();
+    const shown = drawnBy(a.id, useStore.getState().held[0]?.preview.edit ?? null);
+    answer(true);
+    serveAll();
+    expect(stored(server, a.id), name).toEqual(shown);
+  }
+  vi.useRealTimers();
+});
