@@ -12,42 +12,51 @@ import {
   runsClockwise,
 } from "@kalamo/core";
 import { loadGeometry } from "@kalamo/geometry";
-import type { Command, ServerMessage } from "@kalamo/sync";
+import type { ClientMessage, Command, ServerMessage } from "@kalamo/sync";
 import { beforeAll, expect, it, vi } from "vitest";
 import { setDirection } from "./attributes.ts";
 import { cleanUp } from "./cleanUp.ts";
-import { anchorKey, localAnchors } from "./direct.ts";
+import { anchorKey, hasAnchors, localAnchors } from "./direct.ts";
 import { directTool } from "./directTool.ts";
 import { documentMenus, type Item, type Menu, type MenuItem, shapeMode } from "./menu.ts";
-import { commitSimplify, sendPreviewedOp } from "./simplify.ts";
-import { type NodeOp, record, runHeld, send, useStore } from "./store.ts";
+import { previewAll, previewOp, previewsOf } from "./receive.ts";
+import { commitSimplify } from "./simplify.ts";
+import { connect, type NodeOp, runHeld, sendPathOp, useStore } from "./store.ts";
 import { message, stateAfter, viewState } from "./testing.ts";
 import type { ToolEvent } from "./toolbox.ts";
 
-// Each command goes into `queue` under its own id, as the socket sends it (#289).
-vi.mock("./store.ts", async (original) => {
-  const store = await original<typeof import("./store.ts")>();
-  return { ...store, send: vi.fn() };
-});
+/** Every command sent since `reset`, as the socket carries it, under its own id (#289, #299). */
+let log: { id: string; command: Command }[] = [];
+/** Those not yet answered, oldest first. */
+let queue: typeof log = [];
 
 let geometry: Geometry;
 beforeAll(async () => {
   geometry = await loadGeometry();
+  // An open socket under the store's own `send`, which every step sends through.
+  vi.stubGlobal("location", { protocol: "http:", host: "x" });
+  vi.stubGlobal(
+    "WebSocket",
+    class {
+      static OPEN = 1;
+      readyState = 1;
+      send(data: string) {
+        const msg = JSON.parse(data) as ClientMessage;
+        if (msg.type !== "command") return;
+        log.push({ id: msg.id, command: msg.command });
+        queue.push({ id: msg.id, command: msg.command });
+      }
+      close() {}
+    },
+  );
+  connect("d");
 });
 
-let queue: { id: string; command: Command }[] = [];
-let ids = 0;
 function reset() {
+  log = [];
   queue = [];
-  ids = 0;
-  vi.mocked(send).mockReset();
-  vi.mocked(send).mockImplementation((command) => {
-    const id = `k${++ids}`;
-    queue.push({ id, command });
-    return record(id, command);
-  });
 }
-const commands = () => vi.mocked(send).mock.calls.map(([c]) => c);
+const commands = () => log.map((c) => c.command);
 /** Each command sent, a `path_op` by its op. */
 const sentOps = () => commands().map((c) => (c.type === "path_op" ? c.input.op : c.type));
 
@@ -120,10 +129,10 @@ function serve(server: Document, reject?: string) {
 }
 
 /**
- * p a Compound Path, a square with a hole, q a triangle, r a Live Shape and s a stray point, p, q
- * and r selected.
+ * p a Compound Path, a square with a hole, q a triangle, or path `qd`, r a Live Shape and s a stray
+ * point, p, q and r selected.
  */
-function fixture() {
+function fixture(qd = "M100 100 L140 100 L120 140 Z") {
   const { doc, defaultLayerId: parentId } = createDocument({
     id: "d",
     name: "Doc",
@@ -131,7 +140,7 @@ function fixture() {
   });
   const [p, q, r] = createNodes(doc, [
     { type: "path", parentId, d: "M0 0 L30 0 L30 30 L0 30 Z M10 10 L10 20 L20 20 L20 10 Z" },
-    { type: "path", parentId, d: "M100 100 L140 100 L120 140 Z" },
+    { type: "path", parentId, d: qd },
     { type: "rect", parentId, x: 0, y: 150, width: 10, height: 10 },
     { type: "path", parentId, d: "M180 180" },
   ]).nodes as [PathNode, PathNode, Node];
@@ -140,10 +149,12 @@ function fixture() {
 
 /**
  * The fixture after a press reversing p's hole, in flight, with q's Anchor 1 at (140, 100) then
- * chosen; `drag` drags it by (10, 0), which the press holds.
+ * chosen; `drag` drags it by (10, 0), which the press holds. With `q`, q is that path and the
+ * Anchor at (140, 100) is its Anchor `anchor`; with `press` false, nothing is in flight and the drag
+ * is sent at once.
  */
-function pressed() {
-  const { doc, p, q, r } = fixture();
+function pressed({ q: qd = undefined as string | undefined, anchor = 1, press = true } = {}) {
+  const { doc, p, q, r } = fixture(qd);
   reset();
   const state = viewState({
     doc,
@@ -152,18 +163,25 @@ function pressed() {
     tool: "direct",
     anchors: [anchorKey(p.id, 1, 0)],
   });
-  setDirection(state, !runsClockwise(doc, p, 1));
-  const { reversing } = useStore.getState();
-  expect(reversing).not.toBeNull();
-  useStore.setState({ ...state, reversing, anchors: [anchorKey(q.id, 0, 1)] });
+  useStore.setState(state);
+  if (press) setDirection(state, !runsClockwise(doc, p, 1));
+  const { reversing, renumbering, sent } = useStore.getState();
+  expect(!!reversing).toBe(press);
+  useStore.setState({
+    ...state,
+    reversing,
+    renumbering,
+    sent,
+    anchors: [anchorKey(q.id, 0, anchor)],
+  });
   const server = structuredClone(doc);
   const drag = () => {
     directTool.down(event(doc, 140, 100));
     directTool.move?.(event(doc, 150, 100));
     directTool.up?.(event(doc, 150, 100));
-    expect(useStore.getState().held).toHaveLength(1);
+    expect(useStore.getState().held).toHaveLength(press ? 1 : 0);
   };
-  return { doc, p, q, r, server, press: "k1", drag };
+  return { doc, p, q, r, server, press: log[0]?.id, drag };
 }
 
 const menus = documentMenus({ open() {}, close() {} });
@@ -179,11 +197,23 @@ function menuItem(...path: string[]): MenuItem {
   throw new Error(`${path.join(" > ")} is a submenu.`);
 }
 
-const preview = (input: NodeOp) => ({
+/** The open bar's or dialog's preview of `input`. */
+const shown = (input: NodeOp) => ({
   input,
   showOriginal: false,
-  commandId: null,
+  ...(input.op === "offset" && { geometry }),
 });
+
+/**
+ * OK in Simplify's bar, or in Offset Path's or Split Into Grid's dialog with Preview on or off, as
+ * each sends: the dialog hands the step its own preview, as its OK handler does.
+ */
+function ok(input: NodeOp, previewed = true) {
+  if (previewed) useStore.setState({ opPreview: shown(input) });
+  if (input.op === "simplify") return commitSimplify();
+  const { showOriginal: _, input: __, ...own } = shown(input);
+  sendPathOp(input, previewed ? own : undefined);
+}
 
 /** Every entry point that sends a `path_op` on whole Nodes, on the Selection's p, q and r. */
 function entryPoints(p: string, q: string, r: string): Record<string, () => void> {
@@ -198,17 +228,12 @@ function entryPoints(p: string, q: string, r: string): Record<string, () => void
   const path = (label: string) => () => menuItem("Object", "Path", label).run();
   return {
     outline_stroke: path("Outline Stroke"),
-    offset: () =>
-      sendPreviewedOp({ nodeIds, op: "offset", distance: 5, join: "miter", miterLimit: 4 }, true),
+    offset: () => ok({ nodeIds, op: "offset", distance: 5, join: "miter", miterLimit: 4 }),
     reverse: path("Reverse Path Direction"),
-    simplify: () => {
-      useStore.setState({ opPreview: preview(simplify) });
-      commitSimplify();
-    },
+    simplify: () => ok(simplify),
     add_anchors: path("Add Anchor Points"),
     divide_below: path("Divide Objects Below"),
-    split_into_grid: () =>
-      sendPreviewedOp({ nodeIds, op: "split_into_grid", rows: 2, cols: 2, gutter: 0 }, true),
+    split_into_grid: () => ok({ nodeIds, op: "split_into_grid", rows: 2, cols: 2, gutter: 0 }),
     clean_up: () =>
       cleanUp({ op: "clean_up", strayPoints: true, unpainted: true, emptyText: true }),
     convert_to_path: () => menuItem("Object", "Shape", "Expand Shape").run(),
@@ -225,7 +250,7 @@ it("sends every path_op on whole Nodes after the edits held for a press, in inpu
       const label = `${op}, ${outcome}`;
       const { p, q, r, server, press, drag } = pressed();
       drag();
-      vi.mocked(send).mockClear();
+      log = [];
       entryPoints(p.id, q.id, r.id)[op]?.();
       const atClick = { sent: sentOps(), pending: useStore.getState().pending };
       // The press's answer alone, so what it lets go is sent and not yet answered.
@@ -253,7 +278,7 @@ it("sends every path_op on whole Nodes at once with no press in flight (#289)", 
     expect(sentOps(), op).toEqual([op]);
     if (SELECTING.has(op)) {
       expect(useStore.getState().pending, op).toEqual([
-        { commandId: "k1", nodes: [], select: true },
+        { commandId: log[0]?.id, nodes: [], select: true },
       ]);
     }
   }
@@ -303,37 +328,6 @@ it("R3: unites the dragged q with no notice, and selects the result, after a dra
   }
 });
 
-it("keeps a held Simplify, Offset Path or Split Into Grid preview drawn until its answer, or gives way to a later one (#289)", () => {
-  for (const op of ["simplify", "offset", "split_into_grid"] as const) {
-    for (const later of [false, true]) {
-      const label = `${op}, ${later ? "a later preview" : "alone"}`;
-      const { server, drag, ...s } = pressed();
-      drag();
-      const nodeIds = [s.p.id];
-      const input = {
-        simplify: { nodeIds, op, tolerance: 1, cornerAngle: 90, toLines: false },
-        offset: { nodeIds, op, distance: 5, join: "miter", miterLimit: 4 },
-        split_into_grid: { nodeIds, op, rows: 2, cols: 2, gutter: 0 },
-      }[op] as NodeOp;
-      useStore.setState({ opPreview: preview(input) });
-      if (op === "simplify") commitSimplify();
-      else sendPreviewedOp(input, true);
-      const held = useStore.getState().opPreview;
-      expect(held, label).toMatchObject({ input, commandId: null });
-      expect(commands().slice(1), label).toEqual([]);
-      const next = later ? preview({ nodeIds: [s.q.id], op: "add_anchors" }) : null;
-      if (next) useStore.setState({ opPreview: next });
-      // The press's answer alone: the drag and then the op go out.
-      answer(server);
-      expect(sentOps().slice(1), label).toEqual(["path_edit", op]);
-      const sent = queue[1]?.id;
-      expect(useStore.getState().opPreview, label).toEqual(next ?? { ...held, commandId: sent });
-      serve(server);
-      expect(useStore.getState().opPreview, label).toBe(next);
-    }
-  }
-});
-
 it("counts Clean Up's notice on the Document it runs on, after a press (#289)", () => {
   const { server, drag, doc } = pressed();
   drag();
@@ -353,25 +347,194 @@ it("counts Clean Up's notice on the Document it runs on, after a press (#289)", 
   expect(useStore.getState().notice).toBe("Nothing to clean up.");
 });
 
-it("leaves a held Offset Path's preview to it when Offset Path is sent again with Preview off (#289)", () => {
-  const { p, server, drag } = pressed();
-  drag();
-  const offset = (distance: number): NodeOp => ({
-    nodeIds: [p.id],
-    op: "offset",
-    distance,
-    join: "miter",
-    miterLimit: 4,
-  });
-  useStore.setState({ opPreview: preview(offset(5)) });
-  sendPreviewedOp(offset(5), true);
-  const held = useStore.getState().opPreview;
-  sendPreviewedOp(offset(9), false);
-  expect(useStore.getState().opPreview).toBe(held);
+const PREVIEWED = ["simplify", "offset", "split_into_grid"] as const;
+
+/** Simplify's, Offset Path's and Split Into Grid's input on `nodeIds`. */
+const opsOn = (nodeIds: string[]): Record<(typeof PREVIEWED)[number], NodeOp> => ({
+  simplify: { nodeIds, op: "simplify", tolerance: 1, cornerAngle: 90, toLines: false },
+  offset: { nodeIds, op: "offset", distance: 5, join: "miter", miterLimit: 4 },
+  split_into_grid: { nodeIds, op: "split_into_grid", rows: 2, cols: 2, gutter: 0 },
+});
+
+/** Offset Path's input on `q`, `distance` pt out. */
+const offsetBy = (q: string, distance: number) => ({ ...opsOn([q]).offset, distance }) as NodeOp;
+
+/** q with a straight-line Anchor 1, which Simplify removes, before the Anchor at (140, 100). */
+const LINED = { q: "M100 100 L120 100 L140 100 L120 140 Z", anchor: 2 };
+
+/** What the canvas draws: the Document with every preview applied, in order (#285, #299). */
+function drawn() {
+  const s = useStore.getState();
+  return previewAll(s.doc as Document, previewsOf(s));
+}
+
+/** The paths and Live Shapes of `doc` but p, which only the press reshapes, by their Anchors. */
+const shapes = (doc: Document, p: string) =>
+  [...doc.nodes.values()]
+    .flatMap((n) => (hasAnchors(n) && n.id !== p ? [JSON.stringify(localAnchors(n))] : []))
+    .sort();
+
+/** The paths `input` makes on `doc`, by their Anchors. */
+function made(doc: Document, p: string, input: NodeOp) {
+  const before = shapes(doc, p);
+  return shapes(previewOp(doc, { input, geometry }), p).filter((x) => !before.includes(x));
+}
+
+/** Whether the canvas draws every path in `paths`. */
+const draws = (p: string, paths: string[]) => paths.every((x) => shapes(drawn(), p).includes(x));
+
+it("draws a Simplify, Offset Path or Split Into Grid confirmed after a drag on the dragged path, as the Document DO stores it (#299)", () => {
+  for (const op of PREVIEWED) {
+    for (const press of ["none", "accepted", "rejected"] as const) {
+      const label = `${op}, press ${press}`;
+      const { p, q, server, drag, ...s } = pressed({ ...LINED, press: press !== "none" });
+      drag();
+      const input = opsOn([q.id])[op];
+      const seen: Record<string, string[]> = {};
+      // The open bar's or dialog's preview, on top of the unanswered drag.
+      useStore.setState({ opPreview: shown(input) });
+      seen.open = shapes(drawn(), p.id);
+      ok(input);
+      seen.confirmed = shapes(drawn(), p.id);
+      if (press !== "none") {
+        answer(server, press === "rejected" ? s.press : undefined);
+        seen["the press answered"] = shapes(drawn(), p.id);
+      }
+      expect(queue[0]?.command.type, label).toBe("path_edit");
+      answer(server);
+      seen["the drag answered"] = shapes(drawn(), p.id);
+      serve(server);
+      expect(sentOps().slice(press === "none" ? 0 : 1), label).toEqual(["path_edit", op]);
+      const stored = shapes(server, p.id);
+      expect(shapes(useStore.getState().doc as Document, p.id), label).toEqual(stored);
+      for (const [when, at] of Object.entries(seen))
+        expect(at, `${label}, ${when}`).toEqual(stored);
+    }
+  }
+});
+
+/**
+ * `pressed`'s fixture, with nothing in flight but `first`: the press, or Add Anchor Points on p,
+ * which opens #298's window for the person's own renumbering command.
+ */
+function waitingOn(first: "press" | "window") {
+  if (first === "press") return pressed(LINED);
+  const s = pressed({ ...LINED, press: false });
+  useStore.setState({ selection: [s.p.id] });
+  menuItem("Object", "Path", "Add Anchor Points").run();
+  useStore.setState({ selection: [s.p.id, s.q.id, s.r.id] });
+  return { ...s, press: log[0]?.id };
+}
+
+it("keeps a held Simplify, Offset Path or Split Into Grid preview its own until its answer, while another op is previewed and confirmed (#299)", () => {
+  for (const op of PREVIEWED) {
+    for (const [first, press] of ["press", "window"].flatMap((f) =>
+      (["accepted", "rejected"] as const).map((o) => [f as "press" | "window", o] as const),
+    )) {
+      for (const outcome of ["accepted", "rejected"] as const) {
+        const label = `${op}, ${first} ${press}, op ${outcome}`;
+        const { p, q, doc, server, ...s } = waitingOn(first);
+        const input = opsOn([q.id])[op];
+        const own = made(doc, p.id, input);
+        expect(own.length, label).toBeGreaterThan(0);
+        ok(input);
+        expect(draws(p.id, own), `${label}, held`).toBe(true);
+        const later = offsetBy(q.id, 9);
+        useStore.setState({ opPreview: shown(later) });
+        expect(draws(p.id, own), `${label}, another previewed`).toBe(true);
+        ok(later);
+        expect(draws(p.id, own), `${label}, another confirmed`).toBe(true);
+        answer(server, press === "rejected" ? s.press : undefined);
+        // The later op waits for this one's answer, which may renumber q (#298).
+        expect(sentOps().slice(1), label).toEqual([op]);
+        expect(draws(p.id, own), `${label}, the press answered`).toBe(true);
+        answer(server, outcome === "rejected" ? queue[0]?.id : undefined);
+        expect(draws(p.id, own), `${label}, its answer`).toBe(outcome === "accepted");
+        serve(server);
+        expect(sentOps().slice(1), label).toEqual([op, "offset"]);
+      }
+    }
+  }
+});
+
+it("draws only the first of two held Offset Paths when the second has Preview off, each answer settling its own (#289, #299)", () => {
+  const { p, q, doc, server } = pressed();
+  const [five, nine] = [5, 9].map((d) => made(doc, p.id, offsetBy(q.id, d))) as [
+    string[],
+    string[],
+  ];
+  ok(offsetBy(q.id, 5));
+  ok(offsetBy(q.id, 9), false);
+  const both = () => [draws(p.id, five), draws(p.id, nine)];
+  expect(both()).toEqual([true, false]);
+  // The press's answer sends the first; the second waits for its answer, which may renumber q.
   answer(server);
-  expect(sentOps().slice(1)).toEqual(["path_edit", "offset"]);
-  expect(useStore.getState().opPreview).toEqual({ ...held, commandId: queue[1]?.id });
-  // The second waits for the first one's answer, which may renumber p (#298).
-  serve(server);
-  expect(sentOps().slice(1)).toEqual(["path_edit", "offset", "offset"]);
+  expect(sentOps().slice(1)).toEqual(["offset"]);
+  expect(both()).toEqual([true, false]);
+  answer(server);
+  expect(sentOps().slice(1)).toEqual(["offset", "offset"]);
+  expect(both()).toEqual([true, false]);
+  answer(server);
+  expect(both()).toEqual([true, true]);
+});
+
+it("draws both of two held Offset Paths with Preview on, each until its own answer (#299)", () => {
+  for (const outcome of ["accepted", "rejected"] as const) {
+    const { p, q, doc, server } = pressed();
+    const [five, nine] = [5, 9].map((d) => made(doc, p.id, offsetBy(q.id, d))) as [
+      string[],
+      string[],
+    ];
+    ok(offsetBy(q.id, 5));
+    ok(offsetBy(q.id, 9));
+    const both = () => [draws(p.id, five), draws(p.id, nine)];
+    expect(both(), outcome).toEqual([true, true]);
+    answer(server);
+    expect(both(), outcome).toEqual([true, true]);
+    // The first's answer leaves the second's preview, held and then sent.
+    answer(server, outcome === "rejected" ? queue[0]?.id : undefined);
+    expect(sentOps().slice(1), outcome).toEqual(["offset", "offset"]);
+    expect(both(), outcome).toEqual([outcome === "accepted", true]);
+    answer(server, outcome === "rejected" ? queue[0]?.id : undefined);
+    expect(both(), outcome).toEqual([outcome === "accepted", outcome === "accepted"]);
+  }
+});
+
+it("drops a sent op's preview on reconnect and keeps the open bar's (#299)", () => {
+  for (const what of ["sent", "open"] as const) {
+    const { p, q, doc, server } = pressed({ ...LINED, press: false });
+    const input = opsOn([q.id]).simplify;
+    const own = made(doc, p.id, input);
+    if (what === "sent") ok(input);
+    else useStore.setState({ opPreview: shown(input) });
+    expect(sentOps(), what).toEqual(what === "sent" ? ["simplify"] : []);
+    expect(draws(p.id, own), what).toBe(true);
+    // A sent op's answer is lost with the socket: the server never got it.
+    const { rev, name, artboards } = server;
+    const nodes = [...server.nodes.values()];
+    const msg = message("document", { rev, name, artboards, nodes, role: "owner" });
+    useStore.setState(stateAfter(useStore.getState(), msg));
+    expect(draws(p.id, own), what).toBe(what === "open");
+  }
+});
+
+it("never sends a drag made before Simplify's answer with indices from before it (#298 T6, #299)", () => {
+  for (const outcome of ["accepted", "rejected"] as const) {
+    const { q, doc, server } = pressed({ ...LINED, press: false });
+    const before = structuredClone(server.nodes.get(q.id));
+    ok(opsOn([q.id]).simplify);
+    directTool.down(event(doc, 140, 100));
+    directTool.move?.(event(doc, 150, 100));
+    directTool.up?.(event(doc, 150, 100));
+    expect(sentOps(), outcome).toEqual(["simplify"]);
+    answer(server, outcome === "rejected" ? queue[0]?.id : undefined);
+    serve(server);
+    // Accepted, the answer renumbers q and drops the drag; rejected, the drag is sent and stored.
+    const reshaped = JSON.stringify(server.nodes.get(q.id)) !== JSON.stringify(before);
+    expect({ reshaped, sent: sentOps() }, outcome).toEqual({
+      reshaped: true,
+      sent: outcome === "rejected" ? ["simplify", "path_edit"] : ["simplify"],
+    });
+    expect(useStore.getState().held, outcome).toEqual([]);
+  }
 });

@@ -173,15 +173,42 @@ export type Chosen = Pick<ViewState, "anchors" | "segments" | "selection" | "too
   lostBy?: Cause;
 };
 
-/** One unsent edit's preview: the paths it reshapes and the Nodes it moves whole. */
-export type Preview = Pick<ViewState, "edit" | "drag">;
+/**
+ * Object > Path > Simplify's, Offset Path's or Split Into Grid's `path_op`, previewed in the
+ * browser (ADR-0035), with PathKit when Offset Path's preview needs it (ADR-0034).
+ */
+export interface OpPreview {
+  input: NodeOp;
+  geometry?: Geometry;
+}
 
 /**
- * A sent edit's preview, its `edit` and `drag` carrying the command ids whose answers settle it.
+ * One unsent preview: the live slots' or a held edit's or held op's own. It has no command ids,
+ * since only a send gives them, and the send moves it into `sentPreviews` as a SentPreview; so
+ * `tsc` keeps a sent preview out of its place, and it out of a sent one's (#306).
+ */
+export type Preview = {
+  /** The paths it reshapes. */
+  edit: (PathDrag & { commandIds?: never }) | null;
+  /** The Nodes it moves whole. */
+  drag: (Drag & { commandId?: never }) | null;
+  op?: OpPreview & { commandId?: never };
+};
+
+/**
+ * A sent edit's or op's preview, each part carrying the command ids whose answers settle it.
  * `fromHeld` marks a held edit that ran: its keys were worked out for it, not for a drag started
  * later, so its answer does not keep what that drag holds (ADR-0110).
  */
-export type SentPreview = { edit: SentPathDrag | null; drag: SentDrag | null; fromHeld?: true };
+export type SentPreview = {
+  edit: SentPathDrag | null;
+  drag: SentDrag | null;
+  op?: OpPreview & { commandId: string };
+  fromHeld?: true;
+};
+
+/** A preview as the canvas draws it, unsent or sent. */
+export type DrawnPreview = Preview | SentPreview;
 
 /**
  * What a held `set_d` edit sends, worked out on the path as its run sees it and its keys: a Pencil
@@ -224,18 +251,10 @@ export interface Held {
 }
 
 /**
- * Object > Path > Simplify or Offset Path while its bar or dialog is open: previewed in the
- * browser, then sent as one `path_op` on OK (ADR-0035); `commandId` is set then, and it is drawn
- * until the answer.
+ * The preview of the op whose bar or dialog is open, unsent; OK hands it to the op (`sendPathOp`).
+ * `showOriginal` is Simplify's Show Original Path.
  */
-export interface PathOpPreview {
-  input: NodeOp;
-  /** Simplify's Show Original Path. */
-  showOriginal: boolean;
-  commandId: string | null;
-  /** PathKit, which Offset Path's preview needs (ADR-0034). */
-  geometry?: Geometry;
-}
+export type OpenOpPreview = NonNullable<Preview["op"]> & { showOriginal: boolean };
 
 export interface ViewState {
   doc: Document | null;
@@ -249,17 +268,16 @@ export interface ViewState {
    */
   layerRows: string[];
   /**
-   * The live gesture's unsent preview, with `edit`: the Nodes it moves whole. Once sent, it is drawn
-   * from `sentPreviews` until its answer, so a committed move does not flicker. It and `edit` never
-   * carry command ids: a SentDrag or SentPathDrag does not fit them.
+   * The live gesture's unsent preview, with `edit`. Once sent, it is drawn from `sentPreviews` until
+   * its answer, so a committed move does not flicker.
    */
-  drag: (Drag & { commandId?: never }) | null;
+  drag: Preview["drag"];
   pen: PenPath | null;
   penPress: PenPress | null;
   /** Drawn art sent and not yet answered, oldest first. */
   pending: PendingCreate[];
-  /** The live gesture's unsent preview, with `drag`: the paths it reshapes. */
-  edit: (PathDrag & { commandIds?: never }) | null;
+  /** The live gesture's unsent preview, with `drag`. */
+  edit: Preview["edit"];
   reversing: Reversing | null;
   /**
    * The person's other commands sent and unanswered that may renumber a path's Anchors, by id, and
@@ -281,8 +299,9 @@ export interface ViewState {
     redraw: (doc: Document, targets: Target[]) => Partial<Preview> | null;
   } | null;
   /**
-   * Every sent edit's preview, in the order sent, each drawn until the answers to its command ids:
-   * a live gesture's and a held edit's alike. A command with no preview is in `sent` only (#285).
+   * Every sent edit's and op's preview, in the order sent, each drawn until the answers to its
+   * command ids: a live gesture's, an open bar's or dialog's and a held one's alike. A command with
+   * no preview is in `sent` only (#285, #299).
    */
   sentPreviews: SentPreview[];
   /**
@@ -291,7 +310,8 @@ export interface ViewState {
    * another tab's included (ADR-0109).
    */
   sent: ReadonlySet<string>;
-  opPreview: PathOpPreview | null;
+  /** The open bar's or dialog's op preview, drawn on top of every sent and held one (#299). */
+  opPreview: OpenOpPreview | null;
   /** Direct Selection's selected Anchors (direct.ts's keys): UI state, like the Selection. */
   anchors: string[];
   /** Its selected segments, keyed by the Anchor each starts at (ADR-0045). */
@@ -539,7 +559,6 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
       ...(s.reversing?.commandId === msg.id && { reversing: null }),
       ...settleRenumbering(s.renumbering, msg.id),
       ...settlePending(s.pending, msg.id),
-      ...(s.opPreview?.commandId === msg.id && { opPreview: null }),
       ...(s.paintPreview?.commandId === msg.id && { paintPreview: null }),
       ...sentPreviews,
       // Drawn work's drop notices first, as ADR-0110 joins them (#291).
@@ -737,8 +756,6 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     ...(msg.type === "document"
       ? s.pending.length > 0 && { pending: [] }
       : settlePending(s.pending, msg.commandId)),
-    ...(s.opPreview?.commandId &&
-      (msg.type === "document" || msg.commandId === s.opPreview.commandId) && { opPreview: null }),
     ...(s.paintPreview &&
       (msg.type === "document" || msg.commandId === s.paintPreview.commandId) && {
         paintPreview: null,
@@ -816,29 +833,35 @@ export function previewEdit(doc: Document, { inputs }: PathDrag): Document {
 }
 
 /**
- * Every edit's preview, in the order the Document DO applies them: sent edits in the order sent,
- * held edits in the order they will run, then the live gesture's unsent one (ADR-0110).
+ * Every edit's and op's preview, in the order the Document DO applies them: sent ones in the order
+ * sent, held ones in the order they will run, then the open bar's or dialog's op preview and the
+ * live gesture's, both unsent (ADR-0110).
  */
 export const previewsOf = (
-  s: Pick<ViewState, "sentPreviews" | "held" | "edit" | "drag">,
-): (Preview | SentPreview)[] => [
+  s: Pick<ViewState, "sentPreviews" | "held" | "opPreview" | "edit" | "drag">,
+): DrawnPreview[] => [
   ...s.sentPreviews,
   ...s.held.map((h) => h.preview),
+  ...(s.opPreview ? [{ edit: null, drag: null, op: s.opPreview }] : []),
   { edit: s.edit, drag: s.drag },
 ];
 
-/** `doc` with each preview applied in order: its Nodes moved whole, then its paths reshaped. */
-export const previewAll = (doc: Document, previews: (Preview | SentPreview)[]): Document =>
-  previews.reduce((d, { drag, edit }) => {
+/**
+ * `doc` with each preview applied in order: its Nodes moved whole, then its paths reshaped, then
+ * its op run.
+ */
+export const previewAll = (doc: Document, previews: DrawnPreview[]): Document =>
+  previews.reduce((d, { drag, edit, op }) => {
     const moved = drag ? preview(d, drag) : d;
-    return edit ? previewEdit(moved, edit) : moved;
+    const edited = edit ? previewEdit(moved, edit) : moved;
+    return op ? previewOp(edited, op) : edited;
   }, doc);
 
 /**
  * A preview the paths as drawn include, and what it waits on: a sent command's id, or a held edit's
- * token until it runs (#308).
+ * token until it runs (#308). It has no op: `drawnOn` leaves ops out (#299).
  */
-export type DrawnOn = (Preview | SentPreview) & { on: string };
+export type DrawnOn = (Omit<Preview, "op"> | Omit<SentPreview, "op">) & { on: string };
 
 /**
  * What the paths as drawn are built on, in the order the Document DO will apply it (#293, #308): the
@@ -846,7 +869,9 @@ export type DrawnOn = (Preview | SentPreview) & { on: string };
  * edits' previews, in the order they will run. An edit counts only while `sent` records it: one
  * dropped while the socket was down is never applied, so the Pen must not write it back. An
  * Alt-drag's copies are left out: they are not in the Document until its answer, so nothing can be
- * continued or joined on them. The live slots are the gesture being made, not what it is drawn on.
+ * continued or joined on them. Ops are left out too, sent or held: their answer reshapes what the Pen
+ * drew on, which ends it as the person's own change (#293, #299). The live slots are the gesture
+ * being made, not what it is drawn on.
  */
 export const drawnOn = (s: Pick<ViewState, "sentPreviews" | "sent" | "held">): DrawnOn[] => [
   ...s.sentPreviews.flatMap(({ edit, drag }) => [
@@ -858,7 +883,7 @@ export const drawnOn = (s: Pick<ViewState, "sentPreviews" | "sent" | "held">): D
         : [];
     }) ?? []),
   ]),
-  ...s.held.map((h) => ({ ...h.preview, on: h.token })),
+  ...s.held.map(({ preview: { edit, drag }, token }) => ({ edit, drag, on: token })),
 ];
 
 /**
@@ -987,10 +1012,7 @@ function turnedPen(doc: Document, pen: PenPath, turned: Reversing["subpaths"]): 
 }
 
 /** `doc` with a `path_op` applied by core, or as it is when core refuses it. */
-export function previewOp(
-  doc: Document,
-  { input, geometry }: Pick<PathOpPreview, "input" | "geometry">,
-): Document {
+export function previewOp(doc: Document, { input, geometry }: OpPreview): Document {
   const shown = { ...doc, nodes: new Map(doc.nodes) };
   try {
     pathOp(shown, input, geometry);
@@ -1068,20 +1090,23 @@ function geometryOf(doc: Document | null, id: string) {
 
 /**
  * The sent previews without what the answer or rejection to command `id` settled: the one step every
- * answer and rejection takes for them, as a reconnect clears them all (#285).
+ * answer and rejection takes for them, edits' and ops' alike, as a reconnect clears them all (#285,
+ * #299).
  */
 function settleSentPreviews(
   sent: SentPreview[],
   id: string | undefined,
 ): { sentPreviews?: SentPreview[] } {
-  if (!id || !sent.some((p) => p.drag?.commandId === id || p.edit?.commandIds.includes(id))) {
-    return {};
-  }
+  if (!id) return {};
+  const answers = (p: SentPreview) =>
+    p.drag?.commandId === id || p.op?.commandId === id || !!p.edit?.commandIds.includes(id);
+  if (!sent.some(answers)) return {};
   return {
-    sentPreviews: sent.flatMap((p) => {
+    sentPreviews: sent.flatMap(({ op, ...p }) => {
       const { edit = p.edit } = settle(p.edit, id);
       const drag = p.drag?.commandId === id ? null : p.drag;
-      return edit || drag ? [{ ...p, edit, drag }] : [];
+      const left = op?.commandId === id ? undefined : op;
+      return edit || drag || left ? [{ ...p, edit, drag, ...(left && { op: left }) }] : [];
     }),
   };
 }

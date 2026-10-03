@@ -221,20 +221,25 @@ const unanswered = (s: Pick<State, "sent">, seed: string[] | undefined) =>
  * alone, as the answer turns it. With `previewed`, the live gesture's unsent preview in `edit` and
  * `drag` is the edit's own and leaves the live slots: held, it goes with the edit, so the next
  * gesture's preview leaves it on screen; run, it gives way to what the edit sends, if anything.
- * Either way the edit never sees or changes the live slots' preview (#285). A `seed` holds it, and
- * the edits after it, until the answers to the edits it was drawn on (#293, #308, #309). A `set_d`
- * edit's `redraw` comes from `afterRedraw`, its one run step (#286, #309); `pulled`
- * turns its preview as an Anchor Point drag out of an Anchor sends it (#286).
+ * Either way the edit never sees or changes the live slots' preview (#285). An `op`, the open bar's
+ * or dialog's preview of a `path_op`, is its own the same way, and leaves `opPreview` (#299). A
+ * `seed` holds it, and the edits after it, until the answers to the edits it was drawn on (#293,
+ * #308, #309). A `set_d` edit's `redraw` comes from `afterRedraw`, its one run step (#286, #309);
+ * `pulled` turns its preview as an Anchor Point drag out of an Anchor sends it (#286).
  */
 export function afterReverse(
   edit: (s: State & Chosen, w: Waited) => void,
   {
     previewed,
+    op,
     seed,
     redraw,
     pulled,
     ...chosen
-  }: Partial<Chosen> & { previewed?: true } & Pick<Held, "seed" | "redraw" | "pulled"> = {},
+  }: Partial<Chosen> & { previewed?: true; op?: Preview["op"] } & Pick<
+      Held,
+      "seed" | "redraw" | "pulled"
+    > = {},
 ) {
   const s = useStore.getState();
   const { target } = chosen;
@@ -245,8 +250,13 @@ export function afterReverse(
   };
   const c = { anchors, segments, selection, tool, ...(target && { target }) };
   const run = (k: Chosen) => edit({ ...useStore.getState(), ...k }, WAITED);
-  const preview: Preview = { edit: previewed ? s.edit : null, drag: previewed ? s.drag : null };
+  const preview: Preview = {
+    edit: previewed ? s.edit : null,
+    drag: previewed ? s.drag : null,
+    ...(op && { op }),
+  };
   if (previewed) useStore.setState({ edit: null, drag: null });
+  if (op) useStore.setState({ opPreview: null });
   if (!waiting(s) && s.held.length === 0 && !unanswered(s, seed)) return run(c);
   const h: Held = {
     chosen: c,
@@ -266,8 +276,22 @@ export function afterReverse(
  * edit, in the order sent (#285).
  */
 export function drawSent(p: SentPreview) {
-  if (!p.edit && !p.drag) return;
+  if (!p.edit && !p.drag && !p.op) return;
   useStore.setState((s) => ({ sentPreviews: [...s.sentPreviews, p] }));
+}
+
+/**
+ * Sends `input` as one `path_op` once the person's renumbering command in flight is answered
+ * (ADR-0110). `shown`, when Preview is on, is what the open bar's or dialog's preview adds to
+ * `input`: the preview of `input` leaves the op-preview slot and is the op's own, held with it and
+ * drawn from its send until its answer (ADR-0035, #299).
+ */
+export function sendPathOp(input: NodeOp, shown?: Omit<NonNullable<Preview["op"]>, "input">) {
+  const op = shown && { ...shown, input };
+  afterReverse((_s, w) => {
+    const commandId = send({ type: "path_op", input }, w);
+    if (op) drawSent({ edit: null, drag: null, op: { ...op, commandId } });
+  }, op && { op });
 }
 
 /**

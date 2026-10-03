@@ -34,7 +34,6 @@ import { paintUpdates, placeOn, sendPaint } from "./gradient.ts";
 import { averageAnchors, documentMenus, findByKeys, type Item, type MenuItem } from "./menu.ts";
 import { pencilDown, pencilMove, pencilUp } from "./pencil.ts";
 import { type PathDrag, previewAll, previewEdit, previewsOf, type ViewState } from "./receive.ts";
-import { sendPreviewedOp } from "./simplify.ts";
 import { afterReverse, deliver, record, runHeld, send, unheld, useStore } from "./store.ts";
 import { message, stateAfter, viewState } from "./testing.ts";
 import type { ToolEvent } from "./toolbox.ts";
@@ -2665,15 +2664,15 @@ it("deletes with Edit > Clear the Anchor chosen before the answer that renumbere
   vi.useRealTimers();
 });
 
-it("never sends an edit made before the answer to Undo, Redo or Simplify with indices from before it (#298 T6)", () => {
+// Simplify's case is in pathOps.test, whose socket sees the store's own `send` (#299).
+it("never sends an edit made before the answer to Undo or Redo with indices from before it (#298 T6)", () => {
   vi.useFakeTimers();
   const menus = documentMenus({ open() {}, close() {} });
   const undo = () => findByKeys(menus, "Ctrl+Z")?.run();
   const redo = () => findByKeys(menus, "Shift+Ctrl+Z")?.run();
-  const commandsOf: Record<string, (a: Node) => void> = {
+  const commandsOf: Record<string, () => void> = {
     Undo: undo,
     Redo: undo,
-    Simplify: (a) => sendPreviewedOp({ nodeIds: [a.id], op: "simplify", tolerance: 5 }, false),
   };
   for (const [name, command] of Object.entries(commandsOf)) {
     for (const outcome of ["accepted", "rejected"] as const) {
@@ -2685,7 +2684,7 @@ it("never sends an edit made before the answer to Undo, Redo or Simplify with in
       // An earlier Add Anchor click on a, answered; Redo first undoes it.
       addAnchorClick(doc, a);
       answer();
-      command(a);
+      command();
       if (name === "Redo") {
         answer();
         redo();

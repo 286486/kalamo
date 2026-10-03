@@ -1,6 +1,5 @@
 import { pathTargets } from "./selection.ts";
-import { sendPreviewedOp } from "./simplify.ts";
-import { type NodeOp, useStore } from "./store.ts";
+import { type NodeOp, sendPathOp, useStore } from "./store.ts";
 
 /** Kept between uses as Illustrator's dialog keeps them; a blank Total is the shape's own size. */
 const settings = {
@@ -58,7 +57,7 @@ export function splitGridDialog() {
     settings.totalWidth = field("totalWidth").value;
     settings.preview = field("preview").checked;
     useStore.setState({
-      opPreview: settings.preview ? { input: input(), showOriginal: false, commandId: null } : null,
+      opPreview: settings.preview ? { input: input(), showOriginal: false } : null,
     });
   };
   dialog.onclose = () => {
@@ -68,7 +67,7 @@ export function splitGridDialog() {
       useStore.setState({ opPreview: null });
       return;
     }
-    sendPreviewedOp(input(), settings.preview);
+    sendPathOp(input(), settings.preview ? {} : undefined);
   };
   document.body.append(dialog);
   dialog.showModal();

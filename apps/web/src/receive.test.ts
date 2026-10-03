@@ -7,6 +7,7 @@ import {
   copyInput,
   type Effect,
   joinNotices,
+  type OpenOpPreview,
   type Preview,
   preview,
   previewEdit,
@@ -38,7 +39,7 @@ const sentDrag = (nodeIds: string[], commandId: string) => ({ ...drag(nodeIds), 
 const sentPreviews = (p: Partial<SentPreview>) => [{ edit: null, drag: null, ...p }];
 
 // tsc checks this test: each @ts-expect-error fails the check once its line compiles.
-it("keeps command ids off unsent previews and on sent ones (#306)", () => {
+it("keeps command ids off unsent previews and on sent ones, edits' and ops' alike (#306, #299)", () => {
   const sent: SentPreview = { edit: { inputs: [], commandIds: ["c1"] }, drag: sentDrag([], "c2") };
   const unsent = (p: Preview) => p;
   const settled = (p: SentPreview) => p;
@@ -50,6 +51,14 @@ it("keeps command ids off unsent previews and on sent ones (#306)", () => {
   settled({ edit: { inputs: [] }, drag: null });
   // @ts-expect-error
   settled({ edit: null, drag: drag([]) });
+  const op = { input: { nodeIds: [], op: "simplify" as const }, commandId: "c3" };
+  const live = (p: OpenOpPreview) => p;
+  // @ts-expect-error A sent op preview never goes back on the op-preview slot or a held op.
+  live({ ...op, showOriginal: false });
+  // @ts-expect-error
+  unsent({ edit: null, drag: null, op });
+  // @ts-expect-error An unsent op preview has no command id its answer settles it by.
+  settled({ edit: null, drag: null, op: { input: op.input } });
 });
 
 it("keeps the drag preview until the tx answering its command arrives", () => {
@@ -389,20 +398,19 @@ it("drops selected Anchors of a Node someone else changed, and keeps ours still 
   ]);
 });
 
-it("keeps a Simplify preview until the answer to its path_op, and previews it with core", () => {
+it("keeps a Simplify preview until the answer to its path_op, and previews it with core (#299)", () => {
   const { doc, a } = fixture();
   const input = { nodeIds: [a.id], op: "simplify" as const };
-  const opPreview = { input, showOriginal: false, commandId: null };
-  const open = viewState({ doc, selection: [a.id], opPreview });
+  const open = viewState({ doc, selection: [a.id], opPreview: { input, showOriginal: false } });
   // Not yet sent: nothing answers it, a reconnect included.
-  expect(stateAfter(open, tx(doc, { commandId: "c1" }))).not.toHaveProperty("simplify");
+  expect(stateAfter(open, tx(doc, { commandId: "c1" }))).not.toHaveProperty("opPreview");
   const msg = message("document", { rev: 9, nodes: [a] });
-  expect(stateAfter(open, msg)).not.toHaveProperty("simplify");
-  const sent = { ...open, opPreview: { ...opPreview, commandId: "c1" } };
-  expect(stateAfter(sent, tx(doc, { actor: "agent-a" }))).not.toHaveProperty("simplify");
-  expect(stateAfter(sent, tx(doc, { commandId: "c1" }))).toMatchObject({ opPreview: null });
+  expect(stateAfter(open, msg)).not.toHaveProperty("opPreview");
+  const sent = { ...open, sentPreviews: sentPreviews({ op: { input, commandId: "c1" } }) };
+  expect(stateAfter(sent, tx(doc, { actor: "agent-a" }))).not.toHaveProperty("sentPreviews");
+  expect(stateAfter(sent, tx(doc, { commandId: "c1" }))).toMatchObject({ sentPreviews: [] });
   expect(stateAfter(sent, message("rejected", { id: "c1" }))).toMatchObject({
-    opPreview: null,
+    sentPreviews: [],
   });
   // A Gradient panel or tool preview lasts until its own answer too (ADR-0081).
   const painted = { ...open, paintPreview: { updates: [], commandId: "c2" } };
@@ -411,7 +419,8 @@ it("keeps a Simplify preview until the answer to its path_op, and previews it wi
   expect(stateAfter(painted, message("rejected", { id: "c2" }))).toMatchObject({
     paintPreview: null,
   });
-  expect(stateAfter(sent, msg)).toMatchObject({ opPreview: null });
+  expect(stateAfter(sent, msg)).toMatchObject({ sentPreviews: [] });
+  expect(stateAfter(sent, msg)).not.toHaveProperty("opPreview");
   // The preview converts the rect as core will, and leaves the Document alone.
   expect(previewOp(doc, { input }).nodes.get(a.id)).toMatchObject({ id: a.id, type: "path" });
   expect(doc.nodes.get(a.id)).toBe(a);
