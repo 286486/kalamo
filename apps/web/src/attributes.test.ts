@@ -681,6 +681,42 @@ it("adds a held Anchor on its held segment alone, as renumbered, kept or dropped
   }
 });
 
+it("drags a held Direct Selection segment on its held target alone, as renumbered, kept or dropped", () => {
+  for (const source of ["renumbered", "kept", "dropped"] as const) {
+    const { doc, a, pressed, answer } = pressOn((a) => ({ anchors: [anchorKey(a.id, 1, 0)] }));
+    useStore.setState({ ...pressed, edit: null, drag: null, held: [] });
+    vi.mocked(send).mockClear();
+    directTool.down(event(doc, 10, 14));
+    directTool.move?.(event(doc, 5, 14));
+    directTool.up?.(event(doc, 5, 14));
+    useStore.setState(stateAfter(useStore.getState(), answer(doc, a.id)));
+    const [h] = useStore.getState().held;
+    // The answer turned a's hole: the segment from (10, 10) to (10, 20) went from 0 to 3.
+    expect(h?.chosen.target, source).toMatchObject({ kind: "segment", segment: 3 });
+    if (h?.chosen.target?.kind === "segment" && source !== "renumbered") {
+      const { target, ...chosen } = h.chosen;
+      const next =
+        source === "kept"
+          ? { ...chosen, target: { ...target, segment: 0, t: 1 - target.t } }
+          : { ...chosen, segments: [] };
+      useStore.setState({ held: [{ ...h, chosen: next }] });
+    }
+    const before = holeAfterSent(a.id, false);
+    runHeld();
+    if (source === "dropped") {
+      expect(commands(), source).toEqual([]);
+      expect(useStore.getState().edit, source).toBeNull();
+      continue;
+    }
+    const after = holeAfterSent(a.id, false);
+    const changed = after?.filter((x, i) => JSON.stringify(x) !== JSON.stringify(before?.[i]));
+    // A straight segment moves whole, 5 left: segment 3 of the turned hole runs from (10, 20) to
+    // (10, 10), segment 0 from (10, 10) to (20, 10).
+    const ends = source === "renumbered" ? ["5 10", "5 20"] : ["15 10", "5 10"];
+    expect(changed?.map((x) => x.at).sort(), source).toEqual(ends);
+  }
+});
+
 // With Handles on (20, 10), its In toward (20, 20) and its Out toward (10, 10), which the reverse
 // swaps: with (20, 10) chosen, the Anchor Point tool acts on the Handle under the pointer, and a
 // click on the Anchor retracts both.
