@@ -762,3 +762,143 @@ it("names the person's own Undo, not someone else, when it ends a continuation o
   expect(s.notice).toMatch(/^Your own earlier change reshaped a path the Pen was continuing/);
   expect(second.stored()).toBe("M 0 0 L 100 20");
 });
+
+/** p with its first subpath's middle Anchor dragged to (50, 20) by the person, sent as "drag". */
+function dragged() {
+  const o = onePath("M 0 0 L 50 0 L 100 0 M 0 50 L 100 50");
+  const input = {
+    nodeId: o.p,
+    ops: [{ op: "move_anchor" as const, subpath: 0, index: 1, to: [50, 20] as Point }],
+  };
+  vi.mocked(send).mockImplementationOnce((c: Command) => record("drag", c));
+  send({ type: "path_edit", input }, unheld("the test's drag"));
+  useStore.setState({
+    sentPreviews: [{ edit: { inputs: [input], commandIds: ["drag"] }, drag: null }],
+  });
+  const applied = () => {
+    const d = structuredClone(useStore.getState().doc as Document);
+    editPath(d, input);
+    return d;
+  };
+  // `sent()` has the drag's command first.
+  return { ...o, applied };
+}
+
+it("holds a continuation's finish for the answer to the Direct Selection drag it was drawn on (#293)", () => {
+  for (const outcome of ["accepted", "rejected"] as const) {
+    const { stored } = dragged();
+    penClick([100, 50], 1);
+    penClick([120, 60], 1);
+    // The drag renumbers nothing, but the finish carries it, so it waits for its answer.
+    finishPen();
+    expect(sent(), outcome).toHaveLength(1);
+    expect(useStore.getState().held, outcome).toHaveLength(1);
+    const after = stateAfter(
+      useStore.getState(),
+      outcome === "accepted" ? answer("drag") : message("rejected", { id: "drag" }),
+    );
+    useStore.setState(after);
+    if (outcome === "accepted") sendAs("finish");
+    runHeld(after.notice);
+    if (outcome === "accepted") {
+      useStore.setState(stateAfter(useStore.getState(), answer("finish")));
+      expect(stored(), outcome).toBe("M 0 0 L 50 20 L 100 0 M 0 50 L 100 50 L 120 60");
+      expect(useStore.getState().notice, outcome).toBeNull();
+      continue;
+    }
+    expect(sent(), outcome).toHaveLength(1);
+    expect(useStore.getState().held, outcome).toEqual([]);
+    expect(useStore.getState().notice, outcome).toMatch(/Your earlier edit .*not applied/);
+    expect(stored(), outcome).toBe("M 0 0 L 50 0 L 100 0 M 0 50 L 100 50");
+  }
+});
+
+it("drops a connection to the person's own unanswered extension when it is rejected (#293)", () => {
+  for (const when of ["pressed", "held"] as const) {
+    const { stored } = onePath("M 0 0 L 100 0");
+    useStore.setState({ pen: null, penPress: null });
+    sendAs("first");
+    penClick([100, 0], 1);
+    penClick([150, 50], 1);
+    finishPen();
+    vi.mocked(send).mockClear();
+    // A new path, connected to the extension's Endpoint as drawn.
+    penClick([200, 0], 1);
+    penDown([150, 50], 1);
+    expect(pen()?.to?.seed, when).toEqual(["first"]);
+    if (when === "held") penUp();
+    const after = stateAfter(useStore.getState(), message("rejected", { id: "first" }));
+    useStore.setState(after);
+    runHeld(after.notice);
+    const s = useStore.getState();
+    expect(s.notice, when).toMatch(/Your earlier edit to (the|a) path the Pen was .*not applied/);
+    expect(s.notice, when).not.toMatch(/Someone else/);
+    if (when === "pressed") {
+      expect(s.pen?.to, when).toBeUndefined();
+      expect(s.pen?.anchors, when).toEqual([corner(200, 0)]);
+      penUp();
+    }
+    expect(sent(), when).toEqual([]);
+    expect(s.held, when).toEqual([]);
+    expect(stored(), when).toBe("M 0 0 L 100 0");
+  }
+});
+
+it("reads a reconnect by whether the person's own edits the Pen drew on were applied (#293)", () => {
+  // A continuation still being drawn on their unanswered drag.
+  for (const applied of [true, false]) {
+    const { p, stored, applied: withDrag } = dragged();
+    penClick([100, 50], 1);
+    penClick([120, 60], 1);
+    const now = useStore.getState().doc as Document;
+    const d = applied ? withDrag() : now;
+    useStore.setState(
+      stateAfter(
+        useStore.getState(),
+        message("document", { rev: now.rev + 1, nodes: [...d.nodes.values()] }),
+      ),
+    );
+    const s = useStore.getState();
+    if (!applied) {
+      expect(s.pen).toBeNull();
+      expect(s.notice).toMatch(/^Your earlier edit to the path the Pen was continuing/);
+      expect(drawnD(p)).toBe("M 0 0 L 50 0 L 100 0 M 0 50 L 100 50");
+      continue;
+    }
+    expect(s.notice).toBeNull();
+    sendAs("finish");
+    finishPen();
+    useStore.setState(stateAfter(useStore.getState(), answer("finish")));
+    expect(stored()).toBe("M 0 0 L 50 20 L 100 0 M 0 50 L 100 50 L 120 60");
+  }
+  // A finish held for the answer to their extension.
+  for (const applied of [true, false]) {
+    const { p, stored } = onePath("M 0 0 L 100 0");
+    sendAs("first");
+    penClick([100, 0], 1);
+    penClick([150, 50], 1);
+    finishPen();
+    const extended = stateAfter(useStore.getState(), answer("first")).doc as Document;
+    penClick([0, 0], 1);
+    penClick([-50, 50], 1);
+    finishPen();
+    const now = useStore.getState().doc as Document;
+    const d = applied ? extended : now;
+    const after = stateAfter(
+      useStore.getState(),
+      message("document", { rev: now.rev + 1, nodes: [...d.nodes.values()] }),
+    );
+    useStore.setState(after);
+    if (applied) sendAs("second");
+    runHeld(after.notice);
+    if (!applied) {
+      expect(sent().map((c) => c.type)).toEqual(["path_edit"]);
+      expect(useStore.getState().notice).toMatch(/^Your earlier edit to a path the Pen was/);
+      expect(drawnD(p)).toBe("M 0 0 L 100 0");
+      continue;
+    }
+    useStore.setState(stateAfter(useStore.getState(), answer("second")));
+    expect(stored()).toBe("M -50 50 L 0 0 L 100 0 L 150 50");
+    expect(useStore.getState().notice).toBeNull();
+  }
+});

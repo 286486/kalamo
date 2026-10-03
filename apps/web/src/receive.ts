@@ -96,11 +96,12 @@ export interface PenPath {
   anchors: BareAnchor[];
   /**
    * The path the Pen continues from its Endpoint: `anchors` start with its subpath's `kept` Anchors
-   * as drawn, turned to end at that Endpoint. `seed` is the person's sent, unanswered edits to the
-   * path that drawing applied (#293). `to` is another path's Endpoint the last Anchor connects to.
+   * as drawn, turned to end at that Endpoint. `to` is another path's Endpoint the last Anchor
+   * connects to, as drawn. Each `seed` is the person's sent, unanswered edits to its path that
+   * drawing applied (#293).
    */
   from?: Endpoint & { kept: number; seed?: string[] };
-  to?: Endpoint;
+  to?: Endpoint & { seed?: string[] };
   /** The Curvature tool's Anchors as placed, which `anchors` follow. */
   curve?: CurveAnchor[];
   closed: boolean;
@@ -189,7 +190,10 @@ export interface Held {
   chosen: Chosen;
   run: (chosen: Chosen) => void;
   preview: Preview;
-  /** A Pen finish's `from.seed`: a rejection of one of them drops it (#293). */
+  /**
+   * A Pen finish's `from` and `to` seeds: it waits for their answers, and a rejection of one drops
+   * it (#293).
+   */
   seed?: string[];
 }
 
@@ -348,24 +352,36 @@ export function receive(
 export const PEN_MOVED =
   "A path the Pen was connecting to moved before the connection was made; what it drew was not applied.";
 
-/** Whose change a message brings: the person's own command's, or another Actor's (#293). */
-export type Cause = "own" | "other";
-
-/** Why the Pen stopped, or its held finish was dropped: an edit it continued was rejected (#293). */
-export const PEN_SEED_REJECTED =
-  "Your earlier edit to the path the Pen was continuing was not applied, so what the Pen drew was not applied.";
+/**
+ * Whose change a message brings to a Node: the person's own command's, another Actor's, or none,
+ * since the person's own edit the Pen drew on was not applied (#293).
+ */
+export type Cause = "own" | "other" | "unapplied";
 
 /** Why a continuation ended, by whose change (ADR-0110, #293). */
 const PEN_STOPPED: Record<Cause, string> = {
   own: "Your own earlier change reshaped the path the Pen was continuing; the Pen stopped, and what it drew was not applied.",
   other:
     "Someone else changed the path the Pen was continuing; the Pen stopped, and what it drew was not applied.",
+  unapplied:
+    "Your earlier edit to the path the Pen was continuing was not applied, so what the Pen drew was not applied.",
 };
 
 /** Why a connection was dropped, by whose change (#290, #293). */
 const PEN_DISCONNECTED: Record<Cause, string> = {
   own: "Your own earlier change reshaped the path the Pen was connecting to; the connection was not made.",
   other: "Someone else changed the path the Pen was connecting to; the connection was not made.",
+  unapplied:
+    "Your earlier edit to the path the Pen was connecting to was not applied, so the connection was not made.",
+};
+
+/** Why a held Pen finish sent nothing: a change to a path it continued or met, by whose (#293). */
+export const PEN_DROPPED: Record<Cause, string> = {
+  own: "Your own earlier change reshaped a path the Pen was continuing or connecting to; what it drew was not applied.",
+  other:
+    "Someone else changed a path the Pen was continuing or connecting to; what it drew was not applied.",
+  unapplied:
+    "Your earlier edit to a path the Pen was continuing or connecting to was not applied, so what the Pen drew was not applied.",
 };
 
 /**
@@ -375,17 +391,22 @@ const PEN_DISCONNECTED: Record<Cause, string> = {
 type Fate = "keeps" | "renumbered" | "ends";
 
 /**
- * On one Node a message touched, what it leaves of: the Direct Selection's keys and a held edit's,
- * each kept or renumbered while still in range; what a drag still being made holds (`grabbed`); a
- * Pen continuation; and a Pen connection.
+ * On one Node a message touched, whose change it was, and what it leaves of: the Direct Selection's
+ * keys and a held edit's, each kept or renumbered while still in range; a held Pen finish's drawn on
+ * the person's sent edits (`seeded`); what a drag still being made holds (`grabbed`); a Pen
+ * continuation; and a Pen connection.
  */
-type Fates = Record<"keys" | "held" | "grabbed" | "continuation" | "connection", Fate>;
+type Fates = Record<
+  "keys" | "held" | "seeded" | "grabbed" | "continuation" | "connection",
+  Fate
+> & { cause: Cause };
 
 /**
- * Whose Transaction `msg` was, how the person's own command renumbers its path, and what it leaves
+ * How the person's own command `msg` renumbers its path, and whose change it was and what it leaves
  * on each Node it touched, or null for a Node it left alone; a Document sent on reconnect touches
  * every Node and is read as another Actor's, since it says nothing of who changed what (ADR-0109,
- * ADR-0110).
+ * ADR-0110), unless the Node is as it was, so only the person's own edits the Pen drew on were not
+ * applied (#293).
  *
  * Another Actor's change to a Node ends all of it. The person's own command that leaves a Node's
  * geometry as it was keeps it; one that reshapes it ends it, but what was worked out for that
@@ -397,16 +418,17 @@ type Fates = Record<"keys" | "held" | "grabbed" | "continuation" | "connection",
  *
  * A reconnect reads geometry (#287): a Node changed while the socket was down when its geometry is
  * neither as it was nor as the press leaves it. Keys go on such a path the press names (#276), or on
- * any while another renumbering command is unanswered (#298); a held edit's and a drag's on any. A
- * continuation holds its Anchors where the person saw them, so it ends when its path is not as drawn
- * then, moved included.
+ * any while another renumbering command is unanswered (#298); a held edit's and a drag's on any. The
+ * Pen holds its Anchors and Endpoints where the person saw them, so a continuation, a connection and
+ * a held finish drawn on the person's sent edits end when their path is not as drawn then; a
+ * continuation, moved included.
  */
 function classify(
   s: ViewState,
   msg: Extract<ServerMessage, { type: "tx" | "document" }>,
   prior: Document | null,
   doc: Document,
-): { cause: Cause; map: Renumbering | null; fates: (n: string) => Fates | null } {
+): { map: Renumbering | null; fates: (n: string) => Fates | null } {
   if (msg.type === "document") {
     const changedSince = (before: Document | null) => {
       const pressedThen = before && s.reversing ? previewEdit(before, s.reversing) : before;
@@ -421,15 +443,19 @@ function classify(
       String(seen?.nodes.get(n)?.transform) !== String(doc.nodes.get(n)?.transform);
     const pressNamed = new Set(s.reversing?.subpaths.map((t) => t.nodeId));
     const fate = (ends: boolean): Fate => (ends ? "ends" : "keeps");
+    const same = (n: string) =>
+      geometryOf(prior, n) === geometryOf(doc, n) &&
+      String(prior?.nodes.get(n)?.transform) === String(doc.nodes.get(n)?.transform);
     return {
-      cause: "other",
       map: null,
       fates: (n) => ({
+        cause: same(n) ? "unapplied" : "other",
         keys: fate(reshaped(n) && (pressNamed.has(n) || s.renumbering.size > 0)),
         held: fate(reshaped(n)),
+        seeded: fate(redrawn(n)),
         grabbed: fate(reshaped(n)),
         continuation: fate(redrawn(n) || placed(n)),
-        connection: fate(reshaped(n)),
+        connection: fate(redrawn(n)),
       }),
     };
   }
@@ -446,7 +472,6 @@ function classify(
   const forDrag = answers(s.sentPreviews.filter((p) => !p.fromHeld));
   const forPen = press || (!!id && !!s.pen?.from?.seed?.includes(id));
   return {
-    cause,
     map,
     fates: (n) => {
       if (!touched.has(n)) return null;
@@ -454,8 +479,10 @@ function classify(
       const fate = (forIt: boolean, numbers = false): Fate =>
         numbers && map?.nodeId === n ? "renumbered" : forIt || kept ? "keeps" : "ends";
       return {
+        cause,
         keys: fate(previewed, true),
         held: fate(previewed, true),
+        seeded: fate(previewed, true),
         grabbed: fate(forDrag, true),
         continuation: fate(forPen),
         connection: fate(previewed),
@@ -476,26 +503,45 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     return {};
   if (msg.type === "rejected") {
     const { code } = msg.error;
-    // What the Pen drew on the person's rejected edit would write it back, so it goes (#293).
-    const seeded = !!s.pen?.from?.seed?.includes(msg.id);
+    // What the Pen drew on the person's rejected edit would write it back, so it goes: the
+    // continuation, the connection, or a held finish (#293).
+    const on = (e: { seed?: string[] } | undefined) => !!e?.seed?.includes(msg.id);
+    const stopped = on(s.pen?.from);
+    const unmet = !stopped && s.pen && on(s.pen.to) ? disconnected(s.pen, s.penPress) : null;
     const held = s.held.filter((h) => !h.seed?.includes(msg.id));
+    const sent = settleSent(s.sent, msg.id);
+    const sentPreviews = settleSentPreviews(s.sentPreviews, msg.id);
     return {
-      ...settleSent(s.sent, msg.id),
-      ...(seeded && { pen: null, ...(s.edit && { edit: null }) }),
+      ...sent,
+      ...(stopped && { pen: null, ...(s.edit && { edit: null }) }),
+      ...(unmet && {
+        ...penState(
+          s.doc &&
+            asDrawn(s.doc, {
+              sent: sent.sent ?? s.sent,
+              sentPreviews: sentPreviews.sentPreviews ?? s.sentPreviews,
+            }),
+          unmet.pen,
+          s.edit,
+        ),
+        penPress: unmet.penPress,
+      }),
       ...(held.length < s.held.length && { held }),
       ...(s.reversing?.commandId === msg.id && { reversing: null }),
       ...settleRenumbering(s.renumbering, msg.id),
       ...settlePending(s.pending, msg.id),
       ...(s.opPreview?.commandId === msg.id && { opPreview: null }),
       ...(s.paintPreview?.commandId === msg.id && { paintPreview: null }),
-      ...settleSentPreviews(s.sentPreviews, msg.id),
+      ...sentPreviews,
       notice: joinNotices([
         code === "NODE_GONE"
           ? "Someone else deleted that object first; it stays deleted."
           : code === "ENDPOINTS_APART"
             ? PEN_MOVED
             : msg.error.message,
-        (seeded || held.length < s.held.length) && PEN_SEED_REJECTED,
+        stopped && PEN_STOPPED.unapplied,
+        unmet && PEN_DISCONNECTED.unapplied,
+        held.length < s.held.length && PEN_DROPPED.unapplied,
       ]),
     };
   }
@@ -521,19 +567,21 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     msg.type === "tx" ? s.pending.find((p) => p.commandId === msg.commandId) : undefined;
   const id = msg.type === "tx" ? msg.commandId : undefined;
   const prior = s.doc;
-  const { cause, map, fates } = classify(s, msg, prior, doc);
-  const ends = (n: string | undefined, what: keyof Fates) => !!n && fates(n)?.[what] === "ends";
+  const { map, fates } = classify(s, msg, prior, doc);
+  const ends = (n: string | undefined, what: Exclude<keyof Fates, "cause">) =>
+    !!n && fates(n)?.[what] === "ends";
+  const causeOf = (n: string | undefined) => (n && fates(n)?.cause) || "other";
   // The press's answer, or the Document sent on reconnect, settles it: keys on a subpath it turned
   // are renumbered to stay on their points (ADR-0110).
   const settled =
     !!s.reversing && (msg.type === "document" || msg.commandId === s.reversing.commandId);
   // Keys stay on a Node the message left alone; on one it touched, while they keep and are in range.
-  const keptBy = (what: "keys" | "held") => (inRangeOf: typeof inRange) => (key: string) => {
-    const f = fates(parseKey(key).nodeId);
-    return !f || (f[what] !== "ends" && inRangeOf(doc, key));
-  };
+  const keptBy =
+    (what: "keys" | "held" | "seeded") => (inRangeOf: typeof inRange) => (key: string) => {
+      const f = fates(parseKey(key).nodeId);
+      return !f || (f[what] !== "ends" && inRangeOf(doc, key));
+    };
   const kept = keptBy("keys");
-  const heldKept = keptBy("held");
   const turned =
     settled && prior && s.reversing
       ? turnedOf(
@@ -558,7 +606,8 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
   const { anchors, segments } = rekey(s);
   // A held edit's target is turned as its keys are; once a key goes, so does the target. The first
   // change that takes keys away is the one a dropped Pen finish names (#293).
-  const rechosen = ({ target, ...c }: Chosen): Chosen => {
+  const rechosen = ({ target, ...c }: Chosen, what: "held" | "seeded"): Chosen => {
+    const heldKept = keptBy(what);
     const t = target && renumberTarget(map)(turnTarget(doc, turned)(target));
     const k = t && targetKeys(t);
     const on = k?.anchors.every(heldKept(inRange)) && k.segments.every(heldKept(segmentInRange));
@@ -568,7 +617,9 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
         ? { ...c, ...k, target: t }
         : { ...c, anchors: [], segments: [] };
     const lost = next.anchors.length + next.segments.length < c.anchors.length + c.segments.length;
-    return lost && !c.lostBy ? { ...next, lostBy: cause } : next;
+    const its = [...c.anchors, ...c.segments].map((k) => fates(parseKey(k).nodeId)).filter(present);
+    const by = (its.find((f) => f[what] === "ends") ?? its[0])?.cause;
+    return lost && !c.lostBy && by ? { ...next, lostBy: by } : next;
   };
   // A change that ends the continuation ends its preview, so its finish never writes the Anchors it
   // started from over that change (ADR-0110). One to the path a press connects to drops only the
@@ -651,7 +702,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
         ...h,
         ...(map && { preview: renumberPreview(map, h.preview) }),
         chosen: {
-          ...rechosen(h.chosen),
+          ...rechosen(h.chosen, h.seed ? "seeded" : "held"),
           selection: h.chosen.selection.filter((id) => doc.nodes.has(id)),
         },
       })),
@@ -668,8 +719,8 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     ...(reached && { pen: null, ...(s.edit && { edit: null }) }),
     ...((reached || dropped || skipped > 0) && {
       notice: joinNotices([
-        reached && PEN_STOPPED[cause],
-        dropped && PEN_DISCONNECTED[cause],
+        reached && PEN_STOPPED[causeOf(s.pen?.from?.nodeId)],
+        dropped && PEN_DISCONNECTED[causeOf(pen?.to?.nodeId)],
         skipped > 0 &&
           `Skipped ${skipped} object(s) deleted or moved since; they stay as they are.`,
       ]),

@@ -24,11 +24,11 @@ import {
 import { forNewArt, leaving } from "./isolation.ts";
 import {
   asDrawn,
-  type Cause,
   disconnected,
   type Endpoint,
   endKey,
   endOf,
+  PEN_DROPPED,
   PEN_MOVED,
   type PenPath,
   type PenPress,
@@ -204,13 +204,6 @@ function endingAt(doc: Document, e: Endpoint): BareAnchor[] {
 /** Join's distance for the Endpoints a connection put on each other, past `d`'s rounding. */
 const COINCIDENT = 0.05;
 
-/** Why a held Pen finish sent nothing: a change to a path it continued or met, by whose (#293). */
-const PEN_DROPPED: Record<Cause, string> = {
-  own: "Your own earlier change reshaped a path the Pen was continuing or connecting to; what it drew was not applied.",
-  other:
-    "Someone else changed a path the Pen was continuing or connecting to; what it drew was not applied.",
-};
-
 /**
  * Finishes a path the Pen continued or connected (research 06 §1): one `path_edit` on the path
  * continued, or on the one a new path connected to, which it continues backwards; continuing one
@@ -239,6 +232,8 @@ function finishEdit(doc: Document, pen: PenPath) {
   const moves = (d: Document, before: Matrix[]) =>
     ends.map((e, i) => round(multiply(worldOf(d, e.nodeId), before[i] as Matrix)));
   const drawn = own(shown);
+  // It is drawn on the person's edits these name, so it waits for their answers (#293).
+  const seed = [...(from?.seed ?? []), ...(to?.seed ?? [])];
   useStore.setState({
     pen: null,
     selection: [...new Set(ends.map((e) => e.nodeId))],
@@ -255,14 +250,14 @@ function finishEdit(doc: Document, pen: PenPath) {
       // there, it can meet only one; moved together, what it drew goes with them (#301). Rounding
       // leaves no move an exact identity.
       const there = now && asDrawn(now, s);
-      const [m, other] = there ? moves(there, drawn) : [];
-      if (m && other && String(m) !== String(other)) {
+      const [one, other] = there ? moves(there, drawn) : [];
+      if (one && other && String(one) !== String(other)) {
         useStore.setState({ notice: PEN_MOVED });
         return;
       }
       const at = held.map(endOf);
       const f = from && at.shift();
-      const placed = m ? anchors.map((a) => through(m, a)) : anchors;
+      const placed = one ? anchors.map((a) => through(one, a)) : anchors;
       const c =
         there &&
         penCommand(there, {
@@ -274,7 +269,7 @@ function finishEdit(doc: Document, pen: PenPath) {
       if (!c) return;
       drawSent({ edit: { inputs: [c.input], commandIds: [send(c.command, w)] }, drag: null });
     },
-    { anchors: keys, segments: [], previewed: true, ...(from?.seed && { seed: from.seed }) },
+    { anchors: keys, segments: [], previewed: true, ...(seed.length > 0 && { seed }) },
   );
 }
 
@@ -307,6 +302,16 @@ function penCommand(doc: Document, { from, to, anchors, closed }: PenPath) {
   ];
   const input = replaceSubpath(doc, to, joined, false);
   return { input, command: { type: "path_edit" as const, input } };
+}
+
+/** The `seed` of Endpoint `e`: the person's sent, unanswered edits to its path as drawn (#293). */
+function seeded(s: Pick<State, "sentPreviews" | "sent">, e: Endpoint) {
+  const seed = s.sentPreviews.flatMap(
+    ({ edit }) =>
+      edit?.commandIds?.filter((c, i) => edit.inputs[i]?.nodeId === e.nodeId && s.sent.has(c)) ??
+      [],
+  );
+  return { ...e, ...(seed.length > 0 && { seed }) };
 }
 
 /** The Pen's path so far and its press, and its preview (`penState`) on the path as drawn. */
@@ -378,17 +383,11 @@ export function penDown(p: Point, tolerance: number, shift = false) {
     const theirs = endingAt(shown, end);
     const at = theirs.length - 1;
     const done = theirs.with(at, { ...(theirs[at] as BareAnchor), handleOut: null });
-    const seed = s.sentPreviews.flatMap(
-      ({ edit }) =>
-        edit?.commandIds?.filter(
-          (c, i) => edit.inputs[i]?.nodeId === end.nodeId && s.sent.has(c),
-        ) ?? [],
-    );
     setPen(
       {
         anchors: done,
         closed: false,
-        from: { ...end, kept: theirs.length, ...(seed.length > 0 && { seed }) },
+        from: { ...seeded(s, end), kept: theirs.length },
       },
       press("last", at),
     );
@@ -398,7 +397,7 @@ export function penDown(p: Point, tolerance: number, shift = false) {
     setPen(
       {
         ...pen,
-        to: end,
+        to: seeded(s, end),
         anchors: [...anchors, { anchor: at, handleIn: null, handleOut: null }],
       },
       press("connect", anchors.length),
