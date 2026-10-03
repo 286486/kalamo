@@ -909,3 +909,30 @@ test("Cut while a Reverse Path Direction press is in flight deletes after the he
   await page.waitForTimeout(300);
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
+
+// #289, ADR-0110: Object > Path > Add Anchor Points while a press is in flight waits for the drag
+// held behind it, so it adds midpoints to the dragged hole, as Illustrator, which runs input in
+// order, does, and the drag moves the Anchor chosen, not a new midpoint.
+test("Add Anchor Points while a Reverse Path Direction press is in flight adds to the dragged path", async ({
+  page,
+  request,
+}) => {
+  const { ids, held, hold, at, d, button } = await rings(page, request, [0]);
+  const [id] = ids as [string];
+  await page.keyboard.press("a");
+  await page.mouse.click(...at(40, 60));
+  await expect(button("Reverse Path Direction Off")).toHaveAttribute("aria-pressed", "true");
+  hold();
+  await button("Reverse Path Direction On").click();
+  await expect.poll(() => held.length).toBe(1);
+  await edits.drag.run(page, at);
+  await choose(page, "Object", "Path", "Add Anchor Points");
+  await page.waitForTimeout(200);
+  expect(points(await d(id))).toEqual(points(ring(0)));
+  held[0]?.pass();
+  // The hole reversed, (40, 60) dragged to (45, 60), and then a midpoint on every segment.
+  const outerAdded = ["20 20", "50 20", "80 20", "80 50", "80 80", "50 80", "20 80", "20 50"];
+  const holeAdded = ["40 40", "50 40", "60 40", "60 50", "60 60", "52.5 60", "45 60", "42.5 50"];
+  await expect.poll(async () => points(await d(id))).toEqual([...outerAdded, ...holeAdded]);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
