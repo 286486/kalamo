@@ -25,6 +25,7 @@ import { forNewArt, leaving } from "./isolation.ts";
 import {
   asDrawn,
   disconnected,
+  drawnOn,
   type Endpoint,
   endKey,
   endOf,
@@ -232,7 +233,7 @@ function finishEdit(doc: Document, pen: PenPath) {
   const moves = (d: Document, before: Matrix[]) =>
     ends.map((e, i) => round(multiply(worldOf(d, e.nodeId), before[i] as Matrix)));
   const drawn = own(shown);
-  // It is drawn on the person's edits these name, so it waits for their answers (#293).
+  // It is drawn on the person's edits these name, so it waits for their answers (#293, #308).
   const seed = [...(from?.seed ?? []), ...(to?.seed ?? [])];
   useStore.setState({
     pen: null,
@@ -249,7 +250,7 @@ function finishEdit(doc: Document, pen: PenPath) {
       // It lands after the person's edits and moves sent before it, as they are drawn. Moved apart
       // there, it can meet only one; moved together, what it drew goes with them (#301). Rounding
       // leaves no move an exact identity.
-      const there = now && asDrawn(now, s);
+      const there = now && asDrawn(now, { ...s, held: [] });
       const [one, other] = there ? moves(there, drawn) : [];
       if (one && other && String(one) !== String(other)) {
         useStore.setState({ notice: PEN_MOVED });
@@ -304,13 +305,11 @@ function penCommand(doc: Document, { from, to, anchors, closed }: PenPath) {
   return { input, command: { type: "path_edit" as const, input } };
 }
 
-/** The `seed` of Endpoint `e`: the person's sent, unanswered edits to its path as drawn (#293). */
-function seeded(s: Pick<State, "sentPreviews" | "sent">, e: Endpoint) {
-  const seed = s.sentPreviews.flatMap(
-    ({ edit }) =>
-      edit?.commandIds?.filter((c, i) => edit.inputs[i]?.nodeId === e.nodeId && s.sent.has(c)) ??
-      [],
-  );
+/** The `seed` of Endpoint `e`: what its path as drawn is built on (#293, #308). */
+function seeded(s: Pick<State, "sentPreviews" | "sent" | "held">, e: Endpoint) {
+  const seed = drawnOn(s)
+    .filter(({ edit }) => edit?.inputs.some((i) => i.nodeId === e.nodeId))
+    .map(({ on }) => on);
   return { ...e, ...(seed.length > 0 && { seed }) };
 }
 
