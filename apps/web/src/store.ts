@@ -275,8 +275,8 @@ export function runHeld(said?: string | null) {
     if (!h || waiting(state) || unanswered(state, h.seed)) break;
     runs++;
     useStore.setState({ held: rest, notice: null });
-    const { sentPreviews: before, sent } = useStore.getState();
-    const from = before.length;
+    const { sentPreviews: was, sent } = useStore.getState();
+    const from = was.length;
     try {
       h.run(h.chosen);
     } catch (e) {

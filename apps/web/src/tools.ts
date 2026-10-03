@@ -249,7 +249,7 @@ function finishEdit(doc: Document, pen: PenPath) {
       }
       // It lands after the person's edits and moves sent before it, as they are drawn. Moved apart
       // there, it can meet only one; moved together, what it drew goes with them (#301). Rounding
-      // leaves no move an exact identity.
+      // leaves no move an exact identity. The edits still held run after it, so they are left out.
       const there = now && asDrawn(now, { ...s, held: [] });
       const [one, other] = there ? moves(there, drawn) : [];
       if (one && other && String(one) !== String(other)) {

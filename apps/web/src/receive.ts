@@ -831,6 +831,9 @@ export const drawnOn = (s: Pick<ViewState, "sentPreviews" | "sent" | "held">): D
 export const asDrawn = (doc: Document, s: Pick<ViewState, "sentPreviews" | "sent" | "held">) =>
   previewAll(doc, drawnOn(s));
 
+/** What a settled held edit leaves the store, and the notices it adds. */
+type Settled = { state: Partial<ViewState>; notices: Parameters<typeof joinNotices>[0] };
+
 type Drawing = Pick<
   ViewState,
   "doc" | "sentPreviews" | "sent" | "held" | "pen" | "penPress" | "edit"
@@ -841,16 +844,14 @@ type Drawing = Pick<
  * edits drawn on them, and those drawn on these in turn, the Pen's continuation drawn on any, else
  * its connection, each with the `unapplied` notice. Nothing they drew is sent (#293, #308).
  */
-export function dropDrawnOn(
-  s: Drawing,
-  gone: string[],
-): { state: Partial<ViewState>; notices: (string | false)[] } {
+export function dropDrawnOn(s: Drawing, gone: string[]): Settled {
   const dead = new Set(gone);
   const on = (e: { seed?: string[] } | undefined) => !!e?.seed?.some((k) => dead.has(k));
   // Held edits run in order, so each is drawn only on those before it.
   const held = s.held.filter((h) => {
-    if (on(h)) dead.add(h.token);
-    return !on(h);
+    const goes = on(h);
+    if (goes) dead.add(h.token);
+    return !goes;
   });
   const dropped = held.length < s.held.length;
   const stopped = on(s.pen?.from);
@@ -866,7 +867,7 @@ export function dropDrawnOn(
     },
     notices: [
       stopped && PEN_STOPPED.unapplied,
-      !!unmet && PEN_DISCONNECTED.unapplied,
+      unmet && PEN_DISCONNECTED.unapplied,
       dropped && PEN_DROPPED.unapplied,
     ],
   };
@@ -876,11 +877,7 @@ export function dropDrawnOn(
  * After held edit `token` ran and sent `ids`: what was drawn on it waits for their answers instead,
  * or, when it sent nothing, goes (#308).
  */
-export function heldRan(
-  s: Drawing,
-  token: string,
-  ids: string[],
-): { state: Partial<ViewState>; notices: (string | false)[] } {
+export function heldRan(s: Drawing, token: string, ids: string[]): Settled {
   if (ids.length === 0) return dropDrawnOn(s, [token]);
   const { pen } = s;
   const named = (e: { seed?: string[] } | undefined) => !!e?.seed?.includes(token);
