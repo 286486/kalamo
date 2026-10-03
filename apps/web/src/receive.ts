@@ -591,9 +591,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
   // A reconnect loses the answers to the commands in flight, so their previews go; the live
   // gesture's unsent preview stays while what it holds does (#285).
   const { sentPreviews: sentLeft = s.sentPreviews } =
-    msg.type === "document"
-      ? { sentPreviews: [] }
-      : settleSentPreviews(s.sentPreviews, id);
+    msg.type === "document" ? { sentPreviews: [] } : settleSentPreviews(s.sentPreviews, id);
   // A selected Node that a browser's command moved into a new Group selects that Group, as Make
   // Clipping Mask does; an Agent's edit leaves the person's Selection alone.
   const made = new Set(msg.type === "tx" && msg.commandId ? msg.created.map((n) => n.id) : []);
