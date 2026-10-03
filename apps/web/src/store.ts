@@ -206,9 +206,9 @@ export const waiting = (s: Pick<State, "reversing" | "renumbering">) =>
   !!s.reversing || s.renumbering.size > 0;
 
 /**
- * Whether one of the commands a held Pen finish was drawn on is unanswered (#293). A held edit's
- * token in its seed is never in `sent`: that edit runs first, and its token gives way to what it
- * sent (#308).
+ * Whether one of the commands a held Pen finish or Pencil redraw was drawn on is unanswered (#293,
+ * #309). A held edit's token in its seed is never in `sent`: that edit runs first, and its token
+ * gives way to what it sent (#308).
  */
 const unanswered = (s: Pick<State, "sent">, seed: string[] | undefined) =>
   !!seed?.some((id) => s.sent.has(id));
@@ -222,10 +222,10 @@ const unanswered = (s: Pick<State, "sent">, seed: string[] | undefined) =>
  * alone, as the answer turns it. With `previewed`, the live gesture's unsent preview in `edit` and
  * `drag` is the edit's own and leaves the live slots: held, it goes with the edit, so the next
  * gesture's preview leaves it on screen; run, it gives way to what the edit sends, if anything.
- * Either way the edit never sees or changes the live slots' preview (#285). A Pen finish's `seed`
- * holds it, and the edits after it, until the answers to the edits it was drawn on (#293, #308).
- * A `set_d` edit's `redraw` is what its run sends, and redraws its preview held; `pulled` turns its
- * preview as an Anchor Point drag out of an Anchor sends it (#286).
+ * Either way the edit never sees or changes the live slots' preview (#285). A `seed` holds it, and
+ * the edits after it, until the answers to the edits it was drawn on (#293, #308, #309). A `set_d`
+ * edit's `redraw` comes from `afterRedraw`, its one run step (#286, #309); `pulled`
+ * turns its preview as an Anchor Point drag out of an Anchor sends it (#286).
  */
 export function afterReverse(
   edit: (s: State & Chosen, w: Waited) => void,

@@ -1158,3 +1158,203 @@ it("stores a held drag on the Anchor dragged, and the Pen continuation drawn on 
   expect(stored()).toBe("M 0 200 L 50 200 L 100 200 M -50 150 L 0 100 L 100 100 L 120 -20 L 0 0");
   expect(useStore.getState().notice).toBeNull();
 });
+
+// #309: a Pencil redraw is drawn on the paths as drawn, so it carries the person's sent and held
+// edits to its path, and it waits for their answers as a Pen finish does.
+
+/** A Pencil drag at 100% on the Selection `p` from `from`, by `step` five times, freehand. */
+function pencilFrom(p: string, from: Point, step: Point) {
+  useStore.setState({ selection: [p], tool: "pencil" });
+  pencilDown(from);
+  for (let t = 1; t <= 5; t++)
+    pencilMove([[from[0] + t * step[0], from[1] + t * step[1]]], { shift: false, alt: false });
+  pencilUp(1);
+}
+
+/** A Pencil drag on p at 100%, from the dragged Anchor's drawn (50, 20) down to (100, 60). */
+const pencilFromDrag = (p: string) => pencilFrom(p, [50, 20], [10, 8]);
+
+/** A press reversing another path's hole, sent after the person's drag on p. */
+function pressAfter(p: string) {
+  const now = useStore.getState().doc as Document;
+  const parentId = now.nodes.get(p)?.parentId as string;
+  const [q] = createNodes(now, [
+    { type: "path", parentId, d: "M 200 0 L 300 0 L 300 100 Z M 220 20 L 220 80 L 280 80 Z" },
+  ]).nodes as [PathNode];
+  sendAs("press");
+  setDirection({ ...useStore.getState(), anchors: [`${q.id} 1 0`] }, !runsClockwise(now, q, 1));
+}
+
+/** p with the drag, the redraw from (50, 20), and its untouched second subpath. */
+const REDRAWN = "M 0 0 L 50 20 L 100 60 M 0 50 L 100 50";
+const ORIGINAL = "M 0 0 L 50 0 L 100 0 M 0 50 L 100 50";
+
+it("draws a Pencil redraw on the person's unanswered drag, from the Anchor as drawn (#309)", () => {
+  const { p } = dragged();
+  pencilFromDrag(p);
+  expect(sent().map((c) => c.type)).toEqual(["path_edit"]);
+  expect(useStore.getState().held).toHaveLength(1);
+  expect(drawnD(p)).toBe(REDRAWN);
+});
+
+it("holds a Pencil redraw drawn on the person's drag for its answer, and drops it on a rejection (#309)", () => {
+  for (const press of [false, true]) {
+    for (const outcome of ["accepted", "rejected"] as const) {
+      const label = `${outcome}${press ? ", behind a press" : ""}`;
+      const { p, stored } = dragged();
+      if (press) pressAfter(p);
+      pencilFromDrag(p);
+      const before = press ? ["path_edit", "path_reverse"] : ["path_edit"];
+      expect(
+        sent().map((c) => c.type),
+        label,
+      ).toEqual(before);
+      expect(useStore.getState().held, label).toHaveLength(1);
+      const next = outcome === "accepted" && !press ? "redraw" : undefined;
+      land(outcome === "accepted" ? answer("drag") : message("rejected", { id: "drag" }), next);
+      if (outcome === "rejected") {
+        const s = useStore.getState();
+        expect(s.held, label).toEqual([]);
+        expect(s.notice, label).toMatch(
+          /^The Pencil edit was not applied, because your earlier edit to its path was not\. ./,
+        );
+        expect(s.notice, label).not.toMatch(/Pen |Someone else/);
+        expect(drawnD(p), label).toBe(ORIGINAL);
+      }
+      if (press) {
+        const at = useStore.getState().doc as Document;
+        land(
+          message("tx", { rev: at.rev + 1, commandId: "press", updated: [] }),
+          outcome === "accepted" ? "redraw" : undefined,
+        );
+      }
+      if (outcome === "rejected") {
+        expect(
+          sent().map((c) => c.type),
+          label,
+        ).toEqual(before);
+        expect(stored(), label).toBe(ORIGINAL);
+        continue;
+      }
+      expect(
+        sent().map((c) => c.type),
+        label,
+      ).toEqual([...before, "path_edit"]);
+      land(answer("redraw"));
+      expect(stored(), label).toBe(REDRAWN);
+      expect(useStore.getState().notice, label).toBeNull();
+    }
+  }
+});
+
+it("holds a Pencil redraw drawn on a held Pen finish's extension until it runs, then sends both (#309)", () => {
+  const { p, stored } = onePath("M 0 0 L 100 0");
+  sendAs("first");
+  penClick([100, 0], 1);
+  penClick([150, 50], 1);
+  finishPen();
+  penClick([0, 0], 1);
+  penClick([-50, 50], 1);
+  heldFinish();
+  // The Pencil extends p from the held finish's Endpoint, as drawn.
+  pencilFrom(p, [-50, 50], [-10, 0]);
+  const [, redraw] = useStore.getState().held;
+  expect(redraw?.seed).toEqual(["first", useStore.getState().held[0]?.token]);
+  expect(drawnD(p)).toBe("M -100 50 L -50 50 L 0 0 L 100 0 L 150 50");
+  land(answer("first"), "second");
+  expect(useStore.getState().held).toHaveLength(1);
+  land(answer("second"), "third");
+  land(answer("third"));
+  expect(stored()).toBe("M -100 50 L -50 50 L 0 0 L 100 0 L 150 50");
+  expect(useStore.getState().notice).toBeNull();
+});
+
+it("drops a Pencil redraw drawn on a held Pen finish that sends nothing, with the Pencil's notice (#309)", () => {
+  const { p, stored } = onePath("M 0 0 L 100 0");
+  const now = useStore.getState().doc as Document;
+  const parentId = now.nodes.get(p)?.parentId as string;
+  const [q] = createNodes(now, [{ type: "path", parentId, d: "M 0 100 L 100 100" }]).nodes;
+  // q extended, unanswered; then p continued and connected to q: the join is held on it.
+  sendAs("a");
+  penClick([100, 100], 1);
+  penClick([150, 150], 1);
+  finishPen();
+  penClick([0, 0], 1);
+  penClick([0, 100], 1);
+  expect(useStore.getState().held).toHaveLength(1);
+  // The Pencil extends p from its other Endpoint, on the held join.
+  pencilFrom(p, [100, 0], [10, 0]);
+  expect(useStore.getState().held).toHaveLength(2);
+  const before = sent().length;
+  // Someone else edits q, so the join drops when it runs, and the redraw with it.
+  const at = useStore.getState().doc as Document;
+  const { node } = editPath(structuredClone(at), {
+    nodeId: q?.id as string,
+    ops: [{ op: "set_d", d: "M 0 100 L 100 120" }],
+  });
+  land(message("tx", { rev: at.rev + 1, updated: [node] }));
+  land(answer("a"));
+  const s = useStore.getState();
+  expect(sent().slice(before)).toEqual([]);
+  expect(s.held).toEqual([]);
+  expect(s.notice).toMatch(/^Someone else changed a path the Pen was .*not applied/);
+  expect(s.notice).toMatch(/The Pencil edit was not applied, because your earlier edit/);
+  expect(stored()).toBe("M 0 0 L 100 0");
+});
+
+it("reads a reconnect by whether the person's own edits a held Pencil redraw was drawn on were applied (#309)", () => {
+  for (const reconnect of ["as drawn", "as before", "other"] as const) {
+    const { p, stored, applied } = dragged();
+    pencilFromDrag(p);
+    const now = useStore.getState().doc as Document;
+    const d = reconnect === "as drawn" ? applied() : structuredClone(now);
+    if (reconnect === "other")
+      editPath(d, { nodeId: p, ops: [{ op: "set_d", d: "M 0 0 L 90 0" }] });
+    land(
+      message("document", { rev: now.rev + 1, nodes: [...d.nodes.values()] }),
+      reconnect === "as drawn" ? "redraw" : undefined,
+    );
+    const s = useStore.getState();
+    expect(s.held, reconnect).toEqual([]);
+    if (reconnect === "as drawn") {
+      expect(s.notice, reconnect).toBeNull();
+      land(answer("redraw"));
+      expect(stored(), reconnect).toBe(REDRAWN);
+      continue;
+    }
+    expect(
+      sent().map((c) => c.type),
+      reconnect,
+    ).toEqual(["path_edit"]);
+    expect(s.notice, reconnect).toBe(
+      reconnect === "as before"
+        ? "The Pencil edit was not applied, because your earlier edit to its path was not."
+        : "The Pencil edit was not applied; someone else changed its path.",
+    );
+  }
+});
+
+it("never stores a rejected drag through a Pencil redraw that starts off it, nor draws it after (#309)", () => {
+  for (const press of [false, true]) {
+    const label = press ? "behind a press" : "sent";
+    const { p, stored } = dragged();
+    if (press) pressAfter(p);
+    const before = sent().map((c) => c.type);
+    // From p's last Anchor, which the drag did not move, on to the right: it carries the drag.
+    pencilFrom(p, [100, 0], [10, 0]);
+    land(message("rejected", { id: "drag" }));
+    const { held } = useStore.getState();
+    const shown = drawnD(p);
+    if (press) {
+      const at = useStore.getState().doc as Document;
+      land(message("tx", { rev: at.rev + 1, commandId: "press", updated: [] }));
+    }
+    expect(
+      sent().map((c) => c.type),
+      label,
+    ).toEqual(before);
+    expect(stored(), label).toBe(ORIGINAL);
+    expect(held, label).toEqual([]);
+    expect(shown, label).toBe(ORIGINAL);
+  }
+});

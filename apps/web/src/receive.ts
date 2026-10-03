@@ -184,9 +184,13 @@ export type SentPreview = Preview & { fromHeld?: true };
 
 /**
  * What a held `set_d` edit sends, worked out on the path as its run sees it and its keys: a Pencil
- * redraw's or a Pen finish's input, or the notice it is dropped with (#286).
+ * redraw's or a Pen finish's input, and the command that carries it when it is not a `path_edit`
+ * of it alone; or the notice it is dropped with (#286).
  */
-export type Redraw = (doc: Document, chosen: Chosen) => { input: PathEditInput } | string;
+export type Redraw = (
+  doc: Document,
+  chosen: Chosen,
+) => { input: PathEditInput; command?: Command } | string;
 
 /**
  * A Direct Selection edit made while a Reverse Path Direction press was in flight, run once it is
@@ -199,8 +203,11 @@ export interface Held {
   chosen: Chosen;
   run: (chosen: Chosen) => void;
   preview: Preview;
-  /** A `set_d` edit's input, which its run sends and its preview draws (#286). */
-  redraw?: Redraw;
+  /**
+   * A `set_d` edit's input, which its run sends and its preview draws (#286), and its tool's
+   * notices for a drop of what it drew, by cause (#309). Only `afterRedraw` sets it.
+   */
+  redraw?: { run: Redraw; dropped: Record<Cause, string> };
   /** An Anchor Point drag out of an Anchor, whose Handles a turn leaves as they are (#286). */
   pulled?: true;
   /**
@@ -209,8 +216,8 @@ export interface Held {
    */
   token: string;
   /**
-   * A Pen finish's `from` and `to` seeds: it waits for their answers, and a rejection of one, or a
-   * held edit named that sends nothing, drops it (#293, #308).
+   * What a Pen finish or a Pencil redraw was drawn on (`seedOf`): it waits for their answers, and a
+   * rejection of one, or a held edit named that sends nothing, drops it (#293, #308, #309).
    */
   seed?: string[];
 }
@@ -535,13 +542,14 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
       ...(s.opPreview?.commandId === msg.id && { opPreview: null }),
       ...(s.paintPreview?.commandId === msg.id && { paintPreview: null }),
       ...sentPreviews,
+      // Drawn work's drop notices first, as ADR-0110 joins them (#291).
       notice: joinNotices([
+        ...gone.notices,
         code === "NODE_GONE"
           ? "Someone else deleted that object first; it stays deleted."
           : code === "ENDPOINTS_APART"
             ? PEN_MOVED
             : msg.error.message,
-        ...gone.notices,
       ]),
     };
   }
@@ -695,7 +703,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     const preview = !renumbers
       ? h.preview
       : h.redraw
-        ? redrawn(h.redraw(base, chosen))
+        ? redrawn(h.redraw.run(base, chosen))
         : renumberPreview(doc, turned, map, h);
     held.push({ ...h, chosen, preview });
   }
@@ -851,6 +859,15 @@ export const drawnOn = (s: Pick<ViewState, "sentPreviews" | "sent" | "held">): D
   ...s.held.map((h) => ({ ...h.preview, on: h.token })),
 ];
 
+/**
+ * The seed of what is drawn on Node `nodeId` as drawn: the `drawnOn` entries that edit it (#293,
+ * #308).
+ */
+export const seedOf = (s: Pick<ViewState, "sentPreviews" | "sent" | "held">, nodeId: string) =>
+  drawnOn(s)
+    .filter(({ edit }) => edit?.inputs.some((i) => i.nodeId === nodeId))
+    .map(({ on }) => on);
+
 /** `doc` as the person sees it under the gesture being made: with what `drawnOn` lists applied. */
 export const asDrawn = (doc: Document, s: Pick<ViewState, "sentPreviews" | "sent" | "held">) =>
   previewAll(doc, drawnOn(s));
@@ -866,18 +883,21 @@ type Drawing = Pick<
 /**
  * What goes when the edits `gone` names, by command id or held token, are never applied: the held
  * edits drawn on them, and those drawn on these in turn, the Pen's continuation drawn on any, else
- * its connection, each with the `unapplied` notice. Nothing they drew is sent (#293, #308).
+ * its connection, each with its tool's `unapplied` notice. Nothing they drew is sent (#293, #308,
+ * #309).
  */
 export function dropDrawnOn(s: Drawing, gone: string[]): Settled {
   const dead = new Set(gone);
   const on = (e: { seed?: string[] } | undefined) => !!e?.seed?.some((k) => dead.has(k));
   // Held edits run in order, so each is drawn only on those before it.
-  const held = s.held.filter((h) => {
+  const held: Held[] = [];
+  const lost: Held[] = [];
+  for (const h of s.held) {
     const goes = on(h);
     if (goes) dead.add(h.token);
-    return !goes;
-  });
-  const dropped = held.length < s.held.length;
+    (goes ? lost : held).push(h);
+  }
+  const dropped = lost.length > 0;
   const stopped = on(s.pen?.from);
   const unmet = !stopped && s.pen && on(s.pen.to) ? disconnected(s.pen, s.penPress) : null;
   return {
@@ -892,7 +912,7 @@ export function dropDrawnOn(s: Drawing, gone: string[]): Settled {
     notices: [
       stopped && PEN_STOPPED.unapplied,
       unmet && PEN_DISCONNECTED.unapplied,
-      dropped && PEN_DROPPED.unapplied,
+      ...lost.map((h) => h.redraw?.dropped.unapplied),
     ],
   };
 }
