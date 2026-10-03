@@ -8,8 +8,7 @@ import {
   type Press,
   rectOf,
   SELECTION,
-  settleDrag,
-  showDrag,
+  sendPreview,
 } from "./canvas.ts";
 import {
   allKeys,
@@ -53,7 +52,7 @@ let marqueeRect: Rect | null = null;
 const anchorTarget = (key: string): Target => ({ kind: "anchor", key });
 const anchorKeys = (grabbed: Target[]) => grabbed.flatMap((t) => targetKeys(t).anchors);
 
-/** The preview of `g`'s latest move of `grabbed` on `doc`, as `commitDrag` sends it. */
+/** The preview of `g`'s latest move of `grabbed` on `doc`, as `sendPreview` sends it. */
 function dragOf(g: Gesture, doc: Document, grabbed: Target[]): Partial<Preview> | null {
   if (!g.last || g.kind === "marquee") return null;
   const { dx, dy, alt } = g.last;
@@ -140,7 +139,8 @@ export const directTool: CanvasTool = {
     } else {
       gesture = { ...g, kind: "marquee", mods };
     }
-    useStore.setState({ grabbed });
+    const current = gesture;
+    useStore.setState({ grabbed, regrab: (doc, held) => current && dragOf(current, doc, held) });
   },
   move(e) {
     const g = gesture;
@@ -154,13 +154,13 @@ export const directTool: CanvasTool = {
     }
     g.last = { dx, dy, alt: e.alt };
     const drag = dragOf(g, e.doc, useStore.getState().grabbed);
-    if (drag) showDrag(drag);
+    if (drag) useStore.setState(drag);
   },
   up(e) {
     const g = gesture;
     gesture = null;
     const { grabbed } = useStore.getState();
-    useStore.setState({ grabbed: [] });
+    useStore.setState({ grabbed: [], regrab: null });
     if (g?.kind === "marquee") {
       // A marquee selects Anchors; the Selection is the paths they are on.
       const { selection, anchors, segments, isolated } = useStore.getState();
@@ -183,9 +183,9 @@ export const directTool: CanvasTool = {
       afterReverse(
         ({ doc: now, anchors, target }, w) => {
           if (!now) return;
-          if (g.kind === "target" && !target) return settleDrag(null, w);
+          if (g.kind === "target" && !target) return;
           const held = g.kind === "anchors" ? anchors.map(anchorTarget) : target ? [target] : [];
-          settleDrag(dragOf(g, now, held), w);
+          sendPreview(dragOf(g, now, held), w);
         },
         {
           ...(g.kind === "target" && grabbedTarget
@@ -199,7 +199,7 @@ export const directTool: CanvasTool = {
   cancel(redraw) {
     gesture = null;
     marqueeRect = null;
-    useStore.setState({ grabbed: [] });
+    useStore.setState({ grabbed: [], regrab: null });
     redraw();
     cancelDrag();
   },

@@ -11,7 +11,7 @@ import {
   toAnchors,
   worldTransform,
 } from "@kalamo/core";
-import { cancelDrag } from "./canvas.ts";
+import { sendPreview } from "./canvas.ts";
 import {
   anchorKey,
   anchorsOf,
@@ -23,7 +23,7 @@ import {
 } from "./direct.ts";
 import { editable } from "./selection.ts";
 import { getItem } from "./storage.ts";
-import { afterReverse, send, useStore } from "./store.ts";
+import { afterReverse, useStore } from "./store.ts";
 import { constrain, near, pathD, sendNewArt } from "./tools.ts";
 
 /** The Pencil (research 06 §3): Ink fitted on release, as one `create` or one `path_edit`. */
@@ -374,20 +374,15 @@ export function pencilUp(scale: number) {
     const own = done.map((p) => applyTo(m, ...p));
     afterReverse(
       ({ doc: now, anchors }, w) => {
-        if (!now) {
-          cancelDrag();
-          return;
-        }
+        if (!now) return;
         const f = anchors.length > 0 && worldOf(now, nodeId);
         const at = f && own.map((p) => applyTo(f, ...p));
         const again = at && pencilResult(now, [nodeId], at, o, scale);
         if (!again || !("edit" in again)) {
-          cancelDrag();
           useStore.setState({ notice: DROPPED });
           return;
         }
-        const commandIds = [send({ type: "path_edit", input: again.edit }, w)];
-        useStore.setState({ edit: { inputs: [again.edit], commandIds } });
+        sendPreview({ edit: { inputs: [again.edit], commandIds: null } }, w);
       },
       { anchors: keys, segments: [], previewed: true },
     );

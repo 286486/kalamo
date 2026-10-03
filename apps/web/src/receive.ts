@@ -43,9 +43,10 @@ import type { NodeOp } from "./store.ts";
 import type { Tool } from "./toolbox.ts";
 
 /**
- * The Selection being dragged by (dx, dy) pt. `commandId` is set once its move has been sent. With
- * `copy`, Alt held, it leaves the originals and drops copies (ADR-0076); `leave` is the Isolation
- * move its answer makes, as a PendingCreate's.
+ * The Selection being dragged by (dx, dy) pt. `commandId` is set once its move has been sent, in
+ * `sentPreviews`; the live slot `drag` holds one not yet sent. With `copy`, Alt held, it leaves the
+ * originals and drops copies (ADR-0076); `leave` is the Isolation move its answer makes, as a
+ * PendingCreate's.
  */
 export interface Drag {
   nodeIds: string[];
@@ -134,8 +135,9 @@ export interface PendingCreate {
 
 /**
  * A Direct Selection drag: one `path_edit` per path. `commandIds`, one per input, is set once they
- * are sent; each answer or rejection takes its paths out, and the preview lasts until the last one.
- * One command may answer several inputs, as the Attributes panel's `path_reverse` does.
+ * are sent, in `sentPreviews`; the live slot `edit` holds one not yet sent. Each answer or rejection
+ * takes its paths out, and the preview lasts until the last one. One command may answer several
+ * inputs, as the Attributes panel's `path_reverse` does.
  */
 export interface PathDrag {
   inputs: PathEditInput[];
@@ -169,20 +171,20 @@ export type Chosen = Pick<ViewState, "anchors" | "segments" | "selection" | "too
 export type Preview = Pick<ViewState, "edit" | "drag">;
 
 /**
- * A sent preview in `ran`. `fromHeld` marks a held edit that ran: its keys were worked out for it, not
- * for a drag started later, so its answer does not keep what that drag holds (ADR-0110).
+ * A sent edit's preview, its `edit` and `drag` carrying the command ids whose answers settle it.
+ * `fromHeld` marks a held edit that ran: its keys were worked out for it, not for a drag started
+ * later, so its answer does not keep what that drag holds (ADR-0110).
  */
-export type Ran = Preview & { fromHeld?: true };
+export type SentPreview = Preview & { fromHeld?: true };
 
 /**
  * A Direct Selection edit made while a Reverse Path Direction press was in flight, run once it is
  * answered (ADR-0110). Its keys are renumbered and cleared as the Direct Selection's are meanwhile.
  * `preview` is its own, drawn until it runs: running or dropping it changes no other preview.
- * `run` is handed the gesture's preview it sets aside meanwhile.
  */
 export interface Held {
   chosen: Chosen;
-  run: (chosen: Chosen, aside: Preview) => void;
+  run: (chosen: Chosen) => void;
   preview: Preview;
 }
 
@@ -211,12 +213,16 @@ export interface ViewState {
    * Layer never is (ADR-0012). Only a write that sets them keeps them across a Selection change.
    */
   layerRows: string[];
-  /** Drawn until the answer to its command arrives, so a committed move does not flicker. */
+  /**
+   * The live gesture's unsent preview, with `edit`: the Nodes it moves whole. Once sent, it is drawn
+   * from `sentPreviews` until its answer, so a committed move does not flicker.
+   */
   drag: Drag | null;
   pen: PenPath | null;
   penPress: PenPress | null;
   /** Drawn art sent and not yet answered, oldest first. */
   pending: PendingCreate[];
+  /** The live gesture's unsent preview, with `drag`: the paths it reshapes. */
   edit: PathDrag | null;
   reversing: Reversing | null;
   /**
@@ -234,10 +240,16 @@ export interface ViewState {
    */
   grabbed: Target[];
   /**
-   * Sent previews off the live slots, each drawn until its answer: held edits that ran, and a sent
-   * drag whose preview the next drag replaced.
+   * The preview of the drag still being made, worked out from a Document and what it holds as its
+   * next move works it out; null while it has none. Whatever turns, renumbers or lets go of
+   * `grabbed` redraws the preview with it, so it stays the one the next move draws (#285).
    */
-  ran: Ran[];
+  regrab: ((doc: Document, grabbed: Target[]) => Partial<Preview> | null) | null;
+  /**
+   * Every sent edit's preview, in the order sent, each drawn until the answers to its command ids:
+   * a live gesture's and a held edit's alike. A command with no preview is in `sent` only (#285).
+   */
+  sentPreviews: SentPreview[];
   /**
    * Every command this tab sent on an open socket and has not yet had answered, with a `tx` or a
    * `rejected`: a `tx` whose `commandId` is here is the person's own; any other, another Actor's,
@@ -347,12 +359,10 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
       ...settleSent(s.sent, msg.id),
       ...(s.reversing?.commandId === msg.id && { reversing: null }),
       ...settleRenumbering(s.renumbering, msg.id),
-      ...(s.drag?.commandId === msg.id && { drag: null }),
       ...settlePending(s.pending, msg.id),
       ...(s.opPreview?.commandId === msg.id && { opPreview: null }),
       ...(s.paintPreview?.commandId === msg.id && { paintPreview: null }),
-      ...settle(s.edit, msg.id),
-      ...settleRan(s.ran, msg.id),
+      ...settleSentPreviews(s.sentPreviews, msg.id),
       notice:
         code === "NODE_GONE"
           ? "Someone else deleted that object first; it stays deleted."
@@ -379,9 +389,6 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
   } else {
     return null;
   }
-  // A reconnect loses the answer to a command in flight, so its preview goes with it.
-  const answered =
-    msg.type === "document" || (!!msg.commandId && msg.commandId === s.drag?.commandId);
   const drawn =
     msg.type === "tx" ? s.pending.find((p) => p.commandId === msg.commandId) : undefined;
   // Someone else's change to a path renumbers its Anchors, so its selected ones go; after the
@@ -394,11 +401,11 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
   const answers = (previews: Preview[]) =>
     pressed ||
     (!!id && previews.some((p) => p.drag?.commandId === id || !!p.edit?.commandIds?.includes(id)));
-  const own = answers([s, ...s.ran]);
+  const own = answers(s.sentPreviews);
   const tracked = own || (!!id && s.sent.has(id));
   // A drag still being made was worked out on the path as it found it at the press: only its own
   // earlier drags and the press keep it on a reshaped path, not a held edit that ran (ADR-0110).
-  const grabOwn = answers([s, ...s.ran.filter((p) => !p.fromHeld)]);
+  const grabOwn = answers(s.sentPreviews.filter((p) => !p.fromHeld));
   const touched =
     msg.type === "tx" ? new Set([...msg.updated.map((n) => n.id), ...msg.deletedIds]) : null;
   const prior = s.doc;
@@ -493,9 +500,9 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
   const dropped =
     !reached && pen?.to && changedBut(own)(pen.to.nodeId) ? disconnected(pen, s.penPress) : null;
   // What a drag still being made holds on a path someone else changed goes, read as for the Pen's
-  // continuation, and its unsent preview with it; the rest is turned as the keys are (ADR-0110).
-  // The answer to a command the browser can number renumbers it instead, and its unsent preview with
-  // it, and lets go of what the command removed (#298).
+  // continuation; the rest is turned as the keys are (ADR-0110). The answer to a command the browser
+  // can number renumbers it instead, and lets go of what the command removed (#298). Its unsent
+  // preview is drawn again from what it still holds, as its next move draws it (#285).
   const letGo = new Set(
     [...new Set(s.grabbed.map(targetNode))].filter(
       (n) => changedBut(grabOwn)(n) && map?.nodeId !== n,
@@ -506,12 +513,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     .map(turnTarget(doc, turned))
     .map(renumberTarget(map))
     .filter(present);
-  const keptInputs =
-    s.edit?.inputs
-      .filter((i) => !letGo.has(i.nodeId))
-      .map((i) => renumberInput(map, i))
-      .filter(present) ?? [];
-  const keptIds = s.drag?.nodeIds.filter((id) => !letGo.has(id)) ?? [];
+  const regrabbed = (turned.length > 0 || letGo.size > 0 || !!map) && s.regrab?.(doc, grabbed);
   const skipped = msg.type === "tx" ? (msg.skippedIds?.length ?? 0) : 0;
   // A selected Node that a browser's command moved into a new Group selects that Group, as Make
   // Clipping Mask does; an Agent's edit leaves the person's Selection alone.
@@ -527,7 +529,8 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
       ? msg.created.filter((n) => !n.parentId || !made.has(n.parentId)).map((n) => n.id)
       : [];
   // An Alt-drag's copies become the Selection, as drawn art does (ADR-0076).
-  const copied = msg.type === "tx" && answered && s.drag?.copy ? s.drag : undefined;
+  const moved = id ? s.sentPreviews.find((p) => p.drag?.commandId === id)?.drag : undefined;
+  const copied = moved?.copy ? moved : undefined;
   const isolated = prune(s.doc, doc, s.isolated);
   // Drawn art leaves its leaf, unless an Esc, a prune or earlier art moved the Isolation meanwhile.
   const leave = drawn?.leave ?? copied?.leave;
@@ -548,25 +551,18 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     // An unchanged Selection stays the same array, so the Layer rows stay (ADR-0076).
     selection: !tops && sameIds(next, s.selection) ? s.selection : next,
     ...(tops && { layerRows: layers }),
-    ...((letGo.size > 0 || !!map) && {
-      ...(s.edit?.commandIds === null && {
-        edit: keptInputs.length > 0 ? { ...s.edit, inputs: keptInputs } : null,
-      }),
-      ...(s.drag?.commandId === null && {
-        drag: keptIds.length > 0 ? { ...s.drag, nodeIds: keptIds } : null,
-      }),
-    }),
-    ...(answered && { drag: null }),
+    ...(regrabbed && { edit: regrabbed.edit ?? null, drag: regrabbed.drag ?? null }),
     ...(msg.type === "document" ? s.sent.size > 0 && { sent: new Set() } : settleSent(s.sent, id)),
     anchors,
     segments,
     // A continuation the reconnect keeps is drawn again on the new Document (#292).
+    ...(msg.type === "document" &&
+      pen && { edit: (!reached && penState(doc, pen, null).edit) || null }),
+    // A reconnect loses the answers to the commands in flight, so their previews go; the live
+    // gesture's unsent preview stays while what it holds does (#285).
     ...(msg.type === "document"
-      ? { edit: (!reached && penState(doc, pen, null).edit) || null }
-      : settle(s.edit, msg.commandId)),
-    ...(msg.type === "document"
-      ? s.ran.length > 0 && { ran: [] }
-      : settleRan(s.ran, msg.commandId)),
+      ? s.sentPreviews.length > 0 && { sentPreviews: [] }
+      : settleSentPreviews(s.sentPreviews, id)),
     ...(settled && { reversing: null }),
     ...(pen !== s.pen && { pen }),
     ...(dropped && { ...penState(doc, dropped.pen, s.edit), penPress: dropped.penPress }),
@@ -593,7 +589,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
       (msg.type === "document" || msg.commandId === s.paintPreview.commandId) && {
         paintPreview: null,
       }),
-    ...(reached && { pen: null, ...(s.edit?.commandIds === null && { edit: null }) }),
+    ...(reached && { pen: null, ...(s.edit && { edit: null }) }),
     ...((reached || dropped || skipped > 0) && {
       notice: joinNotices([
         reached &&
@@ -668,11 +664,13 @@ export function previewEdit(doc: Document, { inputs }: Pick<PathDrag, "inputs">)
 }
 
 /**
- * Every edit's preview, in the order the Document DO applies them: held edits sent, held edits
- * waiting, then the last gesture's (ADR-0110).
+ * Every edit's preview, in the order the Document DO applies them: sent edits in the order sent,
+ * held edits in the order they will run, then the live gesture's unsent one (ADR-0110).
  */
-export const previewsOf = (s: Pick<ViewState, "ran" | "held" | "edit" | "drag">): Preview[] => [
-  ...s.ran,
+export const previewsOf = (
+  s: Pick<ViewState, "sentPreviews" | "held" | "edit" | "drag">,
+): Preview[] => [
+  ...s.sentPreviews,
   ...s.held.map((h) => h.preview),
   { edit: s.edit, drag: s.drag },
 ];
@@ -692,7 +690,7 @@ export const previewAll = (doc: Document, previews: Preview[]): Document =>
 export function penState(doc: Document | null, pen: PenPath | null, edit: PathDrag | null) {
   const from = pen?.from;
   if (!doc || !pen || !from || pen.anchors.length <= from.kept)
-    return { pen, ...(edit?.commandIds === null && { edit: null }) };
+    return { pen, ...(edit && { edit: null }) };
   return {
     pen,
     edit: { inputs: [replaceSubpath(doc, from, pen.anchors, false)], commandIds: null },
@@ -792,13 +790,19 @@ function geometryOf(doc: Document | null, id: string) {
   return n && JSON.stringify([n.type, hasAnchors(n) ? localAnchors(n) : null]);
 }
 
-/** The held edits' previews without what the answer or rejection to command `id` settled. */
-function settleRan(ran: Ran[], id: string | undefined): { ran?: Ran[] } {
-  if (!id || !ran.some((p) => p.drag?.commandId === id || p.edit?.commandIds?.includes(id))) {
+/**
+ * The sent previews without what the answer or rejection to command `id` settled: the one step every
+ * answer and rejection takes for them, as a reconnect clears them all (#285).
+ */
+function settleSentPreviews(
+  sent: SentPreview[],
+  id: string | undefined,
+): { sentPreviews?: SentPreview[] } {
+  if (!id || !sent.some((p) => p.drag?.commandId === id || p.edit?.commandIds?.includes(id))) {
     return {};
   }
   return {
-    ran: ran.flatMap((p) => {
+    sentPreviews: sent.flatMap((p) => {
       const { edit = p.edit } = settle(p.edit, id);
       const drag = p.drag?.commandId === id ? null : p.drag;
       return edit || drag ? [{ ...p, edit, drag }] : [];

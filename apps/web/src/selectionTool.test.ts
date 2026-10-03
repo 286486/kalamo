@@ -136,7 +136,11 @@ it("copies when Alt is down at the release, however it was held during the drag 
     key(released);
     expect(useStore.getState().drag?.copy).toBe(released);
     selectionTool.up?.(at(90, released));
-    expect(useStore.getState().drag).toMatchObject({ copy, commandId: expect.any(String) });
+    expect(useStore.getState().drag).toBeNull();
+    expect(useStore.getState().sentPreviews.at(-1)?.drag).toMatchObject({
+      copy,
+      commandId: expect.any(String),
+    });
   }
 });
 

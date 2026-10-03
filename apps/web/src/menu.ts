@@ -219,6 +219,13 @@ const average = anchorOp("average");
 type Axis = NonNullable<PathOpInput["axis"]>;
 const AXES: Axis[] = ["horizontal", "vertical", "both"];
 
+/** Average on `axis` once the dialog's OK, on the Selection then, which may have changed meanwhile. */
+export const averageAnchors = (axis: Axis) =>
+  afterReverse((s, w) => {
+    const input = average.targets(s);
+    if (input) send({ type: "path_op", input: { ...input, op: "average", axis } }, w);
+  });
+
 /** Object > Path > Average…'s dialog, Illustrator's Axis choice; `then` never runs on Cancel. */
 function averageDialog(then: (axis: Axis) => void) {
   const dialog = Object.assign(document.createElement("dialog"), { ariaLabel: "Average" });
@@ -467,14 +474,7 @@ export function documentMenus(tabs: {
                 enabled: average.enabled,
                 run: () => {
                   if (!average.targets(useStore.getState())) return;
-                  averageDialog((axis) =>
-                    // The Selection may have changed while the dialog was open.
-                    afterReverse((s, w) => {
-                      const input = average.targets(s);
-                      if (input)
-                        send({ type: "path_op", input: { ...input, op: "average", axis } }, w);
-                    }),
-                  );
+                  averageDialog(averageAnchors);
                 },
               },
               pathOp("outline_stroke"),

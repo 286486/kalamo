@@ -7,7 +7,7 @@ import {
   type PathEditInput,
   type PathOp,
 } from "@kalamo/core";
-import { settleDrag, showDrag } from "./canvas.ts";
+import { sendPreview } from "./canvas.ts";
 import {
   anchorKey,
   anchorsOf,
@@ -19,6 +19,7 @@ import {
   plus,
   type Renumbering,
   renumbering,
+  type Target,
   tagged,
 } from "./direct.ts";
 import { editable } from "./selection.ts";
@@ -83,6 +84,8 @@ function setCurve(curve: CurveAnchor[]) {
   });
 }
 
+type AnchorPress = { kind: "anchor"; nodeId: string; from: Point; d?: Point };
+
 /**
  * The press: on an Anchor of the path being drawn (`index`), or on an Anchor of a selected path
  * (`nodeId`), which the store keeps as `grabbed` (ADR-0110) and a drag moves by `d`; `from` is where
@@ -90,7 +93,7 @@ function setCurve(curve: CurveAnchor[]) {
  */
 let press:
   | { kind: "drawn"; index: number; from: Point; close: boolean; moved: boolean }
-  | { kind: "anchor"; nodeId: string; from: Point; d?: Point }
+  | AnchorPress
   | null = null;
 
 /** The key of the selected path's Anchor the press grabbed, as the answer left it. */
@@ -159,8 +162,12 @@ export function curvatureDown(p: Point, tolerance: number, alt: boolean) {
       const n = s.doc.nodes.get(nodeId);
       const at = hasAnchors(n) && anchorsOf(s.doc, n)[subpath]?.anchors[index]?.anchor;
       if (!at) return;
-      press = { kind: "anchor", nodeId, from: at };
-      useStore.setState({ grabbed: [{ kind: "anchor", key }] });
+      const held: AnchorPress = { kind: "anchor", nodeId, from: at };
+      press = held;
+      useStore.setState({
+        grabbed: [{ kind: "anchor", key }],
+        regrab: (doc, [t]) => (held.d ? movePreview(doc, t, held.d) : null),
+      });
       return;
     }
   }
@@ -184,9 +191,14 @@ export function curvatureDrag(p: Point) {
     if (!n || !key) return;
     const d = localDelta(s.doc, n, p[0] - press.from[0], p[1] - press.from[1]);
     press.d = d;
-    const input = moveInput(s.doc, key, d);
-    showDrag({ edit: input ? { inputs: [input], commandIds: null } : null });
+    useStore.setState(movePreview(s.doc, { kind: "anchor", key }, d));
   }
+}
+
+/** The preview of moving the grabbed Anchor `t`, when given, by `d` in its path's coordinates. */
+function movePreview(doc: Document, t: Target | undefined, d: Point) {
+  const input = t?.kind === "anchor" && moveInput(doc, t.key, d);
+  return { edit: input ? { inputs: [input], commandIds: null } : null };
 }
 
 /**
@@ -198,14 +210,14 @@ export function curvatureUp() {
   const p = press;
   press = null;
   const key = grabbedKey();
-  useStore.setState({ grabbed: [] });
+  useStore.setState({ grabbed: [], regrab: null });
   if (p?.kind === "drawn" && p.close && !p.moved) finishPen(true);
   if (p?.kind !== "anchor" || !p.d || !key) return;
   const d = p.d;
   afterReverse(
     ({ doc: now, target }, w) => {
       const input = now && target?.kind === "anchor" && moveInput(now, target.key, d);
-      settleDrag(input ? { edit: { inputs: [input], commandIds: null } } : null, w);
+      if (input) sendPreview({ edit: { inputs: [input], commandIds: null } }, w);
     },
     { target: { kind: "anchor", key }, previewed: true },
   );
@@ -213,7 +225,7 @@ export function curvatureUp() {
 
 export const curvatureCancel = () => {
   press = null;
-  useStore.setState({ grabbed: [] });
+  useStore.setState({ grabbed: [], regrab: null });
 };
 
 /** Delete while drawing removes the Anchor pressed last; false when not drawing. */

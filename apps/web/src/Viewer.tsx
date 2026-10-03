@@ -71,7 +71,7 @@ export function Viewer({ docId }: { docId: string }) {
     edit,
     reversing,
     held,
-    ran,
+    sentPreviews,
     opPreview,
     pending,
     notice,
@@ -186,9 +186,10 @@ export function Viewer({ docId }: { docId: string }) {
 
   // Hit tests use `doc`; only the drawing shows the drag.
   const shown = useMemo(() => {
-    const edited = simplified && previewAll(simplified, previewsOf({ ran, held, edit, drag }));
+    const edited =
+      simplified && previewAll(simplified, previewsOf({ sentPreviews, held, edit, drag }));
     return edited && paintPreview ? withPaints(edited, paintPreview.updates) : edited;
-  }, [simplified, ran, held, drag, edit, paintPreview]);
+  }, [simplified, sentPreviews, held, drag, edit, paintPreview]);
   // A Reverse Path Direction press in flight shows on the Document only: the overlay's Anchors keep
   // the committed numbering the keys use, at the same places (ADR-0110).
   const drawn = useMemo(

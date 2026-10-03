@@ -7,6 +7,7 @@ import {
   copyInput,
   type Effect,
   joinNotices,
+  type Preview,
   preview,
   previewEdit,
   previewOp,
@@ -36,22 +37,33 @@ const drag = (nodeIds: string[], commandId: string | null) => ({
   commandId,
 });
 
+/** One sent edit's preview, drawn until its answers (#285). */
+const sentPreviews = (p: Partial<Preview>) => [{ edit: null, drag: null, ...p }];
+
 it("keeps the drag preview until the tx answering its command arrives", () => {
   const { doc, a } = fixture();
-  const state = viewState({ doc, selection: [a.id], drag: drag([a.id], "c1") });
+  const state = viewState({
+    doc,
+    selection: [a.id],
+    sentPreviews: sentPreviews({ drag: drag([a.id], "c1") }),
+  });
   const other = { ...state, ...stateAfter(state, tx(doc, { actor: "agent-a" })) };
-  expect(other.drag).toBe(state.drag);
+  expect(other.sentPreviews).toBe(state.sentPreviews);
   expect(stateAfter(state, tx(doc, { actor: "user", commandId: "c1" }))).toMatchObject({
-    drag: null,
+    sentPreviews: [],
   });
 });
 
 it("snaps back and shows a notice when its command is rejected", () => {
   const { doc, a } = fixture();
-  const state = viewState({ doc, selection: [a.id], drag: drag([a.id], "c1") });
+  const state = viewState({
+    doc,
+    selection: [a.id],
+    sentPreviews: sentPreviews({ drag: drag([a.id], "c1") }),
+  });
   const error = { code: "NODE_GONE" as const, message: "gone", hint: "", nodeIds: [a.id] };
   const next = stateAfter(state, message("rejected", { id: "c1", error }));
-  expect(next).toMatchObject({ drag: null, notice: expect.stringContaining("deleted") });
+  expect(next).toMatchObject({ sentPreviews: [], notice: expect.stringContaining("deleted") });
 });
 
 it("shows a LAST_LAYER rejection's message and keeps the Selection (ADR-0073)", () => {
@@ -77,13 +89,18 @@ it("drops deleted Nodes from the Selection", () => {
 it("asks to reconnect on a missed rev, and drops an unanswered drag on a new Document", () => {
   const { doc, a } = fixture();
   const actorNames = new Map([["agent-a", "A"]]);
-  const state = viewState({ doc, selection: [a.id], drag: drag([a.id], "c1"), actorNames });
+  const state = viewState({
+    doc,
+    selection: [a.id],
+    sentPreviews: sentPreviews({ drag: drag([a.id], "c1") }),
+    actorNames,
+  });
   expect(receive(state, tx(doc, { rev: doc.rev + 2 }), "d", 0)).toEqual({
     state: {},
     effects: [{ type: "reconnect" }],
   });
   const msg = message("document", { rev: 9, nodes: [a] });
-  expect(stateAfter(state, msg)).toMatchObject({ drag: null, selection: [a.id] });
+  expect(stateAfter(state, msg)).toMatchObject({ sentPreviews: [], selection: [a.id] });
 });
 
 it.each([
@@ -288,23 +305,27 @@ const move = (nodeId: string, index = 0) => ({
 it("keeps a Direct Selection drag's preview until every path_edit is answered", () => {
   const { doc, a, b } = fixture();
   const edit = { inputs: [move(a.id), move(b.id)], commandIds: ["c1", "c2"] };
-  const state = viewState({ doc, selection: [a.id], edit });
-  expect(stateAfter(state, tx(doc, { actor: "agent-a" }))).not.toHaveProperty("edit");
+  const state = viewState({ doc, selection: [a.id], sentPreviews: sentPreviews({ edit }) });
+  expect(stateAfter(state, tx(doc, { actor: "agent-a" }))).not.toHaveProperty("sentPreviews");
   const first = { ...state, ...stateAfter(state, tx(doc, { commandId: "c1" })) };
-  expect(first.edit).toEqual({ inputs: [move(b.id)], commandIds: ["c2"] });
+  const left = sentPreviews({ edit: { inputs: [move(b.id)], commandIds: ["c2"] } });
+  expect(first.sentPreviews).toEqual(left);
   expect(stateAfter(first, tx(first.doc ?? doc, { commandId: "c2" }))).toMatchObject({
-    edit: null,
+    sentPreviews: [],
   });
   // A rejection drops only that path's part of the preview.
   expect(stateAfter(state, message("rejected", { id: "c1" }))).toMatchObject({
-    edit: { inputs: [move(b.id)], commandIds: ["c2"] },
+    sentPreviews: left,
   });
   // One command for both paths, as the Attributes panel's path_reverse, settles both at once.
-  const one = { ...state, edit: { ...edit, commandIds: ["c1", "c1"] } };
-  expect(stateAfter(one, tx(doc, { commandId: "c1" }))).toMatchObject({ edit: null });
+  const one = {
+    ...state,
+    sentPreviews: sentPreviews({ edit: { ...edit, commandIds: ["c1", "c1"] } }),
+  };
+  expect(stateAfter(one, tx(doc, { commandId: "c1" }))).toMatchObject({ sentPreviews: [] });
   // A reconnect loses the answers, so the preview goes.
   const msg = message("document", { rev: 9, nodes: [a, b] });
-  expect(stateAfter(state, msg)).toMatchObject({ edit: null });
+  expect(stateAfter(state, msg)).toMatchObject({ sentPreviews: [] });
   // The preview converts the rect as core will, and leaves the Document alone.
   expect(previewEdit(doc, edit).nodes.get(a.id)).toMatchObject({ id: a.id, type: "path" });
   expect(doc.nodes.get(a.id)).toBe(a);
@@ -319,10 +340,14 @@ it("drops selected Anchors of a Node someone else changed, and keeps ours still 
   // Our own path_edit left a with three Anchors: its Anchor 3 is gone, b's stays.
   const triangle = { ...a, type: "path", d: "M 0 0 L 10 0 L 0 10 Z", fillRule: "nonzero" } as Node;
   const edit = { inputs: [move(a.id)], commandIds: ["c1"] };
-  const own = stateAfter({ ...state, edit }, tx(doc, { commandId: "c1", updated: [triangle] }));
+  const ownEdit = { sentPreviews: sentPreviews({ edit }) };
+  const own = stateAfter(
+    { ...state, ...ownEdit },
+    tx(doc, { commandId: "c1", updated: [triangle] }),
+  );
   expect(own?.anchors).toEqual([anchorKey(b.id, 0, 1)]);
   const kept = stateAfter(
-    { ...state, anchors: [anchorKey(a.id, 0, 2)], edit },
+    { ...state, anchors: [anchorKey(a.id, 0, 2)], ...ownEdit },
     tx(doc, { commandId: "c1", updated: [triangle] }),
   );
   expect(kept?.anchors).toEqual([anchorKey(a.id, 0, 2)]);
@@ -333,7 +358,7 @@ it("drops selected Anchors of a Node someone else changed, and keeps ours still 
   const segments = [anchorKey(a.id, 0, 3), anchorKey(b.id, 0, 3)];
   const cut = { ...state, anchors: [], segments };
   expect(stateAfter(cut, tx(doc, { updated: [a] }))?.segments).toEqual([anchorKey(b.id, 0, 3)]);
-  const ours = { ...cut, segments: [...segments, anchorKey(a.id, 0, 2)], edit };
+  const ours = { ...cut, segments: [...segments, anchorKey(a.id, 0, 2)], ...ownEdit };
   expect(stateAfter(ours, tx(doc, { commandId: "c1", updated: [triangle] }))?.segments).toEqual([
     anchorKey(b.id, 0, 3),
     anchorKey(a.id, 0, 2),
@@ -431,17 +456,21 @@ it("copies the outermost Nodes a plain drag moves, and a Layer above its own ori
 
 it("selects an Alt-drag's copies once its own answer creates them, and only then", () => {
   const { doc, a } = fixture();
-  const state = viewState({ doc, selection: [a.id], drag: { ...drag([a.id], "c1"), copy: true } });
+  const state = viewState({
+    doc,
+    selection: [a.id],
+    sentPreviews: sentPreviews({ drag: { ...drag([a.id], "c1"), copy: true } }),
+  });
   const group = { ...a, id: "g", type: "group", index: "b0" } as unknown as Node;
   const inside = { ...a, id: "x", parentId: "g" } as Node;
   const created = [group, inside];
   const agent = stateAfter(state, tx(doc, { created, commandId: "other" }));
   expect(agent).toMatchObject({ selection: [a.id] });
   expect(stateAfter(state, tx(doc, { actor: "user", created, commandId: "c1" }))).toMatchObject({
-    drag: null,
+    sentPreviews: [],
     selection: ["g"],
   });
-  const moved = { ...state, drag: drag([a.id], "c1") };
+  const moved = { ...state, sentPreviews: sentPreviews({ drag: drag([a.id], "c1") }) };
   expect(stateAfter(moved, tx(doc, { actor: "user", created, commandId: "c1" }))).toMatchObject({
     selection: [a.id],
   });

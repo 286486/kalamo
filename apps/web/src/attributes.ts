@@ -9,7 +9,7 @@ import {
 import { parseKey } from "./direct.ts";
 import { compoundParts } from "./menu.ts";
 import { editable } from "./selection.ts";
-import { canEdit, type State, send, useStore } from "./store.ts";
+import { afterReverse, canEdit, type State, send, useStore } from "./store.ts";
 
 /** The Attributes panel's fill rule and Reverse Path Direction controls (ADR-0108). */
 
@@ -84,3 +84,9 @@ export function setDirection(s: Directed, on: boolean) {
   const inputs = directionEdits(doc, subpaths, on);
   useStore.setState({ reversing: { commandId, subpaths, clockwise: on, inputs } });
 }
+
+/**
+ * The Attributes panel's direction buttons: a second press waits for the one in flight, which the
+ * store tracks alone (ADR-0110).
+ */
+export const pressDirection = (on: boolean) => afterReverse((s) => setDirection(s, on));

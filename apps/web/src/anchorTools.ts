@@ -1,5 +1,5 @@
 import type { Document, PathEditInput } from "@kalamo/core";
-import { cancelDrag, dragged, type Press, settleDrag, showDrag } from "./canvas.ts";
+import { cancelDrag, dragged, type Press, sendPreview } from "./canvas.ts";
 import {
   alongLine,
   anchorsOf,
@@ -169,6 +169,12 @@ function dragInput(doc: Document, t: Target, [dx, dy]: Point, shift: boolean) {
   return bendSegment(doc, t.nodeId, t.subpath, t.segment, t.t, dx, dy, shift);
 }
 
+/** The preview of dragging `t`, when given, by `last` on `doc`. */
+function dragPreview(doc: Document, t: Target | undefined, last: { d: Point; shift: boolean }) {
+  const input = t && dragInput(doc, t, last.d, last.shift);
+  return { edit: input ? { inputs: [input], commandIds: null } : null };
+}
+
 /** The edit a click on `t` makes on `doc`: an Anchor's Handles or a Handle retracted. */
 function clickInput(doc: Document, t: Target): PathEditInput | null {
   if (t.kind === "segment") return null;
@@ -238,8 +244,12 @@ export const anchorPointTool: CanvasTool = {
     });
     if (!target) return;
     e.capture();
-    gesture = { start: { x: e.x, y: e.y }, moved: false };
-    useStore.setState({ grabbed: [target] });
+    const g: NonNullable<typeof gesture> = { start: { x: e.x, y: e.y }, moved: false };
+    gesture = g;
+    useStore.setState({
+      grabbed: [target],
+      regrab: (doc, [t]) => (g.last ? dragPreview(doc, t, g.last) : null),
+    });
     // Its Handles show while they are pulled out, as Direct Selection shows a selected Anchor's
     // or segment's.
     if (target.kind !== "handle") {
@@ -253,14 +263,13 @@ export const anchorPointTool: CanvasTool = {
     const [t] = useStore.getState().grabbed;
     if (!t) return;
     g.last = { d, shift: e.shift };
-    const input = dragInput(e.doc, t, d, e.shift);
-    showDrag({ edit: input && { inputs: [input], commandIds: null } });
+    useStore.setState(dragPreview(e.doc, t, g.last));
   },
   up() {
     const g = gesture;
     gesture = null;
     const [grabbed] = useStore.getState().grabbed;
-    useStore.setState({ grabbed: [] });
+    useStore.setState({ grabbed: [], regrab: null });
     if (!g || !grabbed) return;
     // Sent once a Reverse Path Direction press in flight is answered, from the Document then, on
     // what the gesture grabbed (ADR-0110); another Actor's edit to its path meanwhile drops it
@@ -270,18 +279,14 @@ export const anchorPointTool: CanvasTool = {
       ({ doc: now, target: t }, w) => {
         const input =
           now && t && (last ? dragInput(now, t, last.d, last.shift) : clickInput(now, t));
-        if (last)
-          return settleDrag(input ? { edit: { inputs: [input], commandIds: null } } : null, w);
-        if (!input) return;
-        const commandIds = [send({ type: "path_edit", input }, w)];
-        useStore.setState({ edit: { inputs: [input], commandIds } });
+        if (input) sendPreview({ edit: { inputs: [input], commandIds: null } }, w);
       },
       { target: grabbed, previewed: true },
     );
   },
   cancel(redraw) {
     gesture = null;
-    useStore.setState({ grabbed: [] });
+    useStore.setState({ grabbed: [], regrab: null });
     cancelDrag();
     redraw();
   },
