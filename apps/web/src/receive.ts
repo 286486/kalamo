@@ -729,7 +729,10 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
   // The person's own Undo or Redo selects what was selected in the state it restores (ADR-0113).
   const own = !!id && s.sent.has(id);
   const step = !!id && (s.sent.get(id) === "undo" || s.sent.get(id) === "redo");
-  const restored = step && msg.type === "tx" ? selectionBack(s.selectionOn, msg, doc, scope) : null;
+  const restored =
+    step && msg.type === "tx"
+      ? selectionBack(s.selectionOn, msg, doc, scope, s.sent.get(id) === "undo")
+      : null;
   const selected = restored ?? next;
   // Each held preview follows its keys. A `set_d` one is worked out again in run order, on what its
   // run will see: the paths as drawn with the sent previews and the held ones before it, which a Pen
@@ -781,6 +784,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
       (n) =>
         selected.includes(n) &&
         (prior?.nodes.has(n) ? causeOf(n) === "own" && ends(n, "keys") : own),
+      { selected, step },
     ),
     // A continuation the reconnect keeps is drawn again on the new Document (#292).
     ...(msg.type === "document" &&
@@ -1169,6 +1173,7 @@ function chosenAgain(
   prior: Document | null,
   after: { doc: Document } & Pick<ViewState, "anchors" | "segments">,
   back: (n: string) => boolean,
+  { selected, step }: { selected: string[]; step: boolean },
 ): Pick<ViewState, "anchors" | "segments"> & Partial<Pick<ViewState, "keysOn">> {
   const { doc } = after;
   let { anchors, segments } = after;
@@ -1214,6 +1219,26 @@ function chosenAgain(
     const now = { anchors: anchors.filter(on), segments: segments.filter(on) };
     if (was) kept = keep(keysAt(id, was), before) || kept;
     if (is) kept = keep(keysAt(id, is), now) || kept;
+  }
+  // A path the answer leaves alone but takes out of the Selection, as drawn art does, keeps its keys
+  // on its geometry; one the person's own Undo or Redo selects again chooses them again (#316).
+  if (msg.type === "tx") {
+    const keyed = new Set([...had.anchors, ...had.segments].map((k) => parseKey(k).nodeId));
+    for (const id of keyed) {
+      const at = geometryOf(doc, id);
+      if (!at || changed.includes(id) || selected.includes(id)) continue;
+      const on = (k: string) => parseKey(k).nodeId === id;
+      const keys = { anchors: had.anchors.filter(on), segments: had.segments.filter(on) };
+      kept = keep(keysAt(id, at), keys) || kept;
+    }
+    for (const id of step ? selected : []) {
+      const at = geometryOf(doc, id);
+      const again =
+        at && !changed.includes(id) && !s.selection.includes(id) && keysOn.get(keysAt(id, at));
+      if (!again) continue;
+      anchors = [...anchors, ...again.anchors];
+      segments = [...segments, ...again.segments];
+    }
   }
   for (const k of keysOn.keys()) {
     if (keysOn.size <= KEYS_KEPT) break;
@@ -1263,8 +1288,15 @@ function selectionKept(
     next.set(at, selection);
   };
   for (const id of ids.slice(-SELECTIONS_KEPT)) {
-    keep(prior.nodes.get(id), before);
-    keep(doc.nodes.get(id), after);
+    const was = prior.nodes.get(id);
+    const is = doc.nodes.get(id);
+    keep(was, before);
+    keep(is, after);
+    // A Node `msg` creates keeps the Selection before it, for an Undo that deletes it (#316).
+    if (!was && is) {
+      next.delete(madeBy(id));
+      next.set(madeBy(id), before);
+    }
   }
   for (const k of next.keys()) {
     if (next.size <= SELECTIONS_KEPT) break;
@@ -1273,19 +1305,25 @@ function selectionKept(
   return next;
 }
 
+/** Where `selectionOn` keeps the Selection before Node `id` was created; no stored copy is one. */
+const madeBy = (id: string) => `created ${id}`;
+
 /**
- * The Selection kept with the Node states the Undo or Redo `msg` brings back, of the Nodes still
- * there, visible, unlocked and in the Isolation `scope` (ADR-0010, ADR-0057); null when it brings
- * back no kept state, so the Selection is only pruned (ADR-0113).
+ * The Selection kept with the Node states the Undo or Redo `msg` brings back, and for an `undo`,
+ * with the creates of the Nodes it deletes, of the Nodes still there, visible, unlocked and in the
+ * Isolation `scope` (ADR-0010, ADR-0057); null when it brings back no kept state, so the Selection
+ * is only pruned (ADR-0113).
  */
 function selectionBack(
   kept: ViewState["selectionOn"],
   msg: Extract<ServerMessage, { type: "tx" }>,
   doc: Document,
   scope: string | null,
+  undo: boolean,
 ): string[] | null {
   const found = [...msg.updated, ...msg.created]
     .map((n) => kept.get(stateOf(n)))
+    .concat(undo ? msg.deletedIds.map((id) => kept.get(madeBy(id))) : [])
     .filter((k) => k !== undefined);
   if (found.length === 0) return null;
   return [...new Set(found.flat())].filter((id) => {
