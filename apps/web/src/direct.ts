@@ -654,7 +654,9 @@ export function turnInput(
 ): PathEditInput {
   if (!turned.some((t) => t.nodeId === input.nodeId)) return input;
   const ops = input.ops.map((op): PathOp => {
-    if (!("index" in op)) return op;
+    const subpath = "subpath" in op ? (op.subpath ?? 0) : 0;
+    const on = turned.some((t) => t.nodeId === input.nodeId && t.subpath === subpath);
+    if (!("index" in op) || !on) return op;
     const key = reversedKey(doc, turned, false)(anchorKey(input.nodeId, op.subpath ?? 0, op.index));
     const { index } = parseKey(key);
     if (op.op !== "set_handles" || onAnchor) return { ...op, index };
