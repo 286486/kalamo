@@ -676,6 +676,27 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
         return editable(doc, doc.nodes.get(id)) ? objects(doc, id).map((n) => n.id) : [];
       })
     : [...new Set(selection)];
+  // Each held preview follows its keys. A `set_d` one is worked out again in run order, on what its
+  // run will see: the paths as drawn with the sent previews and the held ones before it, which a Pen
+  // finish's keys are numbered on (#286, #308).
+  const moves = turned.length > 0 || !!map;
+  const held: Held[] = [];
+  for (const h of s.held) {
+    const drawn =
+      h.seed || (moves && h.redraw)
+        ? asDrawn(doc, { sentPreviews: sentLeft, sent: sentAfter, held })
+        : doc;
+    const chosen = {
+      ...rechosen(h.chosen, h.seed ? "seeded" : "held", drawn),
+      selection: h.chosen.selection.filter((id) => doc.nodes.has(id)),
+    };
+    const preview = !moves
+      ? h.preview
+      : h.redraw
+        ? redrawn(h.redraw(drawn, chosen))
+        : renumberPreview(doc, turned, map, h);
+    held.push({ ...h, chosen, preview });
+  }
   return {
     doc,
     isolated: leave && isolated === leave.from ? prune(s.doc, doc, leave.to) : isolated,
@@ -700,28 +721,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     ...(msg.type === "document"
       ? s.renumbering.size > 0 && { renumbering: new Map() }
       : settleRenumbering(s.renumbering, id)),
-    ...(s.held.length > 0 && {
-      // Each preview follows its keys. A `set_d` one is worked out again in run order, on what its
-      // run will see: the paths as drawn with the sent previews and the held ones before it, which
-      // a Pen finish's keys are numbered on (#286, #308).
-      held: s.held.reduce<Held[]>((before, h) => {
-        const moves = turned.length > 0 || !!map;
-        const drawn =
-          h.seed || (moves && h.redraw)
-            ? asDrawn(doc, { sentPreviews: sentLeft, sent: sentAfter, held: before })
-            : doc;
-        const chosen = {
-          ...rechosen(h.chosen, h.seed ? "seeded" : "held", drawn),
-          selection: h.chosen.selection.filter((id) => doc.nodes.has(id)),
-        };
-        const preview = !moves
-          ? h.preview
-          : h.redraw
-            ? redrawn(h.redraw(drawn, chosen))
-            : renumberPreview(doc, turned, map, h);
-        return [...before, { ...h, chosen, preview }];
-      }, []),
-    }),
+    ...(s.held.length > 0 && { held }),
     ...(msg.type === "document"
       ? s.pending.length > 0 && { pending: [] }
       : settlePending(s.pending, msg.commandId)),
