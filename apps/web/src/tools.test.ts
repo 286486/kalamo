@@ -775,6 +775,29 @@ it("names the person's own Undo, not someone else, when it ends a continuation o
   expect(second.stored()).toBe("M 0 0 L 100 20");
 });
 
+it("continues a path from the stored path under an own unanswered Simplify, which ends it as the person's own change (#293, #299)", () => {
+  const { p } = onePath("M 0 0 L 50 0 L 100 0");
+  const input = { nodeIds: [p], op: "simplify" as const, tolerance: 1 };
+  // Simplify sent with its preview, unanswered: drawn, but not what the Pen continues.
+  record("s", { type: "path_op", input });
+  useStore.setState({ sentPreviews: [{ edit: null, drag: null, op: { input, commandId: "s" } }] });
+  penClick([100, 0], 1);
+  penClick([150, 50], 1);
+  expect(pen()?.from?.seed ?? []).toEqual([]);
+  expect(drawnD(p)).toBe("M 0 0 L 50 0 L 100 0 L 150 50");
+  const now = useStore.getState().doc as Document;
+  const simplified = structuredClone(now);
+  pathOp(simplified, input);
+  const updated = [...simplified.nodes.values()].filter((n) => n.id === p);
+  expect(dOf(simplified, p)).not.toBe(dOf(now, p));
+  useStore.setState(
+    stateAfter(useStore.getState(), message("tx", { rev: now.rev + 1, commandId: "s", updated })),
+  );
+  const s = useStore.getState();
+  expect(s.pen).toBeNull();
+  expect(s.notice).toMatch(/^Your own earlier change reshaped the path the Pen was continuing/);
+});
+
 /** p with its first subpath's middle Anchor dragged to (50, 20) by the person, sent as "drag". */
 function dragged() {
   const o = onePath("M 0 0 L 50 0 L 100 0 M 0 50 L 100 50");

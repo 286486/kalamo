@@ -34,7 +34,6 @@ import { paintUpdates, placeOn, sendPaint } from "./gradient.ts";
 import { averageAnchors, documentMenus, findByKeys, type Item, type MenuItem } from "./menu.ts";
 import { pencilDown, pencilMove, pencilUp } from "./pencil.ts";
 import { type PathDrag, previewAll, previewEdit, previewsOf, type ViewState } from "./receive.ts";
-import { sendPreviewedOp } from "./simplify.ts";
 import { afterReverse, deliver, record, runHeld, send, unheld, useStore } from "./store.ts";
 import { message, stateAfter, viewState } from "./testing.ts";
 import type { ToolEvent } from "./toolbox.ts";
@@ -2673,7 +2672,11 @@ it("never sends an edit made before the answer to Undo, Redo or Simplify with in
   const commandsOf: Record<string, (a: Node) => void> = {
     Undo: undo,
     Redo: undo,
-    Simplify: (a) => sendPreviewedOp({ nodeIds: [a.id], op: "simplify", tolerance: 5 }, false),
+    // Simplify with no preview, sent as its OK sends it (`sendPathOp`).
+    Simplify: (a) =>
+      afterReverse((_s, w) =>
+        send({ type: "path_op", input: { nodeIds: [a.id], op: "simplify", tolerance: 5 } }, w),
+      ),
   };
   for (const [name, command] of Object.entries(commandsOf)) {
     for (const outcome of ["accepted", "rejected"] as const) {

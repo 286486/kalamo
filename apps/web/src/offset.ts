@@ -1,7 +1,6 @@
-import type { PathOpInput } from "@kalamo/core";
+import type { Geometry, PathOpInput } from "@kalamo/core";
 import { pathTargets } from "./selection.ts";
-import { sendPreviewedOp } from "./simplify.ts";
-import { type NodeOp, useStore } from "./store.ts";
+import { type NodeOp, sendPathOp, useStore } from "./store.ts";
 
 type Join = NonNullable<PathOpInput["join"]>;
 
@@ -40,6 +39,8 @@ export function offsetDialog() {
     const { distance, join, miterLimit } = settings;
     return { nodeIds, op: "offset", distance, join, miterLimit };
   };
+  /** PathKit once loaded: the dialog draws its preview only then. */
+  let geometry: Geometry | undefined;
   const update = async () => {
     if (!form.checkValidity()) return;
     settings.distance = Number(field("distance").value);
@@ -50,12 +51,10 @@ export function offsetDialog() {
       useStore.setState({ opPreview: null });
       return;
     }
-    const loaded = await loadGeometry();
+    geometry = await loadGeometry();
     // The dialog may have closed, or Preview been unchecked, while PathKit loaded.
     if (!dialog.open || !settings.preview) return;
-    useStore.setState({
-      opPreview: { input: input(), showOriginal: false, commandId: null, geometry: loaded },
-    });
+    useStore.setState({ opPreview: { input: input(), showOriginal: false, geometry } });
   };
   form.oninput = update;
   dialog.onclose = () => {
@@ -65,7 +64,8 @@ export function offsetDialog() {
       useStore.setState({ opPreview: null });
       return;
     }
-    sendPreviewedOp(input(), settings.preview);
+    // Its own preview goes with it, of the settings at OK; none while PathKit is still loading.
+    sendPathOp(input(), settings.preview && geometry ? { input: input(), geometry } : undefined);
   };
   document.body.append(dialog);
   dialog.showModal();

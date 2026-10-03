@@ -2,7 +2,7 @@ import { bounds, type Document, fidelityTolerance, union } from "@kalamo/core";
 import { hasAnchors, localAnchors } from "./direct.ts";
 import { previewOp } from "./receive.ts";
 import { pathTargets } from "./selection.ts";
-import { afterReverse, type NodeOp, send, useStore } from "./store.ts";
+import { sendPathOp, useStore } from "./store.ts";
 
 /** The slider's middle, Auto-Simplify: within 1 screen px of the path (ADR-0035). */
 const AUTO = 50;
@@ -41,31 +41,11 @@ function takeDown() {
   was?.close();
 }
 
-/**
- * Sends Simplify's, Offset Path's or Split Into Grid's `path_op` on OK, once a Reverse Path
- * Direction press in flight is answered (ADR-0110). When the op was `previewed`, its preview stays
- * drawn while it waits and until its answer, so nothing flickers (ADR-0035), unless a later op's
- * preview takes its place: the op is sent all the same.
- */
-export function sendPreviewedOp(input: NodeOp, previewed: boolean) {
-  const shown = useStore.getState().opPreview;
-  // With Preview off, the slot holds another op's preview, maybe a held one: it is left alone.
-  const own = previewed && shown && !shown.commandId && shown.input.op === input.op;
-  const held = own ? { ...shown, input, showOriginal: false } : null;
-  if (held) useStore.setState({ opPreview: held });
-  afterReverse((_s, w) => {
-    const commandId = send({ type: "path_op", input }, w);
-    if (held && useStore.getState().opPreview === held) {
-      useStore.setState({ opPreview: { ...held, commandId } });
-    }
-  });
-}
-
 /** OK: the preview as one `path_op` Command, drawn until its answer. */
 export function commitSimplify() {
   takeDown();
   const { opPreview } = useStore.getState();
-  if (opPreview && !opPreview.commandId) sendPreviewedOp(opPreview.input, true);
+  if (opPreview) sendPathOp(opPreview.input, { input: opPreview.input });
 }
 
 function cancel() {
@@ -105,7 +85,7 @@ export function startSimplify() {
     const scale = useStore.getState().viewport?.scale ?? viewport.scale;
     const tolerance = sliderTolerance(curve, scale);
     const input = { nodeIds, op: "simplify" as const, tolerance, cornerAngle, toLines };
-    useStore.setState({ opPreview: { input, showOriginal, commandId: null } });
+    useStore.setState({ opPreview: { input, showOriginal } });
   };
   update();
 
