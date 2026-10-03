@@ -37,13 +37,15 @@ const sentDrag = (nodeIds: string[], commandId: string) => ({ ...drag(nodeIds), 
 /** One sent edit's preview, drawn until its answers (#285). */
 const sentPreviews = (p: Partial<SentPreview>) => [{ edit: null, drag: null, ...p }];
 
+// tsc checks this test: each @ts-expect-error fails the check once its line compiles.
 it("keeps command ids off unsent previews and on sent ones (#306)", () => {
   const sent: SentPreview = { edit: { inputs: [], commandIds: ["c1"] }, drag: sentDrag([], "c2") };
+  const unsent = (p: Preview) => p;
+  const settled = (p: SentPreview) => p;
   // @ts-expect-error A sent preview never goes back on a live slot or a held edit.
-  const live: Preview = sent;
+  unsent(sent);
   // @ts-expect-error An unsent preview has no command ids its answers settle it by.
-  const unsent: SentPreview = { edit: { inputs: [] }, drag: drag([]) };
-  expect([live, unsent]).toHaveLength(2);
+  settled({ edit: { inputs: [] }, drag: drag([]) });
 });
 
 it("keeps the drag preview until the tx answering its command arrives", () => {

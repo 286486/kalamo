@@ -250,7 +250,8 @@ export interface ViewState {
   layerRows: string[];
   /**
    * The live gesture's unsent preview, with `edit`: the Nodes it moves whole. Once sent, it is drawn
-   * from `sentPreviews` until its answer, so a committed move does not flicker.
+   * from `sentPreviews` until its answer, so a committed move does not flicker. It and `edit` never
+   * carry command ids: a SentDrag or SentPathDrag does not fit them.
    */
   drag: (Drag & { commandId?: never }) | null;
   pen: PenPath | null;
@@ -802,7 +803,7 @@ export function copyInput(doc: Document, { nodeIds, dx, dy }: Drag): DuplicateIn
  * committed applies again unchanged; one core refuses, such as on a Node deleted meanwhile, is left
  * out here and rejected by the DO.
  */
-export function previewEdit(doc: Document, { inputs }: Pick<PathDrag, "inputs">): Document {
+export function previewEdit(doc: Document, { inputs }: PathDrag): Document {
   const shown = { ...doc, nodes: new Map(doc.nodes) };
   for (const input of inputs) {
     try {
