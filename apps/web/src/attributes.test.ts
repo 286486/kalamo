@@ -888,7 +888,7 @@ it("puts the Pen on the same Endpoint whether the answer comes while it draws or
       },
       () => penUp(),
     ],
-  } satisfies Record<string, (() => void)[]>;
+  } satisfies Record<string, [() => void, () => void]>;
   for (const [name, [before, after]] of Object.entries(pen)) {
     for (const outcome of ["accepted", "rejected"] as const) {
       const [drawing, held] = [true, false].map((midway) => {

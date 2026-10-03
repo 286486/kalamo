@@ -428,6 +428,10 @@ function direction(doc: Document, t: SubpathRef) {
 export const turnedOf = (prior: Document, doc: Document, subpaths: SubpathRef[]) =>
   subpaths.filter((t) => direction(prior, t) !== direction(doc, t));
 
+/** The key of the Anchor `t` is on, or of the Anchor its segment starts at. */
+const keyOf = (t: Target) =>
+  t.kind === "segment" ? anchorKey(t.nodeId, t.subpath, t.segment) : t.key;
+
 /**
  * `t` as `doc` numbers it once its subpath is reversed, if `subpaths` names it: an Anchor is
  * renumbered, a Handle is its Anchor's other one, and a segment runs back from its old end. Every
@@ -436,7 +440,7 @@ export const turnedOf = (prior: Document, doc: Document, subpaths: SubpathRef[])
 export const turnTarget =
   (doc: Document, subpaths: SubpathRef[]) =>
   <T extends Target>(t: T): T => {
-    const at = t.kind === "segment" ? anchorKey(t.nodeId, t.subpath, t.segment) : t.key;
+    const at = keyOf(t);
     const { nodeId, subpath } = parseKey(at);
     if (!subpaths.some((s) => s.nodeId === nodeId && s.subpath === subpath)) return t;
     if (t.kind === "segment") {
@@ -452,16 +456,15 @@ export const turnTarget =
  * `t`, chosen in `from`, as `doc` numbers it, for a gesture still being made: turned on its subpath
  * if that runs the other way since (ADR-0110). A held edit's target is turned by the answer instead.
  */
-export const sameTarget = <T extends Target>(t: T, from: Document, doc: Document): T => {
-  const at = t.kind === "segment" ? anchorKey(t.nodeId, t.subpath, t.segment) : t.key;
-  return turnTarget(doc, turnedOf(from, doc, [parseKey(at)]))(t);
-};
+export function sameTarget<T extends Target>(t: T, from: Document, doc: Document): T {
+  return turnTarget(doc, turnedOf(from, doc, [parseKey(keyOf(t))]))(t);
+}
 
 /** What `t` stands on, as Direct Selection keys, which a press's answer renumbers (ADR-0110). */
 export const targetKeys = (t: Target): { anchors: string[]; segments: string[] } =>
   t.kind === "segment"
-    ? { anchors: [], segments: [anchorKey(t.nodeId, t.subpath, t.segment)] }
-    : { anchors: [t.key], segments: [] };
+    ? { anchors: [], segments: [keyOf(t)] }
+    : { anchors: [keyOf(t)], segments: [] };
 
 /** Whether `key` names a segment its Node has now. */
 export const segmentInRange = (doc: Document, key: string) => segmentHandles(doc, key).length > 0;
