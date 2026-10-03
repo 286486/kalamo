@@ -10,6 +10,7 @@ import {
   parseDocument,
   type Rect,
   resolveImages,
+  type SubpathRef,
 } from "@kalamo/core";
 import { afterEach, expect, it, vi } from "vitest";
 
@@ -1622,7 +1623,7 @@ it("sets the Attributes panel's fill rule and subpath directions, each one Trans
   ok(await s.pathEdit({ nodeId: a, ops: [{ op: "reverse", subpath: 1 }] }, "agent"));
   const raced = await read();
   expect(raced[0]?.d).toBe(before[0]?.d);
-  const on = (subpaths: { nodeId: string; subpath: number }[], id: string) =>
+  const on = (subpaths: SubpathRef[], id: string) =>
     edit({ type: "path_reverse", subpaths, clockwise: true }, id);
   expect(await on([{ nodeId: a, subpath: 1 }], "c4")).toMatchObject({
     error: { code: "NOTHING_TO_CHANGE" },

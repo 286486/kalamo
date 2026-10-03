@@ -17,6 +17,7 @@ import {
   runsClockwise,
   type ShapeNode,
   type Subpath,
+  type SubpathRef,
   shapeSegments,
   toAnchors,
   worldTransform,
@@ -129,7 +130,7 @@ export function nearestSegment(subpaths: Subpath[], x: number, y: number) {
 export type Target =
   | { kind: "handle"; key: string; which: Which }
   | { kind: "anchor"; key: string }
-  | { kind: "segment"; nodeId: string; subpath: number; segment: number; t: number };
+  | (SubpathRef & { kind: "segment"; segment: number; t: number });
 
 /** The Handles a selected segment shows: its start's out and its end's in, as Anchor keys. */
 export function segmentHandles(doc: Document, key: string): { key: string; which: Which }[] {
@@ -419,8 +420,6 @@ export const reversedKey =
       : count - 1 - index - (segment ? 1 : 0);
     return anchorKey(nodeId, subpath, at);
   };
-
-type SubpathRef = { nodeId: string; subpath: number };
 
 /** Which way subpath `t` runs in `doc`; undefined when it is gone. */
 function direction(doc: Document, t: SubpathRef) {

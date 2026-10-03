@@ -58,6 +58,10 @@ _Avoid_: Vertex、Point、Node（几何意义上）
 从 Anchor 伸出、控制相邻曲线段方向与曲率的控制点。
 _Avoid_: Control point、Direction point、Bezier point
 
+**Subpath（子路径）**：
+Path 的 `d` 中一段以 moveto 开始的连续轮廓，可开放或闭合；Compound Path 有多条。以 Node id 加从 0 起、按 `d` 中顺序的索引指称（代码中为 `SubpathRef`，如 `path_reverse` 的 `subpaths`）。
+_Avoid_: Contour、Ring、Sub-path
+
 **Endpoint（端点）**：
 开放 Path 某条子路径的首个或末个 Anchor。钢笔和铅笔从 Endpoint 续画；Join 连接两个 Endpoint。
 _Avoid_: End point、Tip、Terminal

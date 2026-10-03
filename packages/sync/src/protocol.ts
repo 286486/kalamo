@@ -14,6 +14,7 @@ import {
   ReorderOp,
   ReparentInput,
   Stroke,
+  SubpathRef,
   TransformInput,
   Writable,
 } from "@kalamo/core";
@@ -182,7 +183,7 @@ const CommandMessage = z.object({
     }),
     z.object({
       type: z.literal("path_reverse"),
-      subpaths: z.array(z.object({ nodeId: z.string(), subpath: z.number().int().min(0) })).min(1),
+      subpaths: z.array(SubpathRef).min(1),
       clockwise: z.boolean(),
     }),
     // Object > Shape > Expand Shape (ADR-0032).

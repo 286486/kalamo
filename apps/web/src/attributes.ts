@@ -5,6 +5,7 @@ import {
   type Node,
   type PathNode,
   runsClockwise,
+  type SubpathRef,
 } from "@kalamo/core";
 import { parseKey } from "./direct.ts";
 import { compoundParts } from "./menu.ts";
@@ -44,7 +45,7 @@ export function setFillRule(s: Selected, fillRule: FillRule) {
  * as Kalamo's Live Shapes do; Off runs counter-clockwise. So a Make result reads as Illustrator's:
  * the backmost Off, the holes On (ADR-0108). A subpath with no area has no direction to set.
  */
-export function directionTargets(s: Directed): { nodeId: string; subpath: number; on: boolean }[] {
+export function directionTargets(s: Directed): (SubpathRef & { on: boolean })[] {
   const { doc } = s;
   if (!doc || !canEdit(s)) return [];
   const seen = new Set<string>();

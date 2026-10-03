@@ -11,6 +11,7 @@ import {
   type PathEditInput,
   type PathNode,
   type Subpath,
+  type SubpathRef,
   toAnchors,
   toPath,
   withAnchors,
@@ -365,7 +366,7 @@ export function runsClockwise(
  */
 export function directionEdits(
   doc: Document,
-  subpaths: { nodeId: string; subpath: number }[],
+  subpaths: SubpathRef[],
   clockwise: boolean,
 ): PathEditInput[] {
   const byNode = new Map<string, Set<number>>();
