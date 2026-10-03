@@ -1716,6 +1716,37 @@ it("joins a held Pen connection of two paths moved together, and drops it when o
   }
 });
 
+// #301: the press is sent before the move, so its answer comes first, and the held Join runs
+// while the move is still unanswered; the Document DO applies the Join after the move.
+it("drops a held Pen connection of two paths when one moved alone and its move is answered after the press (#301)", () => {
+  for (const outcome of ["accepted", "rejected"] as const) {
+    for (const together of [true, false]) {
+      const label = `${outcome}, ${together ? "together" : "q alone"}`;
+      const answer = pressOnOpen();
+      const [p, q] = useStore.getState().selection as [string, string];
+      drawnEdits["a Pen continuing one path onto another's Endpoint"]();
+      const moved = together ? [p, q] : [q];
+      vi.mocked(send).mockReturnValueOnce("m");
+      useStore.setState({
+        drag: { nodeIds: moved, dx: 100, dy: 50, commandId: null, copy: false },
+      });
+      commitDrag(unheld("the test's Selection tool move"));
+      answer(outcome);
+      const s = useStore.getState();
+      if (together) {
+        expect(
+          penSent().map((c) => c.type),
+          label,
+        ).toEqual(["path_join"]);
+        expect(s.notice, label).toBe(noticeAfter(outcome));
+        continue;
+      }
+      expect(penSent(), label).toEqual([]);
+      expect(s.notice, label).toMatch(/moved before the connection was made/);
+    }
+  }
+});
+
 // #283: a held edit, when it runs or is dropped, touches its own preview only. Each edit is held on
 // a's hole, or on p's open subpath, and another Actor's deletion of that path drops it.
 const heldOnRings: Record<string, (doc: Document) => void> = {

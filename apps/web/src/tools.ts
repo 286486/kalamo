@@ -4,6 +4,7 @@ import {
   formatPath,
   fromAnchors,
   invert,
+  type Matrix,
   multiply,
   type NodeInput,
   round,
@@ -29,7 +30,9 @@ import {
   endOf,
   type PenPath,
   type PenPress,
+  type Preview,
   penState,
+  previewAll,
   type ShapeBox,
   VIEWER_TOOLS,
 } from "./receive.ts";
@@ -202,6 +205,19 @@ const PEN_MOVED =
   "A path the Pen was connecting to moved before the connection was made; what it drew was not applied.";
 
 /**
+ * `doc` with the person's Selection tool moves sent and not yet answered, in `ran` and the
+ * gesture's `drag`, as the Document DO applies a command sent now: after them, in input order.
+ */
+const landing = (doc: Document, ran: Preview[], { drag }: Preview) =>
+  previewAll(
+    doc,
+    [...ran, { edit: null, drag: drag?.commandId ? drag : null }].map((p) => ({
+      edit: null,
+      drag: p.drag && !p.drag.copy ? p.drag : null,
+    })),
+  );
+
+/**
  * Finishes a path the Pen continued or connected (research 06 §1): one `path_edit` on the path
  * continued, or on the one a new path connected to, which it continues backwards; continuing one
  * onto another is one `path_join`, the Join deleting one of them. It is sent once a Reverse Path
@@ -223,30 +239,36 @@ function finishEdit(doc: Document, pen: PenPath) {
     return;
   }
   const keys = ends.map((e) => endKey(doc, e));
-  const was = ends.map((e) => ({ id: e.nodeId, back: invert(worldOf(doc, e.nodeId)) }));
+  const own = (d: Document) => ends.map((e) => invert(worldOf(d, e.nodeId)));
+  // How each path it meets moved since `before`, `d`'s view of it.
+  const moves = (d: Document, before: Matrix[]) =>
+    ends.map((e, i) => round(multiply(worldOf(d, e.nodeId), before[i] as Matrix)));
+  const drawn = own(doc);
+  const { ran, drag } = useStore.getState();
+  const lands = own(landing(doc, ran, { edit: null, drag }));
   useStore.setState({
     pen: null,
     selection: [...new Set(ends.map((e) => e.nodeId))],
     edit: { inputs: [first.input], commandIds: null },
   });
   afterReverse(
-    ({ doc: now, anchors: held }, w) => {
+    ({ doc: now, anchors: held, ran }, w, aside) => {
       // `held` is `keys` renumbered, `from`'s first; another Actor's edit cleared a missing one.
       if (held.length < keys.length) {
         cancelDrag();
         useStore.setState({ notice: PEN_DROPPED });
         return;
       }
-      // How each path it meets moved since `doc`: moved together, what it drew goes with them;
-      // moved apart, it can meet only one (#301).
-      const [m, other] = now
-        ? was.map(({ id, back }) => round(multiply(worldOf(now, id), back)))
-        : [];
-      if (m && other && String(m) !== String(other)) {
+      // Moved apart where the finish lands, after the person's moves sent before it, it can meet
+      // only one; moved together, what it drew goes with them (#301). Rounding leaves no move an
+      // exact identity.
+      const [one, other] = now ? moves(landing(now, ran, aside), lands) : [];
+      if (one && other && String(one) !== String(other)) {
         cancelDrag();
         useStore.setState({ notice: PEN_MOVED });
         return;
       }
+      const [m] = now ? moves(now, drawn) : [];
       const at = held.map(endOf);
       const f = from && at.shift();
       const placed = m ? anchors.map((a) => through(m, a)) : anchors;
