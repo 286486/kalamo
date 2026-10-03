@@ -859,9 +859,9 @@ export const previewAll = (doc: Document, previews: DrawnPreview[]): Document =>
 
 /**
  * A preview the paths as drawn include, and what it waits on: a sent command's id, or a held edit's
- * token until it runs (#308).
+ * token until it runs (#308). It has no op: `drawnOn` leaves ops out (#299).
  */
-export type DrawnOn = DrawnPreview & { on: string };
+export type DrawnOn = (Omit<Preview, "op"> | Omit<SentPreview, "op">) & { on: string };
 
 /**
  * What the paths as drawn are built on, in the order the Document DO will apply it (#293, #308): the

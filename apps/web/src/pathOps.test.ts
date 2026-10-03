@@ -517,3 +517,24 @@ it("drops a sent op's preview on reconnect and keeps the open bar's (#299)", () 
     expect(draws(p.id, own), what).toBe(what === "open");
   }
 });
+
+it("never sends a drag made before Simplify's answer with indices from before it (#298 T6, #299)", () => {
+  for (const outcome of ["accepted", "rejected"] as const) {
+    const { q, doc, server } = pressed({ ...LINED, press: false });
+    const before = structuredClone(server.nodes.get(q.id));
+    ok(opsOn([q.id]).simplify);
+    directTool.down(event(doc, 140, 100));
+    directTool.move?.(event(doc, 150, 100));
+    directTool.up?.(event(doc, 150, 100));
+    expect(sentOps(), outcome).toEqual(["simplify"]);
+    answer(server, outcome === "rejected" ? queue[0]?.id : undefined);
+    serve(server);
+    // Accepted, the answer renumbers q and drops the drag; rejected, the drag is sent and stored.
+    const reshaped = JSON.stringify(server.nodes.get(q.id)) !== JSON.stringify(before);
+    expect({ reshaped, sent: sentOps() }, outcome).toEqual({
+      reshaped: true,
+      sent: outcome === "rejected" ? ["simplify", "path_edit"] : ["simplify"],
+    });
+    expect(useStore.getState().held, outcome).toEqual([]);
+  }
+});

@@ -2664,20 +2664,15 @@ it("deletes with Edit > Clear the Anchor chosen before the answer that renumbere
   vi.useRealTimers();
 });
 
-it("never sends an edit made before the answer to Undo, Redo or Simplify with indices from before it (#298 T6)", () => {
+// Simplify's case is in pathOps.test, whose socket sees the store's own `send` (#299).
+it("never sends an edit made before the answer to Undo or Redo with indices from before it (#298 T6)", () => {
   vi.useFakeTimers();
   const menus = documentMenus({ open() {}, close() {} });
   const undo = () => findByKeys(menus, "Ctrl+Z")?.run();
   const redo = () => findByKeys(menus, "Shift+Ctrl+Z")?.run();
-  const commandsOf: Record<string, (a: Node) => void> = {
+  const commandsOf: Record<string, () => void> = {
     Undo: undo,
     Redo: undo,
-    // Simplify with no preview, as `sendPathOp` sends it; this file's `send` mock cannot see a
-    // call inside the store module.
-    Simplify: (a) =>
-      afterReverse((_s, w) =>
-        send({ type: "path_op", input: { nodeIds: [a.id], op: "simplify", tolerance: 5 } }, w),
-      ),
   };
   for (const [name, command] of Object.entries(commandsOf)) {
     for (const outcome of ["accepted", "rejected"] as const) {
@@ -2689,7 +2684,7 @@ it("never sends an edit made before the answer to Undo, Redo or Simplify with in
       // An earlier Add Anchor click on a, answered; Redo first undoes it.
       addAnchorClick(doc, a);
       answer();
-      command(a);
+      command();
       if (name === "Redo") {
         answer();
         redo();
