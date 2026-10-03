@@ -24,6 +24,7 @@ import {
 import { forNewArt, leaving } from "./isolation.ts";
 import {
   asDrawn,
+  type Cause,
   disconnected,
   type Endpoint,
   endKey,
@@ -204,7 +205,7 @@ function endingAt(doc: Document, e: Endpoint): BareAnchor[] {
 const COINCIDENT = 0.05;
 
 /** Why a held Pen finish sent nothing: a change to a path it continued or met, by whose (#293). */
-const PEN_DROPPED = {
+const PEN_DROPPED: Record<Cause, string> = {
   own: "Your own earlier change reshaped a path the Pen was continuing or connecting to; what it drew was not applied.",
   other:
     "Someone else changed a path the Pen was continuing or connecting to; what it drew was not applied.",

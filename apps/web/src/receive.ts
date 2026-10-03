@@ -348,6 +348,9 @@ export function receive(
 export const PEN_MOVED =
   "A path the Pen was connecting to moved before the connection was made; what it drew was not applied.";
 
+/** Whose change a message brings: the person's own command's, or another Actor's (#293). */
+export type Cause = "own" | "other";
+
 /** Why the Pen stopped, or its held finish was dropped: an edit it continued was rejected (#293). */
 export const PEN_SEED_REJECTED =
   "Your earlier edit to the path the Pen was continuing was not applied, so what the Pen drew was not applied.";
@@ -365,10 +368,10 @@ const PEN_DISCONNECTED: Record<Cause, string> = {
   other: "Someone else changed the path the Pen was connecting to; the connection was not made.",
 };
 
-/** Whose change a message brings: the person's own command's, or another Actor's (#293). */
-export type Cause = "own" | "other";
-
-/** What a message leaves of something the person holds on a Node it touched (#293). */
+/**
+ * What a message leaves of something the person holds on a Node it touched (#293). "renumbered"
+ * keeps as "keeps" does; it says the answer's `Renumbering` moves it.
+ */
 type Fate = "keeps" | "renumbered" | "ends";
 
 /**
@@ -587,12 +590,10 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
   const skipped = msg.type === "tx" ? (msg.skippedIds?.length ?? 0) : 0;
   // A reconnect loses the answers to the commands in flight, so their previews go; the live
   // gesture's unsent preview stays while what it holds does (#285).
-  const sentLeft =
+  const { sentPreviews: sentLeft = s.sentPreviews } =
     msg.type === "document"
-      ? s.sentPreviews.length > 0
-        ? []
-        : s.sentPreviews
-      : (settleSentPreviews(s.sentPreviews, id).sentPreviews ?? s.sentPreviews);
+      ? { sentPreviews: [] }
+      : settleSentPreviews(s.sentPreviews, id);
   // A selected Node that a browser's command moved into a new Group selects that Group, as Make
   // Clipping Mask does; an Agent's edit leaves the person's Selection alone.
   const made = new Set(msg.type === "tx" && msg.commandId ? msg.created.map((n) => n.id) : []);
