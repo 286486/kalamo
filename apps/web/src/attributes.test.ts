@@ -1161,7 +1161,10 @@ it("leaves another gesture's unsent preview when a held edit runs or is dropped,
         expect(commands().length > 0, label).toBe(!dropped);
         // #291: only dropped drawn work, which is gone from the screen, is announced.
         const notice = useStore.getState().notice;
-        if (dropped && name in drawnEdits) expect(notice, label).toMatch(/not applied/);
+        if (dropped && name in drawnEdits)
+          expect(notice, label).toMatch(
+            name.includes("Pencil") ? /Pencil .*not applied/ : /Pen .*not applied/,
+          );
         else expect(notice, label).toBe(outcome === "rejected" ? "No." : null);
       }
     }
