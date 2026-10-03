@@ -30,18 +30,29 @@ type Point = [number, number];
 /**
  * One `path_edit` per path and one `delete`, for edits on Anchors, which drop the selected Anchors
  * and segments. Each `path_edit` opens the window with its `known` renumbering, which its answer
- * renumbers the keys by, in its one send (#298).
+ * renumbers the keys by, in its one send (#298). The keys it dropped on its path wait in
+ * `keysDropped` for its answer, which keeps them for the person's own Undo (ADR-0112).
  */
 export function sendAnchorEdits({ edits, deleteIds, known = [] }: AnchorEdits, w: Waited) {
-  for (const input of edits) {
-    send(
+  const { anchors, segments } = useStore.getState();
+  const on = (nodeId: string) => (k: string) => parseKey(k).nodeId === nodeId;
+  const dropped = edits.map((input) => {
+    const { nodeId } = input;
+    const id = send(
       { type: "path_edit", input },
       w,
-      known.find((k) => k.nodeId === input.nodeId),
+      known.find((k) => k.nodeId === nodeId),
     );
-  }
+    const keys = { anchors: anchors.filter(on(nodeId)), segments: segments.filter(on(nodeId)) };
+    return [id, keys] as const;
+  });
   if (deleteIds.length > 0) send({ type: "delete", nodeIds: deleteIds }, w);
-  useStore.setState({ anchors: [], segments: [] });
+  useStore.setState((s) => ({
+    anchors: [],
+    segments: [],
+    // Only what went out on an open socket has an answer to wait for.
+    keysDropped: new Map([...s.keysDropped, ...dropped.filter(([id]) => s.sent.has(id))]),
+  }));
 }
 
 /** The nearest segment of the paths `ids` within `tolerance`, as pick names one. */

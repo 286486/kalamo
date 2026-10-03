@@ -32,6 +32,7 @@ import {
   allKeys,
   anchorKey,
   anchorsOf,
+  inRange,
   localAnchors,
   parseKey,
   type Renumbering,
@@ -3617,6 +3618,128 @@ it("forgets the keys it would choose again when the person switches tools, which
   setTool("selection");
   setTool("direct");
   undo();
+  expect(chosen()).toEqual({ anchors: [], segments: [] });
+  vi.useRealTimers();
+});
+
+/** Whether every key the person sees names an Anchor the committed Document has. */
+const allInRange = () => {
+  const { doc, anchors, segments } = useStore.getState();
+  return [...anchors, ...segments].every((k) => doc && inRange(doc, k));
+};
+
+it("chooses again, after the person's own Undo of a Clear or a Remove Anchor Points, the keys it removed, and a Redo leaves none (ADR-0112)", () => {
+  vi.useFakeTimers();
+  const edits: Record<string, [string, (a: Node) => Pick<ViewState, "anchors" | "segments">]> = {
+    "a Clear of two Anchors": [
+      "Clear",
+      (a) => ({ anchors: [anchorKey(a.id, 1, 1), anchorKey(a.id, 1, 2)], segments: [] }),
+    ],
+    "a Clear of a segment": ["Clear", (a) => ({ anchors: [], segments: [anchorKey(a.id, 1, 3)] })],
+    "a Remove Anchor Points": [
+      "Remove Anchor Points",
+      (a) => ({ anchors: [anchorKey(a.id, 1, 1), anchorKey(a.id, 1, 2)], segments: [] }),
+    ],
+  };
+  for (const [name, [label, keys]] of Object.entries(edits)) {
+    const { a, server, answer, undo, redo, chosen } = undoable((a) => keys(a));
+    // A Clear deletes a selected object with no keys on it whole; b stays out of it.
+    useStore.setState({ selection: [a.id] });
+    const before = chosen();
+    const stored0 = JSON.stringify(server.nodes.get(a.id));
+    menuItem(label).run();
+    // Between send and answer, no key is shown.
+    expect(chosen(), name).toEqual({ anchors: [], segments: [] });
+    answer();
+    expect(JSON.stringify(server.nodes.get(a.id)), name).not.toBe(stored0);
+    expect(chosen(), name).toEqual({ anchors: [], segments: [] });
+    expect(useStore.getState().keysDropped.size, name).toBe(0);
+    findByKeys(documentMenus({ open() {}, close() {} }), "Ctrl+Z")?.run();
+    expect(chosen(), name).toEqual({ anchors: [], segments: [] });
+    answer();
+    expect(JSON.stringify(server.nodes.get(a.id)), name).toBe(stored0);
+    expect(chosen(), name).toEqual(before);
+    expect(allInRange(), name).toBe(true);
+    redo();
+    expect(chosen(), name).toEqual({ anchors: [], segments: [] });
+    undo();
+    expect(chosen(), name).toEqual(before);
+    expect(
+      commands().map((c) => c.type),
+      name,
+    ).toEqual(["path_edit", "undo", "redo", "undo"]);
+  }
+  vi.useRealTimers();
+});
+
+it("clears the keys after another Actor's or another tab's undo of the person's Clear (ADR-0112)", () => {
+  vi.useFakeTimers();
+  for (const whose of ["another Actor", "another tab"] as const) {
+    const { a, server, answer, chosen } = undoable((a) => ({
+      anchors: [anchorKey(a.id, 1, 1), anchorKey(a.id, 1, 2)],
+      segments: [],
+    }));
+    useStore.setState({ selection: [a.id] });
+    const stored0 = structuredClone(server.nodes.get(a.id) as Node);
+    findByKeys(documentMenus({ open() {}, close() {} }), "Delete")?.run();
+    answer();
+    // The person's own Undo would choose these again.
+    expect([...useStore.getState().keysOn.values()], whose).toContainEqual({
+      anchors: [anchorKey(a.id, 1, 1), anchorKey(a.id, 1, 2)],
+      segments: [],
+    });
+    // Their undo puts a back as it was before the Clear, under a command id this tab never sent.
+    server.nodes.set(a.id, stored0);
+    server.rev++;
+    deliver(
+      message("tx", {
+        rev: server.rev,
+        updated: [stored0],
+        ...(whose === "another tab" && { commandId: "elsewhere", actor: "user" }),
+      }),
+      "d",
+      0,
+    );
+    expect(chosen(), whose).toEqual({ anchors: [], segments: [] });
+  }
+  vi.useRealTimers();
+});
+
+it("leaves the keys of a rejected Clear dropped, as before, and keeps nothing for it (ADR-0110, ADR-0112)", () => {
+  vi.useFakeTimers();
+  const { a, answer, undo, chosen } = undoable((a) => ({
+    anchors: [anchorKey(a.id, 1, 1), anchorKey(a.id, 1, 2)],
+    segments: [],
+  }));
+  useStore.setState({ selection: [a.id] });
+  findByKeys(documentMenus({ open() {}, close() {} }), "Delete")?.run();
+  expect(useStore.getState().keysDropped.size).toBe(1);
+  answer(true);
+  expect(useStore.getState().notice).toBe("No.");
+  expect(chosen()).toEqual({ anchors: [], segments: [] });
+  expect(useStore.getState().keysDropped.size).toBe(0);
+  expect(useStore.getState().keysOn.size).toBe(0);
+  // Nothing to undo: the server rejects that too, and no keys come back.
+  undo();
+  expect(chosen()).toEqual({ anchors: [], segments: [] });
+  vi.useRealTimers();
+});
+
+it("forgets the keys a Clear dropped on a path another Actor edits before its answer, so Undo brings none back (ADR-0109, ADR-0112)", () => {
+  vi.useFakeTimers();
+  const { a, server, answer, undo, chosen } = undoable((a) => ({
+    anchors: [anchorKey(a.id, 1, 1), anchorKey(a.id, 1, 2)],
+    segments: [],
+  }));
+  useStore.setState({ selection: [a.id] });
+  findByKeys(documentMenus({ open() {}, close() {} }), "Delete")?.run();
+  // An Agent removes the hole's first Anchor before the Clear's answer: the keys now name other points.
+  editPath(server, { nodeId: a.id, ops: [{ op: "remove_anchor", subpath: 1, index: 0 }] });
+  server.rev++;
+  deliver(message("tx", { rev: server.rev, updated: [server.nodes.get(a.id) as Node] }), "d", 0);
+  answer();
+  undo();
+  expect(commands().map((c) => c.type)).toEqual(["path_edit", "undo"]);
   expect(chosen()).toEqual({ anchors: [], segments: [] });
   vi.useRealTimers();
 });
