@@ -281,7 +281,11 @@ export const anchorPointTool: CanvasTool = {
           now && t && (last ? dragInput(now, t, last.d, last.shift) : clickInput(now, t));
         if (input) sendPreview({ edit: { inputs: [input], commandIds: null } }, w);
       },
-      { target: grabbed, previewed: true },
+      {
+        target: grabbed,
+        previewed: true,
+        ...(last && grabbed.kind === "anchor" && { pulled: true }),
+      },
     );
   },
   cancel(redraw) {

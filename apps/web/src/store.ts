@@ -224,10 +224,18 @@ const unanswered = (s: Pick<State, "sent">, seed: string[] | undefined) =>
  * gesture's preview leaves it on screen; run, it gives way to what the edit sends, if anything.
  * Either way the edit never sees or changes the live slots' preview (#285). A Pen finish's `seed`
  * holds it, and the edits after it, until the answers to the edits it was drawn on (#293, #308).
+ * A `set_d` edit's `redraw` is what its run sends, and redraws its preview held; `pulled` turns its
+ * preview as an Anchor Point drag out of an Anchor sends it (#286).
  */
 export function afterReverse(
   edit: (s: State & Chosen, w: Waited) => void,
-  { previewed, seed, ...chosen }: Partial<Chosen> & { previewed?: true } & Pick<Held, "seed"> = {},
+  {
+    previewed,
+    seed,
+    redraw,
+    pulled,
+    ...chosen
+  }: Partial<Chosen> & { previewed?: true } & Pick<Held, "seed" | "redraw" | "pulled"> = {},
 ) {
   const s = useStore.getState();
   const { target } = chosen;
@@ -241,7 +249,15 @@ export function afterReverse(
   const preview: Preview = { edit: previewed ? s.edit : null, drag: previewed ? s.drag : null };
   if (previewed) useStore.setState({ edit: null, drag: null });
   if (!waiting(s) && s.held.length === 0 && !unanswered(s, seed)) return run(c);
-  const h: Held = { chosen: c, run, preview, token: newId(), ...(seed && { seed }) };
+  const h: Held = {
+    chosen: c,
+    run,
+    preview,
+    token: newId(),
+    ...(seed && { seed }),
+    ...(redraw && { redraw }),
+    ...(pulled && { pulled }),
+  };
   useStore.setState({ held: [...useStore.getState().held, h] });
 }
 

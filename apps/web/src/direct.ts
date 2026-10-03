@@ -552,6 +552,12 @@ export function fits(doc: Document | null, r: Renumbering): boolean {
  */
 export const alongLine = (t: number) => 3 * t ** 2 - 2 * t ** 3;
 
+/** Whether the command `r` left subpath `k` of its path as it was. */
+const kept = (r: Renumbering, k: number) =>
+  r.after[k]?.count === r.to[k]?.length &&
+  r.after[k]?.closed === r.closed[k] &&
+  !!r.to[k]?.every((at, i) => at?.[0] === k && at[1] === i);
+
 /**
  * `t` as the answer to the command `r` describes numbers it (#298): an Anchor or Handle is on its
  * Anchor's new index, and a segment on the segment between its two Anchors while they are still
@@ -564,7 +570,13 @@ const renumber =
     const { nodeId, subpath, index } = parseKey(keyOf(t));
     if (r?.nodeId !== nodeId) return t;
     const row = r.to[subpath] ?? [];
-    const at = row[index];
+    // An Anchor past the subpath's end is one an edit the Pen drew on adds after the command; where
+    // the command left the subpath as it was, it keeps its place (#286).
+    const at =
+      row[index] ??
+      (t.kind !== "segment" && index >= row.length && kept(r, subpath)
+        ? ([subpath, index] as [number, number])
+        : undefined);
     if (!at) return null;
     if (t.kind !== "segment") return { ...t, key: anchorKey(nodeId, ...at) };
     const next = row[(index + 1) % row.length];
@@ -626,6 +638,39 @@ export function renumberInput(r: Renumbering | null, input: PathEditInput): Path
     return [{ ...op, subpath, index }];
   });
   return ops.length > 0 ? { ...input, ops } : null;
+}
+
+/**
+ * An unsent preview's `input` with each op on a subpath in `turned` on the same Anchor once it is
+ * reversed, as `turnTarget` turns a target: renumbered, and a Handle set its Anchor's other one. With
+ * `pulled`, an Anchor Point drag out of an Anchor, its run puts the outgoing Handle at the pointer
+ * whichever way the path runs, so both Handles stay as they are; an Endpoint's one Handle still
+ * turns (#286).
+ */
+export function turnInput(
+  doc: Document,
+  turned: SubpathRef[],
+  input: PathEditInput,
+  pulled = false,
+): PathEditInput {
+  if (!turned.some((t) => t.nodeId === input.nodeId)) return input;
+  const ops = input.ops.map((op): PathOp => {
+    const subpath = "subpath" in op ? (op.subpath ?? 0) : 0;
+    const on = turned.some((t) => t.nodeId === input.nodeId && t.subpath === subpath);
+    if (!("index" in op) || !on) return op;
+    const key = reversedKey(doc, turned, false)(anchorKey(input.nodeId, op.subpath ?? 0, op.index));
+    const { index } = parseKey(key);
+    if (op.op !== "set_handles") return { ...op, index };
+    if (pulled && op.handleIn !== undefined && op.handleOut !== undefined) return { ...op, index };
+    const { handleIn, handleOut, ...rest } = op;
+    return {
+      ...rest,
+      index,
+      ...(handleOut !== undefined && { handleIn: handleOut }),
+      ...(handleIn !== undefined && { handleOut: handleIn }),
+    };
+  });
+  return { ...input, ops };
 }
 
 /** The path `t` is on. */

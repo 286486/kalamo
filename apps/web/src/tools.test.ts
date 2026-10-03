@@ -4,12 +4,16 @@ import {
   createNodes,
   type Document,
   editPath,
+  type PathNode,
   parsePath,
   pathOp,
+  runsClockwise,
   toAnchors,
 } from "@kalamo/core";
 import type { Command } from "@kalamo/sync";
 import { beforeEach, expect, it, vi } from "vitest";
+import { setDirection } from "./attributes.ts";
+import { pencilDown, pencilMove, pencilUp } from "./pencil.ts";
 import { previewAll, previewsOf } from "./receive.ts";
 import {
   afterReverse,
@@ -1035,4 +1039,122 @@ it("drops what the Pen drew on a held edit that never lands, and sends nothing (
     expect(sent().slice(before), how).toEqual([]);
     expect(stored(), how).toBe("M 0 0 L 100 0");
   }
+});
+
+// #286: a held edit's preview follows the answer that renumbers its keys, so the paths as drawn,
+// which the Pen continues and stores, are what the held edits will send.
+
+/**
+ * p, an open subpath `d` after a line from (0, 200) to (100, 200), and q, a line from (0, 300) to
+ * (100, 300), both selected. A Delete Anchor click on p's (50, 200), sent as "d1", then one on q's
+ * (50, 300), held behind it; `answerClick` answers d1, so q's click is sent as "d2", which holds
+ * what comes after it.
+ */
+function behindClicks(d: string) {
+  const { p, stored } = onePath(`M 0 200 L 50 200 L 100 200 ${d}`);
+  const now = useStore.getState().doc as Document;
+  const parentId = now.nodes.get(p)?.parentId as string;
+  const [q] = createNodes(now, [{ type: "path", parentId, d: "M 0 300 L 50 300 L 100 300" }]).nodes;
+  useStore.setState({ selection: [p, q?.id as string] });
+  sendAs("d1");
+  penClick([50, 200], 1);
+  penClick([50, 300], 1);
+  expect(sent()).toHaveLength(1);
+  return { p, stored, answerClick: () => land(answer("d1"), "d2") };
+}
+
+it("keeps a held Pen finish drawn on another held one's extension through a Delete Anchor click's answer (#286)", () => {
+  const { p, stored, answerClick } = behindClicks("M 0 0 L 100 0");
+  penClick([100, 0], 1);
+  penClick([150, 50], 1);
+  heldFinish();
+  penClick([150, 50], 1);
+  penClick([200, 0], 1);
+  heldFinish();
+  answerClick();
+  const s = useStore.getState();
+  expect(s.held).toHaveLength(2);
+  const second = previewAll(s.doc as Document, [s.held[1]?.preview ?? { edit: null, drag: null }]);
+  expect(dOf(second, p)).toBe("M 0 200 L 100 200 M 0 0 L 100 0 L 150 50 L 200 0");
+  land(answer("d2"), "f1");
+  land(answer("f1"), "f2");
+  land(answer("f2"));
+  expect(stored()).toBe("M 0 200 L 100 200 M 0 0 L 100 0 L 150 50 L 200 0");
+  expect(useStore.getState().notice).toBeNull();
+});
+
+it("stores a held Pencil redraw and the Pen continuation drawn on it after a Delete Anchor click's answer (#286)", () => {
+  const { stored, answerClick } = behindClicks("M 0 0 L 100 0 L 200 0");
+  useStore.setState({ tool: "pencil" });
+  // Redraws p's stretch from (120, 0) to (180, 0) through (150, 20).
+  pencilDown([120, 0]);
+  for (let x = 125; x <= 180; x += 5)
+    pencilMove([[x, 20 - Math.abs(x - 150) * (2 / 3)]], { shift: false, alt: false });
+  pencilUp(1);
+  expect(useStore.getState().held).toHaveLength(2);
+  answerClick();
+  const [redraw] = useStore.getState().held;
+  expect(redraw?.preview.edit?.inputs).toHaveLength(1);
+  // The person continues p from (200, 0), as drawn with the redraw, while it is still held.
+  useStore.setState({ tool: "pen" });
+  penClick([200, 0], 1);
+  penClick([250, 50], 1);
+  heldFinish();
+  land(answer("d2"), "r");
+  land(answer("r"), "f");
+  const redrawn = stored();
+  expect(redrawn).toBe("M 0 200 L 100 200 M 0 0 L 100 0 L 119.982 0 L 150 20 L 180.018 0 L 200 0");
+  land(answer("f"));
+  expect(stored()).toBe(`${redrawn} L 250 50`);
+  expect(useStore.getState().notice).toBeNull();
+});
+
+it("stores a held drag on the Anchor dragged, and the Pen continuation drawn on it, after a press turned its subpath (#286)", () => {
+  const { p, stored } = onePath("M 0 200 L 50 200 L 100 200 M 0 0 L 100 0 L 100 100 L 0 100");
+  const now = useStore.getState().doc as Document;
+  const parentId = now.nodes.get(p)?.parentId as string;
+  const [q] = createNodes(now, [{ type: "path", parentId, d: "M 0 300 L 50 300 L 100 300" }]).nodes;
+  useStore.setState({ selection: [p, q?.id as string] });
+  // A press reversing p's U, then a Delete Anchor click on q held behind it.
+  sendAs("press");
+  setDirection(
+    { ...useStore.getState(), anchors: [`${p} 1 0`] },
+    !runsClockwise(now, now.nodes.get(p) as PathNode, 1),
+  );
+  expect(useStore.getState().reversing?.commandId).toBe("press");
+  penClick([50, 300], 1);
+  // (100, 0), Anchor 1, dragged to (120, -20) and released: held behind both.
+  const input = {
+    nodeId: p,
+    ops: [{ op: "move_anchor" as const, subpath: 1, index: 1, to: [120, -20] as Point }],
+  };
+  useStore.setState({ edit: { inputs: [input], commandIds: null } });
+  afterReverse(
+    ({ anchors: [k] }, w) => {
+      const [, subpath, index] = (k as string).split(" ").map(Number) as [number, number, number];
+      const moved = { ...input, ops: [{ ...input.ops[0], subpath, index }] } as typeof input;
+      drawSent({
+        edit: { inputs: [moved], commandIds: [send({ type: "path_edit", input: moved }, w)] },
+        drag: null,
+      });
+    },
+    { anchors: [`${p} 1 1`], segments: [], previewed: true },
+  );
+  const at = useStore.getState().doc as Document;
+  const turned = editPath(structuredClone(at), {
+    nodeId: p,
+    ops: [{ op: "reverse", subpath: 1 }],
+  }).node;
+  land(message("tx", { rev: at.rev + 1, commandId: "press", updated: [turned] }), "d2");
+  expect(useStore.getState().held).toHaveLength(1);
+  expect(drawnD(p)).toBe("M 0 200 L 50 200 L 100 200 M 0 100 L 100 100 L 120 -20 L 0 0");
+  // The person continues p from (0, 100) while the drag is still held.
+  penClick([0, 100], 1);
+  penClick([-50, 150], 1);
+  heldFinish();
+  land(answer("d2"), "drag");
+  land(answer("drag"), "finish");
+  land(answer("finish"));
+  expect(stored()).toBe("M 0 200 L 50 200 L 100 200 M -50 150 L 0 100 L 100 100 L 120 -20 L 0 0");
+  expect(useStore.getState().notice).toBeNull();
 });

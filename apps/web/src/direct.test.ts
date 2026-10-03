@@ -5,6 +5,7 @@ import {
   editPath,
   type Node,
   type PathEditInput,
+  type PathOp,
   parsePath,
   type ShapeNode,
   toAnchors,
@@ -32,6 +33,7 @@ import {
   segmentHandles,
   segmentInRange,
   splitWhole,
+  turnInput,
 } from "./direct.ts";
 
 /** A 10 pt square rect at (0, 0), a curve moved by (100, 0), and a hidden line. */
@@ -531,4 +533,49 @@ it("renumbers keys and targets by the ops of a command the browser built, each o
       ops: [{ op: "move_anchor", subpath: 0, index: 0, to: [1, 1] }],
     }),
   ).toBeUndefined();
+});
+
+// #286: a held preview's ops turn with its keys: only on a subpath the press turned.
+it("turns a preview's ops only on the subpaths turned, a Handle set its Anchor's other one unless pulled", () => {
+  const { doc, defaultLayerId: parentId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 100, height: 100 }],
+  });
+  const [p] = createNodes(doc, [
+    { type: "path", parentId, d: "M 0 0 L 10 0 L 10 10 M 50 0 L 60 0 L 60 10 L 50 10" },
+  ]).nodes as [Node];
+  const handles = (subpath: number): PathOp => ({
+    op: "set_handles",
+    subpath,
+    index: 1,
+    handleIn: [1, 1],
+    handleOut: null,
+  });
+  const input: PathEditInput = {
+    nodeId: p.id,
+    ops: [handles(0), handles(1), { op: "move_anchor", subpath: 1, index: 0, to: [5, 5] }],
+  };
+  const turned = [{ nodeId: p.id, subpath: 1 }];
+  expect(turnInput(doc, turned, input).ops).toEqual([
+    handles(0),
+    { op: "set_handles", subpath: 1, index: 2, handleIn: null, handleOut: [1, 1] },
+    { op: "move_anchor", subpath: 1, index: 3, to: [5, 5] },
+  ]);
+  expect(turnInput(doc, turned, input, true).ops[1]).toEqual({
+    op: "set_handles",
+    subpath: 1,
+    index: 2,
+    handleIn: [1, 1],
+    handleOut: null,
+  });
+  // A pulled Endpoint's one Handle is at the pointer, the other side once the subpath is turned.
+  const end: PathEditInput = {
+    nodeId: p.id,
+    ops: [{ op: "set_handles", subpath: 1, index: 0, handleOut: [2, 2] }],
+  };
+  expect(turnInput(doc, turned, end, true).ops).toEqual([
+    { op: "set_handles", subpath: 1, index: 3, handleIn: [2, 2] },
+  ]);
+  expect(turnInput(doc, [{ nodeId: "other", subpath: 0 }], input)).toBe(input);
 });
