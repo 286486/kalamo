@@ -947,6 +947,12 @@ it("continues a path from its own held extension, and stores both once each land
   penClick([150, 50], 1);
   penClick([200, 0], 1);
   expect(drawnD(p)).toBe("M -50 50 L 0 0 L 100 0 L 150 50 L 200 0");
+  const under = useStore.getState();
+  const shown = previewAll(under.doc as Document, [
+    ...under.sentPreviews,
+    ...under.held.map((h) => h.preview),
+  ]);
+  expect(dOf(shown, p)).toBe("M -50 50 L 0 0 L 100 0 L 150 50");
   heldFinish();
   expect(drawnD(p)).toBe("M -50 50 L 0 0 L 100 0 L 150 50 L 200 0");
   land(answer("first"), "second");
