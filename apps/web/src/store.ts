@@ -351,11 +351,11 @@ async function fetchActors(docId: string): Promise<Pick<State, "actorNames" | "a
 }
 
 /**
- * Applies one server message that arrived at `now`: `receive` works out the next ViewState, whose
- * effects `run` runs before it is shown. A drag still being made whose targets the message turned,
- * renumbered or let go of draws its unsent preview again from them, as its next move would (#285),
- * outside `receive`, since that redraw reads the tool's gesture state (#307); then the held edits
- * run against it. Returns the state `receive` worked out.
+ * Applies one server message that arrived at `now`: runs `receive`'s effects with `run`, shows its
+ * state, then the held edits. A drag whose targets the message changed draws its preview again
+ * first, as its next move would (#285). That redraw reads the tool's gesture state, so it runs here,
+ * not in `receive` (#307). It may write `edit` after `receive` did: a Pen continuation, the only
+ * other writer, is never live beside a grab.
  */
 export function deliver(
   msg: ServerMessage,
@@ -371,7 +371,6 @@ export function deliver(
   const drawn = grab && grab !== prev.grab && doc && grab.redraw(doc, grab.targets);
   if (drawn) useStore.setState({ edit: drawn.edit ?? null, drag: drawn.drag ?? null });
   runHeld(state.notice);
-  return state;
 }
 
 /**

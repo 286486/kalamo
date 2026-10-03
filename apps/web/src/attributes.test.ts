@@ -405,7 +405,7 @@ it("keeps a Handle drag on its Handle when the answer comes mid-drag", () => {
       ...(theirs ? { actor: "agent" } : { commandId: "c" }),
       updated: [reversed(doc, ring.id)],
     });
-    useStore.setState(stateAfter(useStore.getState(), msg));
+    deliver(msg, "d", 0);
     directTool.move?.(event(useStore.getState().doc as Document, 16, 15));
     // Reversed, Anchor 0 stays first and the Handle is its in Handle.
     if (theirs) expect(ops()).toBeUndefined();
@@ -652,7 +652,7 @@ it("keeps a drag going through the answer to the person's own earlier edit on th
       commandId: "c",
       updated: [previewEdit(doc, earlier as PathDrag).nodes.get(a.id) as Node],
     });
-    useStore.setState(stateAfter(useStore.getState(), answer));
+    deliver(answer, "d", 0);
     expect(firstIndex(useStore.getState().edit?.inputs[0]), name).toBe(g.index[0]);
     const { moved, sent } = finish(g);
     expect(moved, name).toBe(g.index[0]);
@@ -880,7 +880,7 @@ it("clears a held edit's keys on a path another Actor edits before the answer (A
     actor: "agent",
     updated: [reversed(doc, a.id)],
   });
-  useStore.setState(stateAfter(useStore.getState(), theirs));
+  deliver(theirs, "d", 0);
   const shown = useStore.getState().doc as Document;
   deliver(answer(shown, b.id), "d", 0);
   expect(seen).toEqual([[anchorKey(b.id, 1, 3)]]);
