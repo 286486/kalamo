@@ -24,4 +24,5 @@ The browser's Layers panel (F-LAYER-01, F-LAYER-03) is drawn from the Document t
 
 - The Selection may hold a Node inside a Group or a locked Node, so code that acts on the Selection filters it to the editable Nodes first.
 - Amended by ADR-0076 (#195): a clicked Layer's row is also highlighted, as a Layer row that Duplicate acts on. The Layer still stays out of the Selection; the row is browser state beside it.
+- Amended by ADR-0113 (#314): the person's own Undo and Redo select again what was selected in the state they restore, but Nodes now hidden, locked or outside the Isolation. Any other change only prunes the Selection.
 - No thumbnails, Layer colours, drag reordering, search or filters yet (the rest of F-LAYER-01). Amended by ADR-0075: rows drag to restack and reparent.

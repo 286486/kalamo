@@ -34,7 +34,9 @@ That is as far as it goes. The answer reads the keys at a later point, not at th
 
 **What waited stays dropped.** #298 holds edits behind the person's own Undo or Redo. It drops a held edit, and what a drag still being made holds, on a path the answer reshapes. That rule is unchanged. The held edit's keys were worked out on the path before the Undo. The keys that come back are not a renumbering of those keys. They are the selection the person had on the geometry the Undo restores. A key clicked on that path between the Undo and its answer was numbered on the old geometry. The answer replaces it with the keys that come back, as Illustrator would have restored the selection before it took the click.
 
-**What the rule leaves.** Keys live only on Nodes in the Selection, so they come back only on a path still selected. The Selection of Nodes is unchanged: Kalamo's Undo does not restore it. Switching tools drops the keys, and also forgets `keysOn`. A path the person's own edit deletes whole has no geometry after it, so an Undo that brings the path back brings no keys back on it.
+**What the rule leaves.** Keys live only on Nodes in the Selection, so they come back only on a path selected after the answer. Switching tools drops the keys, and also forgets `keysOn`.
+
+Amended by ADR-0113 (#314): the person's own Undo and Redo select again what was selected in the state they restore, so keys come back on a path the Undo selects again. A path the person's own edit deletes whole keeps its keys under its geometry before the delete, those `sendAnchorEdits` dropped for its `delete` included, and an Undo that brings the path back chooses them again.
 
 ADR-0109's bullet on the Direct Selection and ADR-0110's paragraph "The answer numbers what waited" are amended to point here.
 
