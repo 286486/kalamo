@@ -28,6 +28,7 @@ import {
   type Endpoint,
   endKey,
   endOf,
+  PEN_MOVED,
   type PenPath,
   type PenPress,
   type Preview,
@@ -199,10 +200,6 @@ const COINCIDENT = 0.05;
 /** Why a held Pen finish sent nothing: another Actor's edit changed a path it continued or met. */
 const PEN_DROPPED =
   "Someone else changed a path the Pen was continuing or connecting to; what it drew was not applied.";
-
-/** Why a held Pen finish sent nothing: the two paths it joins moved apart, by whoever's edit. */
-const PEN_MOVED =
-  "A path the Pen was connecting to moved before the connection was made; what it drew was not applied.";
 
 /**
  * `doc` with the person's Selection tool moves sent and not yet answered, in `ran` and the

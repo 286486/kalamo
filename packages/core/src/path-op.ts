@@ -441,6 +441,21 @@ function closeWithin(s: Subpath, tolerance: number): Subpath {
 }
 
 /**
+ * Whether the two Endpoints a `path_op join` names in `anchors` lie within its tolerance in the
+ * Document's coordinates, each path's transform applied: whether Join merges them rather than
+ * adding a straight segment. True when `anchors` does not name two Anchors, which Join rejects.
+ */
+export function endpointsMeet(doc: Document, raw: PathOpInput): boolean {
+  const { anchors, tolerance } = PathOpInput.parse(raw);
+  const [p, q, ...more] = (anchors ?? []).map((r, i) => {
+    const n = withAnchors(doc, r.nodeId, `anchors[${i}].nodeId`);
+    return anchorsIn(n, worldTransform(doc, n)).subpaths[r.subpath]?.anchors[r.index];
+  });
+  if (!p || !q || more.length > 0) return true;
+  return Math.hypot(...gap(p, q)) <= (tolerance ?? JOIN_TOLERANCE);
+}
+
+/**
  * The two subpaths of `chains`, open ones, whose Endpoints lie closest, `aEnd` and `bEnd` telling whether
  * that is the end (else the start) of `chains[i]` and `chains[j]`, with `i < j`. The first pair
  * wins a tie.
@@ -463,6 +478,9 @@ export function closestEnds(chains: Subpath[]) {
   return best;
 }
 
+/** Join's default distance, in document units, at which Endpoints merge. */
+const JOIN_TOLERANCE = 0.01;
+
 const JOIN_HINT = "Name two open Endpoints in anchors, or omit anchors to join whole open paths.";
 
 /**
@@ -479,7 +497,7 @@ function join(doc: Document, input: z.output<typeof PathOpInput>): PathOpResult 
     const top = nodes.reduce((a, b) => ((order.get(b.id) ?? 0) > (order.get(a.id) ?? 0) ? b : a));
     const m = worldTransform(doc, top);
     const each = nodes.map((n) => anchorsIn(n, multiply(invert(m), worldTransform(doc, n))));
-    return { top, each, tolerance: (input.tolerance ?? 0.01) / scaleOf(m) };
+    return { top, each, tolerance: (input.tolerance ?? JOIN_TOLERANCE) / scaleOf(m) };
   };
   const done = (top: WithAnchors, subpaths: Subpath[], nodes: WithAnchors[]): PathOpResult => {
     const next = { ...anchorsIn(top).path, d: formatPath(fromAnchors(subpaths)) };
