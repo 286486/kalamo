@@ -374,21 +374,27 @@ it("keeps a Handle drag on its Handle when the answer comes mid-drag", () => {
     anchors: [anchorKey(ring.id, 1, 0)],
   });
   setDirection(state, true);
-  useStore.setState({ ...state, reversing: useStore.getState().reversing, edit: null });
+  const pressed = { ...state, reversing: useStore.getState().reversing, edit: null };
   const ops = () => useStore.getState().edit?.inputs[0]?.ops;
-  directTool.down(event(doc, 10, 15));
-  directTool.move?.(event(doc, 15, 15));
-  expect(ops()).toMatchObject([{ op: "set_handles", index: 0, handleOut: [15, 15] }]);
-  const answer = message("tx", {
-    rev: doc.rev + 1,
-    commandId: "c",
-    updated: [reversed(doc, ring.id)],
-  });
-  useStore.setState(stateAfter(useStore.getState(), answer));
-  // Reversed, Anchor 0 stays first and the Handle is its in Handle.
-  directTool.move?.(event(useStore.getState().doc as Document, 16, 15));
-  expect(ops()).toMatchObject([{ op: "set_handles", index: 0, handleIn: [16, 15] }]);
-  directTool.cancel?.(() => {});
+  // The answer turns the Handle held; another Actor's reverse before it leaves the drag on Anchor 0's
+  // out Handle, which that reverse retracted, so it previews nothing (#296).
+  for (const theirs of [false, true]) {
+    useStore.setState(pressed);
+    directTool.down(event(doc, 10, 15));
+    directTool.move?.(event(doc, 15, 15));
+    expect(ops()).toMatchObject([{ op: "set_handles", index: 0, handleOut: [15, 15] }]);
+    const msg = message("tx", {
+      rev: doc.rev + 1,
+      ...(theirs ? { actor: "agent" } : { commandId: "c" }),
+      updated: [reversed(doc, ring.id)],
+    });
+    useStore.setState(stateAfter(useStore.getState(), msg));
+    directTool.move?.(event(useStore.getState().doc as Document, 16, 15));
+    // Reversed, Anchor 0 stays first and the Handle is its in Handle.
+    if (theirs) expect(ops()).toBeUndefined();
+    else expect(ops()).toMatchObject([{ op: "set_handles", index: 0, handleIn: [16, 15] }]);
+    directTool.cancel?.(() => {});
+  }
 });
 
 // #296: a drag still being made follows only the answer to the person's own press, never a winding
@@ -442,7 +448,7 @@ const grabs: Record<
 it("renumbers a drag still being made by the answer alone, not by another Actor's reverse", () => {
   vi.useFakeTimers();
   for (const [name, g] of Object.entries(grabs)) {
-    for (const source of ["answer", "theirs"] as const) {
+    for (const source of ["answer", "rejected", "theirs"] as const) {
       const label = `${name}, ${source}`;
       const { doc, a, pressed, answer } = pressOn((a) => ({ anchors: [anchorKey(a.id, 1, 0)] }));
       useStore.setState({ ...pressed, edit: null, drag: null, held: [] });
@@ -455,7 +461,9 @@ it("renumbers a drag still being made by the answer alone, not by another Actor'
       const msg =
         source === "answer"
           ? answer(doc, a.id)
-          : message("tx", { rev: doc.rev + 1, actor: "agent", updated: [reversed(doc, a.id)] });
+          : source === "rejected"
+            ? rejected
+            : message("tx", { rev: doc.rev + 1, actor: "agent", updated: [reversed(doc, a.id)] });
       useStore.setState(stateAfter(useStore.getState(), msg));
       runHeld();
       const now = useStore.getState().doc as Document;
@@ -463,12 +471,18 @@ it("renumbers a drag still being made by the answer alone, not by another Actor'
       const after = source === "answer" ? g.index[1] : g.index[0];
       expect(index(), label).toBe(after);
       vi.mocked(send).mockClear();
+      g.up(now, x + 6, y);
       if (source === "theirs") {
-        g.cancel();
+        // Released while the press is still in flight, the edit waits on the indices it kept, and
+        // the answer alone renumbers them.
+        expect(commands(), label).toEqual([]);
+        useStore.setState(stateAfter(useStore.getState(), answer(now, a.id)));
+        runHeld();
+        const [held] = commands().filter((c) => c.type === "path_edit");
+        expect(held?.type === "path_edit" && firstIndex(held.input), label).toBe(g.index[1]);
         continue;
       }
-      // Released after the answer, the edit is sent on the target as the answer left it.
-      g.up(now, x + 6, y);
+      // Released after the answer or the rejection, the edit is sent on the target as it left it.
       const [sent] = commands();
       expect(sent?.type === "path_edit" && firstIndex(sent.input), label).toBe(after);
     }

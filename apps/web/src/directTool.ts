@@ -49,13 +49,14 @@ let gesture: Gesture | null = null;
 let marqueeRect: Rect | null = null;
 
 const anchorTarget = (key: string): Target => ({ kind: "anchor", key });
+const anchorKeys = (grabbed: Target[]) => grabbed.flatMap((t) => targetKeys(t).anchors);
 
 /** The preview of `g`'s latest move of `grabbed` on `doc`, as `commitDrag` sends it. */
 function dragOf(g: Gesture, doc: Document, grabbed: Target[]): Partial<Preview> | null {
   if (!g.last || g.kind === "marquee") return null;
   const { dx, dy, alt } = g.last;
   if (g.kind === "move") return { drag: { nodeIds: g.nodeIds, dx, dy, commandId: null } };
-  const keys = g.kind === "anchors" ? grabbed.flatMap((t) => targetKeys(t).anchors) : [];
+  const keys = g.kind === "anchors" ? anchorKeys(grabbed) : [];
   // Paths with every Anchor selected move whole, so a Live Shape stays live; the rest by their
   // Anchors.
   const { whole, partial } = splitWhole(doc, keys);
@@ -188,10 +189,7 @@ export const directTool: CanvasTool = {
         {
           ...(g.kind === "target" && grabbedTarget
             ? { target: grabbedTarget }
-            : {
-                anchors: g.kind === "anchors" ? grabbed.flatMap((t) => targetKeys(t).anchors) : [],
-                segments: [],
-              }),
+            : { anchors: g.kind === "anchors" ? anchorKeys(grabbed) : [], segments: [] }),
           previewed: true,
         },
       );
