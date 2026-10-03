@@ -269,3 +269,71 @@ test("a reconnect keeps the Pen continuation drawn", async ({ page, request }) =
   await page.keyboard.press("Enter");
   await expect.poll(d).toBe("M 20 20 L 60 20 L 100 60");
 });
+
+// #293: the Pen continues a path from the person's own extension of it still unanswered, as drawn;
+// the extension stays on the canvas, and the finish stores both, with no notice.
+test("the Pen continues a path from the person's own unanswered extension of it", async ({
+  page,
+  request,
+}) => {
+  const { docId, defaultLayerId: parentId } = (
+    await call(request, "kalamo_doc_create", {
+      name: "Pen own edit",
+      artboards: [{ width: 200, height: 100, background: "#FFFFFF" }],
+    })
+  ).structuredContent;
+  const created = await call(request, "kalamo_node_create", {
+    docId,
+    nodes: [
+      {
+        type: "path",
+        parentId,
+        d: "M 20 20 L 60 20",
+        appearance: { fills: [], strokes: [{ color: "#FF0000", width: 6 }] },
+      },
+    ],
+  });
+  const [a] = created.structuredContent.createdIds as [string];
+  const d = async () =>
+    (await call(request, "kalamo_node_get", { docId, nodeIds: [a], detail: "full" }))
+      .structuredContent?.nodes[0]?.d;
+  // The first `path_edit` is held until the test passes it on.
+  let holding = true;
+  const held: (() => void)[] = [];
+  await page.routeWebSocket(/\/ws$/, (ws) => {
+    const server = ws.connectToServer();
+    ws.onMessage((m) => {
+      if (!holding || JSON.parse(String(m)).command?.type !== "path_edit") return server.send(m);
+      holding = false;
+      held.push(() => server.send(m));
+    });
+  });
+
+  await page.goto(`/docs/${docId}`);
+  await expect(page.getByTestId("status-bar")).toContainText(/\d+%/);
+  await page.keyboard.press("Control+1");
+  await expect(page.getByTestId("status-bar")).toContainText("100%");
+  const box = await page.getByTestId("canvas").boundingBox();
+  if (!box) throw new Error("no canvas");
+  const at = (x: number, y: number) =>
+    [box.x + box.width / 2 + x - 100, box.y + box.height / 2 + y - 50] as const;
+
+  await page.keyboard.press("p");
+  await page.mouse.click(...at(60, 20));
+  await page.mouse.click(...at(80, 40));
+  await page.keyboard.press("Enter");
+  await expect.poll(() => held.length).toBe(1);
+  // The other Endpoint, then a new Anchor: both extensions are drawn, the first one's middle too.
+  await page.mouse.click(...at(20, 20));
+  await page.mouse.click(...at(10, 40));
+  await expect.poll(() => pixel(page, 15, 30)).toEqual([255, 0, 0]);
+  expect(await pixel(page, 70, 30)).toEqual([255, 0, 0]);
+  held[0]?.();
+  await expect.poll(d).toBe("M 20 20 L 60 20 L 80 40");
+  await page.waitForTimeout(200);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  expect(await pixel(page, 70, 30)).toEqual([255, 0, 0]);
+  await page.keyboard.press("Enter");
+  await expect.poll(d).toBe("M 10 40 L 20 20 L 60 20 L 80 40");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
