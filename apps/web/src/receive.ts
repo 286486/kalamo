@@ -745,7 +745,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
       msg,
       prior,
       { doc, anchors, segments },
-      (n) => next.includes(n) && fates(n)?.cause === "own" && fates(n)?.keys === "ends",
+      (n) => next.includes(n) && causeOf(n) === "own" && ends(n, "keys"),
     ),
     // A continuation the reconnect keeps is drawn again on the new Document (#292).
     ...(msg.type === "document" &&
@@ -1102,9 +1102,12 @@ function settleSent(sent: ReadonlySet<string>, id: string | undefined) {
 }
 
 /** Where `keysOn` keeps the keys a path had on `geometry`. */
-const keysAt = (id: string, geometry: string | undefined) => `${id}\n${geometry}`;
+const keysAt = (id: string, geometry: string) => `${id}\n${geometry}`;
 
-/** As many geometries as the Document's undo stack holds Transactions (ADR-0011). */
+/**
+ * The undo stack's depth (ADR-0011), counted in geometries: a change keeps two per path it reshapes,
+ * before and after, so fewer than 200 undo steps' keys stay.
+ */
 const KEYS_KEPT = 200;
 
 /**
@@ -1118,14 +1121,14 @@ function chosenAgain(
   s: ViewState,
   msg: Extract<ServerMessage, { type: "tx" | "document" }>,
   prior: Document | null,
-  after: Pick<ViewState, "doc" | "anchors" | "segments">,
+  after: { doc: Document } & Pick<ViewState, "anchors" | "segments">,
   back: (n: string) => boolean,
 ): Pick<ViewState, "anchors" | "segments"> & Partial<Pick<ViewState, "keysOn">> {
   const { doc } = after;
   let { anchors, segments } = after;
   // With no keys before and none kept, there is nothing to keep or choose again.
   if (s.keysOn.size + s.anchors.length + s.segments.length === 0) return { anchors, segments };
-  const changed = msg.type === "tx" ? msg.updated.map((n) => n.id) : [...(doc?.nodes.keys() ?? [])];
+  const changed = msg.type === "tx" ? msg.updated.map((n) => n.id) : [...doc.nodes.keys()];
   const keysOn = new Map(s.keysOn);
   let kept = false;
   const keep = (at: string, keys: Pick<ViewState, "anchors" | "segments">) => {
