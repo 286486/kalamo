@@ -62,6 +62,10 @@ export const through = <A extends BareAnchor>(m: Matrix, a: A): A => ({
   handleOut: a.handleOut && applyTo(m, ...a.handleOut),
 });
 
+/** How Node `id` maps its own coordinates into the Document's. */
+export const worldOf = (doc: Document, id: string) =>
+  worldTransform(doc, doc.nodes.get(id) as Node);
+
 /** Its Anchors in document coordinates. */
 export function anchorsOf(doc: Document, n: ShapeNode): Subpath[] {
   const m = worldTransform(doc, n);

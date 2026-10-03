@@ -4,18 +4,23 @@ import {
   formatPath,
   fromAnchors,
   invert,
-  type Matrix,
   multiply,
-  type Node,
   type NodeInput,
   round,
   type Shape,
-  worldTransform,
 } from "@kalamo/core";
 import { addAnchorAt, deleteAnchorAt } from "./anchorTools.ts";
 import { cancelDrag } from "./canvas.ts";
 import { curveThrough } from "./curvature.ts";
-import { anchorsOf, editableShapes, flip, hasAnchors, replaceSubpath, through } from "./direct.ts";
+import {
+  anchorsOf,
+  editableShapes,
+  flip,
+  hasAnchors,
+  replaceSubpath,
+  through,
+  worldOf,
+} from "./direct.ts";
 import { forNewArt, leaving } from "./isolation.ts";
 import {
   disconnected,
@@ -202,8 +207,9 @@ const PEN_MOVED =
  * onto another is one `path_join`, the Join deleting one of them. It is sent once a Reverse Path
  * Direction press in flight is answered, at the Endpoints chosen, as the Document then runs
  * (ADR-0110); another Actor's edit to their path meanwhile drops it (ADR-0109). What it drew is
- * kept in the frame of the paths it meets, so a move of them meanwhile carries it along, as it does
- * the held Pencil redraw (#284); a move of one of two paths it joins, but not the other, drops it.
+ * kept in the own coordinates of the paths it meets, so a move of them meanwhile carries it along,
+ * as it does the held Pencil redraw (#284); a move of one of two paths it joins, but not the
+ * other, drops it.
  */
 function finishEdit(doc: Document, pen: PenPath) {
   const { from, to, anchors, closed } = pen;
@@ -217,8 +223,7 @@ function finishEdit(doc: Document, pen: PenPath) {
     return;
   }
   const keys = ends.map((e) => endKey(doc, e));
-  const frame = (d: Document, e: Endpoint) => worldTransform(d, d.nodes.get(e.nodeId) as Node);
-  const was = ends.map((e) => invert(frame(doc, e)));
+  const was = ends.map((e) => ({ id: e.nodeId, back: invert(worldOf(doc, e.nodeId)) }));
   useStore.setState({
     pen: null,
     selection: [...new Set(ends.map((e) => e.nodeId))],
@@ -235,7 +240,7 @@ function finishEdit(doc: Document, pen: PenPath) {
       // How each path it meets moved since `doc`: moved together, what it drew goes with them;
       // moved apart, it can meet only one (#301).
       const [m, other] = now
-        ? ends.map((e, i) => round(multiply(frame(now, e), was[i] as Matrix)))
+        ? was.map(({ id, back }) => round(multiply(worldOf(now, id), back)))
         : [];
       if (m && other && String(m) !== String(other)) {
         cancelDrag();

@@ -7,7 +7,6 @@ import {
   formatPath,
   fromAnchors,
   invert,
-  type Node,
   type PathEditInput,
   toAnchors,
   worldTransform,
@@ -20,6 +19,7 @@ import {
   localAnchors,
   nearestSegment,
   through,
+  worldOf,
 } from "./direct.ts";
 import { editable } from "./selection.ts";
 import { getItem } from "./storage.ts";
@@ -370,8 +370,7 @@ export function pencilUp(scale: number) {
     const keys = hasAnchors(n)
       ? localAnchors(n).flatMap((sub, k) => sub.anchors.map((_, i) => anchorKey(nodeId, k, i)))
       : [];
-    const frame = (doc: Document) => worldTransform(doc, doc.nodes.get(nodeId) as Node);
-    const m = invert(frame(s.doc));
+    const m = invert(worldOf(s.doc, nodeId));
     const own = done.map((p) => applyTo(m, ...p));
     afterReverse(
       ({ doc: now, anchors }, w) => {
@@ -379,7 +378,7 @@ export function pencilUp(scale: number) {
           cancelDrag();
           return;
         }
-        const f = anchors.length > 0 && frame(now);
+        const f = anchors.length > 0 && worldOf(now, nodeId);
         const at = f && own.map((p) => applyTo(f, ...p));
         const again = at && pencilResult(now, [nodeId], at, o, scale);
         if (!again || !("edit" in again)) {

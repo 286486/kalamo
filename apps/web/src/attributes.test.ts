@@ -1596,7 +1596,7 @@ it("tells the person a held Pencil redraw was dropped when their own edit took t
   }
 });
 
-// #301: a held Pen finish keeps what the person drew in the frame of the path it continues or
+// #301: a held Pen finish keeps what the person drew in the own coordinates of the path it continues or
 // connects to, so the person's own Selection tool move in the window carries it with the path, as
 // #284 carries the held Pencil redraw.
 
@@ -1619,7 +1619,7 @@ function continueQ() {
 }
 
 const penSent = () => commands().filter((c) => c.type === "path_edit" || c.type === "path_join");
-const answered = (outcome: "accepted" | "rejected") => (outcome === "rejected" ? "No." : null);
+const noticeAfter = (outcome: "accepted" | "rejected") => (outcome === "rejected" ? "No." : null);
 
 it("carries a held Pen continuation with its path when the person moves the path before the answer (#301)", () => {
   for (const outcome of ["accepted", "rejected"] as const) {
@@ -1628,7 +1628,7 @@ it("carries a held Pen continuation with its path when the person moves the path
     continueQ();
     ownMove(q, 100, 50);
     answer(outcome);
-    expect(useStore.getState().notice, outcome).toBe(answered(outcome));
+    expect(useStore.getState().notice, outcome).toBe(noticeAfter(outcome));
     expect(
       penSent().map((c) => c.type),
       outcome,
@@ -1649,7 +1649,7 @@ it("carries a held Pen continuation with its path's Group when the person moves 
     continueQ();
     ownMove(group, 100, 50);
     answer(outcome);
-    expect(useStore.getState().notice, outcome).toBe(answered(outcome));
+    expect(useStore.getState().notice, outcome).toBe(noticeAfter(outcome));
     expect(
       penSent().map((c) => c.type),
       outcome,
@@ -1674,7 +1674,7 @@ it("carries a held new Pen path with the path it ends on when the person moves t
       outcome === "accepted" ? joined.toReversed() : joined,
     ]);
     expect(storedAfterSent(p).transform, outcome).toEqual([1, 0, 0, 1, 100, 50]);
-    expect(useStore.getState().notice, outcome).toBe(answered(outcome));
+    expect(useStore.getState().notice, outcome).toBe(noticeAfter(outcome));
   }
 });
 
@@ -1701,7 +1701,7 @@ it("joins a held Pen connection of two paths moved together, and drops it when o
           .map((x) => x.anchors.map((a) => xy(a.anchor)));
         const moved = ["100 150", "120 150", "150 50", "180 50", "180 80"];
         expect(line?.[0] === "100 150" ? line : line?.toReversed(), label).toEqual(moved);
-        expect(s.notice, label).toBe(answered(outcome));
+        expect(s.notice, label).toBe(noticeAfter(outcome));
         continue;
       }
       expect(penSent(), label).toEqual([]);
