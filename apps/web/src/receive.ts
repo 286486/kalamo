@@ -1138,7 +1138,8 @@ const KEYS_KEPT = 200;
  * as it was: an Undo or Redo steps between kept geometries, as Illustrator's steps between recorded
  * states. Any other change of a path's geometry keeps its keys before and after it, each only when
  * there are some or an entry to replace, so a geometry keeps the latest keys it had. The keys before
- * the person's own Anchor edit are those it dropped when sent (`keysDropped`).
+ * the person's own edit are those it was sent with: those it dropped when sent (`keysDropped`), or,
+ * on a path a later edit in flight dropped them from, that edit's.
  */
 function chosenAgain(
   s: ViewState,
@@ -1149,9 +1150,12 @@ function chosenAgain(
 ): Pick<ViewState, "anchors" | "segments"> & Partial<Pick<ViewState, "keysOn">> {
   const { doc } = after;
   let { anchors, segments } = after;
-  const had = (msg.type === "tx" && msg.commandId && s.keysDropped.get(msg.commandId)) || s;
+  const id = msg.type === "tx" ? msg.commandId : undefined;
+  const own = !!id && s.sent.has(id);
+  const had = (id && s.keysDropped.get(id)) || s;
   // With no keys before and none kept, there is nothing to keep or choose again.
-  if (s.keysOn.size + had.anchors.length + had.segments.length === 0) return { anchors, segments };
+  if (s.keysOn.size + s.keysDropped.size + had.anchors.length + had.segments.length === 0)
+    return { anchors, segments };
   const changed = msg.type === "tx" ? msg.updated.map((n) => n.id) : [...doc.nodes.keys()];
   const keysOn = new Map(s.keysOn);
   let kept = false;
@@ -1173,7 +1177,14 @@ function chosenAgain(
       segments = [...segments, ...again.segments];
       continue;
     }
-    const before = { anchors: had.anchors.filter(on), segments: had.segments.filter(on) };
+    // The keys live now index the geometry after the later edits in flight; the first of them to
+    // drop the keys on this path dropped those this edit was sent with (#315).
+    const later =
+      own && had === s
+        ? [...s.keysDropped.values()].find((k) => k.anchors.some(on) || k.segments.some(on))
+        : undefined;
+    const from = later ?? had;
+    const before = { anchors: from.anchors.filter(on), segments: from.segments.filter(on) };
     const now = { anchors: anchors.filter(on), segments: segments.filter(on) };
     kept = keep(keysAt(id, was), before) || kept;
     kept = keep(keysAt(id, is), now) || kept;
