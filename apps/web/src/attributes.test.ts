@@ -4,6 +4,7 @@ import {
   type Document,
   editPath,
   type Node,
+  type PathEditInput,
   type PathNode,
   parsePath,
   pathOp,
@@ -16,7 +17,7 @@ import { expect, it, vi } from "vitest";
 import { addAnchorTool, anchorPointTool, deleteAnchorTool } from "./anchorTools.ts";
 import { directionOf, fillRuleOf, setDirection, setFillRule } from "./attributes.ts";
 import { commitDrag } from "./canvas.ts";
-import { curvatureDown, curvatureDrag, curvatureUp } from "./curvature.ts";
+import { curvatureCancel, curvatureDown, curvatureDrag, curvatureUp } from "./curvature.ts";
 import { anchorKey, localAnchors, parseKey } from "./direct.ts";
 import { directTool } from "./directTool.ts";
 import { pencilDown, pencilMove, pencilUp } from "./pencil.ts";
@@ -84,6 +85,11 @@ const event = (doc: Document, x: number, y: number, shift = false) =>
     redraw() {},
   }) as unknown as ToolEvent;
 const commands = () => vi.mocked(send).mock.calls.map(([c]) => c);
+/** The Anchor the first op of a `path_edit`'s `input` names. */
+const firstIndex = (input: PathEditInput | undefined) => {
+  const op = input?.ops[0];
+  return op && "index" in op ? op.index : undefined;
+};
 
 /** Two Compound Paths, each a clockwise square with a counter-clockwise hole. */
 function rings() {
@@ -383,6 +389,131 @@ it("keeps a Handle drag on its Handle when the answer comes mid-drag", () => {
   directTool.move?.(event(useStore.getState().doc as Document, 16, 15));
   expect(ops()).toMatchObject([{ op: "set_handles", index: 0, handleIn: [16, 15] }]);
   directTool.cancel?.(() => {});
+});
+
+// #296: a drag still being made follows only the answer to the person's own press, never a winding
+// flip by another Actor. Each grabs a's hole at `at`; `index` is the first op's before and after the
+// answer. (20, 10) is the hole's Anchor 3, then 1; its segment 0 runs back as segment 3.
+const grabs: Record<
+  string,
+  {
+    at: [number, number];
+    index: [number, number];
+    down: (doc: Document, x: number, y: number) => void;
+    move: (doc: Document, x: number, y: number) => void;
+    up: (doc: Document, x: number, y: number) => void;
+    cancel: () => void;
+  }
+> = {
+  "a Direct Selection Anchor drag": {
+    at: [20, 10],
+    index: [3, 1],
+    down: (doc, x, y) => directTool.down(event(doc, x, y)),
+    move: (doc, x, y) => directTool.move?.(event(doc, x, y)),
+    up: (doc, x, y) => directTool.up?.(event(doc, x, y)),
+    cancel: () => directTool.cancel?.(() => {}),
+  },
+  "a Direct Selection segment drag": {
+    at: [10, 12.5],
+    index: [0, 3],
+    down: (doc, x, y) => directTool.down(event(doc, x, y)),
+    move: (doc, x, y) => directTool.move?.(event(doc, x, y)),
+    up: (doc, x, y) => directTool.up?.(event(doc, x, y)),
+    cancel: () => directTool.cancel?.(() => {}),
+  },
+  "an Anchor Point drag out of an Anchor": {
+    at: [20, 10],
+    index: [3, 1],
+    down: (doc, x, y) => anchorPointTool.down?.(event(doc, x, y)),
+    move: (doc, x, y) => anchorPointTool.move?.(event(doc, x, y)),
+    up: (doc, x, y) => anchorPointTool.up?.(event(doc, x, y)),
+    cancel: () => anchorPointTool.cancel?.(() => {}),
+  },
+  "a Curvature drag": {
+    at: [20, 10],
+    index: [3, 1],
+    down: (_, x, y) => curvatureDown([x, y], 1, false),
+    move: (_, x, y) => curvatureDrag([x, y]),
+    up: () => curvatureUp(),
+    cancel: () => curvatureCancel(),
+  },
+};
+
+it("renumbers a drag still being made by the answer alone, not by another Actor's reverse", () => {
+  vi.useFakeTimers();
+  for (const [name, g] of Object.entries(grabs)) {
+    for (const source of ["answer", "theirs"] as const) {
+      const label = `${name}, ${source}`;
+      const { doc, a, pressed, answer } = pressOn((a) => ({ anchors: [anchorKey(a.id, 1, 0)] }));
+      useStore.setState({ ...pressed, edit: null, drag: null, held: [] });
+      vi.advanceTimersByTime(1000);
+      const index = () => firstIndex(useStore.getState().edit?.inputs[0]);
+      const [x, y] = g.at;
+      g.down(doc, x, y);
+      g.move(doc, x + 5, y);
+      expect(index(), label).toBe(g.index[0]);
+      const msg =
+        source === "answer"
+          ? answer(doc, a.id)
+          : message("tx", { rev: doc.rev + 1, actor: "agent", updated: [reversed(doc, a.id)] });
+      useStore.setState(stateAfter(useStore.getState(), msg));
+      runHeld();
+      const now = useStore.getState().doc as Document;
+      g.move(now, x + 6, y);
+      const after = source === "answer" ? g.index[1] : g.index[0];
+      expect(index(), label).toBe(after);
+      vi.mocked(send).mockClear();
+      if (source === "theirs") {
+        g.cancel();
+        continue;
+      }
+      // Released after the answer, the edit is sent on the target as the answer left it.
+      g.up(now, x + 6, y);
+      const [sent] = commands();
+      expect(sent?.type === "path_edit" && firstIndex(sent.input), label).toBe(after);
+    }
+  }
+  vi.useRealTimers();
+});
+
+it("keeps a drag on the Anchor grabbed when another Actor flips its winding, no press in flight", () => {
+  vi.useFakeTimers();
+  const { doc, defaultLayerId: parentId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 200, height: 200 }],
+  });
+  const [p] = createNodes(doc, [{ type: "path", parentId, d: "M0 0 L10 0 L10 10 L0 10" }])
+    .nodes as [Node];
+  // Anchor 1 moved to (-30, 30) turns the open path the other way and renumbers nothing.
+  const flipped = editPath(
+    { ...doc, nodes: new Map(doc.nodes) },
+    { nodeId: p.id, ops: [{ op: "move_anchor", subpath: 0, index: 1, to: [-30, 30] }] },
+  ).node;
+  expect(runsClockwise(doc, p as PathNode, 0)).not.toBe(runsClockwise(doc, flipped, 0));
+  const theirs = message("tx", { rev: doc.rev + 1, actor: "agent", updated: [flipped] });
+  const gestures = {
+    "an Anchor Point drag out of an Anchor": grabs["an Anchor Point drag out of an Anchor"],
+    "a Curvature drag": grabs["a Curvature drag"],
+  };
+  for (const [name, g] of Object.entries(gestures)) {
+    if (!g) continue;
+    useStore.setState(viewState({ doc, selection: [p.id], role: "owner" }));
+    vi.advanceTimersByTime(1000);
+    vi.mocked(send).mockClear();
+    const index = () => firstIndex(useStore.getState().edit?.inputs[0]);
+    g.down(doc, 0, 0);
+    g.move(doc, 0, 5);
+    expect(index(), name).toBe(0);
+    useStore.setState(stateAfter(useStore.getState(), theirs));
+    const now = useStore.getState().doc as Document;
+    g.move(now, 0, 6);
+    expect(index(), name).toBe(0);
+    g.up(now, 0, 6);
+    const [sent] = commands();
+    expect(sent?.type === "path_edit" && firstIndex(sent.input), name).toBe(0);
+  }
+  vi.useRealTimers();
 });
 
 it("holds Direct Selection edits while a press is in flight and runs them in order after it", () => {
