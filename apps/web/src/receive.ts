@@ -163,6 +163,12 @@ export type Chosen = Pick<ViewState, "anchors" | "segments" | "selection" | "too
 export type Preview = Pick<ViewState, "edit" | "drag">;
 
 /**
+ * A sent preview in `ran`. `held` marks a held edit that ran: its keys were worked out for it, not
+ * for a drag started later, so its answer does not keep what that drag holds (ADR-0110).
+ */
+export type Ran = Preview & { held?: true };
+
+/**
  * A Direct Selection edit made while a Reverse Path Direction press was in flight, run once it is
  * answered (ADR-0110). Its keys are renumbered and cleared as the Direct Selection's are meanwhile.
  * `preview` is its own, drawn until it runs: running or dropping it changes no other preview.
@@ -218,7 +224,13 @@ export interface ViewState {
    * Sent previews off the live slots, each drawn until its answer: held edits that ran, and a sent
    * drag whose preview the next drag replaced.
    */
-  ran: Preview[];
+  ran: Ran[];
+  /**
+   * Every command this tab sent on an open socket and has not yet had answered, with a `tx` or a
+   * `rejected`: a `tx` whose `commandId` is here is the person's own; any other, another Actor's,
+   * another tab's included (ADR-0109).
+   */
+  sent: ReadonlySet<string>;
   opPreview: PathOpPreview | null;
   /** Direct Selection's selected Anchors (direct.ts's keys): UI state, like the Selection. */
   anchors: string[];
@@ -312,6 +324,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
   if (msg.type === "rejected") {
     const gone = msg.error.code === "NODE_GONE";
     return {
+      ...unsent(s.sent, msg.id),
       ...(s.reversing?.commandId === msg.id && { reversing: null }),
       ...(s.drag?.commandId === msg.id && { drag: null }),
       ...settlePending(s.pending, msg.id),
@@ -347,28 +360,43 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     msg.type === "document" || (!!msg.commandId && msg.commandId === s.drag?.commandId);
   const drawn =
     msg.type === "tx" ? s.pending.find((p) => p.commandId === msg.commandId) : undefined;
-  // Someone else's change to a path renumbers its Anchors, so its selected ones go; after our own
-  // command, and on a reconnect, those it still has stay.
-  const ours = [s, ...s.ran]
-    .flatMap((p) => [...(p.edit?.commandIds ?? []), p.drag?.commandId])
-    .concat(s.reversing?.commandId);
-  const own = msg.type === "tx" && !!msg.commandId && ours.includes(msg.commandId);
+  // Someone else's change to a path renumbers its Anchors, so its selected ones go; after the
+  // command the keys were worked out for, and on a reconnect, those it still has stay. After the
+  // person's other commands, they stay on a Node whose geometry it left as it was (#288).
+  const idsOf = (ps: Preview[]) =>
+    ps.flatMap((p) => [...(p.edit?.commandIds ?? []), p.drag?.commandId]);
+  const id = msg.type === "tx" ? msg.commandId : undefined;
+  const own = !!id && [...idsOf([s, ...s.ran]), s.reversing?.commandId].includes(id);
+  const mine = own || (!!id && s.sent.has(id));
+  // A drag still being made was worked out on the path as it found it at the press: only its own
+  // earlier drags and the press keep it on a reshaped path, not a held edit that ran (ADR-0110).
+  const grabOwn =
+    !!id && [...idsOf([s, ...s.ran.filter((p) => !p.held)]), s.reversing?.commandId].includes(id);
   const touched =
     msg.type === "tx" ? new Set([...msg.updated.map((n) => n.id), ...msg.deletedIds]) : null;
+  const prior = s.doc;
+  const reshapedBy = new Set(
+    mine && touched ? [...touched].filter((n) => geometryOf(prior, n) !== geometryOf(doc, n)) : [],
+  );
+  // Whether the `tx` leaves keys on Node `n` that are still in range, after the command `kept`
+  // says they were worked out for.
+  const keeps = (n: string, kept: boolean) => kept || (mine && !reshapedBy.has(n));
   // The press's answer, or the Document sent on reconnect, settles it: keys on a subpath it turned
   // are renumbered to stay on their points (ADR-0110). On a reconnect, a path it named that is
   // neither as it was nor as the press leaves it was reshaped by someone else, so its keys go, as
   // for another Actor's edit (ADR-0109).
   const settled =
     !!s.reversing && (msg.type === "document" || msg.commandId === s.reversing.commandId);
-  const prior = s.doc;
   const reshaped = new Set(
     msg.type === "document" && prior && s.reversing ? reshapedOf(prior, doc, s.reversing) : [],
   );
   const kept = (inRangeOf: typeof inRange) => (key: string) => {
     const { nodeId } = parseKey(key);
     const changed = !touched || touched.has(nodeId);
-    return !reshaped.has(nodeId) && (!changed || ((own || !touched) && inRangeOf(doc, key)));
+    return (
+      !reshaped.has(nodeId) &&
+      (!changed || ((!touched || keeps(nodeId, own)) && inRangeOf(doc, key)))
+    );
   };
   const turned =
     settled && prior && s.reversing
@@ -394,23 +422,23 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
   // Someone else's change to the path the Pen continues ends the continuation and its preview, so
   // its finish never writes the Anchors it started from over theirs (ADR-0110). A change to the
   // path a press connects to drops only the connection, so the release joins nothing renumbered
-  // or deleted (#290). A reconnect does not say who changed it, so any change does but the
-  // press's own reverse.
-  const same = (id: string, x: Document | null) =>
-    JSON.stringify(x?.nodes.get(id)) === JSON.stringify(doc.nodes.get(id));
-  const changed = (id: string | undefined) =>
-    !!id &&
-    !own &&
+  // or deleted (#290). The person's own other command does too when it reshapes the path. A
+  // reconnect does not say who changed it, so any change does but the press's own reverse.
+  const same = (n: string, x: Document | null) =>
+    JSON.stringify(x?.nodes.get(n)) === JSON.stringify(doc.nodes.get(n));
+  const changedBut = (kept: boolean) => (n: string | undefined) =>
+    !!n &&
     (touched
-      ? touched.has(id)
-      : !same(id, prior) && !(prior && s.reversing && same(id, previewEdit(prior, s.reversing))));
+      ? touched.has(n) && !keeps(n, kept)
+      : !same(n, prior) && !(prior && s.reversing && same(n, previewEdit(prior, s.reversing))));
+  const changed = changedBut(own);
   const reached = changed(s.pen?.from?.nodeId);
   const pen = s.pen && turned.length > 0 ? turnedPen(doc, s.pen, turned) : s.pen;
   const dropped =
     !reached && pen?.to && changed(pen.to.nodeId) ? disconnected(pen, s.penPress) : null;
   // What a drag still being made holds on a path someone else changed goes, read as for the Pen's
   // continuation, and its unsent preview with it; the rest is turned as the keys are (ADR-0110).
-  const letGo = new Set([...new Set(s.grabbed.map(targetNode))].filter(changed));
+  const letGo = new Set([...new Set(s.grabbed.map(targetNode))].filter(changedBut(grabOwn)));
   const grabbed = s.grabbed.filter((t) => !letGo.has(targetNode(t))).map(turnTarget(doc, turned));
   const keptInputs = s.edit?.inputs.filter((i) => !letGo.has(i.nodeId)) ?? [];
   const keptIds = s.drag?.nodeIds.filter((id) => !letGo.has(id)) ?? [];
@@ -459,6 +487,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
       }),
     }),
     ...(answered && { drag: null }),
+    ...(msg.type === "document" ? s.sent.size > 0 && { sent: new Set() } : unsent(s.sent, id)),
     anchors,
     segments,
     ...(msg.type === "document" ? { edit: null } : settle(s.edit, msg.commandId)),
@@ -654,8 +683,25 @@ function settle(edit: PathDrag | null, id: string | undefined): { edit?: PathDra
   return { edit: inputs.length > 0 ? { inputs, commandIds } : null };
 }
 
+/** The record of commands in flight without command `id`, answered or rejected. */
+function unsent(sent: ReadonlySet<string>, id: string | undefined) {
+  if (!id || !sent.has(id)) return {};
+  const left = new Set(sent);
+  left.delete(id);
+  return { sent: left };
+}
+
+/**
+ * What Direct Selection keys index on Node `id` in `doc` (#288): a path's or Live Shape's Anchors in
+ * its own coordinates, and its type; undefined once it is gone.
+ */
+function geometryOf(doc: Document | null, id: string) {
+  const n = doc?.nodes.get(id);
+  return n && JSON.stringify([n.type, hasAnchors(n) ? localAnchors(n) : null]);
+}
+
 /** The held edits' previews without what the answer or rejection to command `id` settled. */
-function settleRan(ran: Preview[], id: string | undefined): { ran?: Preview[] } {
+function settleRan(ran: Ran[], id: string | undefined): { ran?: Ran[] } {
   if (!id || !ran.some((p) => p.drag?.commandId === id || p.edit?.commandIds?.includes(id))) {
     return {};
   }
@@ -663,7 +709,7 @@ function settleRan(ran: Preview[], id: string | undefined): { ran?: Preview[] } 
     ran: ran.flatMap((p) => {
       const { edit = p.edit } = settle(p.edit, id);
       const drag = p.drag?.commandId === id ? null : p.drag;
-      return edit || drag ? [{ edit, drag }] : [];
+      return edit || drag ? [{ ...p, edit, drag }] : [];
     }),
   };
 }

@@ -345,15 +345,17 @@ export function documentMenus(tabs: {
             keys: "Ctrl+Z",
             enabled: hasDoc,
             // While the Pen draws, Undo takes back its last Anchor and sends nothing (ADR-0032).
+            // Otherwise it waits for a Reverse Path Direction press in flight, so it runs after the
+            // edits made before it, in input order (ADR-0110); so does Redo.
             run: () => {
-              if (!undoAnchor()) send({ type: "undo" });
+              if (!undoAnchor()) afterReverse(() => send({ type: "undo" }));
             },
           },
           {
             label: "Redo",
             keys: "Shift+Ctrl+Z",
             enabled: hasDoc,
-            run: () => send({ type: "redo" }),
+            run: () => afterReverse(() => send({ type: "redo" })),
           },
           "-",
           // A click is a user gesture, so execCommand fires the copy or cut event a key press would.

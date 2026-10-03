@@ -509,3 +509,55 @@ it("selects an own Shape Mode's result path; an Agent's same tx leaves the Selec
   });
   expect(stateAfter(state, tx(doc, shape))).toMatchObject({ selection: [] });
 });
+
+it("keeps keys after the person's own command that leaves a Node's geometry, and clears them after its reshape or another tab's (#288)", () => {
+  const { doc, a, b } = fixture();
+  const anchors = [anchorKey(a.id, 0, 1), anchorKey(b.id, 0, 1)];
+  const segments = [anchorKey(a.id, 0, 2)];
+  const state = viewState({
+    doc,
+    selection: [a.id, b.id],
+    anchors,
+    segments,
+    sent: new Set(["c9"]),
+  });
+  const after = (n: Node, commandId?: string) =>
+    stateAfter(state, tx(doc, { ...(commandId && { commandId }), updated: [n] }));
+  // Paint, fill rule, visibility, lock, stacking or parent: the same Anchors, so they stay.
+  const unchanged: Node[] = [
+    { ...a, opacity: 0.5 },
+    { ...a, visible: false },
+    { ...a, locked: true },
+    { ...a, transform: [1, 0, 0, 1, 5, 5] },
+  ];
+  for (const n of unchanged) {
+    expect(after(n, "c9"), JSON.stringify(n)).toMatchObject({ anchors, segments });
+    // The same Transaction from a command this tab never sent, another tab's, is another Actor's.
+    expect(after(n, "c8")).toMatchObject({ anchors: [anchorKey(b.id, 0, 1)], segments: [] });
+    expect(after(n)).toMatchObject({ anchors: [anchorKey(b.id, 0, 1)], segments: [] });
+  }
+  // A reshape the browser did not work out, such as an Undo's, clears a's keys though in range.
+  const reshaped = { ...a, width: 20 } as Node;
+  expect(after(reshaped, "c9")).toMatchObject({ anchors: [anchorKey(b.id, 0, 1)], segments: [] });
+  const path = { ...a, type: "path", d: "M 0 0 L 10 0 L 10 10 L 0 10 Z", fillRule: "nonzero" };
+  expect(after(path as Node, "c9")).toMatchObject({ anchors: [anchorKey(b.id, 0, 1)] });
+  // Deleted, they go.
+  expect(stateAfter(state, tx(doc, { commandId: "c9", deletedIds: [a.id] }))?.anchors).toEqual([
+    anchorKey(b.id, 0, 1),
+  ]);
+});
+
+it("records a command until its tx or rejection answers it, and forgets every one on a Document (#288)", () => {
+  const { doc, a } = fixture();
+  const anchors = [anchorKey(a.id, 0, 1)];
+  const state = viewState({ doc, selection: [a.id], anchors, sent: new Set(["c1", "c2"]) });
+  const answered = stateAfter(state, tx(doc, { commandId: "c1", updated: [a] }));
+  expect(answered?.sent).toEqual(new Set(["c2"]));
+  // A rejection forgets its id and changes no key.
+  const rejected = stateAfter(state, message("rejected", { id: "c2" }));
+  expect(rejected?.sent).toEqual(new Set(["c1"]));
+  expect(rejected?.anchors).toBeUndefined();
+  expect(stateAfter(state, message("document", { rev: 3 }))?.sent).toEqual(new Set());
+  // Another Actor's tx leaves the record as it is.
+  expect(stateAfter(state, tx(doc, { commandId: "x", updated: [a] }))?.sent).toBeUndefined();
+});
