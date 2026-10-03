@@ -183,15 +183,13 @@ test("Simplify's dialog recounts its Anchors when an Agent reshapes the path", a
     .click();
   const dialog = page.getByRole("dialog", { name: "Simplify" });
   await expect(dialog).toContainText("Original: 200 Anchors");
-  const current = await dialog.locator("output[name=current]").textContent();
 
   await call(request, "kalamo_path_edit", {
     docId,
     nodeId: id,
     ops: [{ op: "set_d", d: "M 0 50 L 100 20 L 150 80" }],
   });
-  await expect(dialog).toContainText("Original: 3 Anchors");
-  await expect(dialog.locator("output[name=current]")).not.toHaveText(current ?? "");
+  await expect(dialog).toContainText("Original: 3 Anchors · Current: 4 Anchors");
 });
 
 // #88: Object > Path > Offset Path….

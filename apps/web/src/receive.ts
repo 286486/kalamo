@@ -858,6 +858,15 @@ export const previewAll = (doc: Document, previews: DrawnPreview[]): Document =>
   }, doc);
 
 /**
+ * `doc` as the canvas draws it under the live gesture: every sent and held preview, then the open
+ * bar's or dialog's op preview (#299, #310).
+ */
+export const belowGesture = (
+  doc: Document,
+  s: Pick<ViewState, "sentPreviews" | "held" | "opPreview">,
+): Document => previewAll(doc, previewsOf({ ...s, edit: null, drag: null }));
+
+/**
  * A preview the paths as drawn include, and what it waits on: a sent command's id, or a held edit's
  * token until it runs (#308). It has no op: `drawnOn` leaves ops out (#299).
  */

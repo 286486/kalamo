@@ -1,7 +1,7 @@
 import { createDocument, createNodes, type Document, type PathNode } from "@kalamo/core";
 import { expect, it } from "vitest";
-import { type Held, previewAll, previewsOf, type ViewState } from "./receive.ts";
-import { anchorCount, simplifyCounts } from "./simplify.ts";
+import type { Held } from "./receive.ts";
+import { simplifyCounts } from "./simplify.ts";
 import { message, stateAfter, viewState } from "./testing.ts";
 
 /**
@@ -20,13 +20,6 @@ function fixture() {
   const input = { nodeIds: [q.id], op: "simplify" as const, tolerance: 1, cornerAngle: 90 };
   const opPreview = { input: { ...input, toLines: false }, showOriginal: false };
   return { doc, q, opPreview };
-}
-
-/** The Anchors of `nodeIds` the canvas draws, without and with the open op preview. */
-function drawn(s: ViewState, nodeIds: string[]) {
-  const count = (opPreview: ViewState["opPreview"]) =>
-    anchorCount(previewAll(s.doc as Document, previewsOf({ ...s, opPreview })), nodeIds);
-  return { original: count(null), current: count(s.opPreview) };
 }
 
 it("counts Simplify's Anchors on the path as drawn under an unanswered or held edit of the person's own (#310)", () => {
@@ -50,8 +43,7 @@ it("counts Simplify's Anchors on the path as drawn under an unanswered or held e
             held: [{ preview: { edit: { inputs }, drag: null }, token: "h1" } as unknown as Held],
           }),
     });
-    expect(drawn(s, [q.id]), how).toEqual({ original: 5, current: 6 });
-    expect(simplifyCounts(doc, s, [q.id]), how).toEqual(drawn(s, [q.id]));
+    expect(simplifyCounts(doc, s, [q.id]), how).toEqual({ original: 5, current: 6 });
   }
 });
 
@@ -61,6 +53,5 @@ it("counts Simplify's Anchors on the path an Agent's change reshaped (#310)", ()
   expect(simplifyCounts(doc, before, [q.id])).toEqual({ original: 4, current: 3 });
   const reshaped = { ...q, d: "M100 100 L120 100 L140 100 L150 130 L120 140 Z" };
   const s = { ...before, ...stateAfter(before, message("tx", { updated: [reshaped] })) };
-  expect(drawn(s, [q.id])).toEqual({ original: 5, current: 6 });
-  expect(simplifyCounts(s.doc as Document, s, [q.id])).toEqual(drawn(s, [q.id]));
+  expect(simplifyCounts(s.doc as Document, s, [q.id])).toEqual({ original: 5, current: 6 });
 });

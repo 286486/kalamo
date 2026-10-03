@@ -1,6 +1,6 @@
 import { bounds, type Document, fidelityTolerance, union } from "@kalamo/core";
 import { hasAnchors, localAnchors } from "./direct.ts";
-import { previewAll, previewsOf, type ViewState } from "./receive.ts";
+import { belowGesture, type ViewState } from "./receive.ts";
 import { pathTargets } from "./selection.ts";
 import { sendPathOp, useStore } from "./store.ts";
 
@@ -28,7 +28,7 @@ export function simplifyCounts(
   nodeIds: string[],
 ) {
   const count = (opPreview: ViewState["opPreview"]) =>
-    anchorCount(previewAll(doc, previewsOf({ ...s, opPreview, edit: null, drag: null })), nodeIds);
+    anchorCount(belowGesture(doc, { ...s, opPreview }), nodeIds);
   return { original: count(null), current: count(s.opPreview) };
 }
 
@@ -72,7 +72,8 @@ function cancel() {
 
 // A tab switch drops the preview, so its bar goes; a new Selection applies it, as a click
 // elsewhere does in Illustrator. The slider is in screen px, so a zoom refits. The dialog's counts
-// follow what the canvas draws, which an answer, an Agent's change or a new preview may change.
+// follow what the canvas draws, which an answer, an Agent's change or a new preview may change; a
+// zoom's `update` sets a new preview, whose nested notice recounts.
 useStore.subscribe((s, prev) => {
   if (!open) return;
   if (!s.opPreview) takeDown();
