@@ -59,7 +59,7 @@ _Avoid_: Vertex、Point、Node（几何意义上）
 _Avoid_: Control point、Direction point、Bezier point
 
 **Subpath（子路径）**：
-Path 的 `d` 中一段以 moveto 开始的连续轮廓，可开放或闭合；Compound Path 有多条。以 Node id 加从 0 起、按 `d` 中顺序的索引指称（代码中为 `SubpathRef`，Direct Selection、Attributes 面板、`path_reverse` 共用）。
+Path 的 `d` 中一段以 moveto 开始的连续轮廓，可开放或闭合；Compound Path 有多条。以 Node id 加从 0 起、按 `d` 中顺序的索引指称（代码中为 `SubpathRef`，如 `path_reverse` 的 `subpaths`）。
 _Avoid_: Contour、Ring、Sub-path
 
 **Endpoint（端点）**：
