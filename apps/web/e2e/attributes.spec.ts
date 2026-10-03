@@ -1,5 +1,6 @@
 import { type APIRequestContext, expect, type Page, test } from "@playwright/test";
 import { call } from "./mcp.ts";
+import { choose } from "./menubar.ts";
 
 // #270: Window > Attributes sets a Compound Path's fill rule and the direction of a subpath chosen
 // with Direct Selection, each one undo step (ADR-0108).
@@ -829,3 +830,79 @@ for (const outcome of ["accepted", "rejected"] as const) {
     expect(anchorsIn(await d(id))[2]?.join(",")).toBe(theirs);
   });
 }
+
+// #288: the person's own Gradient panel change keeps the Anchor they chose with Direct Selection,
+// as Illustrator keeps it for a Fill change, so Edit > Clear then deletes that Anchor alone.
+test("a gradient from the Gradient panel keeps the chosen Anchor, which Clear then deletes", async ({
+  page,
+  request,
+}) => {
+  const { docId, ids, at, d } = await rings(page, request, [0]);
+  const [id] = ids as [string];
+  const fill = async () =>
+    (await call(request, "kalamo_node_get", { docId, nodeIds: [id], detail: "full" }))
+      .structuredContent.nodes[0].appearance.fills[0].type;
+  await page.keyboard.press("a");
+  await page.mouse.click(...at(40, 60));
+  await page.keyboard.press("Control+F9");
+  const panel = page.getByRole("region", { name: "Gradient" });
+  await panel.getByRole("button", { name: "Gradient thumbnail" }).click();
+  await expect.poll(fill).toBe("gradient");
+  await choose(page, "Edit", "Clear");
+  // The hole opens where (40, 60) was; the path and the rest of its Anchors stay.
+  await expect.poll(async () => points(await d(id))).toEqual([...outer, "60 60", "60 40", "40 40"]);
+});
+
+// #288, ADR-0110: Undo pressed while a press is in flight waits for it, so it undoes the drag made
+// before it, as Illustrator, which runs input in order, does; the hole stays reversed.
+test("Undo while a Reverse Path Direction press is in flight undoes the drag held behind it", async ({
+  page,
+  request,
+}) => {
+  const { ids, held, hold, at, d, button } = await rings(page, request, [0]);
+  const [id] = ids as [string];
+  await page.keyboard.press("a");
+  await page.mouse.click(...at(40, 60));
+  await expect(button("Reverse Path Direction Off")).toHaveAttribute("aria-pressed", "true");
+  hold();
+  await button("Reverse Path Direction On").click();
+  await expect.poll(() => held.length).toBe(1);
+  await edits.drag.run(page, at);
+  await page.keyboard.press("Control+Z");
+  await page.waitForTimeout(200);
+  expect(points(await d(id))).toEqual(points(ring(0)));
+  held[0]?.pass();
+  // Redo brings back the drag the Undo took: the Undo undid it, not the press.
+  const reversedHole = ["40 40", "60 40", "60 60", "40 60"];
+  await expect.poll(async () => points(await d(id))).toEqual([...outer, ...reversedHole]);
+  await page.keyboard.press("Shift+Control+Z");
+  await expect
+    .poll(async () => points(await d(id)))
+    .toEqual([...outer, "40 40", "60 40", "60 60", "45 60"]);
+});
+
+// #288, ADR-0110: Cut while a press is in flight copies at once and deletes after the drag held
+// behind it, so the drag is not refused as if someone else had deleted the path.
+test("Cut while a Reverse Path Direction press is in flight deletes after the held drag, with no notice", async ({
+  page,
+  request,
+}) => {
+  const { docId, ids, held, hold, at, d, button } = await rings(page, request, [0]);
+  const [id] = ids as [string];
+  const count = async () =>
+    (await call(request, "kalamo_node_get", { docId, nodeIds: [id] })).isError ? 0 : 1;
+  await page.keyboard.press("a");
+  await page.mouse.click(...at(40, 60));
+  await expect(button("Reverse Path Direction Off")).toHaveAttribute("aria-pressed", "true");
+  hold();
+  await button("Reverse Path Direction On").click();
+  await expect.poll(() => held.length).toBe(1);
+  await edits.drag.run(page, at);
+  await page.keyboard.press("Control+X");
+  await page.waitForTimeout(200);
+  expect(points(await d(id))).toEqual(points(ring(0)));
+  held[0]?.pass();
+  await expect.poll(count).toBe(0);
+  await page.waitForTimeout(300);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
