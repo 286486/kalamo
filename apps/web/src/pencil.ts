@@ -11,7 +11,6 @@ import {
   toAnchors,
   worldTransform,
 } from "@kalamo/core";
-import { sendPreview } from "./canvas.ts";
 import {
   anchorKey,
   anchorsOf,
@@ -21,11 +20,11 @@ import {
   through,
   worldOf,
 } from "./direct.ts";
-import { asDrawn, type Redraw } from "./receive.ts";
+import { asDrawn, type Cause, type Redraw, seedOf } from "./receive.ts";
 import { editable } from "./selection.ts";
 import { getItem } from "./storage.ts";
-import { afterReverse, useStore } from "./store.ts";
-import { constrain, near, pathD, sendNewArt } from "./tools.ts";
+import { useStore } from "./store.ts";
+import { afterRedraw, constrain, near, pathD, sendNewArt } from "./tools.ts";
 
 /** The Pencil (research 06 §3): Ink fitted on release, as one `create` or one `path_edit`. */
 
@@ -305,12 +304,15 @@ export function pencilResult(
 }
 
 /**
- * Why a held redraw sent nothing: another Actor's edit to its path, the answer to the person's own
- * command that reshaped it in a way the browser cannot number (#298), or their own edit that took
- * the path off the Ink.
+ * Why a held redraw sent nothing, by cause (#309): the person's own command that reshaped its path in
+ * a way the browser cannot number (#298), or their own edit that took the path off the Ink; another
+ * Actor's edit to it; or the person's own edit it was drawn on, not applied.
  */
-const DROPPED =
-  "The Pencil edit was not applied; its path changed before your earlier edit was answered.";
+const PENCIL_DROPPED: Record<Cause, string> = {
+  own: "The Pencil edit was not applied; your own earlier change reshaped its path.",
+  other: "The Pencil edit was not applied; someone else changed its path.",
+  unapplied: "The Pencil edit was not applied, because your earlier edit to its path was not.",
+};
 
 /** The Ink of the drag in progress, in document coordinates, and where a straight segment starts. */
 let ink: Point[] | null = null;
@@ -354,41 +356,42 @@ export function pencilUp(scale: number) {
   const s = useStore.getState();
   if (!done || !s.doc) return;
   const o = pencilOptions();
-  const r = pencilResult(s.doc, s.selection, done, o, scale);
+  // It reads and draws the paths as the person sees them, with their sent and held edits (#309).
+  const shown = asDrawn(s.doc, s);
+  const r = pencilResult(shown, s.selection, done, o, scale);
   if (!r) return;
   if ("edit" in r) {
     useStore.setState({ edit: { inputs: [r.edit], commandIds: null } });
     // Worked out again from the Ink once a Reverse Path Direction press in flight is answered, on
-    // the Document then, so it redraws the stretch drawn over (ADR-0110). It redraws the path it
-    // was drawn over, whatever the Selection is then, and keeps the Ink in that path's own
+    // the paths as drawn then, so it redraws the stretch drawn over (ADR-0110). It redraws the path
+    // it was drawn over, whatever the Selection is then, and keeps the Ink in that path's own
     // coordinates, so the person's Selection tool move sent meanwhile carries the Ink with the path,
     // as Illustrator, which redraws before it moves, would (#284). It holds the keys of the path's
     // Anchors only so that another Actor's edit to the path, which clears them, drops the redraw
     // (ADR-0109); the answer to the person's own Delete Anchor click clears only the one it
-    // removes, so the redraw still runs (#298).
+    // removes, so the redraw still runs (#298). It carries the person's edits to the path it was
+    // drawn on, so it waits for their answers, and goes if one is not applied (#309).
     const { nodeId } = r.edit;
-    const n = s.doc.nodes.get(nodeId);
+    const n = shown.nodes.get(nodeId);
     const keys = hasAnchors(n)
       ? localAnchors(n).flatMap((sub, k) => sub.anchors.map((_, i) => anchorKey(nodeId, k, i)))
       : [];
-    const m = invert(worldOf(s.doc, nodeId));
+    const m = invert(worldOf(shown, nodeId));
     const own = done.map((p) => applyTo(m, ...p));
     // One rule for what it sends and its preview held, on the path as its run sees it (#286).
-    const redraw: Redraw = (now, { anchors }) => {
-      const f = anchors.length > 0 && worldOf(now, nodeId);
-      const at = f && own.map((p) => applyTo(f, ...p));
-      const again = at && pencilResult(now, [nodeId], at, o, scale);
-      return again && "edit" in again ? { input: again.edit } : DROPPED;
+    const redraw: Redraw = (now, { anchors, lostBy }) => {
+      if (anchors.length === 0) return PENCIL_DROPPED[lostBy ?? "other"];
+      const f = worldOf(now, nodeId);
+      const again = pencilResult(
+        now,
+        [nodeId],
+        own.map((p) => applyTo(f, ...p)),
+        o,
+        scale,
+      );
+      return again && "edit" in again ? { input: again.edit } : PENCIL_DROPPED.own;
     };
-    afterReverse(
-      (s, w) => {
-        if (!s.doc) return;
-        const r = redraw(asDrawn(s.doc, { ...s, held: [] }), s);
-        if (typeof r === "string") useStore.setState({ notice: r });
-        else sendPreview({ edit: { inputs: [r.input], commandIds: null } }, w);
-      },
-      { anchors: keys, segments: [], previewed: true, redraw },
-    );
+    afterRedraw(redraw, PENCIL_DROPPED, { anchors: keys, seed: seedOf(s, nodeId) });
     return;
   }
   sendNewArt([{ type: "path", d: pathD(r.path.anchors, r.path.closed) }], {

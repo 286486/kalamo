@@ -24,9 +24,9 @@ import {
 import { forNewArt, leaving } from "./isolation.ts";
 import {
   asDrawn,
+  type Cause,
   type Chosen,
   disconnected,
-  drawnOn,
   type Endpoint,
   endKey,
   endOf,
@@ -35,7 +35,9 @@ import {
   type PenPath,
   type PenPress,
   penState,
+  type Redraw,
   type ShapeBox,
+  seedOf,
   VIEWER_TOOLS,
 } from "./receive.ts";
 import { editable, placeParent } from "./selection.ts";
@@ -261,20 +263,37 @@ function finishEdit(doc: Document, pen: PenPath) {
       }) ?? PEN_DROPPED.other
     );
   };
+  afterRedraw(finish, PEN_DROPPED, { anchors: keys, seed });
+}
+
+/**
+ * Runs a `set_d` edit, a Pen finish or a Pencil redraw, through `afterReverse`, its unsent preview
+ * in `edit` its own: the one run step for both (#309). It sends what `redraw` works out on the paths
+ * as drawn, without the held edits after it, which run after it: the base `viewAfter` redraws its
+ * preview held on (#286). It waits for the edits `seed` names, and a drop gives `dropped`'s notice.
+ */
+export function afterRedraw(
+  redraw: Redraw,
+  dropped: Record<Cause, string>,
+  { anchors, seed }: { anchors: string[]; seed: string[] },
+) {
   afterReverse(
     (s, w) => {
       if (!s.doc) return;
-      // It lands after the person's edits and moves sent before it, as they are drawn. The edits
-      // still held run after it, so they are left out.
-      const c = finish(asDrawn(s.doc, { ...s, held: [] }), s);
-      if (typeof c === "string") useStore.setState({ notice: c });
-      else drawSent({ edit: { inputs: [c.input], commandIds: [send(c.command, w)] }, drag: null });
+      const r = redraw(asDrawn(s.doc, { ...s, held: [] }), s);
+      if (typeof r === "string") {
+        useStore.setState({ notice: r });
+        return;
+      }
+      const command = r.command ?? { type: "path_edit" as const, input: r.input };
+      drawSent({ edit: { inputs: [r.input], commandIds: [send(command, w)] }, drag: null });
     },
     {
-      anchors: keys,
+      anchors,
       segments: [],
       previewed: true,
-      redraw: finish,
+      redraw,
+      dropped,
       ...(seed.length > 0 && { seed }),
     },
   );
@@ -313,9 +332,7 @@ function penCommand(doc: Document, { from, to, anchors, closed }: PenPath) {
 
 /** The `seed` of Endpoint `e`: what its path as drawn is built on (#293, #308). */
 function seeded(s: Pick<State, "sentPreviews" | "sent" | "held">, e: Endpoint) {
-  const seed = drawnOn(s)
-    .filter(({ edit }) => edit?.inputs.some((i) => i.nodeId === e.nodeId))
-    .map(({ on }) => on);
+  const seed = seedOf(s, e.nodeId);
   return { ...e, ...(seed.length > 0 && { seed }) };
 }
 
