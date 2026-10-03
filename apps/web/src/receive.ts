@@ -25,6 +25,7 @@ import {
   segmentInRange,
   type Target,
   targetKeys,
+  targetNode,
   turnedOf,
   turnTarget,
 } from "./direct.ts";
@@ -213,7 +214,10 @@ export interface ViewState {
    * another Actor's edit to a path drops what it holds there (ADR-0110).
    */
   grabbed: Target[];
-  /** The previews of held edits that ran and were sent, each drawn until its answer. */
+  /**
+   * Sent previews off the live slots, each drawn until its answer: held edits that ran, and a sent
+   * drag whose preview the next drag replaced.
+   */
   ran: Preview[];
   opPreview: PathOpPreview | null;
   /** Direct Selection's selected Anchors (direct.ts's keys): UI state, like the Selection. */
@@ -406,9 +410,8 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     !reached && pen?.to && changed(pen.to.nodeId) ? disconnected(pen, s.penPress) : null;
   // What a drag still being made holds on a path someone else changed goes, read as for the Pen's
   // continuation, and its unsent preview with it; the rest is turned as the keys are (ADR-0110).
-  const pathOf = (t: Target) => (t.kind === "segment" ? t.nodeId : parseKey(t.key).nodeId);
-  const letGo = new Set(s.grabbed.map(pathOf).filter(changed));
-  const grabbed = s.grabbed.filter((t) => !letGo.has(pathOf(t))).map(turnTarget(doc, turned));
+  const letGo = new Set([...new Set(s.grabbed.map(targetNode))].filter(changed));
+  const grabbed = s.grabbed.filter((t) => !letGo.has(targetNode(t))).map(turnTarget(doc, turned));
   const keptInputs = s.edit?.inputs.filter((i) => !letGo.has(i.nodeId)) ?? [];
   const keptIds = s.drag?.nodeIds.filter((id) => !letGo.has(id)) ?? [];
   const skipped = msg.type === "tx" ? (msg.skippedIds?.length ?? 0) : 0;

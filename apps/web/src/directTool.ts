@@ -26,6 +26,7 @@ import {
   splitWhole,
   type Target,
   targetKeys,
+  targetNode,
 } from "./direct.ts";
 import type { Preview } from "./receive.ts";
 import { combine, hitTest } from "./selection.ts";
@@ -99,8 +100,7 @@ export const directTool: CanvasTool = {
     const leaf = target
       ? null
       : hitTest(e.ctx, doc, start.x, start.y, tolerance, { leaf: true, scope });
-    const nodeId =
-      target?.kind === "segment" ? target.nodeId : target ? parseKey(target.key).nodeId : leaf;
+    const nodeId = target ? targetNode(target) : leaf;
     const node = doc.nodes.get(nodeId ?? "");
     const keys =
       target?.kind === "anchor" ? [target.key] : !target && hasAnchors(node) ? allKeys(node) : [];

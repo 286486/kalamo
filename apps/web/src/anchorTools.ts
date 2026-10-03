@@ -14,6 +14,7 @@ import {
   removeAnchorInputs,
   type Target,
   targetKeys,
+  targetNode,
 } from "./direct.ts";
 import { directTool } from "./directTool.ts";
 import { editable } from "./selection.ts";
@@ -228,8 +229,7 @@ export const anchorPointTool: CanvasTool = {
     // Its Handles show while they are pulled out, as Direct Selection shows a selected Anchor's
     // or segment's.
     if (target.kind !== "handle") {
-      const nodeId = target.kind === "segment" ? target.nodeId : parseKey(target.key).nodeId;
-      useStore.setState({ selection: [nodeId], ...targetKeys(target) });
+      useStore.setState({ selection: [targetNode(target)], ...targetKeys(target) });
     }
   },
   move(e) {
