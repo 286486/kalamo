@@ -153,6 +153,47 @@ test("Simplify previews on its bar and commits once on OK; More Options converts
   expect(await segments()).toBeLessThan(60);
 });
 
+// #310: the dialog counts the path the canvas draws, and an Agent's change recounts it.
+test("Simplify's dialog recounts its Anchors when an Agent reshapes the path", async ({
+  page,
+  request,
+}) => {
+  const { docId, defaultLayerId: parentId } = (
+    await call(request, "kalamo_doc_create", {
+      name: "Simplify",
+      artboards: [{ width: 200, height: 100 }],
+    })
+  ).structuredContent;
+  const wave = (n: number) =>
+    `M ${Array.from({ length: n }, (_, i) => `${i} ${50 + Math.round(300 * Math.sin(i / 15)) / 10}`).join(" L ")}`;
+  const [id] = (
+    await call(request, "kalamo_node_create", {
+      docId,
+      nodes: [{ type: "path", parentId, d: wave(200) }],
+    })
+  ).structuredContent.createdIds as [string];
+
+  await page.goto(`/docs/${docId}`);
+  await expect(page.getByTestId("status-bar")).toContainText(/\d+%/);
+  await page.keyboard.press("Control+a");
+  await choose(page, "Object", "Path", "Simplify…");
+  await page
+    .getByRole("toolbar", { name: "Simplify" })
+    .getByRole("button", { name: "More Options" })
+    .click();
+  const dialog = page.getByRole("dialog", { name: "Simplify" });
+  await expect(dialog).toContainText("Original: 200 Anchors");
+  const current = await dialog.locator("output[name=current]").textContent();
+
+  await call(request, "kalamo_path_edit", {
+    docId,
+    nodeId: id,
+    ops: [{ op: "set_d", d: "M 0 50 L 100 20 L 150 80" }],
+  });
+  await expect(dialog).toContainText("Original: 3 Anchors");
+  await expect(dialog.locator("output[name=current]")).not.toHaveText(current ?? "");
+});
+
 // #88: Object > Path > Offset Path….
 test("Offset Path previews the copy, adds it below on OK, and one Undo takes it away", async ({
   page,
