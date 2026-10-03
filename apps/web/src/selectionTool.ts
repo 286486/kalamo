@@ -103,7 +103,7 @@ export const selectionTool: CanvasTool = {
       e.redraw();
     } else if (g?.moved) {
       const { drag } = useStore.getState();
-      if (drag?.commandId === null) useStore.setState({ drag: { ...drag, copy: e.alt } });
+      if (drag) useStore.setState({ drag: { ...drag, copy: e.alt } });
       commitDrag(unheld("a Selection tool drag moves whole Nodes"));
     }
     if (g && double) doubleClick(e, g.kind === "move" ? g.hit : null);
@@ -111,7 +111,7 @@ export const selectionTool: CanvasTool = {
   /** Alt pressed or released mid-drag switches the preview between moving and copying. */
   keyChange(key) {
     const { drag } = useStore.getState();
-    if (gesture?.kind === "move" && drag?.commandId === null && drag.copy !== key.alt) {
+    if (gesture?.kind === "move" && drag && drag.copy !== key.alt) {
       useStore.setState({ drag: { ...drag, copy: key.alt } });
     }
     return false;

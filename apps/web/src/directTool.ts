@@ -52,7 +52,7 @@ let marqueeRect: Rect | null = null;
 const anchorTarget = (key: string): Target => ({ kind: "anchor", key });
 const anchorKeys = (grabbed: Target[]) => grabbed.flatMap((t) => targetKeys(t).anchors);
 
-/** The preview of `g`'s latest move of `grabbed` on `doc`, as `commitDrag` sends it. */
+/** The preview of `g`'s latest move of `grabbed` on `doc`, as `sendPreview` sends it. */
 function dragOf(g: Gesture, doc: Document, grabbed: Target[]): Partial<Preview> | null {
   if (!g.last || g.kind === "marquee") return null;
   const { dx, dy, alt } = g.last;

@@ -589,7 +589,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
       (msg.type === "document" || msg.commandId === s.paintPreview.commandId) && {
         paintPreview: null,
       }),
-    ...(reached && { pen: null, ...(s.edit?.commandIds === null && { edit: null }) }),
+    ...(reached && { pen: null, ...(s.edit && { edit: null }) }),
     ...((reached || dropped || skipped > 0) && {
       notice: joinNotices([
         reached &&
@@ -690,7 +690,7 @@ export const previewAll = (doc: Document, previews: Preview[]): Document =>
 export function penState(doc: Document | null, pen: PenPath | null, edit: PathDrag | null) {
   const from = pen?.from;
   if (!doc || !pen || !from || pen.anchors.length <= from.kept)
-    return { pen, ...(edit?.commandIds === null && { edit: null }) };
+    return { pen, ...(edit && { edit: null }) };
   return {
     pen,
     edit: { inputs: [replaceSubpath(doc, from, pen.anchors, false)], commandIds: null },

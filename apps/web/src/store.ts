@@ -233,9 +233,6 @@ export function afterReverse(
   useStore.setState({ held: [...useStore.getState().held, { chosen: c, run, preview }] });
 }
 
-/** Whether `runHeld` is running a held edit, whose sent preview `drawSent` marks `fromHeld`. */
-let runningHeld = false;
-
 /**
  * Draws `p`, an edit's preview whose commands were just sent with the ids it carries, until their
  * answers. Every sent preview reaches `sentPreviews` through here, from a live gesture or a held
@@ -243,8 +240,7 @@ let runningHeld = false;
  */
 export function drawSent(p: Preview) {
   if (!p.edit && !p.drag) return;
-  const shown: SentPreview = { ...p, ...(runningHeld && { fromHeld: true }) };
-  useStore.setState((s) => ({ sentPreviews: [...s.sentPreviews, shown] }));
+  useStore.setState((s) => ({ sentPreviews: [...s.sentPreviews, p] }));
 }
 
 /**
@@ -266,13 +262,20 @@ export function runHeld(said?: string | null) {
     if (!h || waiting(state)) break;
     runs++;
     useStore.setState({ held: rest, notice: null });
-    runningHeld = true;
+    const from = useStore.getState().sentPreviews.length;
     try {
       h.run(h.chosen);
     } catch (e) {
       errors.push(e);
-    } finally {
-      runningHeld = false;
+    }
+    // What it sent is marked as a held edit's (#288).
+    const { sentPreviews } = useStore.getState();
+    if (sentPreviews.length > from) {
+      useStore.setState({
+        sentPreviews: sentPreviews.map(
+          (p, i): SentPreview => (i < from ? p : { ...p, fromHeld: true }),
+        ),
+      });
     }
     const { notice } = useStore.getState();
     if (notice) notices.push(notice);

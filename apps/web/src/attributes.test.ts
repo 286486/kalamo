@@ -2137,7 +2137,7 @@ it("ends a Pen continuation on the person's own reshape of its path, not on thei
       const [p] = useStore.getState().selection as [string, string];
       penDown([80, 30], 1);
       penUp();
-      // A held edit that ran, such as a Pencil redraw, is drawn in `ran` until its answer; the Pen's
+      // A held edit that ran, such as a Pencil redraw, is drawn in `sentPreviews` until its answer; the Pen's
       // Anchors predate it all the same.
       if (change === "held edit that ran") {
         const edit = { inputs: [], commandIds: ["u"] };
@@ -2198,7 +2198,7 @@ it("sends Undo and Redo after the edits held for a press, in input order; at onc
 });
 
 // Case 5: a's hole runs (10, 10), (10, 20), (20, 20), (20, 10). A held Pencil redraw from its bottom
-// round to its right side is drawn in `ran` once sent and renumbers its Anchors in a way the browser
+// round to its right side is drawn in `sentPreviews` once sent and renumbers its Anchors in a way the browser
 // cannot number, so its answer mid-drag lets go of a drag on a. An Add Anchor click it can number
 // keeps the drag (#298 T3).
 const heldOnA = {
