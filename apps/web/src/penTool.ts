@@ -95,7 +95,7 @@ export const penTool: CanvasTool = {
       anchors = [...anchors, { anchor: at, handleIn: null, handleOut: null }];
     }
     const path = new Path2D(pathD(anchors, pen.closed));
-    // A continued path is painted as its Node; see setPen.
+    // A continued path is painted as its Node; see penState.
     drawDrawing(
       ctx,
       path,

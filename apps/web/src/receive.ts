@@ -14,7 +14,14 @@ import {
 } from "@kalamo/core";
 import { applyBroadcast, type Role, type ServerMessage } from "@kalamo/sync";
 import type { CurveAnchor } from "./curvature.ts";
-import { inRange, parseKey, reversedKey, segmentInRange, turnedOf } from "./direct.ts";
+import {
+  inRange,
+  parseKey,
+  replaceSubpath,
+  reversedKey,
+  segmentInRange,
+  turnedOf,
+} from "./direct.ts";
 import type { PaintPreview } from "./gradient.ts";
 import { prune } from "./isolation.ts";
 import { type Areas, areasAfter, type Peers, peersAfter } from "./presence.ts";
@@ -326,18 +333,21 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
   });
   const { anchors, segments } = rekey(s);
   // Someone else's change to the path the Pen continues ends the continuation and its preview, so
-  // its finish never writes the Anchors it started from over theirs (ADR-0110). A reconnect does
-  // not say who changed it, so any change does but the press's own reverse.
-  const continued = s.pen?.from?.nodeId;
-  const same = (x: Document | null) =>
-    !!continued &&
-    JSON.stringify(x?.nodes.get(continued)) === JSON.stringify(doc.nodes.get(continued));
-  const reached =
-    !!continued &&
+  // its finish never writes the Anchors it started from over theirs (ADR-0110). A change to the
+  // path a press connects to drops only the connection, so the release joins nothing renumbered
+  // or deleted (#290). A reconnect does not say who changed it, so any change does but the
+  // press's own reverse.
+  const same = (id: string, x: Document | null) =>
+    JSON.stringify(x?.nodes.get(id)) === JSON.stringify(doc.nodes.get(id));
+  const changed = (id: string | undefined) =>
+    !!id &&
     !own &&
     (touched
-      ? touched.has(continued)
-      : !same(prior) && !(prior && s.reversing && same(previewEdit(prior, s.reversing))));
+      ? touched.has(id)
+      : !same(id, prior) && !(prior && s.reversing && same(id, previewEdit(prior, s.reversing))));
+  const reached = changed(s.pen?.from?.nodeId);
+  const pen = s.pen && turned.length > 0 ? turnedPen(s.pen, turned) : s.pen;
+  const dropped = !reached && pen?.to && changed(pen.to.nodeId) ? disconnected(pen) : null;
   const skipped = msg.type === "tx" ? (msg.skippedIds?.length ?? 0) : 0;
   // A selected Node that a browser's command moved into a new Group selects that Group, as Make
   // Clipping Mask does; an Agent's edit leaves the person's Selection alone.
@@ -382,7 +392,8 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
       ? s.ran.length > 0 && { ran: [] }
       : settleRan(s.ran, msg.commandId)),
     ...(settled && { reversing: null }),
-    ...(s.pen && turned.length > 0 && { pen: turnedPen(s.pen, turned) }),
+    ...(pen !== s.pen && { pen }),
+    ...(dropped && penState(doc, dropped, s.edit)),
     ...(s.held.length > 0 && {
       held: s.held.map((h) => ({
         ...h,
@@ -403,10 +414,12 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
         paintPreview: null,
       }),
     ...(reached && { pen: null, ...(s.edit?.commandIds === null && { edit: null }) }),
-    ...((reached || skipped > 0) && {
+    ...((reached || dropped || skipped > 0) && {
       notice: joinNotices([
         reached &&
           "Someone else changed the path the Pen was continuing; the Pen stopped, and what it drew was not applied.",
+        dropped &&
+          "Someone else changed the path the Pen was connecting to; the connection was not made.",
         skipped > 0 &&
           `Skipped ${skipped} object(s) deleted or moved since; they stay as they are.`,
       ]),
@@ -490,6 +503,28 @@ export const previewAll = (doc: Document, previews: Preview[]): Document =>
     const moved = drag ? preview(d, drag) : d;
     return edit ? previewEdit(moved, edit) : moved;
   }, doc);
+
+/**
+ * The Pen's path and its preview: a continued path is drawn as its Node, in its own Fill and
+ * Stroke, a Direct Selection preview of its `set_d`, once the Pen has drawn on it; before that,
+ * an unsent preview goes.
+ */
+export function penState(doc: Document | null, pen: PenPath | null, edit: PathDrag | null) {
+  const from = pen?.from;
+  if (!doc || !pen || !from || pen.anchors.length <= from.kept)
+    return { pen, ...(edit?.commandIds === null && { edit: null }) };
+  return {
+    pen,
+    edit: { inputs: [replaceSubpath(doc, from, pen.anchors, false)], commandIds: null },
+  };
+}
+
+/** The Pen's path with its connection dropped, as before the press on the Endpoint (#290). */
+export const disconnected = (pen: PenPath): PenPath => ({
+  ...pen,
+  to: undefined,
+  anchors: pen.anchors.slice(0, -1),
+});
 
 /** The Pen's Endpoints on a subpath in `turned`, on the same Anchors: now the other end (ADR-0110). */
 function turnedPen(pen: PenPath, turned: Reversing["subpaths"]): PenPath {

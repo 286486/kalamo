@@ -158,3 +158,59 @@ test("an Agent's edit to the path the Pen continues ends the continuation", asyn
   expect(theirs).toBe("M 20 60 L 60 20");
   expect(await d()).toBe(theirs);
 });
+
+// #290: an Agent's deletion of the path a held Pen press connects to drops only the connection;
+// the release sends nothing, and Enter finishes the Pen's path as new art.
+test("an Agent's deletion of the path a Pen press connects to drops the connection", async ({
+  page,
+  request,
+}) => {
+  const { docId, defaultLayerId: parentId } = (
+    await call(request, "kalamo_doc_create", {
+      name: "Pen connect race",
+      artboards: [{ width: 200, height: 100 }],
+    })
+  ).structuredContent;
+  const created = await call(request, "kalamo_node_create", {
+    docId,
+    nodes: [{ type: "path", parentId, d: "M 100 20 L 140 20" }],
+  });
+  const [q] = created.structuredContent.createdIds as [string];
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  const paths = async () => {
+    const { nodes } = (await call(request, "kalamo_node_query", { docId, types: ["path"] }))
+      .structuredContent as { nodes: { id: string }[] };
+    if (nodes.length === 0) return [];
+    const got = await call(request, "kalamo_node_get", {
+      docId,
+      nodeIds: nodes.map((n) => n.id),
+      detail: "full",
+    });
+    return (got.structuredContent.nodes as { d: string }[]).map((n) => n.d);
+  };
+
+  await page.goto(`/docs/${docId}`);
+  await expect(page.getByTestId("status-bar")).toContainText(/\d+%/);
+  await page.keyboard.press("Control+1");
+  await expect(page.getByTestId("status-bar")).toContainText("100%");
+  const box = await page.getByTestId("canvas").boundingBox();
+  if (!box) throw new Error("no canvas");
+  const at = (x: number, y: number) =>
+    [box.x + box.width / 2 + x - 100, box.y + box.height / 2 + y - 50] as const;
+
+  await page.keyboard.press("p");
+  await page.mouse.click(...at(20, 80));
+  await page.mouse.click(...at(60, 80));
+  await page.mouse.move(...at(140, 20));
+  await page.mouse.down();
+  await call(request, "kalamo_node_delete", { docId, nodeIds: [q] });
+  await expect(page.getByRole("alert")).toContainText("the connection was not made");
+  await page.mouse.move(...at(150, 30), { steps: 3 });
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  expect(await paths()).toEqual([]);
+  await page.keyboard.press("Enter");
+  await expect.poll(paths).toEqual(["M 20 80 L 60 80"]);
+  expect(errors).toEqual([]);
+});

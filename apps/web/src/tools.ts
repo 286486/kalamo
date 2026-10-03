@@ -1,14 +1,10 @@
 import {
-  applyTo,
   type BareAnchor,
   type Document,
   formatPath,
   fromAnchors,
-  invert,
   type NodeInput,
-  type PathEditInput,
   type Shape,
-  worldTransform,
 } from "@kalamo/core";
 import { addAnchorAt, deleteAnchorAt } from "./anchorTools.ts";
 import { cancelDrag } from "./canvas.ts";
@@ -17,12 +13,21 @@ import {
   anchorKey,
   anchorsOf,
   editableShapes,
+  flip,
   hasAnchors,
   localAnchors,
   parseKey,
+  replaceSubpath,
 } from "./direct.ts";
 import { forNewArt, leaving } from "./isolation.ts";
-import { type Endpoint, type PenPath, type ShapeBox, VIEWER_TOOLS } from "./receive.ts";
+import {
+  disconnected,
+  type Endpoint,
+  type PenPath,
+  penState,
+  type ShapeBox,
+  VIEWER_TOOLS,
+} from "./receive.ts";
 import { editable, placeParent } from "./selection.ts";
 import { afterReverse, canEdit, DEFAULT_FILL_STROKE, type State, send, useStore } from "./store.ts";
 import type { Tool, ToolEvent } from "./toolbox.ts";
@@ -168,12 +173,6 @@ export function finishPen(closed = false) {
   if (pen.anchors.length >= 2) sendNewArt([{ type: "path", d: pathD(anchors, closed) }]);
 }
 
-/** The subpath reversed: its Anchors in the other order, each Handle swapped for the other. */
-const flip = (anchors: BareAnchor[]) =>
-  anchors
-    .map((a): BareAnchor => ({ anchor: a.anchor, handleIn: a.handleOut, handleOut: a.handleIn }))
-    .reverse();
-
 /** The Endpoint's subpath in document coordinates, turned to end at it. */
 function endingAt(doc: Document, e: Endpoint): BareAnchor[] {
   const n = doc.nodes.get(e.nodeId);
@@ -184,30 +183,6 @@ function endingAt(doc: Document, e: Endpoint): BareAnchor[] {
     handleOut,
   }));
   return e.atStart ? flip(anchors) : anchors;
-}
-
-/** A `set_d` putting `anchors`, in document coordinates and ending at `e`, in place of its subpath. */
-function replaceSubpath(
-  doc: Document,
-  e: Endpoint,
-  anchors: BareAnchor[],
-  closed: boolean,
-): PathEditInput {
-  const n = doc.nodes.get(e.nodeId);
-  if (!n || !hasAnchors(n)) throw new Error(`${e.nodeId} has no Anchors.`);
-  const m = invert(worldTransform(doc, n));
-  const local = (p: Point | null) => p && applyTo(m, p[0], p[1]);
-  const all: { closed: boolean; anchors: BareAnchor[] }[] = localAnchors(n);
-  // Back in the subpath's own direction.
-  all[e.subpath] = {
-    closed,
-    anchors: (e.atStart ? flip(anchors) : anchors).map((a) => ({
-      anchor: applyTo(m, ...a.anchor),
-      handleIn: local(a.handleIn),
-      handleOut: local(a.handleOut),
-    })),
-  };
-  return { nodeId: e.nodeId, ops: [{ op: "set_d", d: formatPath(fromAnchors(all)) }] };
 }
 
 /** Join's distance for the Endpoints a connection put on each other, past `d`'s rounding. */
@@ -307,20 +282,10 @@ function penCommand(doc: Document, { from, to, anchors, closed }: PenPath) {
   return { input, command: { type: "path_edit" as const, input } };
 }
 
-/**
- * The Pen's path so far. A continued path is drawn as its Node, in its own Fill and Stroke: a
- * Direct Selection preview of its `set_d`.
- */
+/** The Pen's path so far, and its preview (`penState`). */
 function setPen(pen: PenPath | null) {
   const { doc, edit } = useStore.getState();
-  const unsent = edit?.commandIds === null ? { edit: null } : {};
-  const from = pen?.from;
-  if (!doc || !pen || !from || pen.anchors.length <= from.kept) {
-    useStore.setState({ pen, ...unsent });
-    return;
-  }
-  const input = replaceSubpath(doc, from, pen.anchors, false);
-  useStore.setState({ pen, edit: { inputs: [input], commandIds: null } });
+  useStore.setState(penState(doc, pen, edit));
 }
 
 /**
@@ -434,7 +399,8 @@ export function penDown(p: Point, tolerance: number, shift = false) {
 export function penDrag(p: Point, mods: PenMods) {
   const pen = drawing(useStore.getState());
   const a = press && pen?.anchors[press.index];
-  if (!press || !pen || !a) return;
+  // A connect press whose connection was dropped drags nothing (#290).
+  if (!press || !pen || !a || (press.kind === "connect" && !pen.to)) return;
   const [dx, dy] = [p[0] - press.at[0], p[1] - press.at[1]];
   press.at = p;
   // Illustrator's documented order is to release Alt, then the button: the cusp stays.
@@ -457,19 +423,28 @@ export function penDrag(p: Point, mods: PenMods) {
   setPen({ ...pen, anchors: pen.anchors.with(press.index, next) });
 }
 
+/**
+ * The Pen's path while its press connects to an Endpoint, until Esc or another Actor's edit to
+ * the path connected to drops the connection (#290).
+ */
+const connecting = () => {
+  const pen = drawing(useStore.getState());
+  return press?.kind === "connect" && pen?.to ? pen : null;
+};
+
 /** Drops the press, leaving what it placed but a connection. */
 export const penCancel = () => {
-  const pen = drawing(useStore.getState());
-  if (press?.kind === "connect" && pen)
-    setPen({ ...pen, to: undefined, anchors: pen.anchors.slice(0, -1) });
+  const pen = connecting();
+  if (pen) setPen(disconnected(pen));
   press = null;
 };
 
 /** Releasing the Pen: a press on the first Anchor closes the path, one on an Endpoint connects. */
 export function penUp() {
-  const kind = press?.kind;
+  const close = press?.kind === "close";
+  const connect = !!connecting();
   press = null;
-  if (kind === "close" || kind === "connect") finishPen(kind === "close");
+  if (close || connect) finishPen(close);
 }
 
 /** Ctrl+Z while drawing removes the last Anchor locally; false when not drawing. */
