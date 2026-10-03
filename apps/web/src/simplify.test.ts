@@ -25,7 +25,7 @@ function fixture() {
 it("counts Simplify's Anchors on the path as drawn under an unanswered or held edit of the person's own (#310)", () => {
   for (const how of ["sent", "held"] as const) {
     const { doc, q, opPreview } = fixture();
-    // An Anchor added on the third segment and moved off it, which Simplify refits around.
+    // An Anchor added on the third segment and moved off it: Simplify cannot shorten the result.
     const ops = [
       { op: "add_anchor" as const, subpath: 0, segment: 2, t: 0.5 },
       { op: "move_anchor" as const, subpath: 0, index: 3, to: [150, 130] as [number, number] },
@@ -50,7 +50,7 @@ it("counts Simplify's Anchors on the path as drawn under an unanswered or held e
             ],
           }),
     });
-    expect(simplifyCounts(doc, s, [q.id]), how).toEqual({ original: 5, current: 6 });
+    expect(simplifyCounts(doc, s, [q.id]), how).toEqual({ original: 5, current: 5 });
   }
 });
 
@@ -60,5 +60,5 @@ it("counts Simplify's Anchors on the path an Agent's change reshaped (#310)", ()
   expect(simplifyCounts(doc, before, [q.id])).toEqual({ original: 4, current: 3 });
   const reshaped = { ...q, d: "M100 100 L120 100 L140 100 L150 130 L120 140 Z" };
   const s = { ...before, ...stateAfter(before, message("tx", { updated: [reshaped] })) };
-  expect(simplifyCounts(s.doc as Document, s, [q.id])).toEqual({ original: 5, current: 6 });
+  expect(simplifyCounts(s.doc as Document, s, [q.id])).toEqual({ original: 5, current: 5 });
 });

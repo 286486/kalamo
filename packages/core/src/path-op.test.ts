@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { loadGeometry } from "../../geometry/src/index.ts";
 import type { PathNode } from "./anchor.ts";
-import { toAnchors } from "./anchor.ts";
+import { fromAnchors, toAnchors } from "./anchor.ts";
 import { childrenOf, createDocument, createNodes } from "./document.ts";
 import { KalamoError } from "./errors.ts";
 import { formatPath, parsePath, pathBounds, type Segment, shapeSegments } from "./path.ts";
@@ -465,6 +465,46 @@ describe("pathOp simplify", () => {
     const kept = subpathsOf(doc, node.id)[0]?.anchors.map((a) => a.anchor) ?? [];
     const rounded = shaky.map((p) => p.map((v) => Math.round(v * 1e3) / 1e3).join(" "));
     expect(kept.every((p) => rounded.includes(p.join(" ")))).toBe(true);
+  });
+
+  describe("changes a subpath only when the fit has fewer Anchors", () => {
+    const hexagon = "M 150 100 L 125 143.301 L 75 143.301 L 50 100 L 75 56.699 L 125 56.699 Z";
+    const circle =
+      "M 150 100 C 150 127.614 127.614 150 100 150 C 72.386 150 50 127.614 50 100 " +
+      "C 50 72.386 72.386 50 100 50 C 127.614 50 150 72.386 150 100 Z";
+    const simplified = (d: string, args: { tolerance?: number; toLines?: boolean } = {}) => {
+      const { doc, node } = setup(d);
+      pathOp(doc, { nodeIds: [node.id], op: "simplify", ...args });
+      return (doc.nodes.get(node.id) as PathNode).d;
+    };
+
+    it("leaves an obtuse polyline as it was", () => {
+      const d = "M 0 50 L 100 20 L 150 80";
+      expect(simplified(d)).toBe(d);
+    });
+
+    it.each([0.1, 1, 2])("leaves the hexagon as it was at tolerance %s", (tolerance) => {
+      expect(simplified(hexagon, { tolerance })).toBe(hexagon);
+    });
+
+    it.each([0.01, 0.1, 1])("leaves the circle as it was at tolerance %s", (tolerance) => {
+      expect(simplified(circle, { tolerance })).toBe(circle);
+    });
+
+    it("takes the fit when it is shorter: the circle at tolerance 2", () => {
+      const [s] = toAnchors(parsePath(simplified(circle, { tolerance: 2 }), "d"));
+      expect(s?.anchors.length).toBeLessThan(4);
+    });
+
+    it("toLines still turns the circle into its 4-Anchor polygon", () => {
+      expect(simplified(circle, { toLines: true })).toBe("M 150 100 L 100 150 L 50 100 L 100 50 Z");
+    });
+
+    it("decides per subpath", () => {
+      const [first, second] = toAnchors(parsePath(simplified(`${pencil} ${hexagon}`), "d"));
+      expect(first?.anchors.length).toBeLessThan(20);
+      expect(formatPath(fromAnchors(second ? [second] : []))).toBe(hexagon);
+    });
   });
 
   it("measures the tolerance in document units", () => {
