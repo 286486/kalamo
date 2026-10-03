@@ -37,7 +37,7 @@ it("counts Simplify's Anchors on the path as drawn under an unanswered or held e
       ...(how === "sent"
         ? {
             sentPreviews: [{ edit: { inputs, commandIds: ["c1"] }, drag: null }],
-            sent: new Set(["c1"]),
+            sent: new Map([["c1", "path_edit"]]),
           }
         : {
             held: [

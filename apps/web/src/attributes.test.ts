@@ -3260,7 +3260,7 @@ it("keeps commands with no preview in `sent` alone, beside the sent previews (#2
   sendPaint(paintUpdates([b as LeafNode], "fill", () => g));
   const s = useStore.getState();
   expect(commands().map((c) => c.type)).toEqual(["path_edit", "path_edit", "appearance"]);
-  expect([...s.sent]).toEqual(["k1", "k2", "k3"]);
+  expect([...s.sent.keys()]).toEqual(["k1", "k2", "k3"]);
   expect(s.sentPreviews).toEqual([
     {
       edit: { inputs: [expect.objectContaining({ nodeId: a.id })], commandIds: ["k1"] },
@@ -3269,10 +3269,10 @@ it("keeps commands with no preview in `sent` alone, beside the sent previews (#2
   ]);
   // Each answer takes its own id out of `sent`, and only the edit's takes a preview out of the list.
   answer();
-  expect([...useStore.getState().sent]).toEqual(["k2", "k3"]);
+  expect([...useStore.getState().sent.keys()]).toEqual(["k2", "k3"]);
   expect(useStore.getState().sentPreviews).toEqual([]);
   answer();
-  expect([...useStore.getState().sent]).toEqual(["k3"]);
+  expect([...useStore.getState().sent.keys()]).toEqual(["k3"]);
   expect(useStore.getState().sentPreviews).toEqual([]);
 });
 
@@ -3790,5 +3790,118 @@ it("forgets the keys a Clear dropped on a path another Actor edits before its an
   undo();
   expect(commands().map((c) => c.type)).toEqual(["path_edit", "undo"]);
   expect(chosen()).toEqual({ anchors: [], segments: [] });
+  vi.useRealTimers();
+});
+
+const selected = () => useStore.getState().selection.toSorted();
+
+it("selects again, after the person's own Undo of a Delete, the paths it deleted, and a Redo takes them out of the Selection (ADR-0113)", () => {
+  vi.useFakeTimers();
+  const { a, b, answer, undo, redo } = undoable(() => ({ anchors: [], segments: [] }));
+  const both = [a.id, b.id].toSorted();
+  menuItem("Clear").run();
+  answer();
+  expect(selected()).toEqual([]);
+  undo();
+  expect(selected()).toEqual(both);
+  redo();
+  expect(selected()).toEqual([]);
+  undo();
+  expect(selected()).toEqual(both);
+  expect(commands().map((c) => c.type)).toEqual(["delete", "undo", "redo", "undo"]);
+  vi.useRealTimers();
+});
+
+it("selects again, after the person's own Undo of a whole-path Clear, the path with the Anchors chosen on it (ADR-0112, ADR-0113)", () => {
+  vi.useFakeTimers();
+  const { a, answer, undo, redo, chosen } = undoable((a) => ({
+    anchors: allKeys(a as PathNode),
+    segments: [],
+  }));
+  useStore.setState({ selection: [a.id] });
+  const before = chosen();
+  menuItem("Clear").run();
+  expect(commands().map((c) => c.type)).toEqual(["delete"]);
+  expect(chosen()).toEqual({ anchors: [], segments: [] });
+  answer();
+  expect(useStore.getState().keysDropped.size).toBe(0);
+  undo();
+  expect(selected()).toEqual([a.id]);
+  expect(chosen()).toEqual(before);
+  expect(allInRange()).toBe(true);
+  redo();
+  expect(selected()).toEqual([]);
+  expect(chosen()).toEqual({ anchors: [], segments: [] });
+  undo();
+  expect(selected()).toEqual([a.id]);
+  expect(chosen()).toEqual(before);
+  vi.useRealTimers();
+});
+
+it("selects again, after the person's own Undo of a move, the path moved, over a later choice, and the keys on it go with it (ADR-0113)", () => {
+  vi.useFakeTimers();
+  const { a, b, answer, undo, redo, chosen } = undoable(() => ({ anchors: [], segments: [] }));
+  useStore.setState({ selection: [a.id] });
+  send({ type: "transform", input: { nodeIds: [a.id], translate: { x: 5, y: 0 } } });
+  answer();
+  // A later choice of b, with an Anchor chosen on it: a selection change, not an undo step.
+  useStore.setState({ selection: [b.id], anchors: [anchorKey(b.id, 0, 0)] });
+  undo();
+  expect(selected()).toEqual([a.id]);
+  expect(chosen()).toEqual({ anchors: [], segments: [] });
+  redo();
+  expect(selected()).toEqual([a.id]);
+  vi.useRealTimers();
+});
+
+it("leaves the Selection pruned, never added to, after another Actor's or another tab's undo of the person's Delete (ADR-0113)", () => {
+  vi.useFakeTimers();
+  for (const whose of ["another Actor", "another tab"] as const) {
+    const { a, b, server, answer } = undoable(() => ({ anchors: [], segments: [] }));
+    useStore.setState({ selection: [a.id] });
+    menuItem("Clear").run();
+    answer();
+    useStore.setState({ selection: [b.id] });
+    // Their undo puts a back as it was, under a command id this tab never sent.
+    server.nodes.set(a.id, a);
+    server.rev++;
+    deliver(
+      message("tx", {
+        rev: server.rev,
+        created: [a],
+        ...(whose === "another tab" && { commandId: "elsewhere", actor: "user" }),
+      }),
+      "d",
+      0,
+    );
+    expect(selected(), whose).toEqual([b.id]);
+  }
+  vi.useRealTimers();
+});
+
+it("leaves out of the Selection a Node the person's own Undo brings back hidden, locked or outside the Isolation (ADR-0010, ADR-0057, ADR-0113)", () => {
+  vi.useFakeTimers();
+  const nextRev = () => (useStore.getState().doc?.rev ?? 0) + 1;
+  /** An Agent's change to a's Layer. */
+  const theirs = (layer: Node) =>
+    deliver(message("tx", { rev: nextRev(), updated: [layer] }), "d", 0);
+  const meanwhile: Record<string, (layer: Node, b: Node) => void> = {
+    hidden: (layer) => theirs({ ...layer, visible: false }),
+    locked: (layer) => theirs({ ...layer, locked: true }),
+    "outside the Isolation": (_, b) => useStore.setState({ isolated: b.id }),
+  };
+  for (const [name, change] of Object.entries(meanwhile)) {
+    const { a, b, queue, answer } = undoable(() => ({ anchors: [], segments: [] }));
+    useStore.setState({ selection: [a.id] });
+    menuItem("Clear").run();
+    answer();
+    change(useStore.getState().doc?.nodes.get(a.parentId as string) as Node, b);
+    findByKeys(documentMenus({ open() {}, close() {} }), "Ctrl+Z")?.run();
+    // The person's own Undo brings a back as it was, kept with its Selection.
+    const { id } = queue.shift() as { id: string };
+    deliver(message("tx", { rev: nextRev(), commandId: id, actor: "user", created: [a] }), "d", 0);
+    expect(useStore.getState().doc?.nodes.has(a.id), name).toBe(true);
+    expect(selected(), name).toEqual([]);
+  }
   vi.useRealTimers();
 });

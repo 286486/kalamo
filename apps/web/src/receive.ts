@@ -5,6 +5,7 @@ import {
   duplicateNodes,
   editPath,
   type Geometry,
+  type Node,
   type NodeInput,
   outermost,
   type PathEditInput,
@@ -38,7 +39,7 @@ import {
   turnTarget,
 } from "./direct.ts";
 import type { PaintPreview } from "./gradient.ts";
-import { prune } from "./isolation.ts";
+import { inScope, prune } from "./isolation.ts";
 import { type Areas, areasAfter, type Peers, peersAfter } from "./presence.ts";
 import { editable, objects } from "./selection.ts";
 import type { NodeOp } from "./store.ts";
@@ -305,9 +306,10 @@ export interface ViewState {
   /**
    * Every command this tab sent on an open socket and has not yet had answered, with a `tx` or a
    * `rejected`: a `tx` whose `commandId` is here is the person's own; any other, another Actor's,
-   * another tab's included (ADR-0109).
+   * another tab's included (ADR-0109). Each is kept with its command's type, which tells the
+   * person's own Undo and Redo apart (ADR-0113).
    */
-  sent: ReadonlySet<string>;
+  sent: ReadonlyMap<string, Command["type"]>;
   /** The open bar's or dialog's op preview, drawn on top of every sent and held one (#299). */
   opPreview: OpenOpPreview | null;
   /** Direct Selection's selected Anchors (direct.ts's keys): UI state, like the Selection. */
@@ -325,6 +327,12 @@ export interface ViewState {
    * sent, by command id. Its answer keeps them in `keysOn` as the path's keys before it (ADR-0112).
    */
   keysDropped: ReadonlyMap<string, Pick<ViewState, "anchors" | "segments">>;
+  /**
+   * The Selection each Node's state had when a `tx` changed it, before and after, by `stateOf` the
+   * Node's stored copy. The answer to the person's own Undo or Redo that brings a Node back to one
+   * of them selects it again (ADR-0113). Opening a Document forgets it.
+   */
+  selectionOn: ReadonlyMap<string, string[]>;
   /** Why the last command was rejected. */
   notice: string | null;
   /** The Gradient panel's or tool's paints, drawn until their answer (ADR-0081). */
@@ -616,8 +624,7 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
   // gesture's unsent preview stays while what it holds does (#285).
   const { sentPreviews: sentLeft = s.sentPreviews } =
     msg.type === "document" ? { sentPreviews: [] } : settleSentPreviews(s.sentPreviews, id);
-  const sentAfter =
-    msg.type === "document" ? new Set<string>() : (settleSent(s.sent, id).sent ?? s.sent);
+  const sentAfter = msg.type === "document" ? new Map() : (settleSent(s.sent, id).sent ?? s.sent);
   // Keys stay on a Node the message left alone; on one it touched, while they keep and are in range
   // on `on`: `doc`, or for a Pen finish, the paths as drawn it numbered its keys on (#308).
   const keptBy =
@@ -718,6 +725,12 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
         return editable(doc, doc.nodes.get(id)) ? objects(doc, id).map((n) => n.id) : [];
       })
     : [...new Set(selection)];
+  const scope = leave && isolated === leave.from ? prune(s.doc, doc, leave.to) : isolated;
+  // The person's own Undo or Redo selects what was selected in the state it restores (ADR-0113).
+  const own = !!id && s.sent.has(id);
+  const step = !!id && (s.sent.get(id) === "undo" || s.sent.get(id) === "redo");
+  const restored = step && msg.type === "tx" ? selectionBack(s.selectionOn, msg, doc, scope) : null;
+  const selected = restored ?? next;
   // Each held preview follows its keys. A `set_d` one is worked out again in run order, on what its
   // run will see: the paths as drawn with the sent previews and the held ones before it, which a Pen
   // finish's keys are numbered on (#286, #308).
@@ -741,11 +754,15 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
   }
   return {
     doc,
-    isolated: leave && isolated === leave.from ? prune(s.doc, doc, leave.to) : isolated,
+    isolated: scope,
     // An unchanged Selection stays the same array, so the Layer rows stay (ADR-0076).
-    selection: !tops && sameIds(next, s.selection) ? s.selection : next,
+    selection: !tops && sameIds(selected, s.selection) ? s.selection : selected,
+    ...(msg.type === "tx" &&
+      !restored && {
+        selectionOn: selectionKept(s.selectionOn, msg, prior, doc, s.selection, selected),
+      }),
     ...(tops && { layerRows: layers }),
-    ...(msg.type === "document" ? s.sent.size > 0 && { sent: new Set() } : settleSent(s.sent, id)),
+    ...(msg.type === "document" ? s.sent.size > 0 && { sent: new Map() } : settleSent(s.sent, id)),
     // The keys in flight are kept as the keys are: another Actor's change drops them (ADR-0109).
     ...(s.keysDropped.size > 0 && {
       keysDropped: new Map(
@@ -754,12 +771,18 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
           : [...s.keysDropped].flatMap(([k, keys]) => (k === id ? [] : [[k, rekey(keys)]])),
       ),
     }),
-    ...chosenAgain(
-      s,
-      msg,
-      prior,
-      { doc, anchors, segments },
-      (n) => next.includes(n) && causeOf(n) === "own" && ends(n, "keys"),
+    ...keysOnly(
+      restored,
+      chosenAgain(
+        s,
+        msg,
+        prior,
+        { doc, anchors, segments },
+        // A Node the person's own Undo brings back is new to `prior`, so no fate names it.
+        (n) =>
+          selected.includes(n) &&
+          (prior?.nodes.has(n) ? causeOf(n) === "own" && ends(n, "keys") : own),
+      ),
     ),
     // A continuation the reconnect keeps is drawn again on the new Document (#292).
     ...(msg.type === "document" &&
@@ -1108,9 +1131,9 @@ const redrawn = (r: ReturnType<Redraw>): Preview => ({
 });
 
 /** The record of commands in flight without command `id`, answered or rejected. */
-function settleSent(sent: ReadonlySet<string>, id: string | undefined) {
+function settleSent(sent: ViewState["sent"], id: string | undefined) {
   if (!id || !sent.has(id)) return {};
-  const left = new Set(sent);
+  const left = new Map(sent);
   left.delete(id);
   return { sent: left };
 }
@@ -1157,7 +1180,11 @@ function chosenAgain(
   // With no keys before, none dropped in flight and none kept, there is nothing to keep or choose.
   if (s.keysOn.size + s.keysDropped.size + had.anchors.length + had.segments.length === 0)
     return { anchors, segments };
-  const changed = msg.type === "tx" ? msg.updated.map((n) => n.id) : [...doc.nodes.keys()];
+  // A path the change deletes keeps its keys before it, and one it brings back may choose them again.
+  const changed =
+    msg.type === "tx"
+      ? [...msg.updated, ...msg.created].map((n) => n.id).concat(msg.deletedIds)
+      : [...new Set([...doc.nodes.keys(), ...(prior?.nodes.keys() ?? [])])];
   const keysOn = new Map(s.keysOn);
   let kept = false;
   const keep = (at: string, keys: Pick<ViewState, "anchors" | "segments">) => {
@@ -1170,9 +1197,9 @@ function chosenAgain(
   for (const id of changed) {
     const was = geometryOf(prior, id);
     const is = geometryOf(doc, id);
-    if (!was || !is || was === is) continue;
+    if (was === is) continue;
     const on = (k: string) => parseKey(k).nodeId === id;
-    const again = back(id) && keysOn.get(keysAt(id, is));
+    const again = is && back(id) && keysOn.get(keysAt(id, is));
     if (again) {
       anchors = [...anchors, ...again.anchors];
       segments = [...segments, ...again.segments];
@@ -1187,14 +1214,89 @@ function chosenAgain(
       had;
     const before = { anchors: from.anchors.filter(on), segments: from.segments.filter(on) };
     const now = { anchors: anchors.filter(on), segments: segments.filter(on) };
-    kept = keep(keysAt(id, was), before) || kept;
-    kept = keep(keysAt(id, is), now) || kept;
+    if (was) kept = keep(keysAt(id, was), before) || kept;
+    if (is) kept = keep(keysAt(id, is), now) || kept;
   }
   for (const k of keysOn.keys()) {
     if (keysOn.size <= KEYS_KEPT) break;
     keysOn.delete(k);
   }
   return { anchors, segments, ...(kept && { keysOn }) };
+}
+
+/** Where `selectionOn` keeps the Selection Node `n` had in this state: its stored copy. */
+const stateOf = (n: Node) =>
+  JSON.stringify(
+    Object.entries(n)
+      .filter(([, v]) => v !== undefined)
+      .sort(([a], [b]) => (a < b ? -1 : 1)),
+  );
+
+/** The undo stack's depth (ADR-0011), counted in Node states, as `keysOn` counts geometries. */
+const SELECTIONS_KEPT = 200;
+
+/**
+ * `kept` with the Selection `before` kept under each state `msg` changed a Node from, and `after`
+ * under each it changed one to; the oldest state goes first past `SELECTIONS_KEPT` (ADR-0113).
+ */
+function selectionKept(
+  kept: ViewState["selectionOn"],
+  msg: Extract<ServerMessage, { type: "tx" }>,
+  prior: Document | null,
+  doc: Document,
+  before: string[],
+  after: string[],
+): ViewState["selectionOn"] {
+  const ids = [...msg.updated, ...msg.created].map((n) => n.id).concat(msg.deletedIds);
+  if (!prior || ids.length === 0) return kept;
+  const next = new Map(kept);
+  const keep = (n: Node | undefined, selection: string[]) => {
+    if (!n) return;
+    const at = stateOf(n);
+    // Set again, so the oldest state is the first to go.
+    next.delete(at);
+    next.set(at, selection);
+  };
+  for (const id of ids.slice(-SELECTIONS_KEPT)) {
+    keep(prior.nodes.get(id), before);
+    keep(doc.nodes.get(id), after);
+  }
+  for (const k of next.keys()) {
+    if (next.size <= SELECTIONS_KEPT) break;
+    next.delete(k);
+  }
+  return next;
+}
+
+/**
+ * The Selection kept with the Node states the Undo or Redo `msg` brings back, of the Nodes still
+ * there, visible, unlocked and in the Isolation `scope` (ADR-0010, ADR-0057); null when it brings
+ * back no kept state, so the Selection is only pruned (ADR-0113).
+ */
+function selectionBack(
+  kept: ViewState["selectionOn"],
+  msg: Extract<ServerMessage, { type: "tx" }>,
+  doc: Document,
+  scope: string | null,
+): string[] | null {
+  const found = [...msg.updated, ...msg.created]
+    .map((n) => kept.get(stateOf(n)))
+    .filter((k) => k !== undefined);
+  if (found.length === 0) return null;
+  return [...new Set(found.flat())].filter((id) => {
+    const n = doc.nodes.get(id);
+    return !!n && editable(doc, n) && inScope(doc, n, scope);
+  });
+}
+
+/** The keys on Nodes in the restored Selection: keys live only on selected Nodes. */
+function keysOnly<K extends Pick<ViewState, "anchors" | "segments">>(
+  selection: string[] | null,
+  k: K,
+): K {
+  if (!selection) return k;
+  const on = (key: string) => selection.includes(parseKey(key).nodeId);
+  return { ...k, anchors: k.anchors.filter(on), segments: k.segments.filter(on) };
 }
 
 /**

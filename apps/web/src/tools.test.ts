@@ -592,7 +592,7 @@ function onePath(d: string) {
     drag: null,
     notice: null,
     sentPreviews: [],
-    sent: new Set(),
+    sent: new Map(),
     renumbering: new Map(),
     held: [],
   });
@@ -653,7 +653,7 @@ it("continues a path from the person's own unanswered Direct Selection drag on i
     };
     useStore.setState({
       sentPreviews: [{ edit: { inputs: [input], commandIds: ["drag"] }, drag: null }],
-      sent: new Set(["drag"]),
+      sent: new Map([["drag", "path_edit"]]),
     });
     vi.mocked(send).mockReturnValueOnce("drag");
     send({ type: "path_edit", input }, unheld("the test's drag"));

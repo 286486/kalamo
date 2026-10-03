@@ -53,8 +53,8 @@ test("a rectangle an Agent drew can be dragged, undone, redone and deleted in th
   await page.keyboard.press("Control+Shift+z");
   await expect.poll(async () => (await bounds())?.x).toBe(75);
 
-  // The redone rectangle is not selected: the undo that deleted it pruned the Selection.
-  await page.mouse.click(cx, cy);
+  // The redo selects the rectangle again, as it was in the state it restores, so Delete with no
+  // click deletes it (ADR-0113).
   await page.keyboard.press("Delete");
   await expect.poll(gone).toBe("NODE_NOT_FOUND");
 });

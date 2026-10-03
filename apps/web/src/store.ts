@@ -77,11 +77,12 @@ export const useStore = create<State>(() => ({
   held: [],
   grab: null,
   sentPreviews: [],
-  sent: new Set(),
+  sent: new Map(),
   opPreview: null,
   anchors: [],
   segments: [],
   keysOn: new Map(),
+  selectionOn: new Map(),
   keysDropped: new Map(),
   notice: null,
   paintPreview: null,
@@ -215,7 +216,7 @@ export function record(id: string, command: Command, known?: Renumbering) {
   useStore.setState((s) => {
     const r = known ?? renumberingOfCommand(s.doc, command);
     return {
-      sent: new Set(s.sent).add(id),
+      sent: new Map(s.sent).set(id, command.type),
       ...(r !== undefined && { renumbering: new Map(s.renumbering).set(id, r) }),
     };
   });
@@ -345,7 +346,7 @@ export function runHeld(said?: string | null) {
       errors.push(e);
     }
     const ran = useStore.getState();
-    const ids = [...ran.sent].filter((id) => !sent.has(id));
+    const ids = [...ran.sent.keys()].filter((id) => !sent.has(id));
     const { state: after, notices: gone } = heldRan(ran, h.token, ids);
     useStore.setState({ ...after, notice: joinNotices([ran.notice, ...gone]) || null });
     // What it sent is marked as a held edit's (#288).
@@ -439,11 +440,12 @@ export function connect(docId: string): () => void {
     held: [],
     grab: null,
     sentPreviews: [],
-    sent: new Set(),
+    sent: new Map(),
     opPreview: null,
     anchors: [],
     segments: [],
     keysOn: new Map(),
+    selectionOn: new Map(),
     keysDropped: new Map(),
     notice: null,
     paintPreview: null,

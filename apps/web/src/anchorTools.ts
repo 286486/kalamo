@@ -30,8 +30,8 @@ type Point = [number, number];
 /**
  * One `path_edit` per path and one `delete`, for edits on Anchors, which drop the selected Anchors
  * and segments. Each `path_edit` opens the window with its `known` renumbering, which its answer
- * renumbers the keys by, in its one send (#298). The keys it dropped on its path wait in
- * `keysDropped` for its answer, which keeps them for the person's own Undo (ADR-0112).
+ * renumbers the keys by, in its one send (#298). The keys each command dropped on its paths wait in
+ * `keysDropped` for its answer, which keeps them for the person's own Undo (ADR-0112, ADR-0113).
  */
 export function sendAnchorEdits({ edits, deleteIds, known = [] }: AnchorEdits, w: Waited) {
   const { anchors, segments } = useStore.getState();
@@ -46,7 +46,12 @@ export function sendAnchorEdits({ edits, deleteIds, known = [] }: AnchorEdits, w
     const keys = { anchors: anchors.filter(on(nodeId)), segments: segments.filter(on(nodeId)) };
     return [id, keys] as const;
   });
-  if (deleteIds.length > 0) send({ type: "delete", nodeIds: deleteIds }, w);
+  // A path deleted whole keeps its keys the same way, under the `delete`'s id (ADR-0113).
+  if (deleteIds.length > 0) {
+    const id = send({ type: "delete", nodeIds: deleteIds }, w);
+    const on = (k: string) => deleteIds.includes(parseKey(k).nodeId);
+    dropped.push([id, { anchors: anchors.filter(on), segments: segments.filter(on) }]);
+  }
   useStore.setState((s) => ({
     anchors: [],
     segments: [],
