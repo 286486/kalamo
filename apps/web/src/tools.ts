@@ -42,7 +42,7 @@ import {
 } from "./receive.ts";
 import { editable, placeParent } from "./selection.ts";
 import {
-  afterReverse,
+  afterRenumbering,
   canEdit,
   DEFAULT_FILL_STROKE,
   drawSent,
@@ -211,8 +211,9 @@ const COINCIDENT = 0.05;
 /**
  * Finishes a path the Pen continued or connected (research 06 §1): one `path_edit` on the path
  * continued, or on the one a new path connected to, which it continues backwards; continuing one
- * onto another is one `path_join`, the Join deleting one of them. It is sent once a Reverse Path
- * Direction press in flight is answered, at the Endpoints chosen, as the Document then runs
+ * onto another is one `path_join`, the Join deleting one of them. It is sent once the person's own
+ * command that may renumber a path's Anchors (a Reverse Path Direction press is one) is answered,
+ * at the Endpoints chosen, as the Document then runs
  * (ADR-0110); another Actor's edit to their path meanwhile drops it (ADR-0109). What it drew is
  * kept in the own coordinates of the paths it meets, so a move of them meanwhile carries it along,
  * as it does the held Pencil redraw (#284); a move of one of two paths it joins, but not the
@@ -267,18 +268,18 @@ function finishEdit(doc: Document, pen: PenPath) {
 }
 
 /**
- * Runs a `set_d` edit, a Pen finish or a Pencil redraw, through `afterReverse`, its unsent preview
- * in `edit` its own: the one run step for both (#309). It sends what `redraw` works out on the paths
- * as drawn without the held edits after it, which run later. That is the base `viewAfter` redraws a
- * held preview on, so the two agree (#286). It waits for the edits `seed` names, and a drop gives
- * `dropped`'s notice.
+ * Runs a `set_d` edit, a Pen finish or a Pencil redraw, through `afterRenumbering`, its unsent
+ * preview in `edit` its own: the one run step for both (#309). It sends what `redraw` works out on
+ * the paths as drawn without the held edits after it, which run later. That is the base `viewAfter`
+ * redraws a held preview on, so the two agree (#286). It waits for the edits `seed` names, and a
+ * drop gives `dropped`'s notice.
  */
 export function afterRedraw(
   redraw: Redraw,
   dropped: Record<Cause, string>,
   { anchors, seed }: { anchors: string[]; seed: string[] },
 ) {
-  afterReverse(
+  afterRenumbering(
     (s, w) => {
       if (!s.doc) return;
       const r = redraw(asDrawn(s.doc, { ...s, held: [] }), s);
@@ -293,8 +294,7 @@ export function afterRedraw(
       anchors,
       segments: [],
       previewed: true,
-      redraw: { run: redraw, dropped },
-      ...(seed.length > 0 && { seed }),
+      redraw: { run: redraw, dropped, ...(seed.length > 0 && { seed }) },
     },
   );
 }

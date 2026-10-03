@@ -221,11 +221,11 @@ export type Redraw = (
 ) => { input: PathEditInput; command?: Command } | string;
 
 /**
- * A Direct Selection edit made while a Reverse Path Direction press was in flight, run once it is
- * answered (ADR-0110). Its keys are renumbered and cleared as the Direct Selection's are meanwhile.
- * `preview` is its own, drawn until it runs: running or dropping it changes no other preview. An
- * answer that renumbers its keys moves its preview with them, or, with `redraw`, works it out again
- * (#286).
+ * A Direct Selection edit made while the person's own command that may renumber a path's Anchors
+ * was unanswered (a Reverse Path Direction press is one), run once it is answered (ADR-0110). Its
+ * keys are renumbered and cleared as the Direct Selection's are meanwhile. `preview` is its own,
+ * drawn until it runs: running or dropping it changes no other preview. An answer that renumbers
+ * its keys moves its preview with them, or, with `redraw`, works it out again (#286).
  */
 export interface Held {
   chosen: Chosen;
@@ -233,9 +233,12 @@ export interface Held {
   preview: Preview;
   /**
    * A `set_d` edit's input, which its run sends and its preview draws (#286), and its tool's
-   * notices for a drop of what it drew, by cause (#309). Only `afterRedraw` sets it.
+   * notices for a drop of what it drew, by cause (#309). Only `afterRedraw` sets it. Its `seed` is
+   * what a Pen finish or a Pencil redraw was drawn on (`seedOf`): it waits for their answers, and a
+   * rejection of one, or a held edit named that sends nothing, drops it with `dropped`'s notice, so
+   * no edit waits on a seed without its notices (#293, #308, #309).
    */
-  redraw?: { run: Redraw; dropped: Record<Cause, string> };
+  redraw?: { run: Redraw; dropped: Record<Cause, string>; seed?: string[] };
   /** An Anchor Point drag out of an Anchor, whose Handles a turn leaves as they are (#286). */
   pulled?: true;
   /**
@@ -243,11 +246,6 @@ export interface Held {
    * place, or goes with it if it sent nothing (#308).
    */
   token: string;
-  /**
-   * What a Pen finish or a Pencil redraw was drawn on (`seedOf`): it waits for their answers, and a
-   * rejection of one, or a held edit named that sends nothing, drops it (#293, #308, #309).
-   */
-  seed?: string[];
 }
 
 /**
@@ -715,11 +713,11 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
   const held: Held[] = [];
   for (const h of s.held) {
     const base =
-      h.seed || (renumbers && h.redraw)
+      h.redraw?.seed || (renumbers && h.redraw)
         ? asDrawn(doc, { sentPreviews: sentLeft, sent: sentAfter, held })
         : doc;
     const chosen = {
-      ...rechosen(h.chosen, h.seed ? "seeded" : "held", base),
+      ...rechosen(h.chosen, h.redraw?.seed ? "seeded" : "held", base),
       selection: h.chosen.selection.filter((id) => doc.nodes.has(id)),
     };
     const preview = !renumbers
@@ -927,11 +925,12 @@ export function dropDrawnOn(s: Drawing, gone: string[]): Settled {
   const on = (e: { seed?: string[] } | undefined) => !!e?.seed?.some((k) => dead.has(k));
   // Held edits run in order, so each is drawn only on those before it.
   const held: Held[] = [];
-  const lost: Held[] = [];
+  const lost: NonNullable<Held["redraw"]>[] = [];
   for (const h of s.held) {
-    const goes = on(h);
-    if (goes) dead.add(h.token);
-    (goes ? lost : held).push(h);
+    if (h.redraw && on(h.redraw)) {
+      dead.add(h.token);
+      lost.push(h.redraw);
+    } else held.push(h);
   }
   const dropped = lost.length > 0;
   const stopped = on(s.pen?.from);
@@ -948,7 +947,7 @@ export function dropDrawnOn(s: Drawing, gone: string[]): Settled {
     notices: [
       stopped && PEN_STOPPED.unapplied,
       unmet && PEN_DISCONNECTED.unapplied,
-      ...lost.map((h) => h.redraw?.dropped.unapplied),
+      ...lost.map((r) => r.dropped.unapplied),
     ],
   };
 }
@@ -961,13 +960,13 @@ export function heldRan(s: Drawing, token: string, ids: string[]): Settled {
   if (ids.length === 0) return dropDrawnOn(s, [token]);
   const { pen } = s;
   const named = (e: { seed?: string[] } | undefined) => !!e?.seed?.includes(token);
-  if (!s.held.some(named) && !named(pen?.from) && !named(pen?.to))
+  if (!s.held.some((h) => named(h.redraw)) && !named(pen?.from) && !named(pen?.to))
     return { state: {}, notices: [] };
   const swap = <E extends { seed?: string[] }>(e: E): E =>
     named(e) ? { ...e, seed: e.seed?.flatMap((k) => (k === token ? ids : [k])) } : e;
   return {
     state: {
-      held: s.held.map(swap),
+      held: s.held.map((h) => (h.redraw ? { ...h, redraw: swap(h.redraw) } : h)),
       ...(pen && {
         pen: {
           ...pen,
@@ -1046,7 +1045,10 @@ function settle(edit: SentPathDrag | null, id: string): { edit?: SentPathDrag | 
  * else how. A `delete` takes its paths' Anchors away, so an edit on them waits and is dropped. Any
  * other value opens the window ADR-0110 holds edits by index for.
  */
-export function opening(doc: Document | null, command: Command): Renumbering | null | undefined {
+export function renumberingOfCommand(
+  doc: Document | null,
+  command: Command,
+): Renumbering | null | undefined {
   if (command.type === "path_edit") return renumberingOf(doc, command.input);
   const opens = ["path_join", "path_op", "undo", "redo", "delete"].includes(command.type);
   return opens ? null : undefined;

@@ -29,7 +29,7 @@ import {
 } from "./direct.ts";
 import type { Preview } from "./receive.ts";
 import { combine, hitTest } from "./selection.ts";
-import { afterReverse, useStore } from "./store.ts";
+import { afterRenumbering, useStore } from "./store.ts";
 import type { CanvasTool } from "./toolbox.ts";
 
 /** Direct Selection hits an Anchor, Handle or segment within 2 screen px (research §4). */
@@ -141,7 +141,10 @@ export const directTool: CanvasTool = {
     }
     const current = gesture;
     useStore.setState({
-      grab: { targets: grabbed, redraw: (doc, held) => current && dragOf(current, doc, held) },
+      grab: {
+        targets: grabbed,
+        redraw: (doc, targets) => current && dragOf(current, doc, targets),
+      },
     });
   },
   move(e) {
@@ -178,16 +181,17 @@ export const directTool: CanvasTool = {
       marqueeRect = null;
       e.redraw();
     } else if (g?.moved && (g.kind === "move" || grabbed.length > 0)) {
-      // Sent once a Reverse Path Direction press in flight is answered, from the Document then, on
-      // what is still grabbed. What it holds is renumbered as the keys are, and another Actor's edit
-      // to its path meanwhile drops it, as it drops the keys (ADR-0109, ADR-0110).
+      // Sent once the person's own command that may renumber a path's Anchors (a Reverse Path
+      // Direction press is one) is answered, from the Document then, on what is still grabbed. What
+      // it holds is renumbered as the keys are, and another Actor's edit to its path meanwhile
+      // drops it, as it drops the keys (ADR-0109, ADR-0110).
       const [grabbedTarget] = grabbed;
-      afterReverse(
+      afterRenumbering(
         ({ doc: now, anchors, target }, w) => {
           if (!now) return;
           if (g.kind === "target" && !target) return;
-          const held = g.kind === "anchors" ? anchors.map(anchorTarget) : target ? [target] : [];
-          sendPreview(dragOf(g, now, held), w);
+          const targets = g.kind === "anchors" ? anchors.map(anchorTarget) : target ? [target] : [];
+          sendPreview(dragOf(g, now, targets), w);
         },
         {
           ...(g.kind === "target" && grabbedTarget

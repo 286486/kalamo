@@ -18,10 +18,10 @@ import {
   type Held,
   heldRan,
   joinNotices,
-  opening,
   type Preview,
   type Probe,
   receive,
+  renumberingOfCommand,
   type SentPreview,
   type ViewState,
 } from "./receive.ts";
@@ -134,10 +134,11 @@ export const pointerAt = (cursor: Pointer) => presence?.update({ cursor });
 const views = new Map<string, Pick<State, "viewport" | "selection" | "isolated" | "layerRows">>();
 
 /**
- * Every command except a `path_edit`, a `path_join` and a `path_op`. A reverse in flight would put
- * one that names Anchors, Handles or segments by index on other points, and a `path_op` on whole
- * Nodes reshapes or replaces the paths that edits held for it name by index, so `send` takes each
- * only with `Waited` (ADR-0110). A `path_reverse` names subpaths, which a reverse does not renumber.
+ * Every command except a `path_edit`, a `path_join` and a `path_op`. The person's own command that
+ * may renumber a path's Anchors, unanswered, would put one that names Anchors, Handles or segments
+ * by index on other points, and a `path_op` on whole Nodes reshapes or replaces the paths that
+ * edits held for it name by index, so `send` takes each only with `Waited` (ADR-0110). A
+ * `path_reverse` names subpaths, which a reverse does not renumber.
  */
 export type NodeCommand = Exclude<Command, { type: "path_edit" | "path_join" | "path_op" }>;
 /** A `path_op` on whole Nodes. */
@@ -145,16 +146,18 @@ export type NodeOp = PathOpInput & { anchors?: undefined };
 
 declare const waited: unique symbol;
 /**
- * Says that a command is sent after the Reverse Path Direction press in flight, as `afterReverse`
- * hands it, or that it need not wait, as `unheld` does: it names indices, or it reshapes or replaces
- * paths that held edits name by index (ADR-0110).
+ * Says that a command is sent once the person's own command that may renumber a path's Anchors is
+ * answered (a Reverse Path Direction press is one), as `afterRenumbering` hands it, or that it need
+ * not wait, as `unheld` does: it names indices, or it reshapes or replaces paths that held edits
+ * name by index (ADR-0110).
  */
 export type Waited = { readonly [waited]: true };
 const WAITED = {} as Waited;
 
 /**
- * Lets an edit by index be sent at once, though a Reverse Path Direction press may be in flight.
- * `why` says at the call site why it need not wait (ADR-0110).
+ * Lets an edit by index be sent at once, though the person's own command that may renumber a path's
+ * Anchors may be unanswered (a Reverse Path Direction press is one). `why` says at the call site
+ * why it need not wait (ADR-0110).
  */
 export const unheld = (_why: string): Waited => WAITED;
 
@@ -162,39 +165,39 @@ export const unheld = (_why: string): Waited => WAITED;
  * Sends one gesture to the Document (ADR-0010) and returns its id, which its answer carries, and
  * which `sent` records until then (#288). While the socket is down it is dropped and not recorded:
  * the Document sent on reconnect clears what waited on it. A command that names Anchors by index,
- * and any `path_op`, needs `Waited`.
+ * and any `path_op`, needs `Waited`: it is sent once the person's own command that may renumber a
+ * path's Anchors is answered (a Reverse Path Direction press is one). `known` says how a
+ * `path_edit` renumbers its path where its ops alone do not, as for Clear's `set_d` (#298).
+ *
+ * Tests replace `send` with a module mock (`vi.mock("./store.ts")`), which only calls from other
+ * modules go through: a helper in this file would call the real `send`, which drops the command
+ * while no socket is open. So helpers whose sends a unit test must see, such as `afterRedraw` and
+ * `sendAnchorEdits`, stay outside `store.ts`.
  */
 export function send<C extends Command>(
   command: C,
-  ..._waited: [C] extends [NodeCommand] ? [] : [Waited]
+  ...[, known]: [C] extends [NodeCommand] ? [] : [Waited, Renumbering?]
 ): string {
   const id = newId();
   const msg: ClientMessage = { type: "command", id, command };
   if (socket?.readyState !== WebSocket.OPEN) return id;
   socket.send(JSON.stringify(msg));
-  return record(id, command);
+  return record(id, command, known);
 }
 
 /**
  * Records `command`, sent as `id`, as not yet answered, and returns `id`. A command that may
- * renumber a path's Anchors opens the window edits by index wait for (#298).
+ * renumber a path's Anchors opens the window edits by index wait for, by `known` when given (#298).
  */
-export function record(id: string, command: Command) {
+export function record(id: string, command: Command, known?: Renumbering) {
   useStore.setState((s) => {
-    const r = opening(s.doc, command);
+    const r = known ?? renumberingOfCommand(s.doc, command);
     return {
       sent: new Set(s.sent).add(id),
       ...(r !== undefined && { renumbering: new Map(s.renumbering).set(id, r) }),
     };
   });
   return id;
-}
-
-/** Says how command `id`, unanswered, renumbers `r`'s path where its ops alone do not (#298). */
-export function renumbers(id: string, r: Renumbering) {
-  useStore.setState((s) =>
-    s.renumbering.has(id) ? { renumbering: new Map(s.renumbering).set(id, r) } : {},
-  );
 }
 
 /**
@@ -209,36 +212,35 @@ export const waiting = (s: Pick<State, "reversing" | "renumbering">) =>
  * #309). A held edit's token in its seed is never in `sent`: that edit runs first, and its token
  * gives way to what it sent (#308).
  */
-const unanswered = (s: Pick<State, "sent">, seed: string[] | undefined) =>
-  !!seed?.some((id) => s.sent.has(id));
+const unanswered = (s: Pick<State, "sent">, redraw: Held["redraw"]) =>
+  !!redraw?.seed?.some((id) => s.sent.has(id));
 
 /**
- * Runs a Direct Selection edit now, or once the Reverse Path Direction press in flight, or the
- * person's other command that may renumber a path, is answered (`waiting`), on the Document as it
- * is then and the keys the person had chosen, renumbered (ADR-0110, #298). The edit
- * is handed the `Waited` its commands by index are sent with. `chosen` overrides the Direct
+ * Runs a Direct Selection edit now, or, while the person's own command that may renumber a path's
+ * Anchors is unanswered (`waiting`; a Reverse Path Direction press is one), once it is answered, on
+ * the Document as it is then and the keys the person had chosen, renumbered (ADR-0110, #298). The
+ * edit is handed the `Waited` its commands by index are sent with. `chosen` overrides the Direct
  * Selection's keys, as a drag's own do; a `target` stands on its own keys, and the edit reads it
  * alone, as the answer turns it. With `previewed`, the live gesture's unsent preview in `edit` and
  * `drag` is the edit's own and leaves the live slots: held, it goes with the edit, so the next
  * gesture's preview leaves it on screen; run, it gives way to what the edit sends, if anything.
  * Either way the edit never sees or changes the live slots' preview (#285). An `op`, the open bar's
  * or dialog's preview of a `path_op`, is its own the same way, and leaves `opPreview` (#299). A
- * `seed` holds it, and the edits after it, until the answers to the edits it was drawn on (#293,
- * #308, #309). A `set_d` edit's `redraw` comes from `afterRedraw`, its one run step (#286, #309);
+ * `set_d` edit's `redraw` comes from `afterRedraw`, its one run step (#286, #309); its `seed` holds
+ * it, and the edits after it, until the answers to the edits it was drawn on (#293, #308, #309).
  * `pulled` turns its preview as an Anchor Point drag out of an Anchor sends it (#286).
  */
-export function afterReverse(
+export function afterRenumbering(
   edit: (s: State & Chosen, w: Waited) => void,
   {
     previewed,
     op,
-    seed,
     redraw,
     pulled,
     ...chosen
   }: Partial<Chosen> & { previewed?: true; op?: Preview["op"] } & Pick<
       Held,
-      "seed" | "redraw" | "pulled"
+      "redraw" | "pulled"
     > = {},
 ) {
   const s = useStore.getState();
@@ -257,13 +259,12 @@ export function afterReverse(
   };
   if (previewed) useStore.setState({ edit: null, drag: null });
   if (op) useStore.setState({ opPreview: null });
-  if (!waiting(s) && s.held.length === 0 && !unanswered(s, seed)) return run(c);
+  if (!waiting(s) && s.held.length === 0 && !unanswered(s, redraw)) return run(c);
   const h: Held = {
     chosen: c,
     run,
     preview,
     token: newId(),
-    ...(seed && { seed }),
     ...(redraw && { redraw }),
     ...(pulled && { pulled }),
   };
@@ -281,21 +282,22 @@ export function drawSent(p: SentPreview) {
 }
 
 /**
- * Sends `input` as one `path_op` once the person's renumbering command in flight is answered
- * (ADR-0110). `shown`, when Preview is on, is what the open bar's or dialog's preview adds to
- * `input`: the preview of `input` leaves the op-preview slot and is the op's own, held with it and
- * drawn from its send until its answer (ADR-0035, #299).
+ * Sends `input` as one `path_op` once the person's own command that may renumber a path's Anchors
+ * is answered (ADR-0110). `shown`, when Preview is on, is what the open bar's or dialog's preview
+ * adds to `input`: the preview of `input` leaves the op-preview slot and is the op's own, held with
+ * it and drawn from its send until its answer (ADR-0035, #299).
  */
 export function sendPathOp(input: NodeOp, shown?: Omit<NonNullable<Preview["op"]>, "input">) {
   const op = shown && { ...shown, input };
-  afterReverse((_s, w) => {
+  afterRenumbering((_s, w) => {
     const commandId = send({ type: "path_op", input }, w);
     if (op) drawSent({ edit: null, drag: null, op: { ...op, commandId } });
   }, op && { op });
 }
 
 /**
- * Runs the held edits in order; one that sends a command that may renumber a path, such as another
+ * Runs the held edits in order, once the person's own command that may renumber a path's Anchors is
+ * answered (`waiting`); one that sends another such command, such as another Reverse Path Direction
  * press, holds the rest (#298). Each runs off its own preview, which it replaces with what it sends
  * or drops, touching no other (ADR-0110); what was drawn on it then waits for what it sent, or goes
  * when it sent nothing (#308). One that throws stops only itself: the rest still run,
@@ -311,7 +313,7 @@ export function runHeld(said?: string | null) {
   for (;;) {
     const state = useStore.getState();
     const [h, ...rest] = state.held;
-    if (!h || waiting(state) || unanswered(state, h.seed)) break;
+    if (!h || waiting(state) || unanswered(state, h.redraw)) break;
     runs++;
     useStore.setState({ held: rest, notice: null });
     const { sentPreviews: was, sent } = useStore.getState();

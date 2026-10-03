@@ -686,6 +686,13 @@ export const targetKeys = (t: Target): { anchors: string[]; segments: string[] }
 export const segmentInRange = (doc: Document, key: string) => segmentHandles(doc, key).length > 0;
 
 /**
+ * Edits on Anchors, as `sendAnchorEdits` sends them: one `path_edit` per path and the ids to
+ * delete. `known` says how a `set_d` among them renumbers its path, which its ops alone do not
+ * (#298).
+ */
+export type AnchorEdits = { edits: PathEditInput[]; deleteIds: string[]; known?: Renumbering[] };
+
+/**
  * Edit > Clear under Direct Selection: a `set_d` per path with selected Anchors or segments, and
  * the ids to delete: paths left without a segment, and selected objects with neither selected.
  * Keys out of range are ignored, never sent as a no-op that would convert a Live Shape.
@@ -695,7 +702,7 @@ export function clearInputs(
   selection: string[],
   anchors: string[],
   segments: string[] = [],
-) {
+): Required<AnchorEdits> {
   const edits: PathEditInput[] = [];
   const known: Renumbering[] = [];
   const anchorsBy = byNode(anchors);
@@ -726,7 +733,7 @@ export function clearInputs(
  * first so the indices ahead stay put, joining its neighbours. A subpath left with one Anchor, a
  * Stray Point, goes whole, and a path left with none is deleted. Keys out of range are ignored.
  */
-export function removeAnchorInputs(doc: Document, anchors: string[]) {
+export function removeAnchorInputs(doc: Document, anchors: string[]): AnchorEdits {
   const edits: PathEditInput[] = [];
   const deleteIds: string[] = [];
   for (const [nodeId, refs] of byNode(anchors)) {
