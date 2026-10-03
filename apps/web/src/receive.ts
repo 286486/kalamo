@@ -15,12 +15,18 @@ import {
 import { applyBroadcast, type Role, type ServerMessage } from "@kalamo/sync";
 import type { CurveAnchor } from "./curvature.ts";
 import {
+  anchorKey,
+  hasAnchors,
   inRange,
+  localAnchors,
   parseKey,
   replaceSubpath,
   reversedKey,
   segmentInRange,
+  type Target,
+  targetKeys,
   turnedOf,
+  turnTarget,
 } from "./direct.ts";
 import type { PaintPreview } from "./gradient.ts";
 import { prune } from "./isolation.ts";
@@ -50,6 +56,19 @@ export interface Endpoint {
   atStart: boolean;
 }
 
+/** `e`'s Anchor as a Direct Selection key, which a Reverse Path Direction press's answer renumbers. */
+export function endKey(doc: Document, e: Endpoint) {
+  const n = doc.nodes.get(e.nodeId);
+  const count = n && hasAnchors(n) ? (localAnchors(n)[e.subpath]?.anchors.length ?? 0) : 0;
+  return anchorKey(e.nodeId, e.subpath, e.atStart ? 0 : count - 1);
+}
+
+/** The Endpoint whose Anchor `key` names. */
+export function endOf(key: string): Endpoint {
+  const { nodeId, subpath, index } = parseKey(key);
+  return { nodeId, subpath, atStart: index === 0 };
+}
+
 /** A Rectangle or Ellipse dragged out, in document coordinates. */
 export interface ShapeBox {
   type: "rect" | "ellipse";
@@ -76,6 +95,21 @@ export interface PenPath {
   /** The Curvature tool's Anchors as placed, which `anchors` follow. */
   curve?: CurveAnchor[];
   closed: boolean;
+}
+
+/**
+ * The Pen's press while its button is down: on the Anchor of `pen` at `index`, with the pointer's
+ * last position. It is one just placed, the last Anchor pressed again, the first Anchor, which
+ * closes the path on release, or another path's Endpoint, which `pen.to` names and the release
+ * connects to; once that connection is dropped (#290), the press is inert until release. `broken`
+ * is set once Alt broke the Handles, which stay broken for the rest of the press. It lives beside
+ * `pen`, so whatever drops the connection changes both in one step.
+ */
+export interface PenPress {
+  kind: "place" | "last" | "close" | "connect" | "dropped";
+  index: number;
+  at: [number, number];
+  broken?: boolean;
 }
 
 /**
@@ -115,8 +149,14 @@ export interface Reversing {
   inputs: PathEditInput[];
 }
 
-/** What a Direct Selection edit acts on, as the person had chosen it when they made the edit. */
-export type Chosen = Pick<ViewState, "anchors" | "segments" | "selection" | "tool">;
+/**
+ * What a Direct Selection edit acts on, as the person had chosen it when they made the edit. An
+ * edit on one Anchor, Handle or segment names it as `target`, and its keys are `target`'s; held, the
+ * answer turns `target` by the rule that renumbers the keys, and it goes when they go (ADR-0110).
+ */
+export type Chosen = Pick<ViewState, "anchors" | "segments" | "selection" | "tool"> & {
+  target?: Target;
+};
 
 /** One edit's preview: the paths it reshapes and the Nodes it moves whole. */
 export type Preview = Pick<ViewState, "edit" | "drag">;
@@ -160,6 +200,7 @@ export interface ViewState {
   /** Drawn until the answer to its command arrives, so a committed move does not flicker. */
   drag: Drag | null;
   pen: PenPath | null;
+  penPress: PenPress | null;
   /** Drawn art sent and not yet answered, oldest first. */
   pending: PendingCreate[];
   edit: PathDrag | null;
@@ -332,6 +373,14 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     segments: k.segments.map(reversedKey(doc, turned, true)).filter(kept(segmentInRange)),
   });
   const { anchors, segments } = rekey(s);
+  // A held edit's target is turned as its keys are; once a key goes, so does the target.
+  const rechosen = ({ target, ...c }: Chosen): Chosen => {
+    if (!target) return { ...c, ...rekey(c) };
+    const t = turnTarget(doc, turned)(target);
+    const k = targetKeys(t);
+    const on = k.anchors.every(kept(inRange)) && k.segments.every(kept(segmentInRange));
+    return on ? { ...c, ...k, target: t } : { ...c, anchors: [], segments: [] };
+  };
   // Someone else's change to the path the Pen continues ends the continuation and its preview, so
   // its finish never writes the Anchors it started from over theirs (ADR-0110). A change to the
   // path a press connects to drops only the connection, so the release joins nothing renumbered
@@ -346,8 +395,9 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
       ? touched.has(id)
       : !same(id, prior) && !(prior && s.reversing && same(id, previewEdit(prior, s.reversing))));
   const reached = changed(s.pen?.from?.nodeId);
-  const pen = s.pen && turned.length > 0 ? turnedPen(s.pen, turned) : s.pen;
-  const dropped = !reached && pen?.to && changed(pen.to.nodeId) ? disconnected(pen) : null;
+  const pen = s.pen && turned.length > 0 ? turnedPen(doc, s.pen, turned) : s.pen;
+  const dropped =
+    !reached && pen?.to && changed(pen.to.nodeId) ? disconnected(pen, s.penPress) : null;
   const skipped = msg.type === "tx" ? (msg.skippedIds?.length ?? 0) : 0;
   // A selected Node that a browser's command moved into a new Group selects that Group, as Make
   // Clipping Mask does; an Agent's edit leaves the person's Selection alone.
@@ -393,13 +443,12 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
       : settleRan(s.ran, msg.commandId)),
     ...(settled && { reversing: null }),
     ...(pen !== s.pen && { pen }),
-    ...(dropped && penState(doc, dropped, s.edit)),
+    ...(dropped && { ...penState(doc, dropped.pen, s.edit), penPress: dropped.penPress }),
     ...(s.held.length > 0 && {
       held: s.held.map((h) => ({
         ...h,
         chosen: {
-          ...h.chosen,
-          ...rekey(h.chosen),
+          ...rechosen(h.chosen),
           selection: h.chosen.selection.filter((id) => doc.nodes.has(id)),
         },
       })),
@@ -519,19 +568,24 @@ export function penState(doc: Document | null, pen: PenPath | null, edit: PathDr
   };
 }
 
-/** The Pen's path with its connection dropped, as before the press on the Endpoint (#290). */
-export const disconnected = (pen: PenPath): PenPath => ({
-  ...pen,
-  to: undefined,
-  anchors: pen.anchors.slice(0, -1),
+/**
+ * The Pen's path with its connection dropped, as before the press on the Endpoint, and its press,
+ * which connects nothing now (#290).
+ */
+export const disconnected = (pen: PenPath, press: PenPress | null) => ({
+  pen: { ...pen, to: undefined, anchors: pen.anchors.slice(0, -1) },
+  penPress: press && { ...press, kind: "dropped" as const },
 });
 
-/** The Pen's Endpoints on a subpath in `turned`, on the same Anchors: now the other end (ADR-0110). */
-function turnedPen(pen: PenPath, turned: Reversing["subpaths"]): PenPath {
-  const same = <E extends Endpoint>(e: E): E =>
-    turned.some((t) => t.nodeId === e.nodeId && t.subpath === e.subpath)
-      ? { ...e, atStart: !e.atStart }
-      : e;
+/**
+ * The Pen's Endpoints on a subpath in `turned`, on the same Anchors, renumbered as a held Pen
+ * edit's keys are (ADR-0110).
+ */
+function turnedPen(doc: Document, pen: PenPath, turned: Reversing["subpaths"]): PenPath {
+  const same = <E extends Endpoint>(e: E): E => ({
+    ...e,
+    ...endOf(reversedKey(doc, turned, false)(endKey(doc, e))),
+  });
   return {
     ...pen,
     ...(pen.from && { from: same(pen.from) }),

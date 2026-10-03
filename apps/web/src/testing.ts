@@ -9,6 +9,7 @@ export const viewState = (over: Partial<ViewState> = {}): ViewState => ({
   layerRows: [],
   drag: null,
   pen: null,
+  penPress: null,
   pending: [],
   edit: null,
   reversing: null,

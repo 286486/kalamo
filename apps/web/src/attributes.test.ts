@@ -602,6 +602,121 @@ it("holds the Anchor Point and Curvature tools' edits for the press and puts the
   vi.useRealTimers();
 });
 
+// #280: a held edit on one Anchor, Handle or segment acts on its `target` as the answer left it,
+// with no second look at the Document: whatever the held target then names, the edit lands there.
+it("runs a held edit on its held target alone, as renumbered, kept or dropped", () => {
+  vi.useFakeTimers();
+  for (const name of ["a Curvature drag", "an Anchor Point drag out of an Anchor"]) {
+    for (const source of ["renumbered", "kept", "dropped"] as const) {
+      const label = `${name}, ${source}`;
+      const { doc, a, pressed, answer } = pressOn((a) => ({ anchors: [anchorKey(a.id, 1, 0)] }));
+      useStore.setState({ ...pressed, edit: null, drag: null, held: [] });
+      vi.advanceTimersByTime(1000);
+      vi.mocked(send).mockClear();
+      toolEdits[name]?.(doc);
+      useStore.setState(stateAfter(useStore.getState(), answer(doc, a.id)));
+      const [h] = useStore.getState().held;
+      // The answer turned a's hole, so the target on (20, 10) went from index 3 to index 1.
+      expect(h?.chosen.target, label).toEqual({ kind: "anchor", key: anchorKey(a.id, 1, 1) });
+      if (h && source !== "renumbered") {
+        const { target: _, ...chosen } = h.chosen;
+        const kept = { target: { kind: "anchor", key: anchorKey(a.id, 1, 3) } as const };
+        const next = source === "kept" ? { ...chosen, ...kept } : { ...chosen, anchors: [] };
+        useStore.setState({ held: [{ ...h, chosen: next }] });
+      }
+      const before = holeAfterSent(a.id, false);
+      runHeld();
+      if (source === "dropped") {
+        expect(commands(), label).toEqual([]);
+        expect(useStore.getState().edit, label).toBeNull();
+        continue;
+      }
+      const after = holeAfterSent(a.id, false);
+      const changed = after?.filter((x, i) => JSON.stringify(x) !== JSON.stringify(before?.[i]));
+      // Index 3 of the turned hole is (10, 20); the Curvature drag moves it, and its neighbours'
+      // Handles follow, so only the Anchor itself is checked.
+      const on = source === "renumbered" ? 1 : 3;
+      if (name === "a Curvature drag")
+        expect(after?.[on]?.at, label).toBe(on === 1 ? "25 10" : "15 20");
+      else
+        expect(
+          changed?.map((x) => x.at),
+          label,
+        ).toEqual([before?.[on]?.at]);
+    }
+  }
+  vi.useRealTimers();
+});
+
+it("adds a held Anchor on its held segment alone, as renumbered, kept or dropped", () => {
+  for (const source of ["renumbered", "kept", "dropped"] as const) {
+    const { doc, a, pressed, answer } = pressOn((a) => ({ anchors: [anchorKey(a.id, 1, 0)] }));
+    useStore.setState({ ...pressed, edit: null, drag: null, held: [] });
+    vi.mocked(send).mockClear();
+    toolEdits["Add Anchor Point"]?.(doc);
+    useStore.setState(stateAfter(useStore.getState(), answer(doc, a.id)));
+    const [h] = useStore.getState().held;
+    // The answer turned a's hole: the segment from (10, 10) to (10, 20) went from 0 to 3.
+    expect(h?.chosen.target, source).toMatchObject({ kind: "segment", segment: 3 });
+    if (h?.chosen.target?.kind === "segment" && source !== "renumbered") {
+      const { target, ...chosen } = h.chosen;
+      const next =
+        source === "kept"
+          ? { ...chosen, target: { ...target, segment: 0, t: 1 - target.t } }
+          : { ...chosen, segments: [] };
+      useStore.setState({ held: [{ ...h, chosen: next }] });
+    }
+    runHeld();
+    const added = holeAfterSent(a.id, false)?.map((x) => x.at);
+    if (source === "dropped") expect(commands(), source).toEqual([]);
+    // Segment 0 of the turned hole runs from (10, 10) to (20, 10).
+    else {
+      const [x, y] = source === "renumbered" ? [10, 14] : [14, 10];
+      const near = (at: string | null | undefined) => {
+        const [ax = 0, ay = 0] = (at ?? "").split(" ").map(Number);
+        return Math.hypot(ax - x, ay - y) < 0.01;
+      };
+      expect(added?.some(near), `${source}: ${added}`).toBe(true);
+    }
+  }
+});
+
+it("drags a held Direct Selection segment on its held target alone, as renumbered, kept or dropped", () => {
+  for (const source of ["renumbered", "kept", "dropped"] as const) {
+    const { doc, a, pressed, answer } = pressOn((a) => ({ anchors: [anchorKey(a.id, 1, 0)] }));
+    useStore.setState({ ...pressed, edit: null, drag: null, held: [] });
+    vi.mocked(send).mockClear();
+    directTool.down(event(doc, 10, 14));
+    directTool.move?.(event(doc, 5, 14));
+    directTool.up?.(event(doc, 5, 14));
+    useStore.setState(stateAfter(useStore.getState(), answer(doc, a.id)));
+    const [h] = useStore.getState().held;
+    // The answer turned a's hole: the segment from (10, 10) to (10, 20) went from 0 to 3.
+    expect(h?.chosen.target, source).toMatchObject({ kind: "segment", segment: 3 });
+    if (h?.chosen.target?.kind === "segment" && source !== "renumbered") {
+      const { target, ...chosen } = h.chosen;
+      const next =
+        source === "kept"
+          ? { ...chosen, target: { ...target, segment: 0, t: 1 - target.t } }
+          : { ...chosen, segments: [] };
+      useStore.setState({ held: [{ ...h, chosen: next }] });
+    }
+    const before = holeAfterSent(a.id, false);
+    runHeld();
+    if (source === "dropped") {
+      expect(commands(), source).toEqual([]);
+      expect(useStore.getState().edit, source).toBeNull();
+      continue;
+    }
+    const after = holeAfterSent(a.id, false);
+    const changed = after?.filter((x, i) => JSON.stringify(x) !== JSON.stringify(before?.[i]));
+    // A straight segment moves whole, 5 left: segment 3 of the turned hole runs from (10, 20) to
+    // (10, 10), segment 0 from (10, 10) to (20, 10).
+    const ends = source === "renumbered" ? ["5 10", "5 20"] : ["15 10", "5 10"];
+    expect(changed?.map((x) => x.at).sort(), source).toEqual(ends);
+  }
+});
+
 // With Handles on (20, 10), its In toward (20, 20) and its Out toward (10, 10), which the reverse
 // swaps: with (20, 10) chosen, the Anchor Point tool acts on the Handle under the pointer, and a
 // click on the Anchor retracts both.
@@ -809,6 +924,54 @@ it("keeps the Pen on the Endpoint it continues when the answer comes while it dr
   });
   expect(rejected_).toEqual([["50 0", "80 0", "80 30", "100 30"]]);
   expect(accepted).toEqual([["100 30", "80 30", "80 0", "50 0"]]);
+});
+
+// #280: one rule renumbers a Pen's Endpoints, so a continuation or a connection lands on the same
+// Endpoint whether the answer comes while the Pen draws or after its finish was held.
+it("puts the Pen on the same Endpoint whether the answer comes while it draws or once it is held", () => {
+  const pen = {
+    "a Pen continuing from an Endpoint": [
+      () => {
+        penDown([80, 30], 1);
+        penUp();
+      },
+      () => {
+        penDown([100, 30], 1);
+        penUp();
+        finishPen();
+      },
+    ],
+    "a Pen path ending on an Endpoint": [
+      () => {
+        penDown([100, 60], 1);
+        penUp();
+        penDown([50, 0], 1);
+      },
+      () => penUp(),
+    ],
+    "a Pen continuing one path onto another's Endpoint": [
+      () => {
+        penDown([20, 100], 1);
+        penUp();
+        penDown([50, 0], 1);
+      },
+      () => penUp(),
+    ],
+  } satisfies Record<string, [() => void, () => void]>;
+  for (const [name, [before, after]] of Object.entries(pen)) {
+    for (const outcome of ["accepted", "rejected"] as const) {
+      const [drawing, held] = [true, false].map((midway) => {
+        const answer = pressOnOpen();
+        before();
+        if (midway) answer(outcome);
+        after();
+        if (!midway) answer(outcome);
+        expect(commands().length, name).toBeGreaterThan(0);
+        return subpathsAfterSent();
+      });
+      expect(drawing, `${name}, ${outcome}`).toEqual(held);
+    }
+  }
 });
 
 // #282: the Document sent on reconnect that carries the press's reverse of the path the Pen

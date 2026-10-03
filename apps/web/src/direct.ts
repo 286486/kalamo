@@ -428,22 +428,43 @@ function direction(doc: Document, t: SubpathRef) {
 export const turnedOf = (prior: Document, doc: Document, subpaths: SubpathRef[]) =>
   subpaths.filter((t) => direction(prior, t) !== direction(doc, t));
 
+/** The key of the Anchor `t` is on, or of the Anchor its segment starts at. */
+const keyOf = (t: Target) =>
+  t.kind === "segment" ? anchorKey(t.nodeId, t.subpath, t.segment) : t.key;
+
 /**
- * `t`, chosen in `from`, as `doc` numbers it: on a subpath turned since, an Anchor is renumbered,
- * a Handle is its Anchor's other one, and a segment runs back from its old end (ADR-0110).
+ * `t` as `doc` numbers it once its subpath is reversed, if `subpaths` names it: an Anchor is
+ * renumbered, a Handle is its Anchor's other one, and a segment runs back from its old end. Every
+ * key and target a Reverse Path Direction press's answer turns goes through this rule (ADR-0110).
+ */
+export const turnTarget =
+  (doc: Document, subpaths: SubpathRef[]) =>
+  <T extends Target>(t: T): T => {
+    const at = keyOf(t);
+    const { nodeId, subpath } = parseKey(at);
+    if (!subpaths.some((s) => s.nodeId === nodeId && s.subpath === subpath)) return t;
+    if (t.kind === "segment") {
+      const { index } = parseKey(reversedKey(doc, subpaths, true)(at));
+      return { ...t, segment: index, t: 1 - t.t };
+    }
+    const key = reversedKey(doc, subpaths, false)(at);
+    if (t.kind === "anchor") return { ...t, key };
+    return { ...t, key, which: t.which === "handleIn" ? "handleOut" : "handleIn" };
+  };
+
+/**
+ * `t`, chosen in `from`, as `doc` numbers it, for a gesture still being made: turned on its subpath
+ * if that runs the other way since (ADR-0110). A held edit's target is turned by the answer instead.
  */
 export function sameTarget<T extends Target>(t: T, from: Document, doc: Document): T {
-  const at = t.kind === "segment" ? anchorKey(t.nodeId, t.subpath, t.segment) : t.key;
-  const turned = turnedOf(from, doc, [parseKey(at)]);
-  if (turned.length === 0) return t;
-  if (t.kind === "segment") {
-    const { index } = parseKey(reversedKey(doc, turned, true)(at));
-    return { ...t, segment: index, t: 1 - t.t };
-  }
-  const key = reversedKey(doc, turned, false)(at);
-  if (t.kind === "anchor") return { ...t, key };
-  return { ...t, key, which: t.which === "handleIn" ? "handleOut" : "handleIn" };
+  return turnTarget(doc, turnedOf(from, doc, [parseKey(keyOf(t))]))(t);
 }
+
+/** What `t` stands on, as Direct Selection keys, which a press's answer renumbers (ADR-0110). */
+export const targetKeys = (t: Target): { anchors: string[]; segments: string[] } =>
+  t.kind === "segment"
+    ? { anchors: [], segments: [keyOf(t)] }
+    : { anchors: [keyOf(t)], segments: [] };
 
 /** Whether `key` names a segment its Node has now. */
 export const segmentInRange = (doc: Document, key: string) => segmentHandles(doc, key).length > 0;

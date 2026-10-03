@@ -1,7 +1,7 @@
 import { bounds, type Document, formatPath, type Rect, Shape, shapeSegments } from "@kalamo/core";
 import { forNewArt, leaving } from "./isolation.ts";
 import { colorOf, labelOf, type Peers, type visibleAreas } from "./presence.ts";
-import { copyInput, type PendingCreate } from "./receive.ts";
+import { copyInput, type PendingCreate, type Preview } from "./receive.ts";
 import { send, useStore, type Waited } from "./store.ts";
 import type { ToolEvent } from "./toolbox.ts";
 import type { FillStroke } from "./tools.ts";
@@ -126,6 +126,16 @@ export function commitDrag(w: Waited) {
 export function cancelDrag() {
   if (useStore.getState().drag?.commandId === null) useStore.setState({ drag: null });
   if (useStore.getState().edit?.commandIds === null) useStore.setState({ edit: null });
+}
+
+/**
+ * A held drag's release, once it runs (ADR-0110): with nothing left of what it held, null, its
+ * preview goes; otherwise `drag` is its preview, worked out again on the Document then, and is sent.
+ */
+export function settleDrag(drag: Partial<Preview> | null, w: Waited) {
+  if (!drag) return cancelDrag();
+  useStore.setState(drag);
+  commitDrag(w);
 }
 
 /** An Agent's Working Area pill, in document coordinates, and the whole `intent` its tooltip shows. */
