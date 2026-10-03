@@ -115,7 +115,7 @@ it("stops when a socket closed for changed access fails again before a Document"
 });
 
 // tsc checks this test: each @ts-expect-error fails the check once its line compiles (ADR-0110).
-it("sends a command that names Anchors by index only once it waited or says why it need not", () => {
+it("sends a command that names Anchors by index, or any path_op, only once it waited or says why it need not", () => {
   const input: PathEditInput = { nodeId: "p", ops: [{ op: "move_anchor", index: 0, to: [1, 1] }] };
   const anchors = [{ nodeId: "p", subpath: 0, index: 0 }];
   // @ts-expect-error A path_edit names Anchors by index.
@@ -131,8 +131,10 @@ it("sends a command that names Anchors by index only once it waited or says why 
   afterReverse((_s, w) =>
     send({ type: "path_op", input: { nodeIds: ["p"], op: "join", anchors } }, w),
   );
-  // Whole Nodes, and a press, which names subpaths.
-  send({ type: "path_op", input: { nodeIds: ["p"], op: "join" } });
+  // @ts-expect-error A path_op on whole Nodes reshapes or replaces paths held edits name by index.
+  send({ type: "path_op", input: { nodeIds: ["p"], op: "add_anchors" } });
+  afterReverse((_s, w) => send({ type: "path_op", input: { nodeIds: ["p"], op: "unite" } }, w));
+  // A press, which names subpaths, and a delete, which waits by call-site convention (#288).
   send({ type: "path_reverse", subpaths: [{ nodeId: "p", subpath: 0 }], clockwise: true });
   send({ type: "delete", nodeIds: ["p"] });
   expect(useStore.getState().held).toEqual([]);

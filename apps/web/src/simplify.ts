@@ -2,7 +2,7 @@ import { bounds, type Document, fidelityTolerance, union } from "@kalamo/core";
 import { hasAnchors, localAnchors } from "./direct.ts";
 import { previewOp } from "./receive.ts";
 import { pathTargets } from "./selection.ts";
-import { type NodeOp, send, useStore } from "./store.ts";
+import { afterReverse, type NodeOp, send, useStore } from "./store.ts";
 
 /** The slider's middle, Auto-Simplify: within 1 screen px of the path (ADR-0035). */
 const AUTO = 50;
@@ -42,13 +42,21 @@ function takeDown() {
 }
 
 /**
- * Sends Simplify's, Offset Path's or Split Into Grid's `path_op` on OK. The op preview on screen
- * stays drawn until the answer, so nothing flickers (ADR-0035).
+ * Sends Simplify's, Offset Path's or Split Into Grid's `path_op` on OK, once a Reverse Path
+ * Direction press in flight is answered (ADR-0110). The op preview on screen stays drawn while it
+ * waits and until its answer, so nothing flickers (ADR-0035), unless a later op's preview takes its
+ * place: the op is sent all the same.
  */
 export function sendPreviewedOp(input: NodeOp) {
   const shown = useStore.getState().opPreview;
-  const commandId = send({ type: "path_op", input });
-  if (shown) useStore.setState({ opPreview: { ...shown, input, showOriginal: false, commandId } });
+  const held = shown && { ...shown, input, showOriginal: false };
+  if (held) useStore.setState({ opPreview: held });
+  afterReverse((_s, w) => {
+    const commandId = send({ type: "path_op", input }, w);
+    if (held && useStore.getState().opPreview === held) {
+      useStore.setState({ opPreview: { ...held, commandId } });
+    }
+  });
 }
 
 /** OK: the preview as one `path_op` Command, drawn until its answer. */

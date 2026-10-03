@@ -33,7 +33,7 @@ import {
 import { shareDialog } from "./share.ts";
 import { startSimplify } from "./simplify.ts";
 import { splitGridDialog } from "./splitGrid.ts";
-import { afterReverse, canEdit, type State, send, useStore } from "./store.ts";
+import { afterReverse, canEdit, type NodeOp, type State, send, useStore } from "./store.ts";
 import { OPENABLE } from "./tabs.ts";
 import { drawing, undoAnchor } from "./tools.ts";
 import { artboardsRect, fit, zoomAt, zoomStep } from "./viewport.ts";
@@ -113,6 +113,15 @@ const hasSelection = (s: State) => s.selection.length > 0;
 const hasPathTargets = ({ doc, selection }: State) =>
   doc !== null && pathTargets(doc, selection).length > 0;
 
+/**
+ * Runs `op` on `nodeIds`, chosen now, once a Reverse Path Direction press in flight is answered: it
+ * reshapes or replaces paths that the edits held for it name by index (ADR-0110).
+ */
+function sendOp(nodeIds: string[], op: NodeOp["op"]) {
+  if (nodeIds.length === 0) return;
+  afterReverse((_s, w) => send({ type: "path_op", input: { nodeIds, op } }, w));
+}
+
 /** An Object > Path item that runs `op` on the Selection's paths and Live Shapes (pathTargets). */
 const pathOp = (
   op: Exclude<PathOpInput["op"], "convert_to_path" | "offset" | "split_into_grid" | "clean_up">,
@@ -121,8 +130,7 @@ const pathOp = (
   enabled: hasPathTargets,
   run: () => {
     const { doc, selection } = useStore.getState();
-    const nodeIds = doc ? pathTargets(doc, selection) : [];
-    if (nodeIds.length > 0) send({ type: "path_op", input: { nodeIds, op } });
+    sendOp(doc ? pathTargets(doc, selection) : [], op);
   },
 });
 
@@ -139,14 +147,19 @@ export const shapeModeTargets = (s: Pick<State, "doc" | "selection" | "role">) =
   return nodeIds.length >= 2 ? nodeIds : [];
 };
 
-/** Runs `op` on `nodeIds`; the Nodes it creates become the Selection, as in Illustrator. */
-function selectingPathOp(nodeIds: string[], op: PathOpInput["op"]) {
+/**
+ * Runs `op` on `nodeIds`, chosen now, once a press in flight is answered (ADR-0110); the Nodes it
+ * creates become the Selection, as in Illustrator.
+ */
+function selectingPathOp(nodeIds: string[], op: NodeOp["op"]) {
   if (nodeIds.length === 0) return;
-  const commandId = send({ type: "path_op", input: { nodeIds, op } });
-  useStore.setState((s) => ({
-    notice: null,
-    pending: [...s.pending, { commandId, nodes: [], select: true }],
-  }));
+  afterReverse((_s, w) => {
+    const commandId = send({ type: "path_op", input: { nodeIds, op } }, w);
+    useStore.setState((s) => ({
+      notice: null,
+      pending: [...s.pending, { commandId, nodes: [], select: true }],
+    }));
+  });
 }
 
 /** Runs a Shape Mode or Pathfinder on the Selection. */
@@ -502,10 +515,7 @@ export function documentMenus(tabs: {
                   doc !== null && expandable(doc, selection).length > 0,
                 run: () => {
                   const { doc, selection } = useStore.getState();
-                  const nodeIds = doc ? expandable(doc, selection) : [];
-                  if (nodeIds.length > 0) {
-                    send({ type: "path_op", input: { nodeIds, op: "convert_to_path" } });
-                  }
+                  sendOp(doc ? expandable(doc, selection) : [], "convert_to_path");
                 },
               },
             ],

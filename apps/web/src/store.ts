@@ -129,21 +129,20 @@ export const pointerAt = (cursor: Pointer) => presence?.update({ cursor });
 const views = new Map<string, Pick<State, "viewport" | "selection" | "isolated" | "layerRows">>();
 
 /**
- * Every command except those that name Anchors, Handles or segments by index: a `path_edit`, a
- * `path_join`, or a `path_op` given `anchors`. A reverse in flight would put such a command on other
- * points, so `send` takes it only with `Waited` (ADR-0110). A `path_reverse` names subpaths, which
- * a reverse does not renumber.
+ * Every command except a `path_edit`, a `path_join` and a `path_op`. A reverse in flight would put
+ * one that names Anchors, Handles or segments by index on other points, and a `path_op` on whole
+ * Nodes reshapes or replaces the paths that edits held for it name by index, so `send` takes each
+ * only with `Waited` (ADR-0110). A `path_reverse` names subpaths, which a reverse does not renumber.
  */
-export type NodeCommand =
-  | Exclude<Command, { type: "path_edit" | "path_join" | "path_op" }>
-  | { type: "path_op"; input: NodeOp };
+export type NodeCommand = Exclude<Command, { type: "path_edit" | "path_join" | "path_op" }>;
 /** A `path_op` on whole Nodes. */
 export type NodeOp = PathOpInput & { anchors?: undefined };
 
 declare const waited: unique symbol;
 /**
- * Says that an edit by index waits for the Reverse Path Direction press in flight, as `afterReverse`
- * hands it, or that it need not, as `unheld` does (ADR-0110).
+ * Says that a command is sent after the Reverse Path Direction press in flight, as `afterReverse`
+ * hands it, or that it need not wait, as `unheld` does: it names indices, or it reshapes or replaces
+ * paths that held edits name by index (ADR-0110).
  */
 export type Waited = { readonly [waited]: true };
 const WAITED = {} as Waited;
@@ -157,8 +156,8 @@ export const unheld = (_why: string): Waited => WAITED;
 /**
  * Sends one gesture to the Document (ADR-0010) and returns its id, which its answer carries, and
  * which `sent` records until then (#288). While the socket is down it is dropped and not recorded:
- * the Document sent on reconnect clears what waited on it. A command that names Anchors by index
- * needs `Waited`.
+ * the Document sent on reconnect clears what waited on it. A command that names Anchors by index,
+ * and any `path_op`, needs `Waited`.
  */
 export function send<C extends Command>(
   command: C,
