@@ -7,7 +7,7 @@ import {
   copyInput,
   type Effect,
   joinNotices,
-  type PathOpPreview,
+  type OpenOpPreview,
   type Preview,
   preview,
   previewEdit,
@@ -52,7 +52,7 @@ it("keeps command ids off unsent previews and on sent ones, edits' and ops' alik
   // @ts-expect-error
   settled({ edit: null, drag: drag([]) });
   const op = { input: { nodeIds: [], op: "simplify" as const }, commandId: "c3" };
-  const live = (p: PathOpPreview) => p;
+  const live = (p: OpenOpPreview) => p;
   // @ts-expect-error A sent op preview never goes back on the op-preview slot or a held op.
   live({ ...op, showOriginal: false });
   // @ts-expect-error

@@ -254,7 +254,7 @@ export interface Held {
  * The preview of the op whose bar or dialog is open, unsent; OK hands it to the op (`sendPathOp`).
  * `showOriginal` is Simplify's Show Original Path.
  */
-export type PathOpPreview = NonNullable<Preview["op"]> & { showOriginal: boolean };
+export type OpenOpPreview = NonNullable<Preview["op"]> & { showOriginal: boolean };
 
 export interface ViewState {
   doc: Document | null;
@@ -311,7 +311,7 @@ export interface ViewState {
    */
   sent: ReadonlySet<string>;
   /** The open bar's or dialog's op preview, drawn on top of every sent and held one (#299). */
-  opPreview: PathOpPreview | null;
+  opPreview: OpenOpPreview | null;
   /** Direct Selection's selected Anchors (direct.ts's keys): UI state, like the Selection. */
   anchors: string[];
   /** Its selected segments, keyed by the Anchor each starts at (ADR-0045). */
