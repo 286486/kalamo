@@ -206,8 +206,9 @@ export const waiting = (s: Pick<State, "reversing" | "renumbering">) =>
   !!s.reversing || s.renumbering.size > 0;
 
 /**
- * Whether one of the commands a held Pen finish was drawn on is unanswered (#293). A held edit it
- * was drawn on runs before it, which then names what that sent instead (#308).
+ * Whether one of the commands a held Pen finish was drawn on is unanswered (#293). A held edit's
+ * token in its seed is never in `sent`: that edit runs first, and its token gives way to what it
+ * sent (#308).
  */
 const unanswered = (s: Pick<State, "sent">, seed: string[] | undefined) =>
   !!seed?.some((id) => s.sent.has(id));

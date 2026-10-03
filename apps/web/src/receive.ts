@@ -882,9 +882,12 @@ export function heldRan(
   ids: string[],
 ): { state: Partial<ViewState>; notices: (string | false)[] } {
   if (ids.length === 0) return dropDrawnOn(s, [token]);
-  const swap = <E extends { seed?: string[] }>(e: E): E =>
-    e.seed?.includes(token) ? { ...e, seed: e.seed.flatMap((k) => (k === token ? ids : [k])) } : e;
   const { pen } = s;
+  const named = (e: { seed?: string[] } | undefined) => !!e?.seed?.includes(token);
+  if (!s.held.some(named) && !named(pen?.from) && !named(pen?.to))
+    return { state: {}, notices: [] };
+  const swap = <E extends { seed?: string[] }>(e: E): E =>
+    named(e) ? { ...e, seed: e.seed?.flatMap((k) => (k === token ? ids : [k])) } : e;
   return {
     state: {
       held: s.held.map(swap),
