@@ -501,7 +501,9 @@ describe("pathOp simplify", () => {
     });
 
     it("decides per subpath", () => {
-      expect(simplified(`${pencil} ${hexagon}`)).toBe(`${simplified(pencil)} ${hexagon}`);
+      const d = simplified(`${pencil} ${hexagon}`);
+      expect(d).toBe(`${simplified(pencil)} ${hexagon}`);
+      expect(toAnchors(parsePath(d, "d"))[0]?.anchors.length).toBeLessThan(shaky.length);
     });
   });
 
