@@ -757,8 +757,9 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
     isolated: scope,
     // An unchanged Selection stays the same array, so the Layer rows stay (ADR-0076).
     selection: !tops && sameIds(selected, s.selection) ? s.selection : selected,
+    // Undo and Redo step between the states kept, so they keep none (ADR-0113).
     ...(msg.type === "tx" &&
-      !restored && {
+      !step && {
         selectionOn: selectionKept(s.selectionOn, msg, prior, doc, s.selection, selected),
       }),
     ...(tops && { layerRows: layers }),
@@ -771,18 +772,15 @@ function viewAfter(s: ViewState, msg: ServerMessage, docId: string): Partial<Vie
           : [...s.keysDropped].flatMap(([k, keys]) => (k === id ? [] : [[k, rekey(keys)]])),
       ),
     }),
-    ...keysOnly(
-      restored,
-      chosenAgain(
-        s,
-        msg,
-        prior,
-        { doc, anchors, segments },
-        // A Node the person's own Undo brings back is new to `prior`, so no fate names it.
-        (n) =>
-          selected.includes(n) &&
-          (prior?.nodes.has(n) ? causeOf(n) === "own" && ends(n, "keys") : own),
-      ),
+    ...chosenAgain(
+      s,
+      msg,
+      prior,
+      { doc, anchors, segments },
+      // A Node the person's own Undo brings back is new to `prior`, so no fate names it.
+      (n) =>
+        selected.includes(n) &&
+        (prior?.nodes.has(n) ? causeOf(n) === "own" && ends(n, "keys") : own),
     ),
     // A continuation the reconnect keeps is drawn again on the new Document (#292).
     ...(msg.type === "document" &&
@@ -1183,7 +1181,7 @@ function chosenAgain(
   // A path the change deletes keeps its keys before it, and one it brings back may choose them again.
   const changed =
     msg.type === "tx"
-      ? [...msg.updated, ...msg.created].map((n) => n.id).concat(msg.deletedIds)
+      ? changedIds(msg)
       : [...new Set([...doc.nodes.keys(), ...(prior?.nodes.keys() ?? [])])];
   const keysOn = new Map(s.keysOn);
   let kept = false;
@@ -1224,7 +1222,14 @@ function chosenAgain(
   return { anchors, segments, ...(kept && { keysOn }) };
 }
 
-/** Where `selectionOn` keeps the Selection Node `n` had in this state: its stored copy. */
+/** The Nodes `tx` changes: those it updates, creates and deletes. */
+const changedIds = (tx: Extract<ServerMessage, { type: "tx" }>) =>
+  [...tx.updated, ...tx.created].map((n) => n.id).concat(tx.deletedIds);
+
+/**
+ * Where `selectionOn` keeps the Selection Node `n` had in this state: its stored copy. Only the
+ * top-level keys are sorted: Undo restores each nested value as stored, so its key order matches.
+ */
 const stateOf = (n: Node) =>
   JSON.stringify(
     Object.entries(n)
@@ -1247,7 +1252,7 @@ function selectionKept(
   before: string[],
   after: string[],
 ): ViewState["selectionOn"] {
-  const ids = [...msg.updated, ...msg.created].map((n) => n.id).concat(msg.deletedIds);
+  const ids = changedIds(msg);
   if (!prior || ids.length === 0) return kept;
   const next = new Map(kept);
   const keep = (n: Node | undefined, selection: string[]) => {
@@ -1287,16 +1292,6 @@ function selectionBack(
     const n = doc.nodes.get(id);
     return !!n && editable(doc, n) && inScope(doc, n, scope);
   });
-}
-
-/** The keys on Nodes in the restored Selection: keys live only on selected Nodes. */
-function keysOnly<K extends Pick<ViewState, "anchors" | "segments">>(
-  selection: string[] | null,
-  k: K,
-): K {
-  if (!selection) return k;
-  const on = (key: string) => selection.includes(parseKey(key).nodeId);
-  return { ...k, anchors: k.anchors.filter(on), segments: k.segments.filter(on) };
 }
 
 /**

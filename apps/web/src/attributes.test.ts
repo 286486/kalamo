@@ -3854,6 +3854,34 @@ it("selects again, after the person's own Undo of a move, the path moved, over a
   vi.useRealTimers();
 });
 
+it("keeps no Selection at the person's own Redo of a Delete, so a later Undo selects again what the Delete deleted (ADR-0113)", () => {
+  vi.useFakeTimers();
+  const { a, b, answer, undo, redo } = undoable(() => ({ anchors: [], segments: [] }));
+  menuItem("Clear").run();
+  answer();
+  undo();
+  // A choice made between the Undo and the Redo is a selection change, not an undo step.
+  useStore.setState({ selection: [b.id] });
+  redo();
+  expect(selected()).toEqual([]);
+  undo();
+  expect(selected()).toEqual([a.id, b.id].toSorted());
+  vi.useRealTimers();
+});
+
+it("leaves the Selection after the person's own command, not an Undo, that puts a Node back as it was (ADR-0113)", () => {
+  vi.useFakeTimers();
+  const { a, b, answer } = undoable(() => ({ anchors: [], segments: [] }));
+  useStore.setState({ selection: [a.id] });
+  send({ type: "transform", input: { nodeIds: [a.id], translate: { x: 5, y: 0 } } });
+  answer();
+  useStore.setState({ selection: [b.id] });
+  send({ type: "transform", input: { nodeIds: [a.id], translate: { x: -5, y: 0 } } });
+  answer();
+  expect(selected()).toEqual([b.id]);
+  vi.useRealTimers();
+});
+
 it("leaves the Selection pruned, never added to, after another Actor's or another tab's undo of the person's Delete (ADR-0113)", () => {
   vi.useFakeTimers();
   for (const whose of ["another Actor", "another tab"] as const) {
